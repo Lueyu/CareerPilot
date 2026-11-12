@@ -167,7 +167,7 @@ def validate(questions, topics):
             if not isinstance(opts, list) or len(opts) != 4 or \
                     not all(isinstance(o, str) and o.strip() for o in opts):
                 errors.append("%s: MCQ#%d options 必须为 4 个非空字符串" % (q["id"], i))
-            if not isinstance(ans, int) or ans not in (0, 1, 2, 3):
+            if not isinstance(ans, int) or isinstance(ans, bool) or ans not in (0, 1, 2, 3):
                 errors.append("%s: MCQ#%d answer 必须为 0..3 整数" % (q["id"], i))
             if not str(item.get("q", "")).strip():
                 errors.append("%s: MCQ#%d 缺少题干" % (q["id"], i))
@@ -320,6 +320,9 @@ def selftest():
     badans = [{"q": "q?", "options": ["a", "b", "c", "d"], "answer": 9, "explain": "e"}]
     e, w = validate([mkq("rag-001", "rag", mcq=badans)], topics)
     ok &= assert_eq("validate:mcq-answer", any("answer" in x for x in e), True)
+    boolans = [{"q": "q?", "options": ["a", "b", "c", "d"], "answer": True, "explain": "e"}]
+    e, w = validate([mkq("rag-001", "rag", mcq=boolans)], topics)
+    ok &= assert_eq("validate:mcq-bool-answer", any("answer" in x for x in e), True)
     e, w = validate([mkq("rag-001", "rag", mcq=[])], topics)
     ok &= assert_eq("validate:mcq-warn", any("无 MCQ" in x for x in w), True)
     return ok
