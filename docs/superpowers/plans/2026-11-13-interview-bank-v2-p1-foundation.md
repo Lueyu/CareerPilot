@@ -936,15 +936,22 @@ def migrate(old_index=None, out_root=None, id_map=None):
     id_map = id_map if id_map is not None else OLD2TOPIC
     old = Path(old_index) if old_index else ROOT / "index.html"
     out_root = Path(out_root) if out_root else CONTENT
+    qdir = out_root / "questions"
+    if qdir.exists() and any(qdir.iterdir()):
+        raise SystemExit("content/questions already exists; --migrate is one-shot (delete the tree to redo)")
     src = old.read_text(encoding="utf-8")
     arts = find_articles(src)
     questions = [a for a in arts if a[1].get("id") in id_map]
-    tops = [a for a in arts if "top10" in a[0]]
+    tops = [a for a in arts if "top10" in a[1].get("class", "")]
     if len(questions) != len(id_map):
         found = {a[1]["id"] for a in questions}
         missing = sorted(set(id_map) - found)
         raise SystemExit("old ids mismatch: found=%d map=%d missing=%s"
                          % (len(questions), len(id_map), missing))
+    others = [a for a in arts
+              if a[1].get("id") not in id_map and "top10" not in a[1].get("class", "")]
+    if others:
+        raise SystemExit("unmapped articles found: %s" % [a[1].get("id") for a in others])
     # 依文档顺序分配新 id(主题内递增)
     counter, old2new, old2len = {}, {}, {}
     for tag, attrs, body in questions:
@@ -952,7 +959,6 @@ def migrate(old_index=None, out_root=None, id_map=None):
         counter[code] = counter.get(code, 0) + 1
         old2new[attrs["id"]] = "%s-%03d" % (code, counter[code])
         old2len[attrs["id"]] = len(body)
-    qdir = out_root / "questions"
     for tag, attrs, body in questions:
         oid = attrs["id"]
         code = id_map[oid]
@@ -1053,12 +1059,21 @@ if __name__ == "__main__":
                         (tdp / "content" / "questions" / "ctx" / "001.html").read_text(encoding="utf-8"), True)
         t10 = (tdp / "content" / "extra" / "top10.html").read_text(encoding="utf-8")
         ok &= assert_eq("migrate:top10-link", 'href="#/q/rag-001"' in t10, True)
+        try:
+            migrate(oldf, tdp / "content", m)
+            ok &= assert_eq("migrate:rerun-guard", False, True)
+        except SystemExit:
+            ok &= assert_eq("migrate:rerun-guard", True, True)
 ```
 
 - [ ] **Step 5: 运行自测**
 
 Run: `python build.py --selftest`
-Expected: 全部 PASS(含 migrate 用例),退出码 0。
+Expected: 46(含 T6 折入的 roundtrip/difficulty-int)+ T7 migrate 6 个 = **54 个 PASS**,退出码 0。
+
+> 修订记录(双审查后落地):①migrate 顶部加一次性守卫(输出树非空即拒绝);②top10 检测改为按
+> class 属性;③新增"未映射 article"报错(零丢失双向化)。Task 6 的三个折入项(解析失败捕获/
+> write_atomic 清理 tmp/roundtrip 断言)随本任务落地。
 
 - [ ] **Step 6: Commit**
 
