@@ -6,3 +6,6 @@
 
 # Python
 __pycache__/
+
+# 浏览器自动化测试产物
+.playwright-mcp/
