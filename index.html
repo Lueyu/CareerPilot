@@ -315,7 +315,157 @@ QB.questions.forEach(function(q){ byId[q.id] = q; });
 QB.topics.forEach(function(t){ topicByCode[t.code] = t; });
 QB.questions.forEach(function(q){ (byTopic[q.topic] = byTopic[q.topic] || []).push(q); });
 var TOTAL = QB.questions.length;
-/* ===== APPEND-STORE ===== */
+/* ---------- Store:localStorage 全量镜像 ---------- */
+var LS_KEY = 'ib-notes-v2';
+var Store = {
+  data: { version: 1, updatedAt: null, last: null, items: {} },
+  load: function(){
+    try {
+      var raw = localStorage.getItem(LS_KEY);
+      if(!raw) return;
+      var d = JSON.parse(raw);
+      if(d && d.items){ d.last = d.last || null; d.version = d.version || 1; this.data = d; }
+    } catch(e){}
+  },
+  persist: function(){
+    this.data.updatedAt = isoNow();
+    try { localStorage.setItem(LS_KEY, JSON.stringify(this.data)); } catch(e){}
+    FileSync.onStoreChange();
+  },
+  item: function(qid){
+    if(!this.data.items[qid]) this.data.items[qid] = { level: 0, note: '', updated: null, history: [] };
+    return this.data.items[qid];
+  },
+  level: function(qid){ var it = this.data.items[qid]; return it ? it.level : 0; },
+  setLevel: function(qid, level, mode){
+    var it = this.item(qid);
+    it.level = level; it.updated = isoNow();
+    it.history.push({ t: isoNow(), mode: mode || 'manual', level: level });
+    if(it.history.length > 60) it.history = it.history.slice(-60);
+    this.persist();
+  },
+  setNote: function(qid, note){ var it = this.item(qid); if(it.note === note) return; it.note = note; it.updated = isoNow(); this.persist(); },
+  visit: function(qid){ this.data.last = qid; this.persist(); },
+  merge: function(other){
+    var changed = false, a = this.data.items, b = (other && other.items) || {};
+    Object.keys(b).forEach(function(k){
+      var na = a[k] && a[k].updated, nb = b[k] && b[k].updated;
+      if(!a[k] || (nb && (!na || na < nb))){ a[k] = b[k]; changed = true; }
+    });
+    if(other && other.last){ if(!this.data.last){ this.data.last = other.last; changed = true; } }
+    return changed;
+  }
+};
+
+/* ---------- FileSync:notes.json 直写(File System Access API) ---------- */
+var FileSync = {
+  available: ('showOpenFilePicker' in window),
+  handle: null, status: 'off', timer: null,
+  setStatus: function(s){
+    this.status = s;
+    var b = $('#sync-badge'); if(!b) return;
+    b.className = 'sync-badge' + (s === 'off' ? '' : ' sb-' + s);
+    var tips = {
+      off: '未连接笔记文件 · 点击连接 notes.json',
+      local: '当前浏览器不支持文件直写 · 用导出/导入备份',
+      synced: '笔记已同步到 notes.json',
+      dirty: '改动将在 3 秒后写入 notes.json',
+      error: '写入/读取失败 · 点击徽标打开菜单重试',
+      pending: '正在连接…'
+    };
+    b.title = tips[s] || s;
+    b.textContent = ({ off: '连接笔记', local: '本地模式', synced: '已同步', dirty: '未同步', error: '同步出错', pending: '连接中' })[s] || s;
+  },
+  idb: function(mode, k, v){
+    return new Promise(function(res, rej){
+      var rq = indexedDB.open('ib-notes', 1);
+      rq.onupgradeneeded = function(){ rq.result.createObjectStore('kv'); };
+      rq.onerror = function(){ rej(rq.error); };
+      rq.onsuccess = function(){
+        var db = rq.result;
+        try {
+          var tx = db.transaction('kv', mode);
+          var st = tx.objectStore('kv');
+          var op = (mode === 'readonly') ? st.get(k) : st.put(v, k);
+          op.onsuccess = function(){ res(op.result); };
+          op.onerror = function(){ rej(op.error); };
+        } catch(e){ rej(e); }
+      };
+    });
+  },
+  connect: function(){
+    var self = this;
+    if(!this.available){ this.setStatus('local'); return; }
+    this.setStatus('pending');
+    showOpenFilePicker({ types: [{ description: '题库笔记', accept: { 'application/json': ['.json'] } }] })
+      .then(function(arr){ self.handle = arr[0]; return self.idb('readwrite', 'notes-handle', arr[0]); })
+      .then(function(){ return self.readMerge(); })
+      .then(function(){ self.setStatus('synced'); })
+      .catch(function(e){ self.setStatus(e && e.name === 'AbortError' ? 'off' : 'error'); });
+  },
+  autoAttach: function(){
+    var self = this;
+    if(!this.available){ this.setStatus('local'); return Promise.resolve('local'); }
+    return this.idb('readonly', 'notes-handle', undefined)
+      .then(function(h){
+        if(!h){ self.setStatus('off'); return 'off'; }
+        self.handle = h;
+        return h.queryPermission({ mode: 'readwrite' }).then(function(p){
+          if(p === 'granted'){ return self.readMerge().then(function(){ self.setStatus('synced'); return 'synced'; }); }
+          self.setStatus('off'); return 'off';
+        });
+      })
+      .catch(function(){ self.setStatus('off'); return 'off'; });
+  },
+  readMerge: function(){
+    var self = this;
+    if(!this.handle) return Promise.resolve(false);
+    return this.handle.getFile()
+      .then(function(f){ return f.text(); })
+      .then(function(txt){
+        var d = {};
+        try { d = txt ? JSON.parse(txt) : {}; } catch(e){ self.setStatus('error'); return false; }
+        var changed = Store.merge(d);
+        if(changed){ Store.persist(); refreshAfterStore(); }
+        return true;
+      })
+      .catch(function(){ self.setStatus('error'); return false; });
+  },
+  onStoreChange: function(){
+    if(!this.handle){ this.setStatus(this.available ? 'off' : 'local'); return; }
+    this.setStatus('dirty');
+    var self = this;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(function(){ self.writeNow(); }, 3000);
+  },
+  writeNow: function(){
+    var self = this;
+    if(!this.handle) return;
+    this.handle.createWritable()
+      .then(function(w){ return w.write(JSON.stringify(Store.data)).then(function(){ return w.close(); }); })
+      .then(function(){ self.setStatus('synced'); })
+      .catch(function(){ self.setStatus('error'); });
+  },
+  flush: function(){ if(this.timer){ clearTimeout(this.timer); this.timer = null; this.writeNow(); } },
+  export: function(){
+    var blob = new Blob([JSON.stringify(Store.data)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'notes-export-' + Date.now() + '.json';
+    a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
+  },
+  importFile: function(file){
+    var self = this;
+    file.text().then(function(txt){
+      var d;
+      try { d = JSON.parse(txt); } catch(e){ throw e; }
+      if(!d || !d.items) throw new Error('bad');
+      if(Store.merge(d)){ Store.persist(); refreshAfterStore(); }
+      self.setStatus(self.handle ? 'dirty' : 'local');
+    }).catch(function(){ alert('导入失败:文件不是有效的 notes.json 备份'); });
+  }
+};
 /* ===== APPEND-ROUTER ===== */
 /* ===== APPEND-BOOT ===== */
 })();
