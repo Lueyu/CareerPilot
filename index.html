@@ -478,8 +478,147 @@ var FileSync = {
     }).catch(function(){ alert('导入失败:文件不是有效的 notes.json 备份'); });
   }
 };
-/* ===== APPEND-ROUTER ===== */
-/* ===== APPEND-BOOT ===== */
+/* ---------- 侧边栏 ---------- */
+function buildNav(){
+  var h = '<div class="nav-part">导航</div><a href="#/" data-nav="#/">仪表盘</a>'
+        + '<div class="nav-part">主题</div>';
+  QB.topics.forEach(function(t){
+    var qs = byTopic[t.code] || [];
+    var done = qs.filter(function(q){ return Store.level(q.id) >= 2; }).length;
+    h += '<a href="#/topic/' + t.code + '" data-nav="#/topic/' + t.code + '"'
+       + ' data-topicnav="' + t.code + '">' + t.icon + ' ' + esc(t.name)
+       + '<span class="nav-count">' + done + '/' + qs.length + '</span></a>';
+  });
+  $('#sidenav').innerHTML = h;
+}
+function setActiveNav(hash){
+  var topicHash = hash;
+  var mq = hash.match(/^#\/q\/([\w-]+)$/);
+  if(mq && byId[mq[1]]) topicHash = '#/topic/' + byId[mq[1]].topic;
+  $$('#sidenav a').forEach(function(a){
+    a.classList.toggle('active', a.getAttribute('data-nav') === topicHash);
+  });
+}
+function refreshNav(){
+  $$('#sidenav a[data-topicnav]').forEach(function(a){
+    var c = a.getAttribute('data-topicnav');
+    var qs = byTopic[c] || [];
+    var done = qs.filter(function(q){ return Store.level(q.id) >= 2; }).length;
+    var s = a.querySelector('.nav-count');
+    if(s) s.textContent = done + '/' + qs.length;
+  });
+}
+
+/* ---------- 视图:仪表盘 ---------- */
+function renderHome(){
+  var mastered = QB.questions.filter(function(q){ return Store.level(q.id) >= 2; }).length;
+  var lv = [0, 0, 0, 0];
+  QB.questions.forEach(function(q){ lv[Store.level(q.id)]++; });
+  var pct = TOTAL ? mastered / TOTAL : 0, C = 2 * Math.PI * 52;
+  var h = '<section class="hero"><h1>AI Agent 面试题库 v2</h1>'
+        + '<p>8 主题 · ' + TOTAL + ' 题 · 一页一题,笔记与熟练度自动同步到 notes.json。</p>'
+        + '<div class="pill-row"><span class="pill">每天刷几题</span><span class="pill">错题标模糊</span>'
+        + '<span class="pill">考前看 Top10</span></div></section>';
+  h += '<div class="ring-wrap"><svg width="120" height="120" viewBox="0 0 120 120">'
+     + '<circle cx="60" cy="60" r="52" fill="none" stroke="var(--term-bg)" stroke-width="10"/>'
+     + '<circle cx="60" cy="60" r="52" fill="none" stroke="var(--accent)" stroke-width="10" stroke-linecap="round" stroke-dasharray="' + (C * pct).toFixed(1) + ' ' + C.toFixed(1) + '" transform="rotate(-90 60 60)"/>'
+     + '<text x="60" y="66" text-anchor="middle" font-size="22" font-weight="800" fill="var(--accent)">' + Math.round(pct * 100) + '%</text></svg>'
+     + '<div><div class="ring-num">' + mastered + ' / ' + TOTAL + '</div>'
+     + '<div class="ring-lbl">已掌握(熟练 + 精通)</div>'
+     + '<div class="ring-lbl" style="margin-top:6px">未学 ' + lv[0] + ' · 模糊 ' + lv[1] + ' · 熟练 ' + lv[2] + ' · 精通 ' + lv[3] + '</div></div></div>';
+  if(Store.data.last && byId[Store.data.last]){
+    var lq = byId[Store.data.last];
+    h += '<a class="qrow continue-row" href="#/q/' + lq.id + '"><span class="no">继续</span>'
+       + '<span class="t">上次看到:' + esc(lq.title) + '</span>'
+       + '<span class="lvdot lv' + Store.level(lq.id) + '"></span></a>';
+  }
+  h += '<div class="topic-cards">';
+  QB.topics.forEach(function(t){
+    var qs = byTopic[t.code] || [];
+    var done = qs.filter(function(q){ return Store.level(q.id) >= 2; }).length;
+    var p = qs.length ? done / qs.length : 0;
+    h += '<a class="topic-card" href="#/topic/' + t.code + '"><h3>' + t.icon + ' ' + esc(t.name) + '</h3>'
+       + '<div class="desc">' + esc(t.desc) + '</div>'
+       + '<div class="tbar"><i style="width:' + Math.round(p * 100) + '%"></i></div>'
+       + '<div class="meta-row"><span>已掌握 ' + done + ' / ' + qs.length + '</span><span>' + Math.round(p * 100) + '%</span></div></a>';
+  });
+  h += '</div>';
+  view.innerHTML = h;
+}
+
+/* ---------- 视图:404 ---------- */
+function render404(){
+  view.innerHTML = '<div class="empty">页面不存在<br><br><a style="color:var(--accent)" href="#/">回仪表盘</a></div>';
+}
+
+/* ---------- 临时视图(Task 12/13 将完整替换) ---------- */
+function renderTopic(code){
+  view.innerHTML = '<div class="empty">主题视图(Task 12)</div>';
+}
+function renderQuestion(qid){
+  view.innerHTML = '<div class="empty">题目视图(Task 13)</div>';
+}
+
+/* ---------- 路由 ---------- */
+var view = $('#view');
+function route(){
+  window.__ibKeyHandler = null;
+  FileSync.flush();
+  var h = location.hash || '#/';
+  if(h === '#/' || h === '#' || h === '') renderHome();
+  else if(h.indexOf('#/topic/') === 0) renderTopic(h.slice('#/topic/'.length));
+  else if(h.indexOf('#/q/') === 0) renderQuestion(h.slice('#/q/'.length));
+  else render404();
+  setActiveNav(h);
+  window.scrollTo(0, 0);
+  updateProgress();
+}
+/* ---------- 公共 ---------- */
+function refreshAfterStore(){
+  refreshNav();
+  var h = location.hash || '#/';
+  if(h === '#/' || h === '#' || h === ''){ renderHome(); return; }
+}
+function updateProgress(){
+  var d = document.documentElement;
+  var p = (d.scrollTop / Math.max(1, d.scrollHeight - d.clientHeight)) * 100;
+  $('#progress').style.width = p + '%';
+  $('#backtop').classList.toggle('show', d.scrollTop > 600);
+}
+function refreshCount(n){ $('#count').textContent = n + ' / ' + TOTAL + ' 题'; }
+
+/* ---------- 启动 ---------- */
+Store.load();
+buildNav();
+route();
+refreshCount(TOTAL);
+FileSync.autoAttach();
+window.addEventListener('storage', function(e){
+  if(e.key === LS_KEY && e.newValue){
+    try {
+      if(Store.merge(JSON.parse(e.newValue))){ refreshAfterStore(); }
+    } catch(err){}
+  }
+});
+$('#btn-theme').onclick = function(){
+  var r = document.documentElement;
+  var toDark = r.getAttribute('data-theme') !== 'dark';
+  if(toDark) r.setAttribute('data-theme', 'dark'); else r.removeAttribute('data-theme');
+  try { localStorage.setItem('ib-theme', toDark ? 'dark' : 'light'); } catch(e){}
+};
+$('#btn-print').onclick = function(){ window.print(); };
+$('#backtop').onclick = function(){ window.scrollTo({ top: 0, behavior: 'smooth' }); };
+$('#btn-menu').onclick = function(){ $('#sidenav').classList.toggle('open'); };
+$('#sidenav').addEventListener('click', function(e){
+  if(e.target.tagName === 'A' && window.innerWidth <= 960) $('#sidenav').classList.remove('open');
+});
+window.addEventListener('hashchange', route);
+window.addEventListener('scroll', updateProgress);
+window.addEventListener('pagehide', function(){ FileSync.flush(); });
+document.addEventListener('keydown', function(e){ if(window.__ibKeyHandler) window.__ibKeyHandler(e); });
+
+/* ---------- 调试/测试句柄(受控暴露) ---------- */
+window.__ib = { Store: Store, FileSync: FileSync };
 })();
 </script>
 </body>
