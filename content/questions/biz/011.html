@@ -1,0 +1,85 @@
+<article class="q" id="biz-011" data-topic="biz" data-title="如何处理Agent的幻觉问题" data-difficulty="4" data-tags="幻觉,Agent,可靠性" data-company="" data-source="P4Q4" data-kw="幻觉 Agent 可靠性 RAG 引用 来源 置信度 审核 防线">
+
+      <div class="q-no">业务落地 · Q4</div>
+      <h3>如何处理 Agent 的幻觉问题?</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#幻觉</span><span class="tag">#Agent</span><span class="tag">#可靠性</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"幻觉是概率模型的固有属性,没法根除,只能<b>分层设防</b>:<b>预防</b>(RAG grounding、声明知识边界、温度调低)、<b>约束</b>(强制引用来源 + 后处理校验引用真实性)、<b>检测</b>(judge 抽检 + 事实一致性校验)、<b>兜底</b>(按风险分级:医疗/金融类高风险场景关键结论人工审核,低风险场景给用户标'AI 生成,请核实')。核心观点:<b>高风险场景要靠工程流程保证下限,不能把可靠性寄托在模型自觉上</b>。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>幻觉是"一本正经地胡说八道"——像<b>一个特别自信的实习生</b>:知识很渊博,但答不上来的时候他<b>不承认不会,而是现编一个看起来很像的答案</b>。治理思路不是骂他,而是:① 给他资料库,要求"每句话都注明出自哪页"(RAG+引用);② 明确说"不知道就说不知道"(边界声明);③ 关键文件交上去前主管签字(人工审核);④ 会议纪要标注"未经核实"(风险提示)。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>0. 先讲成因(体现理解,不是只会背方案)</b></p>
+        <p>LLM 本质是"下一个词的概率分布",训练目标是<b>流畅</b>而非<b>真实</b>;知识截止日期后的事、语料里没有的细节,它就用概率"合理地补全"——幻觉不是 bug,是这类模型的出厂设定。所以治理思路是<b>管理和约束</b>,不是根治。</p>
+        <p><b>1. 四层防线</b></p>
+        <table>
+          <tr><th>防线</th><th>手段</th><th>细节</th></tr>
+          <tr><td><b>预防</b></td><td>RAG grounding、知识边界、低温采样</td><td>答案必须有资料支撑;Prompt 明确"资料里没有就回答'暂无相关信息'";temperature 调低;工具化查询实时数据(订单号去查,别猜)</td></tr>
+          <tr><td><b>约束</b></td><td>强制引用 + 引用校验</td><td>输出格式要求逐句/逐结论带 [1][2] 引用;<b>后处理程序验证每个引用确实在检索结果里且语义支持该句</b>(NLI 模型),不支持的句子删掉或打标</td></tr>
+          <tr><td><b>检测</b></td><td>置信度 + judge 抽检</td><td>生成模型的 logprob/自评置信度;线上随机抽 1~5% 会话 LLM-as-judge 打"幻觉分";发现高危关键词(数字、日期、人名)时自动复核</td></tr>
+          <tr><td><b>兜底</b></td><td>风险分级 + 人工审核 + 用户告知</td><td>见下</td></tr>
+        </table>
+        <p><b>2. 按场景风险分级(业务思维,很重要)</b></p>
+        <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 650 328" role="img" aria-label="幻觉按风险分级设防">
+  <text class="sd-l" x="10" y="22">幻觉治理 · 按场景风险分级设防</text>
+  <rect class="sd-box2" x="10" y="38" width="150" height="62" rx="10"/>
+  <text class="sd-t" x="85" y="65" text-anchor="middle">低风险</text>
+  <text class="sd-ts" x="85" y="83" text-anchor="middle">闲聊/推荐/内部查询</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M160 69 L192 69"/>
+  <rect class="sd-box" x="194" y="38" width="440" height="62" rx="10"/>
+  <text class="sd-t" x="414" y="65" text-anchor="middle">引用展示 + AI标识</text>
+  <text class="sd-ts" x="414" y="83" text-anchor="middle">打「AI生成」标注即可</text>
+  <rect class="sd-box-amber" x="10" y="114" width="150" height="62" rx="10"/>
+  <text class="sd-t" x="85" y="141" text-anchor="middle">中风险</text>
+  <text class="sd-ts" x="85" y="159" text-anchor="middle">客服答疑 / 写总结</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M160 145 L192 145"/>
+  <rect class="sd-box" x="194" y="114" width="440" height="62" rx="10"/>
+  <text class="sd-t" x="414" y="141" text-anchor="middle">引用强制校验</text>
+  <text class="sd-ts" x="414" y="159" text-anchor="middle">不确定时主动澄清</text>
+  <rect class="sd-box-rose" x="10" y="190" width="150" height="62" rx="10"/>
+  <text class="sd-t" x="85" y="217" text-anchor="middle">高风险</text>
+  <text class="sd-ts" x="85" y="235" text-anchor="middle">医疗·法律·金融·HR</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M160 221 L192 221"/>
+  <rect class="sd-box" x="194" y="190" width="440" height="62" rx="10"/>
+  <text class="sd-t" x="414" y="217" text-anchor="middle">关键结论人工审核</text>
+  <text class="sd-ts" x="414" y="235" text-anchor="middle">审核通过后才生效</text>
+  <rect class="sd-box-rose" x="10" y="266" width="624" height="46" rx="10"/>
+  <text class="sd-t" x="322" y="285" text-anchor="middle">高危操作红线</text>
+  <text class="sd-ts" x="322" y="303" text-anchor="middle">退款/改数据 · 永不基于纯生成结果直接执行</text>
+</svg>
+</div>
+        <p><b>3. 幻觉率的度量(说得出指标才有说服力)</b></p>
+        <ul>
+          <li>离线:黄金集上"无依据陈述占比"(judge 判定每句是否有检索支持)。</li>
+          <li>在线:引用校验拦截率、用户纠错率、点踩归因分析(抽样把差评标记为幻觉类)。</li>
+          <li>把幻觉率当核心质量指标进 CI 回归——<b>新的 Prompt/模型让它变高了就拦截发布</b>。</li>
+        </ul>
+        <p><b>4. Agent 特有的坑</b></p>
+        <ul>
+          <li>多步 Agent 中幻觉会<b>级联</b>:第一步编了一个假工具返回值,后面全错——每步工具结果要<b>真值校验</b>(调用的返回原样记录,不允许模型"脑补"工具输出)。</li>
+          <li>Prompt 注入让模型故意说假话,和幻觉治理同属"输出可信性"工程,注意统一防线设计。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:引用校验具体怎么实现?</summary><div class="an">轻量级:句子 embedding 与所引 chunk 相似度阈值;进阶:NLI(自然语言推理)判断"该资料是否蕴含该结论";双保险都不过的句子——删除或替换为保守表述,并对整个回答降权标记。</div></details>
+        <details class="qa"><summary class="qu">Q:业务要求幻觉率必须 0 怎么办?</summary><div class="an">纯生成做不到 0,工程上可以做到"对外可见幻觉=0":高风险输出全部人工审核;模板化(数据填充而非自由生成);白名单式回答(FAQ 匹配)——诚实告知"自由度和可靠性是 trade-off",用流程换确定性。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>Grounding</b>:答案有出处支撑。</div>
+          <div class="term-item"><b>NLI</b>:自然语言推理,判断蕴含关系。</div>
+          <div class="term-item"><b>级联幻觉</b>:上游错误被下游放大。</div>
+          <div class="term-item"><b>Logprob</b>:模型输出的对数概率,可做置信度。</div>
+        </div>
+      </div>
+</article>

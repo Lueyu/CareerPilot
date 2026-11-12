@@ -1,0 +1,60 @@
+<article class="q" id="eval-016" data-topic="eval" data-title="设计PromptEngineering的AB测试对比Prompt策略" data-difficulty="3" data-tags="Prompt,ABTest,实验设计" data-company="" data-source="P6Q33" data-kw="Prompt ABTest A/B 实验设计 提示词 策略 显著性 样本量 对照 单一变量 随机分流">
+
+  <div class="q-no">Agent算法 · Q33</div>
+  <h3>设计 Prompt Engineering 的 A/B 测试</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#Prompt</span><span class="tag">#ABTest</span><span class="tag">#实验设计</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"按标准 A/B 五要素走:① <b>单一变量</b>——只改 Prompt 策略(如 zero-shot vs few-shot、加不加 CoT);② <b>随机分流</b>——用户/请求 hash 分成同质两组;③ <b>预设指标</b>——主指标准确率(程序化优先,其次 judge 分),护栏指标延迟、成本、拒答率;④ <b>样本量</b>——按最小可检测效应事前算好;⑤ <b>固定观察期</b>+ 统计显著性(p&lt;0.05)。Prompt 特有两点:<b>多 seed 采样消除 LLM 随机性</b>,<b>judge 校准位置/长度偏差</b>。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就像<b>比菜谱</b>:同一道菜,一份写"放盐、炒熟"(直接),另一份写"先热锅、下油、最后放盐"(分步 CoT)。要证明哪份更好,得让很多厨师<b>随机</b>各拿一份、同一批评委<b>盲评</b>、每个人<b>多炒几次取平均</b>——不能只看一个厨神的一次超常发挥,也不能偷看结果后提前喊赢。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 五要素(背这个框架)</b></p>
+    <ul>
+      <li><b>① 单一变量</b>:一次只改一个维度——few-shot 的例数、是否加 CoT、角色设定、输出格式;改多了不知道提升归谁。</li>
+      <li><b>② 随机分流</b>:user_id / 请求 hash 分桶,同用户始终同组,保证两组同质可比。</li>
+      <li><b>③ 指标预注册</b>(动手前写死):主指标 = 任务准确率(能程序化就程序化,其次 LLM-as-judge);护栏 = 输出 token、P99 延迟、成本、拒答率、格式合规率。</li>
+      <li><b>④ 样本量</b>:按 MDE(最小可检测效应)和基线方差反推,别"跑几天感觉差不多就下结论"。</li>
+      <li><b>⑤ 固定观察期</b>:覆盖工作日/周末完整周期,到点才开盲;中途只看护栏止损,不看主指标(防 peeking)。</li>
+    </ul>
+    <p><b>2. Prompt 实验特有的两个坑</b></p>
+    <ul>
+      <li><b>LLM 随机性</b>:温度 &gt; 0 时同一 Prompt 结果会漂。对策:固定 temperature/seed,或同一输入采样多次取均值+方差报告,否则"提升"可能只是采样噪声。</li>
+      <li><b>judge 偏差</b>:裁判有位置/长度/自我偏好——A/B 答案随机打乱顺序、固定裁判模型版本、rubric 写"长度不加分",再抽 5% 人工对齐(judge 与人工一致率 ≥85% 才可信)。</li>
+    </ul>
+    <p><b>3. 离线先筛,线上终审</b></p>
+    <ul>
+      <li>先用<b>黄金集(离线评估集)</b>快速筛掉明显更差的 Prompt——便宜、快、可复现;有希望的再上线上 A/B——真实、贵、慢。</li>
+      <li>离线是漏斗,线上是终审;只信线上的统计显著性,离线只做"别退化"的回归门禁。</li>
+    </ul>
+    <p><b>4. 结论怎么写</b></p>
+    <ul>
+      <li>报主指标 + 置信区间 + p 值,同时亮护栏指标:若质量 +2% 但成本 +30%,要把 trade-off 交给业务方决策。</li>
+      <li>注意结论的<b>外推边界</b>:Prompt 效果和模型强耦合,换模型结论可能失效,报告里要注明"在模型 X 上成立"。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:不同温度下结论会变吗?</summary><div class="an">会。所以要么固定温度做实验(结论只在固定设置下成立),要么在同一温度下多 seed 采样取均值并报告方差。温度越高噪声越大,需要的样本量也越大。</div></details>
+    <details class="qa"><summary class="qu">Q:离线分数高、线上没差别怎么解释?</summary><div class="an">多半是测试集分布和线上真实请求不像(黄金集太"干净")。用线上真实 query 重采样离线集、定期轮换;同时做 A/A 测试排除"线上本来就测不出差异"的噪声底。</div></details>
+    <details class="qa"><summary class="qu">Q:只有几百用户流量不够做 A/B 怎么办?</summary><div class="an">退而求其次:交替时间窗(本周 A 下周 B,多轮交叉)或用户内交叉;再小就老实承认"流量不足做统计",改用离线评估+人工评审,别假装在做 A/B。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>单一变量</b>:一次只改一个因素,否则无法归因。</div>
+      <div class="term-item"><b>随机分流</b>:用 hash 把用户均匀分成同质两组。</div>
+      <div class="term-item"><b>MDE</b>:最小可检测效应,决定样本量要多大。</div>
+      <div class="term-item"><b>Peeking</b>:中途偷看主指标提前下结论的作弊行为。</div>
+      <div class="term-item"><b>多 seed 采样</b>:同输入多次采样取均值,压 LLM 随机噪声。</div>
+      <div class="term-item"><b>A/A 测试</b>:同版本对打,校验系统本身噪声底。</div>
+    </div>
+  </div>
+</article>

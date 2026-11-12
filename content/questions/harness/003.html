@@ -1,0 +1,80 @@
+<article class="q" id="harness-003" data-topic="harness" data-title="如何实现Agent的并发控制" data-difficulty="4" data-tags="并发控制,Agent,分布式" data-company="" data-source="P2Q8" data-kw="并发控制 限流 信号量 队列 资源池 背压 死锁 分布式锁">
+
+      <div class="q-no">工程实践 · Q8</div>
+      <h3>如何实现 Agent 的并发控制?</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#并发控制</span><span class="tag">#Agent</span><span class="tag">#分布式</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"分层控制,每层管一类资源:入口<b>令牌桶限流</b>(保住系统不被打穿)→ <b>队列缓冲削峰</b>(超量请求排队而非拒绝)→ Worker <b>信号量限并发</b>(同时跑的 LLM/工具调用数)→ 下游按配额保护(向量库、LLM 网关、业务 API 各自设限额)。Agent 特有的坑:<b>一个用户请求扇出十几个工具调用</b>,放大效应必须在设计时就按'扇出系数'算容量;死锁靠无状态设计+超时释放根除,分布式并发用 Redis 原子操作实现信号量。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>景区管理</b>:门口限售每小时 1000 张票(令牌桶限流);排队区让游客等而不是轰走(队列缓冲);每个导游最多带 30 人(信号量);溶洞一次只放 20 人进去(下游容量保护);黄金周人太多时提前发"请错峰"(背压提示上游);绝不能让 A 团等 B 团、B 团等 A 团(死锁)——景区管理靠"所有团队都朝一个方向走"(无状态、单向依赖)根除死锁。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 分层控制架构</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 684 96" role="img" aria-label="Agent 并发控制分层架构">
+  <rect class="sd-box-rose" x="10" y="16" width="90" height="64" rx="10"/>
+  <text class="sd-t" x="55" y="42" text-anchor="middle">请求</text>
+  <text class="sd-ts" x="55" y="60" text-anchor="middle">进入系统</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M100 48 L114 48"/>
+  <rect class="sd-box" x="114" y="16" width="128" height="64" rx="10"/>
+  <text class="sd-t" x="178" y="42" text-anchor="middle">L1 入口限流</text>
+  <text class="sd-ts" x="178" y="60" text-anchor="middle">全局+按用户·令牌桶</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M242 48 L256 48"/>
+  <rect class="sd-box" x="256" y="16" width="128" height="64" rx="10"/>
+  <text class="sd-t" x="320" y="42" text-anchor="middle">L2 排队</text>
+  <text class="sd-ts" x="320" y="60" text-anchor="middle">有界队列·满则429</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M384 48 L398 48"/>
+  <rect class="sd-box" x="398" y="16" width="128" height="64" rx="10"/>
+  <text class="sd-t" x="462" y="42" text-anchor="middle">L3 信号量</text>
+  <text class="sd-ts" x="462" y="60" text-anchor="middle">并发LLM调用≤N</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M526 48 L540 48"/>
+  <rect class="sd-box" x="540" y="16" width="128" height="64" rx="10"/>
+  <text class="sd-t" x="604" y="42" text-anchor="middle">L4 下游配额</text>
+  <text class="sd-ts" x="604" y="60" text-anchor="middle">连接池·RPM·限速</text>
+</svg></div>
+        <p><b>2. 各层实现要点</b></p>
+        <ul>
+          <li><b>令牌桶 vs 漏桶</b>:令牌桶允许突发(攒的令牌一次用),漏桶匀速出口;API 网关普遍用令牌桶。<b>按用户隔离</b>:单用户突发不能吃掉全局配额。</li>
+          <li><b>有界队列 + 满了快速失败</b>:队列不是越长越好——排 10 分钟队,不如立刻 429 让客户端稍后重试;返回建议等待时间。</li>
+          <li><b>信号量</b>(代码级):</li>
+        </ul>
+        <pre class="code">sem = asyncio.Semaphore(20)  <span class="c"># 单实例最多 20 个在途 LLM 调用</span>
+async def call_llm(prompt):
+    async with sem:            <span class="c"># 拿不到就等,自动排队</span>
+        return await llm.chat(prompt)
+<span class="c"># 并发数经验值:LLM 是长时延IO,单实例并发几十~几百都行,</span>
+<span class="c"># 但要绑下游限制:20并发×扇出10 = 向量库200QPS,别把它打挂</span></pre>
+        <ul>
+          <li><b>扇出放大系数</b>(Agent 特有):一个用户请求可能触发 10+ 次工具/检索调用,容量估算按"请求 QPS × 平均扇出数"算下游压力——这是 Agent 并发和普通 Web 并发最大的差异点。</li>
+        </ul>
+        <p><b>3. 死锁避免</b></p>
+        <ul>
+          <li>Agent 任务大多无状态+单向依赖(Agent→工具),天然无环;要警惕的是<b>循环等待</b>:Agent A 等工具锁,工具等数据库连接池,连接池等一个被 A 占的资源——解法:所有资源获取<b>设超时+失败释放</b>,加锁顺序全局统一,连接池设上限并监控排队长度。</li>
+        </ul>
+        <p><b>4. 分布式并发(多实例)</b></p>
+        <ul>
+          <li>信号量跨机器失效 → 用 <b>Redis 原子操作实现分布式信号量/限流</b>(Lua 脚本保证原子性),或网关统一限流;<b>全局限流</b>绝不能单机算。</li>
+          <li>同一会话的任务串行(锁会话 key),不同会话并行——防状态竞争。</li>
+        </ul>
+        <p><b>5. 背压传导</b>:L3 排队变长 → 上游降低接收速率(或提示"当前繁忙")→ 一直传到客户端的"稍后再试"。优雅降速比硬崩好。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:并发数怎么定?</summary><div class="an">压测定:逐步加压,找到延迟 SLO 破线(如 P99&gt;5s)或下游错误率抬升的拐点,拐点的 70~80% 作为日常上限;并留监控指标(信号量等待时长)指导动态调。</div></details>
+        <details class="qa"><summary class="qu">Q:多 Agent 并发调用同一工具产生写冲突?</summary><div class="an">写操作按资源 key 分布式锁串行化(同一订单的修改排队);或改设计:写操作收敛到单一 Coordinator,子 Agent 只产出"意图"。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>有界队列</b>:有上限的排队区,满了就拒绝。</div>
+          <div class="term-item"><b>扇出系数</b>:一个请求放大出的下游调用数。</div>
+          <div class="term-item"><b>背压</b>:下游忙时向上游传导减速。</div>
+        </div>
+      </div>
+</article>

@@ -1,0 +1,85 @@
+<article class="q" id="algo-026" data-topic="algo" data-title="推导BLEU分数的计算公式从n-gram精确度到BLEU-4" data-difficulty="2" data-tags="BLEU,评估指标,公式推导" data-company="" data-source="P6Q25" data-kw="BLEU 评估指标 公式推导 n-gram 精确度 截断 简短惩罚 BP 几何平均 机器翻译 文本生成">
+
+  <div class="q-no">Agent算法 · Q25</div>
+  <h3>推导 BLEU 分数的计算公式</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐</span>
+    <span class="tag">#BLEU</span><span class="tag">#评估指标</span><span class="tag">#公式推导</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"BLEU 是<b>把机器译文和参考译文做 n-gram 重叠度对比</b>的指标,推导分四步:第一,算 <b>n-gram 精确度</b>,但原始精确度会被重复词刷爆(译文狂写 'the' 就全对),所以第二步引入<b>截断计数 Count_clip</b>——每个 n-gram 的命中数不能超过它在任一参考里的最大出现次数;第三,把 1~4 元精确度取<b>几何平均</b>,惩罚"长词组拼不对"的情况;第四,乘一个<b>简短惩罚 BP</b>,防止模型靠短句作弊。最终 <b>BLEU-4 = BP · (p₁p₂p₃p₄)^(1/4)</b>。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就像<b>阅卷老师批改翻译题</b>:他先看单字对不对(p₁),再看两个字的词组对不对(p₂),再看三字、四字的短语对不对(p₃、p₄)——单字最容易蒙对,四字短语最难,所以要<b>四个都看、几何平均</b>,只要有一项拉胯总分就掉下去。他还特别烦两种作弊:一是<b>把一个词重复一万遍</b>(所以规定"这个词最多算命中参考里出现的次数",这就是截断);二是<b>故意只翻译半句</b>(所以短了要扣分,这就是 BP)。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 问题定义与符号</b></p>
+    <ul>
+      <li>候选译文 c(candidate,机器生成),参考译文 r(reference,可有多条,如 r₁、r₂)。</li>
+      <li>n-gram:连续 n 个词组成的片段;n=1 是单词(uni-gram),n=4 是四词短语(4-gram)。</li>
+      <li>目标:用一个 0~1(常写作 0~100)的分数,度量"c 与 r 的措辞有多接近"。</li>
+    </ul>
+    <p><b>2. 第一步:朴素 n-gram 精确度及其缺陷</b></p>
+    <pre class="code">p_n = (c 中与参考匹配的 n-gram 个数) / (c 中 n-gram 总数)</pre>
+    <ul>
+      <li>问题:若 c = "the the the the",r = "the cat is on the mat",则 p₁ = 4/4 = 100%,<b>只背一个词就拿了满分</b>。这说明"命中了多少次"不等于"该命中多少"。</li>
+    </ul>
+    <p><b>3. 第二步:截断计数 Count_clip(核心创新)</b></p>
+    <pre class="code">Count_clip(g) = min( Count_c(g), max_r Count_r(g) )   <span class="c"># 该 n-gram 在 c 中出现次数,封顶为任一参考中的最大次数</span>
+
+p_n = Σ_c Σ_{g∈c} Count_clip(g)
+      ───────────────────────────
+      Σ_c Σ_{g∈c} Count(g)        <span class="c"># 分母仍是候选里所有 n-gram 总数(不截断)</span></pre>
+    <ul>
+      <li>上例中 Count_clip("the") = min(4, 2) = 2,于是 p₁ = 2/4 = 50%,重复作弊被压下去。</li>
+      <li>注意 <b>p_n 是语料级(corpus-level)</b>求和后再相除,不是逐句平均——这是论文原始定义,避免短句贡献被放大。</li>
+    </ul>
+    <p><b>4. 第三步:几何平均(为什么不用算术平均)</b></p>
+    <ul>
+      <li>p_n 随 n 增大呈指数级下降:p₁ 可能 0.8,p₄ 只剩 0.2。算术平均会被高的 p₁ 主导,掩盖"长短语根本没对上"。</li>
+      <li>取对数再平均 = 几何平均:exp( Σ w_n · ln p_n ),任一项接近 0 都会把整体拉向 0,符合直觉。</li>
+    </ul>
+    <p><b>5. 第四步:简短惩罚 BP(Brevity Penalty)</b></p>
+    <pre class="code">BP = 1            (若 |c| ≥ |r|)
+BP = e^(1 − |r|/|c|)   (若 |c| &lt; |r|)   <span class="c"># |c| 候选长度,|r| 参考长度;多参考时取与 c 最接近的那条</span></pre>
+    <ul>
+      <li>只罚"过短",不罚"过长"——因为 n-gram 精确度天然已经会惩罚啰嗦(分母变大)。</li>
+      <li>没有 BP 时,模型只要输出一个 100% 命中的短句(如只译一个词)就能刷高分。</li>
+    </ul>
+    <p><b>6. 最终公式</b></p>
+    <pre class="code">BLEU  = BP · exp( Σ_{n=1}^{N} w_n · ln p_n )          <span class="c"># w_n 权重,原始论文取均匀 w_n = 1/N</span>
+
+BLEU-4(N=4, 均匀权重):
+BLEU  = BP · (p₁ · p₂ · p₃ · p₄)^(1/4)               <span class="c"># 最常见形式</span></pre>
+    <p><b>7. 数值小例(体会截断)</b></p>
+    <table>
+      <tr><th>项</th><th>候选 c = "a cat sat on a mat"</th><th>参考 r = "the cat sat on the mat"</th></tr>
+      <tr><td><b>p₁</b></td><td>c 共 6 个 1-gram;命中 cat/sat/on/mat 各 1 次,a 在参考中 0 次 → 命中 4</td><td>p₁ = 4/6 ≈ 0.667</td></tr>
+      <tr><td><b>p₂</b></td><td>c 共 5 个 2-gram;"cat sat"、"sat on" 命中 → 2 个</td><td>p₂ = 2/5 = 0.4</td></tr>
+    </table>
+    <p><b>8. 工程注意点(别踩坑)</b></p>
+    <ul>
+      <li><b>平滑(smoothing)</b>:句级 BLEU 常出现 p₄=0,导致 ln(0) = −∞。工程上做 add-1 平滑,或只在语料级计算。</li>
+      <li><b>句级 BLEU 局限</b>:对单句、特别是中文等无天然分词边界的语言,分数波动大、可比性差,常作为粗筛而非绝对真理;现代生成评估更常配合 chrF、BERTScore 或 LLM-as-judge。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么 BLEU 的 n-gram 精确度在语料级求和而不是逐句平均?</summary><div class="an">逐句平均会放大短句的权重:一句只含 1 个 n-gram 的译文若命中,p₁=100%,和长句 80% 拉平后严重失真。语料级先把分子分母各自加总再相除,天然按句长加权,更稳定,也是原论文(Papineni et al. 2002)的做法。</div></details>
+    <details class="qa"><summary class="qu">Q:BLEU 为什么不用召回率(recall)?</summary><div class="an">生成评估里没有唯一的"该出现的词集合"——参考只是众多合法译文之一,漏掉参考里的词未必算错;且候选通常比参考短,若引入召回率会鼓励模型照抄参考、扼杀多样性。BLEU 只罚精确度(候选里对的占比)+ 用 BP 单独约束长度,正是这个权衡。</div></details>
+    <details class="qa"><summary class="qu">Q:什么场景 BLEU 会明显失效?</summary><div class="an">① 语义等价但用词不同("今天很冷"vs"气温骤降"),BLEU 给 0 分但译文完全正确;② 语序差异大的语言;③ 创意类、对话类文本,措辞自由度高。这些场景应换用 chrF、BERTScore(基于 embedding 相似度)或人工/LLM 判断。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>n-gram</b>:连续 n 个词(或字)组成的片段。</div>
+      <div class="term-item"><b>Count_clip</b>:截断计数,命中数封顶为参考最大出现次数。</div>
+      <div class="term-item"><b>BP</b>:Brevity Penalty,惩罚过短译文的因子。</div>
+      <div class="term-item"><b>几何平均</b>:各项相乘再开 N 次方,对"短板项"敏感。</div>
+      <div class="term-item"><b>chrF</b>:基于字符 n-gram 的 F 值,对形态丰富语言更稳。</div>
+    </div>
+  </div>
+</article>

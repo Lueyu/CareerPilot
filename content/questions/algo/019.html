@@ -1,0 +1,76 @@
+<article class="q" id="algo-019" data-topic="algo" data-title="推导RoPE旋转位置编码数学原理" data-difficulty="5" data-tags="ROPE,位置编码,数学推导" data-company="" data-source="P6Q18" data-kw="RoPE 旋转位置编码 旋转矩阵 相对位置 位置编码 数学推导 三角函数 外推">
+
+  <div class="q-no">Agent算法 · Q18</div>
+  <h3>推导 ROPE 的数学原理</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐⭐</span>
+    <span class="tag">#ROPE</span><span class="tag">#位置编码</span><span class="tag">#数学推导</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"RoPE(旋转位置编码)的核心思想:<b>用旋转矩阵给每个位置注入绝对位置,但让点积结果只依赖相对位置</b>。做法是把 q、k 按 (2i, 2i+1) 配对,每对乘一个旋转角度为 m·θ_i 的 2D 旋转矩阵,θ_i = 10000^(−2i/d)。由于旋转可加:R(mθ)^T·R(nθ) = R((n−m)θ),所以 q_m 与 k_n 的点积自动只依赖 (n−m)。好处:天然相对位置、可外推、能与线性注意力结合。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>想象每个 token 是<b>表盘上的一根指针</b>:位置越靠后,指针转过的角度越大。两个 token 的相关性,不看它们各自指向几点,而看<b>两根指针的夹角差(相对角度)</b>——所以"第 3 个和第 5 个"的关系,和"第 103 个和第 105 个"完全一样(相对距离都是 2)。角度由 θ=10000^(−2i/d) 决定,不同维度转得快慢不同。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 目标:绝对编码,但只留相对信息</b></p>
+    <p>位置编码要解决两件事:① 让模型知道 token 的绝对位置;② 更希望注意力权重只依赖<b>相对位置</b>(这是自然语言的关键性质,也更利于长度外推)。原始 Transformer 的正弦编码是把位置向量<b>加</b>到词向量上,而 RoPE 是用<b>旋转</b>——"乘"进去,这是本质区别。</p>
+    <p><b>2. 第一步:2D 旋转矩阵</b></p>
+    <pre class="code"><span class="c"># 平面内逆时针旋转 θ 角的矩阵</span>
+R(θ) = [ cos θ   −sin θ ]
+       [ sin θ    cos θ ]
+<span class="c"># 性质1:正交矩阵,R(θ)^T R(θ) = I(旋转不改变向量长度)</span>
+<span class="c"># 性质2:旋转可加,R(a)·R(b) = R(a+b)(两次旋转 = 一次转 a+b)</span></pre>
+    <p><b>3. 第二步:把位置 m 变成"旋转 m·θ"</b></p>
+    <p>把 d 维向量按相邻两维配对,分成 d/2 个 2D 块。第 i 对(i = 0, 1, …, d/2−1)使用自己的基频 θ_i,位置 m 时旋转角度为 <b>m·θ_i</b>:</p>
+    <pre class="code">θ_i = 10000^(−2i/d)      <span class="c"># 高频在前(转得快),低频在后(转得慢)</span>
+<span class="c"># 位置 m 的分块对角旋转矩阵(每对 2D 块转 m·θ_i)</span>
+R(m·Θ) = blockdiag( R(m·θ_0), R(m·θ_1), …, R(m·θ_{d/2−1}) )</pre>
+    <p><b>4. 第三步:只对 q、k 施加旋转(关键设计)</b></p>
+    <pre class="code">q_m = R(m·Θ) · (W_q x_m)     <span class="c"># query 旋 m·θ</span>
+k_n = R(n·Θ) · (W_k x_n)     <span class="c"># key 旋 n·θ;value 不旋转</span></pre>
+    <p><b>5. 第四步:证明点积只依赖相对位置(面试核心一步)</b></p>
+    <pre class="code">q_m^T · k_n
+= (R(m·Θ) q)^T (R(n·Θ) k)
+= q^T · R(m·Θ)^T · R(n·Θ) · k
+= q^T · R((n−m)·Θ) · k        <span class="c"># 用到 R(a)^T R(b) = R(b−a)</span>
+<span class="c"># 结果只含 (n−m),即相对位置!绝对位置 m、n 自己"消掉了"</span></pre>
+    <ul>
+      <li>这是 RoPE 的精髓:<b>旋转角以"绝对位置"注入,但点积里自动坍缩成"相对位置"</b>。</li>
+      <li>为什么只旋 q、k:注意力分数只由 q·k 决定,value 只做加权求和,旋 v 无意义(反而破坏输出)。</li>
+    </ul>
+    <p><b>6. 工程实现形式(实际代码里怎么算)</b></p>
+    <pre class="code"><span class="c"># 复用了"乘以旋转矩阵 = 交替翻转并乘 sin/cos"的等价式</span>
+f(q, m) = [ q_0, q_1 ; q_2, q_3 ; … ]  <span class="c"># 按 (2i, 2i+1) 配对</span>
+q'_0 = q_0·cos(mθ_i) − q_1·sin(mθ_i)
+q'_1 = q_0·sin(mθ_i) + q_1·cos(mθ_i)
+<span class="c"># 实现时不构造大矩阵,直接按维度乘预计算的 cos/sin 表,零额外参数</span></pre>
+    <p><b>7. 优势与局限(展示辩证)</b></p>
+    <ul>
+      <li><b>优势</b>:天然相对位置;不增加可学习参数;理论上支持长度外推(训练短、推理长);与线性注意力兼容(旋转保范数)。</li>
+      <li><b>局限</b>:直接外推仍有性能下降,常用 <b>NTK-Aware / YaRN</b> 等改频技巧改善;对"绝对位置敏感"的任务(如开头结尾位置)不如显式绝对编码直观。</li>
+      <li>对比:正弦编码是<b>相加</b>且只编码绝对位置;ALiBi 用<b>相对偏置</b>直接衰减;RoPE 是<b>乘性旋转</b>,是当前主流 LLM(LLaMA、Qwen 等)的默认选择。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:再推一遍——为什么点积只依赖相对位置?</summary><div class="an">因为旋转矩阵是正交矩阵且旋转角可加:R(a)^T R(b) = R(−a)R(b) = R(b−a)。于是 q_m^T k_n = q^T R(mθ)^T R(nθ) k = q^T R((n−m)θ) k,乘积里 m、n 各自消失,只剩 (n−m)。<b>正交性保证不改变向量长度,可加性保证角度相减</b>,两个性质缺一不可。</div></details>
+    <details class="qa"><summary class="qu">Q:RoPE 和原始 Transformer 正弦位置编码的本质区别?</summary><div class="an">两点:① 注入方式——正弦编码是<b>加法</b>(x + PE),RoPE 是<b>乘性旋转</b>(对 q/k 做旋转);② 相对性——正弦编码只显式给绝对位置,相对关系靠模型自己学;RoPE 通过旋转可加性让注意力分数<b>显式地</b>只依赖相对位置,这是它更强归纳偏置的来源。</div></details>
+    <details class="qa"><summary class="qu">Q:θ_i 为什么设计成 10000^(−2i/d)?</summary><div class="an">这是沿袭原始正弦编码的<b>几何级数频率设计</b>:不同维度对的旋转速度呈指数衰减,低维转得快(捕捉局部/短距离)、高维转得慢(捕捉全局/长距离),相当于给位置信息做了"多尺度分解",不同距离范围的信息分布在不同频带上。底数 10000 是经验值,也衍生出 NTK-Aware 等通过调底数来改善外推的方法。</div></details>
+    <details class="qa"><summary class="qu">Q:RoPE 真的能无限外推吗?</summary><div class="an">不能无代价外推。训练时只见过 [0, L] 的位置,直接推理到 [L, 2L] 时,高频维的旋转角度进入了训练未覆盖的区间,精度会下降。改进手段是<b>改频</b>:NTK-Aware 缩放底数、YaRN 分段调频、或线性插值位置,把长序列的角度映射回训练见过的范围——所以 RoPE 是"具备外推潜力 + 需要技巧配合",不是自动无限外推。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>RoPE</b>:Rotary Position Embedding,旋转位置编码。</div>
+      <div class="term-item"><b>旋转矩阵</b>:2D 平面内绕原点旋转 θ 角的正交矩阵。</div>
+      <div class="term-item"><b>相对位置</b>:注意力分数只依赖两个 token 的位置差。</div>
+      <div class="term-item"><b>基频 θ_i</b>:10000^(−2i/d),决定各维度的旋转速度。</div>
+      <div class="term-item"><b>外推</b>:用短序列训练,推理时处理更长序列。</div>
+      <div class="term-item"><b>NTK-Aware/YaRN</b>:通过调频改善 RoPE 外推的技巧。</div>
+    </div>
+  </div>
+</article>

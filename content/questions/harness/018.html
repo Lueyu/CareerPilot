@@ -1,0 +1,100 @@
+<article class="q" id="harness-018" data-topic="harness" data-title="工具调用失败的feedback策略设计" data-difficulty="3" data-tags="错误恢复,反馈机制,反思" data-company="字节(真题)" data-source="P5Q29" data-kw="工具调用 失败 feedback 反馈 错误恢复 反思 Reflexion 重试 补偿 字节">
+
+  <div class="q-no">Agent核心 · Q29</div>
+  <h3>有没有做过工具调用失败后的feedback策略设计？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#错误恢复</span><span class="tag">#反馈机制</span><span class="tag">#反思</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"做过,分<b>两层反馈</b>:① <b>机器侧自纠错</b>——把工具失败转成结构化 observation 回灌给 LLM(错误码+原因+建议),让它换参数/换工具/向用户澄清,这是 ReAct 的 observation 循环,进阶是 Reflexion 式的反思:失败后先"反思错在哪"再重试;② <b>人侧沉淀</b>——失败分类后触发补偿(幂等/回滚)、转人工,并把失败样本回流进评测集和 few-shot 库,反哺后续优化。核心原则:<b>错误先分类再处置,且给自纠错设预算上限</b>,防死循环。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就像<b>学生做题对答案</b>:做错一道题,先不看答案,自己反思"哪一步错了、为什么错"(Reflexion),带着反思重做一遍(重试),对了好;还不对就查错题本里有没有同类题的解法(检索经验),再不行就问老师(转人工)。做完把这道错题抄进错题本(失败样本回流),下次同类题就不会错。关键是:不能无限重做,错三次就停下来求助——这就是"自纠错预算"。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 为什么需要 feedback 设计(先讲价值)</b></p>
+    <ul>
+      <li>工具调用失败率不低:参数幻觉、下游抖动、权限不足、schema 变化都会导致失败。</li>
+      <li>没有 feedback 的 Agent 会"静默失败"——LLM 不知道工具挂了,可能拿错误/空结果继续编答案,这是最危险的。</li>
+      <li>好的 feedback 让失败变成"可恢复"而非"直接崩"。</li>
+    </ul>
+    <p><b>2. 机器侧反馈:observation 循环</b></p>
+    <ul>
+      <li>ReAct 模式:Thought → Action → Observation,工具结果(含失败)作为 observation 回灌,模型据其决定下一步。</li>
+      <li>失败信息要结构化:<code>{工具名, 错误码, 原因, 建议下一步}</code>,而不是只给一个异常字符串。</li>
+      <li>让模型"知道失败"是自纠错的前提。</li>
+    </ul>
+    <p><b>3. 进阶:Reflexion 式反思</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 520 410" role="img" aria-label="工具调用失败Reflexion反思闭环">
+  <rect class="sd-layer" x="4" y="8" width="512" height="394"/>
+  <text class="sd-l" x="16" y="26">工具调用失败 · Reflexion 反思闭环</text>
+  <rect class="sd-box-rose" x="80" y="36" width="200" height="52" rx="10"/>
+  <text class="sd-t" x="180" y="58" text-anchor="middle">工具调用失败</text>
+  <text class="sd-ts" x="180" y="76" text-anchor="middle">错误码 · 原因回灌</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M180 88 L180 110"/>
+  <rect class="sd-box-amber" x="80" y="112" width="200" height="60" rx="10"/>
+  <text class="sd-t" x="180" y="136" text-anchor="middle">反思阶段</text>
+  <text class="sd-ts" x="180" y="154" text-anchor="middle">失败归因 · 改进策略</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M180 172 L180 198"/>
+  <rect class="sd-box" x="80" y="200" width="200" height="60" rx="10"/>
+  <text class="sd-t" x="180" y="224" text-anchor="middle">带反思重试</text>
+  <text class="sd-ts" x="180" y="242" text-anchor="middle">换参数 / 换工具 / 拆步骤</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M180 260 L180 286"/>
+  <rect class="sd-box2" x="80" y="288" width="200" height="48" rx="10"/>
+  <text class="sd-t" x="180" y="312" text-anchor="middle">重试结果?</text>
+  <text class="sd-ts" x="180" y="330" text-anchor="middle">成功 / 失败 / 超限</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M280 312 L338 312"/>
+  <rect class="sd-box-teal" x="340" y="288" width="130" height="48" rx="10"/>
+  <text class="sd-t" x="405" y="312" text-anchor="middle">成功 → 结束</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M80 312 L40 312 L40 142 L78 142"/>
+  <text class="sd-l" x="26" y="227" text-anchor="middle" transform="rotate(-90 26 227)">失败 → 再反思（限 2~3 轮）</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M180 336 L180 350"/>
+  <rect class="sd-box-rose" x="80" y="352" width="200" height="48" rx="10"/>
+  <text class="sd-t" x="180" y="376" text-anchor="middle">超限 → 降级 / 转人工</text>
+</svg></div>
+    <ul>
+      <li>Reflexion 核心:把"反思"作为一段文本记忆存下来,跨步骤复用;相比盲目重试,带反思的重试成功率高得多。</li>
+    </ul>
+    <p><b>4. 失败分类与处置(错误要先分类)</b></p>
+    <table>
+      <tr><th>失败类型</th><th>例子</th><th>策略</th></tr>
+      <tr><td><b>参数错误</b></td><td>订单号格式错、缺必填</td><td>回灌校验信息,让模型修正参数重试</td></tr>
+      <tr><td><b>工具选错</b></td><td>想查物流却调了比价</td><td>反馈"无此工具+可用工具列表",重选</td></tr>
+      <tr><td><b>权限不足</b></td><td>越权改地址</td><td>不重试,转人工/要求用户授权</td></tr>
+      <tr><td><b>下游超时/限流</b></td><td>429、超时</td><td>幂等重试+退避;连续失败熔断</td></tr>
+      <tr><td><b>返回空/异常</b></td><td>搜不到结果</td><td>反馈"无结果+换关键词建议",或降级话术</td></tr>
+      <tr><td><b>副作用失败</b></td><td>扣款失败</td><td>补偿/回滚,不盲目重试</td></tr>
+    </table>
+    <p><b>5. 人侧反馈与沉淀</b></p>
+    <ul>
+      <li>转人工:预算耗尽、权限、敏感操作、用户情绪不满时收敛到人工。</li>
+      <li>补偿:已产生副作用的失败走补偿(退款/回滚),用幂等键保证不重复。</li>
+      <li>样本回流:失败样本 + 最终成功路径 → 进评测集、few-shot 示例库、甚至用 DSPy 反优化 Prompt,形成闭环。</li>
+    </ul>
+    <p><b>6. 预算与兜底</b></p>
+    <ul>
+      <li>自纠错设上限:最多反思重试 2~3 轮,超过直接降级(兜底话术/转人工),防"反思-失败-再反思"死循环烧 token。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:Reflexion 和普通重试的本质区别?</summary><div class="an">普通重试是"原样再来一遍",问题不变多半还是失败;Reflexion 在重试前先让模型生成一段"失败归因 + 改进策略"的反思文本,把它带进下一次尝试,等于"带着诊断重做"。代价是每轮多一次 LLM 调用和 token,所以要限轮次,且只对"值得反思"的失败用。</div></details>
+    <details class="qa"><summary class="qu">Q:feedback 里给模型的错误信息,会不会被模型误解甚至被注入攻击?</summary><div class="an">有风险——工具返回的内容本质是外部数据,恶意返回可能诱导模型。防御:① 错误信息走"服务端模板化"而非原样透传第三方原文;② 对工具返回做 schema 校验和长度截断;③ 敏感操作(退款等)无论模型怎么被诱导,最终执行层都要二次确认/审批,不把"是否执行"完全交给被反馈影响的模型。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么衡量 feedback 策略有没有效?</summary><div class="an">指标三个:① 失败恢复率——失败后经 feedback 最终成功的占比(核心);② 平均重试/反思轮数——越低越好;③ 降级/转人工率——兜底是否过重。离线用构造的失败注入测试集回归,线上监控这三个指标的走势。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>ReAct</b>:Thought-Action-Observation 交替的推理-行动循环。</div>
+      <div class="term-item"><b>Reflexion</b>:先反思失败原因、再带反思重试的机制。</div>
+      <div class="term-item"><b>Observation</b>:工具调用返回的结果/反馈,回灌给模型。</div>
+      <div class="term-item"><b>补偿(Compensation)</b>:副作用已发生后的回滚/补救。</div>
+      <div class="term-item"><b>few-shot 库</b>:可复用的示例集合,用于提示与优化。</div>
+    </div>
+  </div>
+</article>

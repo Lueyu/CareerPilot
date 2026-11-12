@@ -1,0 +1,103 @@
+<article class="q" id="sys-006" data-topic="sys" data-title="大规模Agent系统多线程多进程资源调度策略" data-difficulty="4" data-tags="资源调度,并发" data-company="字节(真题)" data-source="P5Q16" data-kw="资源调度 并发 多线程 多进程 协程 GIL 任务队列 Worker池 信号量 背压 优先级 字节">
+
+  <div class="q-no">Agent核心 · Q16</div>
+  <h3>大规模 Agent 系统在多线程/多进程场景下的资源调度策略如何设计？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#资源调度</span><span class="tag">#并发</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"按'<b>选型 → 分层 → 限流 → 隔离 → 可观测</b>'讲。选型上,Python 受 <b>GIL</b> 限制,采用<b>多进程 + 协程(asyncio)组合</b>:IO 密集的 LLM/工具调用走协程,CPU 密集或需强隔离的任务走进程池。分层上用<b>任务队列 + Worker 池</b>解耦生产消费,配<b>优先级队列</b>和<b>信号量限并发</b>;GPU 侧用动态批处理提吞吐;再做按租户/任务类型的资源隔离和背压,最后用队列深度、利用率、P99 等指标驱动扩缩容。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>餐厅后厨</b>:前台接单(请求)→ 传菜口按单排队(任务队列)→ 灶台分档口(进程/协程)——炖菜档(长任务)和快炒档(短任务)分开,避免一个慢菜堵死整条出菜线;每个档口同时最多炒几锅(信号量限并发);高峰期外面取号排队(背压),不让后厨被压垮;老板看翻台率(监控)决定加灶还是撤灶(扩缩容)。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 并发模型选型(GIL 是关键考点)</b></p>
+    <ul>
+      <li><b>GIL</b>让 CPython 的线程无法并行执行 Python 字节码——多线程对<b>纯 CPU 计算无加速</b>,只对 IO 等待(等 LLM、等下游 API)有效。</li>
+      <li>所以 Agent 系统的组合拳:<b>协程(asyncio)扛 IO 并发</b>——成千上万个 LLM 调用在等网络,单线程事件循环就能高并发;<b>多进程扛 CPU/隔离</b>——重度计算(如本地 Embedding、规则引擎)或需强隔离的任务丢进进程池。</li>
+      <li>需要真并行的 CPU 密集 + IO 混合时,用"多进程 + 每个进程内跑协程"的经典结构。</li>
+    </ul>
+    <p><b>2. 分层架构</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 480 380" role="img" aria-label="大规模 Agent 分层资源调度">
+  <rect class="sd-box-rose" x="80" y="34" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="155" y="58" text-anchor="middle">API 层</text>
+  <text class="sd-ts" x="155" y="76" text-anchor="middle">请求入口·鉴权</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M155 90 L155 116"/>
+  <rect class="sd-box" x="80" y="118" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="155" y="142" text-anchor="middle">任务队列</text>
+  <text class="sd-ts" x="155" y="160" text-anchor="middle">高/普通/低 优先级</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M155 174 L155 200"/>
+  <rect class="sd-box" x="80" y="202" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="155" y="226" text-anchor="middle">Worker 池</text>
+  <text class="sd-ts" x="155" y="244" text-anchor="middle">asyncio 事件循环</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M155 258 L80 298"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M155 258 L224 298"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M155 258 L368 298"/>
+  <rect class="sd-box-amber" x="16" y="300" width="128" height="56" rx="10"/>
+  <text class="sd-t" x="80" y="324" text-anchor="middle">LLM 调用</text>
+  <text class="sd-ts" x="80" y="342" text-anchor="middle">动态批处理</text>
+  <rect class="sd-box" x="160" y="300" width="128" height="56" rx="10"/>
+  <text class="sd-t" x="224" y="324" text-anchor="middle">工具调用/检索</text>
+  <text class="sd-ts" x="224" y="342" text-anchor="middle">信号量限流</text>
+  <rect class="sd-box-teal" x="304" y="300" width="128" height="56" rx="10"/>
+  <text class="sd-t" x="368" y="324" text-anchor="middle">结果回写</text>
+  <text class="sd-ts" x="368" y="342" text-anchor="middle">Redis 状态存储</text>
+  <rect class="sd-box2" x="330" y="202" width="140" height="56" rx="10"/>
+  <text class="sd-t" x="400" y="226" text-anchor="middle">控制面</text>
+  <text class="sd-ts" x="400" y="244" text-anchor="middle">监控·扩缩容·熔断</text>
+  <path class="sd-an" marker-end="url(#sd-arr)" d="M230 218 L328 218"/>
+  <text class="sd-ts" x="279" y="210" text-anchor="middle">心跳/指标</text>
+  <path class="sd-an" marker-end="url(#sd-arr)" d="M328 246 L230 246"/>
+  <text class="sd-ts" x="279" y="262" text-anchor="middle">监控/扩缩容/熔断</text>
+</svg>
+</div>
+    <p><b>3. 并发控制(限流三件套)</b></p>
+    <ul>
+      <li><b>信号量</b>:每 Worker 内限制"同时在跑的 LLM 调用数",防止把模型网关打挂。</li>
+      <li><b>令牌桶</b>:对下游内部 API 限速(如订单系统只扛 100 QPS),Agent 超了就排队或降级。</li>
+      <li><b>优先级队列</b>:高优先(交互请求、付费用户)先消费,低优先(批量、离线)让路。</li>
+    </ul>
+    <p><b>4. 资源调度策略</b></p>
+    <table>
+      <tr><th>策略</th><th>做法</th><th>适用</th></tr>
+      <tr><td><b>公平调度</b></td><td>轮询/加权轮询分摊</td><td>多租户均等场景</td></tr>
+      <tr><td><b>优先级 + 抢占</b></td><td>高优先级抢占低优先级资源</td><td>在线 > 离线</td></tr>
+      <tr><td><b>亲和性</b></td><td>同会话路由到同 Worker</td><td>需要局部顺序/缓存</td></tr>
+      <tr><td><b>背压</b></td><td>队列满则拒绝/排队凭证</td><td>削峰防雪崩</td></tr>
+    </table>
+    <p><b>5. GPU 资源调度(Agent 特有)</b></p>
+    <ul>
+      <li>推理服务用<b>动态/连续批处理</b>:把到达的请求攒成 batch 一起算,吞吐大幅提升;但 batch 越大、排队越久、时延越高,要在"吞吐 vs 时延"间调超参。</li>
+      <li>显存并发度单独控:并发请求数 × 单请求 KV cache 不能超显存,否则 OOM。</li>
+      <li>长连接任务(流式生成)要单独记账:流式期间一直占用计算和显存,调度器要把它当"常驻负载"看待。</li>
+    </ul>
+    <p><b>6. 隔离与可观测</b></p>
+    <ul>
+      <li><b>隔离</b>:按租户/任务类型分队列或分池,单个租户的流量尖峰不拖垮全局。</li>
+      <li><b>指标</b>:队列深度与积压、CPU/内存/GPU 利用率、并发上限、P50/P95/P99 延迟、任务失败率——用队列积压驱动自动扩缩容(K8s HPA)。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:Python 里多线程到底能不能用?</summary><div class="an">能,但要分清负载类型:IO 密集(等网络、等模型)多线程有效,因为线程在等 IO 时释放 GIL;CPU 密集多线程无效(被 GIL 串行化),甚至因切换开销更慢。所以 Agent 场景里"LLM/工具调用"这类 IO 等待可以用线程或协程,而"本地推理、数据处理"要用多进程或用 C 扩展库(NumPy 等内部会释放 GIL)。一句话:<b>IO 用协程/线程,CPU 用进程</b>。</div></details>
+    <details class="qa"><summary class="qu">Q:GPU 推理并发怎么控才不 OOM?</summary><div class="an">三层:① <b>上游限流</b>——信号量把并发请求数压到显存能承受的阈值;② <b>服务端显存预算</b>——按"并发上限 × 单请求最大 KV cache"预估峰值显存,留安全余量;③ <b>动态批处理</b>里 batch 大小也受显存约束,超了就排队。还有工程手段:KV cache 量化、paged attention(vLLM)复用显存、超长输入先截断或摘要。核心是<b>显存是硬上限,调度必须先算这个账</b>。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么避免一个超长任务饿死其他任务?</summary><div class="an">靠<b>分级 + 限时 + 隔离</b>:长任务和短任务分不同队列/池,短任务永远有独立资源;单个任务设硬超时(如 30s)和 token 预算,超了就降级或转人工;若同池不可避免,用公平调度(轮询)而非"先来先服务一条道跑到黑",并在任务内做阶段性 checkpoint,让长任务可被暂停让路、之后恢复。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>GIL</b>:全局解释器锁,限制 CPython 线程并行。</div>
+      <div class="term-item"><b>协程</b>:单线程内的轻量并发,扛 IO 等待。</div>
+      <div class="term-item"><b>信号量</b>:限制同时执行数量的并发原语。</div>
+      <div class="term-item"><b>背压</b>:下游慢/满时向上游反压减速。</div>
+      <div class="term-item"><b>动态批处理</b>:攒请求成 batch 一起推理提吞吐。</div>
+    </div>
+  </div>
+</article>

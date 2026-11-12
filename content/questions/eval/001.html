@@ -1,0 +1,67 @@
+<article class="q" id="eval-001" data-topic="eval" data-title="设计Agent评估平台" data-difficulty="4" data-tags="评估,平台,Agent" data-company="" data-source="P1Q9" data-kw="评估 平台 Agent 指标 成功率 LLM-as-judge 对比实验 离线 在线 回归">
+
+      <div class="q-no">系统设计 · Q9</div>
+      <h3>设计一个 Agent 评估平台</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#评估</span><span class="tag">#平台</span><span class="tag">#Agent</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"评估分<b>离线</b>和<b>在线</b>两层:离线是固定测试集+自动评分(规则/程序化校验/LLM-as-judge 三级打分),在线是 AB 实验和用户反馈。平台核心模块:任务与数据集管理(版本化)、多维度指标(任务成功率、工具选择准确率、平均步数、延迟、单任务成本)、对比实验(消融分析)、可视化报告。关键设计是把评估<b>接进 CI</b>,每次发版跑回归,分数掉了自动拦截。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>就是给 Agent 办一套<b>学校考试体系</b>:<b>模拟考</b>(离线评估)——固定卷子、自动改卷,天天能考,但考好不代表实战;<b>高考</b>(线上 AB 实验)——真实用户是考官,成绩作数;<b>老师抽查</b>(人工评估)——机器改卷不放心,抽一部分人工复核。只看模拟考容易"应试选手",只看高考又太慢——所以要两层结合。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 任务定义与管理</b></p>
+        <ul>
+          <li>评估单元 = 数据集(输入 + 期望输出:参考答案/期望的工具调用轨迹/校验程序)+ 评分配置。</li>
+          <li><b>版本化</b>:数据集打版本号,和被测系统版本(Prompt/模型/配置)绑定,保证任何历史分数可复现。</li>
+          <li>分层集:核心集(每次发版必跑,~100 条)+ 全量集(每周跑)+ 专项集(bug 修复后针对性验证)。</li>
+        </ul>
+        <p><b>2. 多维度指标(别只会说"准确率")</b></p>
+        <table>
+          <tr><th>维度</th><th>指标</th><th>说明</th></tr>
+          <tr><td><b>效果</b></td><td>任务成功率、工具选择准确率、参数准确率</td><td>核心,离线可测</td></tr>
+          <tr><td><b>效率</b></td><td>平均步数、工具调用次数、P50/P99 延迟</td><td>步数多=绕路,费钱费时</td></tr>
+          <tr><td><b>成本</b></td><td>单任务 token 消耗、折算金额</td><td>老板最关心</td></tr>
+          <tr><td><b>安全</b></td><td>幻觉率、越权操作数、拒答合理率</td><td>红线指标</td></tr>
+        </table>
+        <p><b>3. 自动评分三级火箭</b></p>
+        <ul>
+          <li><b>L1 规则评分</b>:精确匹配、关键词包含 —— 快、便宜,但死板。</li>
+          <li><b>L2 程序化校验</b>:代码类任务直接跑单测;工具调用直接比 Schema;数学题验算 —— <b>最可靠,能程序化的尽量程序化</b>。</li>
+          <li><b>L3 LLM-as-judge</b>:给评分 rubric(维度+分值+例子),让强模型打分。要注意三个坑:<b>位置偏差</b>(对比时偏好先出现的)、<b>自我偏好</b>(偏爱自己风格的模型)、<b>长度偏差</b>(偏爱长答案)—— 对策:随机顺序、换不同家族模型当裁判、rubric 里明确"长度不加分"。</li>
+          <li>人工抽检 5% 校准 judge 的可信度(judge 和人的一致率 &gt; 85% 才敢信)。</li>
+        </ul>
+        <p><b>4. 对比实验</b></p>
+        <ul>
+          <li>支持 A/B 配置(模型、Prompt、检索参数、架构)同数据集跑分,出对比表。</li>
+          <li><b>消融实验</b>:逐个关掉模块(rerank / memory / 多轮改写),看指标掉多少,证明每个组件的价值。</li>
+        </ul>
+        <p><b>5. 工程化:接进 CI/CD</b></p>
+        <ul>
+          <li>Prompt 或配置变更 → PR 触发跑核心集 → 分数对比基线,下降超阈值(如成功率 -2%)<b>自动阻断合并</b>。</li>
+          <li>失败案例自动聚类(按错误类型),展示典型 bad case 全轨迹回放。</li>
+        </ul>
+        <p><b>6. 在线评估</b>:线上小流量 AB(详见第四部分 A/B 测试题)、用户点踩/修正行为回流为新的评估样本 —— <b>bad case 是最值钱的评估数据来源</b>。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:离线分数高、线上反馈差,怎么办?</summary><div class="an">说明测试集分布偏了(和真实用户问题不像)。用线上真实 query 重采样测试集,定期轮换;离线指标只用于回归防退化,效果决策以在线为准。</div></details>
+        <details class="qa"><summary class="qu">Q:Agent 是多步的,中间对了最后错了怎么算分?</summary><div class="an">过程分+结果分分开统计:轨迹级(工具选择是否合理,逐步判)+ 结果级(最终答案),还要看"有效步占比"(多少调用是白干的)。</div></details>
+        <details class="qa"><summary class="qu">Q:评估本身要花多少 LLM 成本?</summary><div class="an">judge 用便宜但靠谱的模型+缓存裁判结果;核心集控制在几百条,一次回归几块钱以内。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>LLM-as-judge</b>:用强模型按 rubric 打分。</div>
+          <div class="term-item"><b>消融实验</b>:关掉某组件看指标变化。</div>
+          <div class="term-item"><b>回归测试</b>:发版前防退化的自动化验证。</div>
+          <div class="term-item"><b>Rubric</b>:评分细则(维度+标准+示例)。</div>
+        </div>
+      </div>
+</article>

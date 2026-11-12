@@ -1,0 +1,79 @@
+<article class="q" id="algo-032" data-topic="algo" data-title="GraphRAG论文核心贡献(社区检测/全局局部查询)" data-difficulty="3" data-tags="论文解读,GraphRAG" data-company="" data-source="P6Q41" data-kw="GraphRAG 知识图谱 社区检测 Leiden 社区摘要 全局查询 局部查询 RAG 实体抽取 微软">
+
+  <div class="q-no">Agent算法 · Q41</div>
+  <h3>GraphRAG 论文的核心贡献</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#论文解读</span><span class="tag">#GraphRAG</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>GraphRAG 的贡献一句话:<b>把 RAG 从"局部文本检索"升级到"全局语义理解"</b>。做法:先把语料抽成<b>实体 + 关系知识图谱</b>,再用 <b>Leiden 社区检测</b>把图切成语义社区,为每个社区生成摘要;查询分两种——<b>局部查询(local)</b>沿实体邻居找相关文本,<b>全局查询(global)</b>用社区摘要做 map-reduce 式汇总。它解决了纯向量 RAG 的致命短板:回答"这个数据集整体在讲什么"这类全局问题。代价是构建成本高(LLM 抽取 + 建图 + 摘要),适合语料规模中等、需要全局洞察的场景。</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>传统 RAG 像<b>在一堆报纸里翻关键词</b>——问"退货政策"就找含这几个字的文章,精确但看不到全局;GraphRAG 像先请人把报纸<b>读透、画出一张人物关系图</b>,再把版面按主题归成几个大栏目,每个栏目写一段总览。于是既能查"张三和谁有合作"(局部),也能回答"这堆报道整体围绕哪几件大事、各方立场如何"(全局)——后者是翻关键词永远翻不出来的。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 问题背景:向量 RAG 的短板(先说清"为什么要图")</b></p>
+    <ul>
+      <li>纯向量检索是"query 与 chunk 的语义相似度",本质是<b>局部、top-k</b>的——擅长"找出相关片段",不擅长"理解整个语料在讲什么"。</li>
+      <li>当问题是<b>全局性、总结性</b>的(如"这些文档共同的主题是什么""各方的立场差异"),局部检索拼不出全貌。</li>
+    </ul>
+    <p><b>2. 构建流程(把文本变成"图 + 摘要")</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 640 100" role="img" aria-label="GraphRAG 构建流程">
+  <rect class="sd-box-teal" x="10" y="20" width="110" height="60" rx="10"/>
+  <text class="sd-t" x="65" y="46" text-anchor="middle">语料库</text>
+  <text class="sd-ts" x="65" y="64" text-anchor="middle">原始文档集</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M122 50 L130 50"/>
+  <rect class="sd-box-amber" x="136" y="20" width="110" height="60" rx="10"/>
+  <text class="sd-t" x="191" y="46" text-anchor="middle">实体·关系抽取</text>
+  <text class="sd-ts" x="191" y="64" text-anchor="middle">LLM 抽节点 + 边</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M248 50 L256 50"/>
+  <rect class="sd-box" x="262" y="20" width="110" height="60" rx="10"/>
+  <text class="sd-t" x="317" y="46" text-anchor="middle">社区检测</text>
+  <text class="sd-ts" x="317" y="64" text-anchor="middle">Leiden 划分社区</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M374 50 L382 50"/>
+  <rect class="sd-box-amber" x="388" y="20" width="110" height="60" rx="10"/>
+  <text class="sd-t" x="443" y="46" text-anchor="middle">社区摘要</text>
+  <text class="sd-ts" x="443" y="64" text-anchor="middle">LLM 逐社区总结</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M500 50 L508 50"/>
+  <rect class="sd-box-teal" x="514" y="20" width="110" height="60" rx="10"/>
+  <text class="sd-t" x="569" y="46" text-anchor="middle">图 + 摘要索引</text>
+  <text class="sd-ts" x="569" y="64" text-anchor="middle">局部 / 全局查询</text>
+</svg>
+</div>
+    <ul>
+      <li>图让实体之间的关系显式化、可多跳遍历;社区摘要把"局部主题"预聚合,形成全局视角的原料。</li>
+    </ul>
+    <p><b>3. 两种查询模式(核心贡献)</b></p>
+    <table>
+      <tr><th>模式</th><th>怎么做</th><th>适合的问题</th></tr>
+      <tr><td><b>Local search(局部)</b></td><td>定位相关实体 → 拉取邻居实体 + 关联文本/关系 → 合成答案</td><td>"A 和 B 什么关系""谁负责 X"这类聚焦实体的问题</td></tr>
+      <tr><td><b>Global search(全局)</b></td><td>对社区摘要做 <b>map-reduce</b>:逐社区生成部分回答,再汇总成最终答案</td><td>"整体主题是什么""主要结论有哪些"这类全局总结问题</td></tr>
+    </table>
+    <p><b>4. 优势与代价(trade-off 要讲清)</b></p>
+    <ul>
+      <li><b>优势</b>:补齐全局理解能力;回答可追溯到实体与社区;对"宏观问答"明显优于纯向量 RAG。</li>
+      <li><b>代价</b>:构建阶段要用 LLM 做实体/关系抽取 + 社区摘要,成本与延迟高;图的质量依赖抽取效果;增量更新(语料变了怎么更新图)也更复杂。</li>
+      <li><b>落地判断</b>:不是所有 RAG 都要上图——只有存在"跨文档全局问答/关系推理"需求,且能承担构建成本时才值得。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:Leiden 社区检测在这里起什么作用?</summary><div class="an">它把知识图谱按连接紧密程度划分成"模块化社区",社区内部实体关系密、社区之间关系疏。作用:① 把大语料切成"语义内聚"的单元,为社区摘要提供分组依据;② 让全局查询不是逐文档扫,而是逐社区聚合,规模可控、层次清晰。选 Leiden 而不是老 Louvain,主要因为 Leiden 保证社区连通性、质量更稳。</div></details>
+    <details class="qa"><summary class="qu">Q:GraphRAG 和传统向量 RAG 是替代还是互补?</summary><div class="an">互补。局部事实类问题向量检索又快又准;全局总结、多跳关系类问题靠图。工程上常见做法是<b>混合</b>:实体/关系图 + 向量索引并存,按 query 类型路由(局部走向量 + 图邻居,全局走社区摘要)。代价是两套索引都要建、要维护。</div></details>
+    <details class="qa"><summary class="qu">Q:构建图的成本这么高,怎么控制?</summary><div class="an">分层控制:① 只对"值得建图"的语料建图(规模中等、跨文档关系密);② 实体/关系抽取用小模型或批量离线跑,错峰降低成本;③ 社区摘要也离线预生成、缓存;④ 图增量更新而非全量重建。核心是承认它贵,把它当"离线一次性投入 + 在线复用"的资产来管理。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>社区检测</b>:按连接紧密程度把图划分成模块化社区。</div>
+      <div class="term-item"><b>Leiden 算法</b>:一种保证社区连通性的图划分算法。</div>
+      <div class="term-item"><b>社区摘要</b>:对同一社区内容预生成的层次化总结。</div>
+      <div class="term-item"><b>Map-reduce</b>:先分片汇总、再合并成最终答案的模式。</div>
+    </div>
+  </div>
+</article>

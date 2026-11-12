@@ -1,0 +1,69 @@
+<article class="q" id="algo-015" data-topic="algo" data-title="Few-shot示例选择算法从1000样本选10个" data-difficulty="4" data-tags="FewShot,样本选择,优化" data-company="" data-source="P6Q14" data-kw="FewShot 少样本 示例选择 样本选择 检索 KNN 相似度 多样性 MMR 聚类 submodular 贪心">
+
+  <div class="q-no">Agent算法 · Q14</div>
+  <h3>Few-shot 学习的样本选择算法</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#FewShot</span><span class="tag">#样本选择</span><span class="tag">#优化</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"给定 1000 样本选 10 个做 Few-shot,我的主线是<b>『相似度检索为主 + 多样性约束为辅』</b>:① 先明确是『全局固定 10 个』还是『每个测试样本各配 10 个』,后者效果通常更好;② 对每个测试样本,用 embedding 做 <b>kNN 检索</b>挑语义最接近的候选;③ 再用 <b>MMR / 聚类去冗余</b>,避免 10 个都挤在一个区域;④ 消融验证:随机是 baseline,相似度检索通常稳定涨点。核心心法:<b>示例与测试越相关、彼此越多样,效果越好</b>。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就是<b>考前从 1000 道旧题里划 10 道例题</b>:随机划=碰运气;只挑"跟新题长得最像"的 10 道=命中率高,但要是 10 道全是同一题型,遇到别的题型就抓瞎;<b>正确做法是既挑最像的、又保证题型不重样</b>——这就是"相似度 + 多样性"。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 先厘清问题定义(两种设定,别混)</b></p>
+    <ul>
+      <li><b>全局选择(global)</b>:从 1000 里固定选 10 个,所有测试样本共用——省 token、快,但泛化弱。</li>
+      <li><b>实例级选择(per-instance)</b>:每个测试样本单独从 1000 里选它的 10 个——效果更好但检索成本高。面试先问清要哪种,显专业。</li>
+    </ul>
+    <p><b>2. 方法谱系(由浅入深)</b></p>
+    <table>
+      <tr><th>方法</th><th>思路</th><th>优点</th><th>缺点</th></tr>
+      <tr><td><b>随机采样</b></td><td>直接抽 10 个</td><td>零成本,当 baseline</td><td>方差大、不稳定</td></tr>
+      <tr><td><b>相似度检索(kNN)</b></td><td>embedding 距离最近的 10 个</td><td>强 baseline,通常显著优于随机</td><td>可能扎堆、缺多样性</td></tr>
+      <tr><td><b>MMR(最大边际相关)</b></td><td>相关性 − 与已选集的相似度</td><td>兼顾相关与多样</td><td>要调 λ</td></tr>
+      <tr><td><b>聚类代表点</b></td><td>把 1000 聚成 k 类取中心</td><td>覆盖好,适合全局选择</td><td>中心样本未必最优</td></tr>
+      <tr><td><b>Submodular 贪心</b></td><td>最大化覆盖面(信息增益)</td><td>有理论保障(近似最优)</td><td>实现略重</td></tr>
+    </table>
+    <p><b>3. kNN 检索(推荐首选,讲透)</b></p>
+    <ul>
+      <li>把所有候选示例用同一个 embedding 模型编码,测试样本也编码,算余弦相似度取 top-k。embedding 模型最好和任务模型"同家族",否则检索的语义空间和生成模型不一致。</li>
+      <li>经验:文本分类/情感/抽取等<b>标注一致、分布接近</b>的任务,kNN 示例通常比随机高 2~5 个点;开放生成类收益略小,但几乎不亏。</li>
+      <li>坑:相似度检索对"标签翻转的边角样本"敏感——如果 top-k 里混进了和测试相似但标签特殊的样本,可能带偏,后面用多样性和去噪兜底。</li>
+    </ul>
+    <p><b>4. 多样性约束(MMR,补足 kNN 短板)</b></p>
+    <pre class="code"><span class="c"># 贪心式:每步选"既相关又和已选不重复"的下一个</span>
+MMR = argmax_{x ∈ 候选} [ λ·Sim(x, q) − (1−λ)·max_{y ∈ 已选} Sim(x, y) ]
+<span class="c"># λ 控制"相关 vs 多样"的权重,经验 λ ≈ 0.7</span></pre>
+    <p>等价做法:先 kNN 召回 top-50,再对这 50 个做 <b>聚类(k-means / 贪心挑代表)</b>,保证 10 个来自不同簇。submodular 本质是把"覆盖"定义成子模函数,贪心可达到 (1−1/e) 近似最优,面试提一句理论保障很加分。</p>
+    <p><b>5. 进阶思路(展示深度)</b></p>
+    <ul>
+      <li><b>检索时加任务适配</b>:候选里保留"高质量 / 教师判定标准的"样本(如人工标注置信度高、长度适中、无格式错误)。</li>
+      <li><b>动态示例排序</b>:同类任务里,把最相关示例放在提示词<b>末尾(离问题最近)</b>效果往往更好。</li>
+      <li><b>主动学习视角</b>:不只看相似,还看"不确定性"——挑那些让当前模型犹豫的样本做示例,信息量更大。</li>
+    </ul>
+    <p><b>6. 怎么验证选得好</b>:留一个验证集,分别用"随机 10 个"和"算法选 10 个"跑指标对比;再做<b>消融</b>——只相似 vs 相似+多样,看多样性到底带来多少增益。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么相似度检索通常比随机强?</summary><div class="an">大模型的 in-context learning 本质是<b>"照着近邻样例的格式和标签分布答题"</b>。与测试样本语义接近的示例,能提供更贴合的格式模板、标签先验和推理路径,少走弯路;随机示例可能语义毫不相干,对模型反而是一种噪声。</div></details>
+    <details class="qa"><summary class="qu">Q:1000 个样本里有错误标注怎么办?</summary><div class="an">检索前先做<b>数据清洗</b>:用模型置信度、交叉验证预测一致性、离群点检测筛掉可疑样本;对检索命中的 top-k 再做一次"标签一致性"校验,和测试样本标签分布冲突的降权或剔除。</div></details>
+    <details class="qa"><summary class="qu">Q:全局固定 10 个 vs 每个测试各选 10 个,你怎么权衡?</summary><div class="an">工程上先量效果和成本:实例级通常更准,但每次推理都要做 embedding + 检索,在线延迟和成本上升;折中方案是<b>先聚类出几十个代表,再对测试样本做小范围检索</b>,或对高频场景缓存"问题类型→示例"映射。全局选择则适合离线批处理、超低延迟场景。</div></details>
+    <details class="qa"><summary class="qu">Q:如果任务变了(领域漂移),示例选择会失效吗?</summary><div class="an">会。检索依赖 embedding 空间,领域漂移后相似度可能失真。对策:定期用新领域数据重训/换 embedding,或引入<b>检索重排</b>(用任务模型给候选打分);更稳妥的是做示例选择的持续评估,指标一旦掉就触发重选。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>Few-shot</b>:在提示词里给几个示例,让模型照着做,不更新参数。</div>
+      <div class="term-item"><b>kNN 检索</b>:找与查询最相似的 k 个样本。</div>
+      <div class="term-item"><b>MMR</b>:最大边际相关,同时最大化相关性与多样性。</div>
+      <div class="term-item"><b>Submodular</b>:子模函数,贪心可达到 (1−1/e) 近似最优。</div>
+      <div class="term-item"><b>领域漂移</b>:训练/检索分布与线上分布不一致。</div>
+    </div>
+  </div>
+</article>

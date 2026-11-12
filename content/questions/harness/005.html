@@ -1,0 +1,84 @@
+<article class="q" id="harness-005" data-topic="harness" data-title="如何定义LLM智能体Agent及核心组件" data-difficulty="2" data-tags="Agent,定义,架构" data-company="所有公司（必考）" data-source="P5Q1" data-kw="Agent 定义 LLM 智能体 规划 记忆 工具 架构 组件 大脑 循环">
+
+  <div class="q-no">Agent核心 · Q1</div>
+  <h3>你如何定义一个基于 LLM 的智能体（Agent）？它通常由哪些核心组件构成？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐</span>
+    <span class="tag">#Agent</span><span class="tag">#定义</span><span class="tag">#架构</span>
+    <span class="company">所有公司（必考）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"一句话定义:<b>Agent 是一个「以大模型为大脑、能自主感知环境并采取行动完成目标的系统」</b>。核心四件套:① <b>LLM 大脑</b>,负责推理与决策;② <b>规划(Planning)</b>,把大任务拆解、分步执行;③ <b>记忆(Memory)</b>,短期记当前对话、长期沉淀事实偏好;④ <b>工具使用(Tool Use)</b>,调用外部 API/搜索/代码补足模型没有的能力。它们被一个「观察→思考→行动→观察」的循环串起来,反复迭代直到达成目标。业内经典框架(Lilian Weng 提出)几乎都是这个拆法,LangGraph、AutoGen 也都照此组织。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>把 Agent 想象成一个<b>新来的实习生</b>:他的<b>大脑</b>(LLM)聪明但没经验、也不懂公司业务;得有人教他<b>拆任务</b>(规划:先做什么、后做什么);他需要一本<b>笔记本</b>(记忆:刚才老板说了啥、客户是谁)随时翻;还要给他<b>工具和权限</b>(能查数据库、能发邮件、能搜索)——否则光有脑子什么也干不了。所谓 Agent 系统,就是给这个实习生配齐「脑子 + 计划 + 笔记本 + 工具箱」,并让他在"干活 → 看结果 → 调整"的循环里自己把事情办成。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 定义与本质:Agent = LLM + 环境交互能力</b></p>
+    <ul>
+      <li>传统 LLM 是「一问一答的百科全书」:输入文本、输出文本,无状态、无副作用。</li>
+      <li>Agent 多了两个关键能力:① 能<b>行动</b>(调用工具/写代码/改数据);② 能在<b>循环</b>中根据环境反馈自我修正。</li>
+      <li>判断标准:如果只是把 prompt 丢给 LLM 再返回,那是「应用」;只有当系统自主决定"下一步做什么、要不要调工具、结果不行就换策略"时,才叫 Agent。</li>
+    </ul>
+    <p><b>2. 核心组件(四大件 + 一个循环)</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 560 284" role="img" aria-label="LLM Agent 核心组件架构">
+  <rect class="sd-box-amber" x="185" y="14" width="190" height="60" rx="10"/>
+  <text class="sd-t" x="280" y="40" text-anchor="middle">LLM（大脑）</text>
+  <text class="sd-ts" x="280" y="58" text-anchor="middle">推理 · 决策 · 生成引擎</text>
+  <path class="sd-a" d="M280 74 L280 102"/>
+  <path class="sd-a" d="M110 102 L450 102"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M110 102 L110 136"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M280 102 L280 136"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M450 102 L450 136"/>
+  <rect class="sd-box" x="35" y="140" width="150" height="64" rx="10"/>
+  <text class="sd-t" x="110" y="168" text-anchor="middle">Planning 规划</text>
+  <text class="sd-ts" x="110" y="186" text-anchor="middle">任务拆解 · 反思</text>
+  <rect class="sd-box" x="205" y="140" width="150" height="64" rx="10"/>
+  <text class="sd-t" x="280" y="168" text-anchor="middle">Memory 记忆</text>
+  <text class="sd-ts" x="280" y="186" text-anchor="middle">短期 · 长期</text>
+  <rect class="sd-box" x="375" y="140" width="150" height="64" rx="10"/>
+  <text class="sd-t" x="450" y="168" text-anchor="middle">Tool Use 工具</text>
+  <text class="sd-ts" x="450" y="186" text-anchor="middle">API · 代码执行</text>
+  <rect class="sd-layer" x="110" y="228" width="340" height="42" rx="10"/>
+  <text class="sd-l" x="280" y="253" text-anchor="middle">执行循环：观察 → 思考 → 行动 → 观察</text>
+</svg>
+</div>
+    <ul>
+      <li><b>LLM 大脑</b>:推理、决策、生成,是一切智能的源头。</li>
+      <li><b>Planning(规划)</b>:任务分解(CoT/ToT)+ 反思(Reflexion),决定"先做什么、怎么走"。</li>
+      <li><b>Memory(记忆)</b>:短期(上下文/滑动窗口/摘要)+ 长期(向量库/知识图谱),决定"我记得什么"。</li>
+      <li><b>Tool Use(工具)</b>:Function Calling / API / 代码解释器,决定"我能干什么"。</li>
+      <li><b>执行循环(Agent Loop)</b>:把这四者串起来——观察环境 → 规划 → 选择行动 → 执行工具 → 观察结果 → 更新记忆 → 继续,直到达成目标或触发停止条件。</li>
+    </ul>
+    <p><b>3. 为什么必须要有这四块(缺一不可)</b></p>
+    <table>
+      <tr><th>缺了哪块</th><th>后果</th></tr>
+      <tr><td>没有 Tool Use</td><td>知识静态、过时,不能查实时数据、不能执行操作(下单/发邮件)</td></tr>
+      <tr><td>没有 Memory</td><td>多轮对话"失忆",无法个性化、无法跨会话延续</td></tr>
+      <tr><td>没有 Planning</td><td>复杂任务(研究课题、订多段行程)一次生成容易跑偏、遗漏</td></tr>
+      <tr><td>没有执行循环</td><td>输出一次就结束,错了也不会自我纠正</td></tr>
+    </table>
+    <p><b>4. 设计 trade-off</b>:组件越多,链路越长,失败点、成本、延迟都上升。设计原则是「够用就好」——简单任务一个 LLM + 一个工具就够,不必上全套;复杂度要跟着任务复杂度走,而不是炫技。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:Agent 和「LLM + Prompt」的本质区别是什么?</summary><div class="an">区别在于「自主循环 + 行动能力」。Prompt 应用是单次输入输出的映射,LLM 不感知环境、不产生副作用;Agent 把 LLM 放进观察-思考-行动的循环里,由它自己决定调不调工具、调哪个、结果不满意就换策略,直到目标完成。另一个判据是「是否有外部副作用」:Agent 能改数据、发消息、执行代码,纯生成没有。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么说 LLM 是"大脑"而不是"Agent 本身"?</summary><div class="an">LLM 只提供推理和生成,它自己没有手(不能执行)、没有眼睛(不能感知)、没有记忆(无状态)。是外围的规划器、记忆库、工具运行时和环境共同构成了 Agent。所以 Agent 是「以 LLM 为核心的一个系统」,而非模型本身——这也是为什么换个更强的模型只是升级了大脑,Agent 架构能力(循环/记忆/工具治理)仍要自己建。</div></details>
+    <details class="qa"><summary class="qu">Q:你项目里会选哪些现成框架来实现?</summary><div class="an">分场景:需要复杂状态图和可恢复的工作流用 <b>LangGraph</b>(checkpoint + 条件边);多角色协作/对话用 <b>AutoGen</b>;轻量单 Agent 用 LangChain Agent + tool。决策依据是「是否需要图/状态持久化、是否需要多人协作」,而不是框架名气。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>LLM Agent</b>:以大模型为核心、可自主行动完成目标的系统。</div>
+      <div class="term-item"><b>Agent Loop</b>:观察→思考→行动→观察的循环执行结构。</div>
+      <div class="term-item"><b>Planning</b>:任务的分解、推理路径搜索与反思修正。</div>
+      <div class="term-item"><b>Memory</b>:短期(上下文)与长期(可检索事实)记忆系统。</div>
+      <div class="term-item"><b>Tool Use</b>:模型通过结构化指令调用外部 API 的能力。</div>
+      <div class="term-item"><b>Environment</b>:Agent 交互的外部世界(网页/API/代码/数据库)。</div>
+    </div>
+  </div>
+</article>

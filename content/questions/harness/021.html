@@ -1,0 +1,94 @@
+<article class="q" id="harness-021" data-topic="harness" data-title="子Agent回复不对的反思与跳出机制" data-difficulty="3" data-tags="错误处理,反思机制" data-company="字节(真题)" data-source="P5Q36" data-kw="错误处理 反思机制 自我修正 验证器 置信度 循环退出 限制次数 兜底 转人工 字节">
+
+  <div class="q-no">Agent核心 · Q36</div>
+  <h3>如果子agent回复不对怎么办？反思？跳不出去怎么办？限制次数？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#错误处理</span><span class="tag">#反思机制</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"分三步:① <b>先发现错误</b>——靠校验器(格式/规则/工具结果校验)+ 置信度阈值 + Critic 复查,而不是盲目信子 Agent;② <b>再反思纠正</b>——把错误原因作为反馈喂回去,让子 Agent 重试,或换提示/换模型/降级重做,最多 2~3 轮;③ <b>防跳不出去</b>——设硬上限(最大反思轮次、总 token/时间预算),并检测"连续无实质变化",超限就走<b>兜底策略</b>:取历史最优、降级直答、或转人工。原则是<b>允许失败,但必须有退出机制和兜底,不能让用户卡死</b>。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就像<b>实习生交作业 + 带教老师把关</b>:实习生交上来的作业(子 Agent 输出),老师先<b>检查</b>(校验器)发现不对;不是直接骂一顿,而是告诉他"这里错了,原因是 XX,重做"(<b>带反馈重试</b>);但老师不会让他无限重做——<b>最多改 2~3 次</b>,还不行就换个人做(换模型)或老师自己上手(降级直答),实在搞不定就上报领导(转人工)。关键是:重试有反馈、有限次、有兜底。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 先解决"怎么知道它错了"(没有检测,反思无从谈起)</b></p>
+    <ul>
+      <li><b>规则/格式校验</b>:输出必须是合法 JSON、必须引用来源、数值必须在合理区间——可程序化判定,最可靠。</li>
+      <li><b>工具结果校验</b>:子 Agent 调工具拿回的结果是否符合预期(为空、报错、类型不对)。</li>
+      <li><b>置信度阈值</b>:让子 Agent 附带 self-confidence 分数,低于阈值视为不可信。</li>
+      <li><b>Critic/Verifier 复查</b>:另一个 Agent 或强模型对结果打分/找茬,不通过即判错。</li>
+    </ul>
+    <p><b>2. 反思纠正:怎么"修"而不是"重试"</b></p>
+    <ul>
+      <li><b>带反馈重试(关键)</b>:把"错在哪、为什么错、怎么改"作为新上下文喂回子 Agent,而不是原样重跑(原样重跑大概率还是错)。</li>
+      <li><b>渐进升级</b>:第一轮改提示重试 → 仍错则换工具/换检索 → 再错则换更强模型或换策略(如拆更小的子任务)。</li>
+      <li><b>反思要落地到具体动作</b>:让模型输出"我上一步哪里错了 + 下一步改做什么",而非空泛的"我会更小心"。</li>
+    </ul>
+    <p><b>3. 防"跳不出去":三重硬约束</b></p>
+    <ul>
+      <li><b>限制反思轮次</b>:通常 2~3 轮,超限强制退出——这是最直接的闸门。</li>
+      <li><b>预算上限</b>:总 token / 时间 / 成本预算,任一超限即停,防烧钱。</li>
+      <li><b>无进展检测</b>:连续两轮输出无实质变化(哈希/关键字段比对),判定陷入死循环,熔断。</li>
+    </ul>
+    <p><b>4. 兜底策略(退出之后去哪)</b></p>
+    <table>
+      <tr><th>策略</th><th>做法</th><th>适用</th></tr>
+      <tr><td><b>取历史最优</b></td><td>反思全程保留各轮结果,退出时选评分最高的一版</td><td>已有"不完美但可用"的结果</td></tr>
+      <tr><td><b>降级直答</b></td><td>放弃多步 Agent,单模型基于已有信息直接给答案并说明不确定性</td><td>用户等不起、答案可接受部分偏差</td></tr>
+      <tr><td><b>转人工</b></td><td>明确告知 + 提交工单/人工接管</td><td>高风险、敏感、用户已不耐烦</td></tr>
+    </table>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 476 342" role="img" aria-label="子Agent校验反思与退出机制">
+  <rect class="sd-layer" x="4" y="8" width="468" height="326"/>
+  <text class="sd-l" x="16" y="26">子 Agent 校验 · 反思与退出机制</text>
+  <rect class="sd-box-rose" x="100" y="40" width="200" height="48" rx="10"/>
+  <text class="sd-t" x="200" y="68" text-anchor="middle">子 Agent 输出</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M200 88 L200 108"/>
+  <rect class="sd-box" x="100" y="112" width="200" height="56" rx="10"/>
+  <text class="sd-t" x="200" y="134" text-anchor="middle">校验器 / 置信度</text>
+  <text class="sd-ts" x="200" y="152" text-anchor="middle">规则·格式·Critic</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M300 140 L338 140"/>
+  <text class="sd-ts" x="316" y="134" text-anchor="middle">通过</text>
+  <rect class="sd-box-teal" x="340" y="112" width="120" height="56" rx="10"/>
+  <text class="sd-t" x="400" y="136" text-anchor="middle">交给下游</text>
+  <text class="sd-ts" x="400" y="154" text-anchor="middle">继续执行</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M200 168 L200 188"/>
+  <text class="sd-ts" x="208" y="180" text-anchor="start">不通过</text>
+  <rect class="sd-box-amber" x="100" y="192" width="200" height="56" rx="10"/>
+  <text class="sd-t" x="200" y="214" text-anchor="middle">带反馈反思重试</text>
+  <text class="sd-ts" x="200" y="232" text-anchor="middle">错在哪 · ≤3 轮</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M300 220 L338 220"/>
+  <text class="sd-ts" x="316" y="214" text-anchor="middle">通过</text>
+  <rect class="sd-box-teal" x="340" y="192" width="120" height="56" rx="10"/>
+  <text class="sd-t" x="400" y="216" text-anchor="middle">输出</text>
+  <text class="sd-ts" x="400" y="234" text-anchor="middle">结果采纳</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M200 248 L200 268"/>
+  <text class="sd-ts" x="208" y="260" text-anchor="start">超限/无进展</text>
+  <rect class="sd-box-rose" x="100" y="272" width="200" height="56" rx="10"/>
+  <text class="sd-t" x="200" y="294" text-anchor="middle">兜底策略</text>
+  <text class="sd-ts" x="200" y="312" text-anchor="middle">历史最优 / 降级 / 转人工</text>
+</svg></div>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:反思会不会越改越差,甚至改坏本来对的部分?</summary><div class="an">会,这是反思机制的已知风险。对策:① <b>全程保留各版本</b>,退出时按校验分选最优,而不是默认取最后一版;② 反馈要<b>聚焦具体错误</b>、约束"只改错误点";③ 设硬上限防恶性循环;④ 用测试集验证"反思后准确率是否真的提升",提升才启用反思,否则宁可不反思。</div></details>
+    <details class="qa"><summary class="qu">Q:子 Agent 一直"自信地说对",但其实错了(高置信度错误)怎么办?</summary><div class="an">模型置信度不可全信,所以<b>不能只靠自评</b>。上独立的校验器:有标准答案的用规则/程序校验,开放的用 Critic Agent 或 LLM-as-judge 交叉检查;高危操作(写库、扣款)再叠一层"二次确认/人工审批"。</div></details>
+    <details class="qa"><summary class="qu">Q:反思轮次设多少合适,依据是什么?</summary><div class="an">没有绝对标准,经验值 <b>2~3 轮</b>:多数反思类研究/工程里第 1~2 轮收益最大,之后边际递减、成本继续涨,还易发散。实际按<b>测试集上"轮次 vs 正确率/成本"曲线</b>来定拐点,并针对不同任务分级(简单任务不反思,复杂任务才开)。</div></details>
+    <details class="qa"><summary class="qu">Q:转人工前,怎么避免让用户觉得"机器很蠢、白等了"?</summary><div class="an">尽早转、带上下文转:检测到高失败风险或用户负面情绪就<b>提前</b>转,而不是拖到超限才转;转接时<b>把已收集的信息、已完成的步骤打包</b>给人工,避免用户重复描述;话术上明确"已为您转接专员",减少挫败感。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>Reflection</b>:让模型审视并修正自己输出的机制。</div>
+      <div class="term-item"><b>Self-confidence</b>:模型对自身答案的自评置信度。</div>
+      <div class="term-item"><b>Critic/Verifier</b>:独立于生成者的校验/评审角色。</div>
+      <div class="term-item"><b>兜底(fallback)</b>:主路径失败后的降级出口。</div>
+      <div class="term-item"><b>熔断</b>:异常反复时强制中断,防止失控。</div>
+    </div>
+  </div>
+</article>

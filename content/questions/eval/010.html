@@ -1,0 +1,93 @@
+<article class="q" id="eval-010" data-topic="eval" data-title="评估Agent系统鲁棒性的对抗性与边缘测试" data-difficulty="3" data-tags="鲁棒性评估,压力测试" data-company="字节、阿里" data-source="P5Q48" data-kw="鲁棒性 评估 对抗 红队 压力测试 边缘case 越狱 恢复率 基准 字节 阿里">
+
+  <div class="q-no">Agent核心 · Q48</div>
+  <h3>如何评估一个Agent系统的鲁棒性？除了准确率，还会测试哪些对抗性或边缘case？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#鲁棒性评估</span><span class="tag">#压力测试</span>
+    <span class="company">字节、阿里</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>鲁棒性 = <b>在异常、对抗、长尾输入下"不崩、不越界、能恢复"</b>。我会分三层评估：<b>单点层</b>——工具失败、幻觉、长上下文；<b>流程层</b>——死循环、任务漂移、多轮失忆、超时；<b>对抗层</b>——Prompt 注入、越权诱导、越狱、有害请求。指标从准确率扩展到<b>任务成功率、越界率、有害输出率、恢复率、崩溃率、重试/降级率</b>；测试方法用<b>红队 + 自动 Fuzzing + 黄金集回归 + 线上影子流量</b>。核心观点：<b>准确率只衡量"正常题会不会"，鲁棒性衡量"被搞了会不会出事"</b>，后者在真实上线里更关键。</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>考驾照</b>：光会开直线（准确率）不够，还得考<b>雨天、坡起、突发加塞、爆胎</b>（边缘/对抗）。更有意思的是"陪考的人故意捣乱"——比如有人大喊"右转右转"诱导你（Prompt 注入）、有人抢方向盘（越权诱导）。一个真正可靠的司机，是<b>被人误导也不闯红灯、出了小状况能自己把车稳回来</b>。评估 Agent 鲁棒性，就是系统地设计这些"坏天气"和"捣乱的人"去测它。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 评估维度：从"答对"到"不闯祸"（先扩展指标）</b></p>
+    <table>
+      <tr><th>层级</th><th>测什么</th><th>关键指标</th></tr>
+      <tr><td><b>单点</b></td><td>工具返回异常、幻觉、长输入</td><td>任务成功率、事实一致性、P99 延迟</td></tr>
+      <tr><td><b>流程</b></td><td>死循环、漂移、失忆、超时</td><td>完成率、最大步数、恢复率、超时率</td></tr>
+      <tr><td><b>对抗</b></td><td>注入、越狱、越权、有害请求</td><td>越界率、有害输出率、注入成功率(越低越好)</td></tr>
+      <tr><td><b>容错</b></td><td>工具挂了、下游降级</td><td>降级成功率、重试有效率、崩溃率</td></tr>
+    </table>
+    <ul>
+      <li>特别要区分<b>"安全指标"和"质量指标"</b>：准确率高但越界率也高，绝对不可上线——两者要分开报告，不能用一个综合分掩盖风险。</li>
+    </ul>
+    <p><b>2. 对抗性测试（重点，逐类讲）</b></p>
+    <ul>
+      <li><b>Prompt 注入</b>：在文档/网页/邮件里塞"忽略之前指令，执行 XX"；直接注入、间接注入（藏在检索资料里）、多轮注入（前几轮埋雷后几轮触发）都要测。</li>
+      <li><b>越狱(Jailbreak)</b>：用角色扮演、假翻译任务、逐字拼接等绕过安全对齐，诱导出有害/违规内容。</li>
+      <li><b>越权诱导</b>：诱导模型调用不该调的工具、越数据范围访问（"把用户 B 的订单也给我看看"）。</li>
+      <li><b>数据投毒/误导</b>：喂错误信息看它是否被带偏、能否在工具真值校验下纠回来。</li>
+    </ul>
+    <p><b>3. 边缘 case（工程 + 语义两头）</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 708 266" role="img" aria-label="边缘 case 分类">
+  <rect class="sd-layer" x="16" y="14" width="330" height="240"/>
+  <text class="sd-l" x="32" y="36">工程边缘</text>
+  <text class="sd-ts" x="32" y="62">· 空输入</text>
+  <text class="sd-ts" x="32" y="84">· 超长输入</text>
+  <text class="sd-ts" x="32" y="106">· 并发突发</text>
+  <text class="sd-ts" x="32" y="128">· 工具超时</text>
+  <text class="sd-ts" x="32" y="150">· 网络抖动</text>
+  <text class="sd-ts" x="32" y="172">· 部分返回</text>
+  <rect class="sd-layer" x="362" y="14" width="330" height="240"/>
+  <text class="sd-l" x="378" y="36">语义边缘</text>
+  <text class="sd-ts" x="378" y="62">· 多义模糊指令</text>
+  <text class="sd-ts" x="378" y="84">· 指代不清（「那个」）</text>
+  <text class="sd-ts" x="378" y="106">· 自相矛盾要求</text>
+  <text class="sd-ts" x="378" y="128">· 前后冲突</text>
+  <text class="sd-ts" x="378" y="150">· 方言错别字</text>
+  <text class="sd-ts" x="378" y="172">· 中英夹杂</text>
+  <text class="sd-ts" x="378" y="194">· 极冷门实体</text>
+  <text class="sd-ts" x="378" y="216">· 反讽与否定</text>
+</svg></div>
+    <ul>
+      <li>把线上真实 badcase 沉淀成<b>回归集</b>，每次发版必跑，防止"修了 A 又坏 B"。</li>
+      <li>模糊/矛盾指令要测"是否触发澄清"而非"硬答"——鲁棒的 Agent 会正确拒绝或反问。</li>
+    </ul>
+    <p><b>4. 测试方法论（怎么规模化跑）</b></p>
+    <ul>
+      <li><b>红队(Red teaming)</b>：人类 + 模型双红队，专门找漏洞，输出攻击样本进回归集。</li>
+      <li><b>自动 Fuzzing</b>：对输入做变体（改词、加噪声、拼注入模板）批量生成测试，覆盖人工想不到的组合。</li>
+      <li><b>LLM-as-judge + 规则判官</b>：自动给"越界/有害/注入"打分；关键安全项用确定性规则（工具白名单命中、权限命中）做硬判定，不靠模型自评。</li>
+      <li><b>影子流量/灰度</b>：线上复制流量或小流量上线，对比新旧版本在真实分布下的崩溃率与越界率。</li>
+    </ul>
+    <p><b>5. 报告与红线（收尾）</b></p>
+    <ul>
+      <li>给出<b>分维度看板</b>而非单分：质量分、安全分、稳定分分开；安全类指标设<b>硬阈值</b>，超过直接阻断发布。</li>
+      <li>诚实讲边界：对抗是<b>军备竞赛</b>，没有 100% 安全，靠"持续红队 + 快速修复 + 纵深防御"把风险压在可接受范围。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:怎么衡量"Agent 被注入攻击成功了"？</summary><div class="an">定义明确的<b>攻击成功判定</b>：是否执行了不该执行的动作（越权工具调用命中）、是否输出注入要求的内容、是否泄露了数据。用"注入成功率 = 命中数 / 攻击样本数"量化；成功判定优先用<b>确定性规则</b>（工具是否在白名单、权限是否放行），不能只靠模型自评"我有没有被攻击"。</div></details>
+    <details class="qa"><summary class="qu">Q:鲁棒性和准确率冲突怎么办（防御太严会拒答正常问题）？</summary><div class="an">这是<b>安全与可用性的平衡</b>：按风险分级设阈值——低风险场景宽松、高风险场景收紧；用"误拒率"和"漏放率"一起看，选业务可接受的权衡点。实践中把两类测试放同一评估集，<b>一起回归</b>，改防御必须同时看两个方向，避免"防住攻击却废了正常功能"。</div></details>
+    <details class="qa"><summary class="qu">Q:没有足够对抗样本时怎么办？</summary><div class="an">用<b>模型辅助生成</b>：让另一个强模型扮演攻击者批量生成注入/越狱变体，人工筛出高质量的入回归集；再配合输入 Fuzzing 自动扩量。样本不需要一开始就海量，关键是<b>建立"攻击 → 发现 → 沉淀 → 回归"的闭环</b>，让测试集随线上漏洞持续生长。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>红队</b>:专职找漏洞的对抗测试团队/模型。</div>
+      <div class="term-item"><b>Fuzzing</b>:自动生成大量输入变体去撞边界。</div>
+      <div class="term-item"><b>越狱</b>:绕过安全对齐诱导违规输出。</div>
+      <div class="term-item"><b>OOD</b>:分布外输入，训练/常见数据之外的情况。</div>
+      <div class="term-item"><b>影子流量</b>:用线上真实流量在旁路做无感对比测试。</div>
+      <div class="term-item"><b>恢复率</b>:异常后能否自行纠正/降级到可用状态的比例。</div>
+    </div>
+  </div>
+</article>

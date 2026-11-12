@@ -1,0 +1,94 @@
+<article class="q" id="infer-005" data-topic="infer" data-title="LLM选型:GPT-4 vs Claude vs Llama vs 国产大模型" data-difficulty="4" data-tags="LLM,模型选型" data-company="" data-source="P3Q5" data-kw="LLM 选型 GPT-4 Claude Llama 国产 Qwen DeepSeek GLM 决策 成本 合规">
+
+      <div class="q-no">框架选型 · Q5</div>
+      <h3>LLM 选型:GPT-4 vs Claude vs Llama vs 国产大模型</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#LLM</span><span class="tag">#模型选型</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"我用一棵决策树:第一问<b>合规</b>(数据能不能出境/是否要私有化)——不能出境直接锁死国产(Qwen/DeepSeek/GLM);第二问<b>任务类型</b>——复杂推理/长文档/代码各有强项;第三问<b>成本结构</b>——API 按量还是自建 GPU 固定。然后<b>分级使用</b>:旗舰模型只打 10~20% 的硬仗,70% 流量给中档,简单活给小模型。选型结论永远附一个退出机制:通过统一网关接入,随时可换,不被任何一家锁定。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>像<b>公司用车队</b>:不能全买迈巴赫(旗舰模型,贵但强);也不能全买三蹦子(小模型,便宜但上不了高速)。合理车队是:高管商务接待(复杂推理)用迈巴赫,日常公务用帕萨特(中档),园区通勤用电瓶车(小模型)——<b>分级派车</b>才是成本和质量的平衡。而且车都从"租车平台"(统一网关)租,哪家服务好随时换,不跟单一车行签死。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 选型决策树(按顺序问)</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 546 412" role="img" aria-label="LLM 选型决策树">
+  <rect class="sd-box" x="10" y="16" width="200" height="44" rx="10"/>
+  <text class="sd-t" x="110" y="32" text-anchor="middle">① 合规·私有化?</text>
+  <text class="sd-ts" x="110" y="50" text-anchor="middle">数据能否出境</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M210 38 L290 38"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M210 38 L290 90"/>
+  <rect class="sd-box-amber" x="290" y="16" width="240" height="44" rx="10"/>
+  <text class="sd-t" x="410" y="32" text-anchor="middle">Llama/Qwen 开源版</text>
+  <text class="sd-ts" x="410" y="50" text-anchor="middle">私有化 → 自部署</text>
+  <rect class="sd-box-amber" x="290" y="68" width="240" height="44" rx="10"/>
+  <text class="sd-t" x="410" y="84" text-anchor="middle">国产闭源</text>
+  <text class="sd-ts" x="410" y="102" text-anchor="middle">国内 API · 合规</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M110 60 L110 148"/>
+  <rect class="sd-box" x="10" y="148" width="200" height="112" rx="10"/>
+  <text class="sd-t" x="110" y="198" text-anchor="middle">② 任务类型?</text>
+  <text class="sd-ts" x="110" y="216" text-anchor="middle">按强项路由</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M210 204 L290 170"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M210 204 L290 218"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M210 204 L290 266"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M210 204 L290 314"/>
+  <rect class="sd-box-amber" x="290" y="148" width="240" height="44" rx="10"/>
+  <text class="sd-t" x="410" y="164" text-anchor="middle">复杂推理/Agent</text>
+  <text class="sd-ts" x="410" y="182" text-anchor="middle">旗舰级</text>
+  <rect class="sd-box-amber" x="290" y="196" width="240" height="44" rx="10"/>
+  <text class="sd-t" x="410" y="212" text-anchor="middle">代码</text>
+  <text class="sd-ts" x="410" y="230" text-anchor="middle">Claude / DeepSeek</text>
+  <rect class="sd-box-amber" x="290" y="244" width="240" height="44" rx="10"/>
+  <text class="sd-t" x="410" y="260" text-anchor="middle">长文档分析</text>
+  <text class="sd-ts" x="410" y="278" text-anchor="middle">长上下文模型</text>
+  <rect class="sd-box-amber" x="290" y="292" width="240" height="44" rx="10"/>
+  <text class="sd-t" x="410" y="308" text-anchor="middle">中文创作/客服</text>
+  <text class="sd-ts" x="410" y="326" text-anchor="middle">国产旗舰</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M110 260 L110 352"/>
+  <rect class="sd-box" x="10" y="352" width="200" height="44" rx="10"/>
+  <text class="sd-t" x="110" y="368" text-anchor="middle">③ 量级·成本?</text>
+  <text class="sd-ts" x="110" y="386" text-anchor="middle">高频简单任务</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M210 374 L290 374"/>
+  <rect class="sd-box-amber" x="290" y="352" width="240" height="44" rx="10"/>
+  <text class="sd-t" x="410" y="368" text-anchor="middle">小模型/蒸馏</text>
+  <text class="sd-ts" x="410" y="386" text-anchor="middle">便宜 1~2 数量级</text>
+</svg></div>
+        <p><b>2. 主流模型特点速览(面试展示知识面,注意别背过时价格)</b></p>
+        <table>
+          <tr><th>阵营</th><th>代表</th><th>印象</th></tr>
+          <tr><td><b>OpenAI 系</b></td><td>GPT-4o / o 系列</td><td>全能+生态最成熟,多模态强;o 系列推理链强</td></tr>
+          <tr><td><b>Anthropic</b></td><td>Claude 系列</td><td>长上下文、代码、写作稳;安全风格;Agent 场景口碑好</td></tr>
+          <tr><td><b>开源系</b></td><td>Llama / Qwen / DeepSeek 开源版</td><td>私有化必选;微调自由;Qwen 系开源生态最大,DeepSeek 性价比和代码突出</td></tr>
+          <tr><td><b>国产 API</b></td><td>Qwen / GLM / 豆包 / DeepSeek</td><td>中文强、价格低、合规无忧;旗舰能力已进入第一梯队</td></tr>
+        </table>
+        <p class="note">面试话术:具体排名月月在变,我聊"选择的方法论"而不是背今天的榜单——这句话本身就是加分项。</p>
+        <p><b>3. 分级路由架构(把选型变成系统设计)</b></p>
+        <ul>
+          <li>意图/难度分类器(或先小后大的 <b>cascade</b> 策略:小模型先答,置信度低再升级)。</li>
+          <li>通过统一网关路由(见第一部分 Q6),模型只是一层可替换的配置。</li>
+          <li>每档模型配质量护栏:小模型答案过校验(引用存在性/格式),不过关自动升级重答。</li>
+        </ul>
+        <p><b>4. 微调 vs 直接用(自然延伸)</b></p>
+        <ul>
+          <li>Prompt 解决不了的:格式死活不稳、领域黑话不懂、工具选择太差 → 先试 Few-shot,再微调小模型,别上来就微调旗舰。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:国产模型和 GPT-4 差距还大吗?</summary><div class="an">头部国产旗舰在中文场景、常见 Agent 任务上已可比肩甚至局部反超;差距主要在最前沿推理、生态工具链和极端长上下文稳定性。我的策略是按任务实测,而不是信仰品牌。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么防止被单一供应商锁定?</summary><div class="an">统一 API 抽象(适配器)+ 数据可迁移(Prompt/评估集都是资产,和模型解耦)+ 每季度平行测试备选模型——换模型的工程成本应保持在"改配置"级别。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>Cascade 策略</b>:先小后大逐级升级。</div>
+          <div class="term-item"><b>私有化部署</b>:模型跑在自己机房。</div>
+          <div class="term-item"><b>供应商锁定</b>:被单一厂商绑死,切换成本高。</div>
+        </div>
+      </div>
+</article>

@@ -1,0 +1,88 @@
+<article class="q" id="harness-001" data-topic="harness" data-title="设计Multi-Agent协作系统(智能客服)" data-difficulty="5" data-tags="MultiAgent,系统设计,协作" data-company="字节 / 阿里(真题)" data-source="P1Q2" data-kw="MultiAgent 多智能体 客服 Supervisor 订单 物流 售后 状态 并发 异常 字节 阿里">
+
+      <div class="q-no">系统设计 · Q2</div>
+      <h3>设计一个 Multi-Agent 协作系统(电商智能客服场景)</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐⭐</span>
+        <span class="tag">#MultiAgent</span><span class="tag">#系统设计</span><span class="tag">#协作</span>
+        <span class="company">字节 / 阿里(真题)</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"我用 <b>Supervisor 模式</b>:一个主管 Agent 负责理解意图、拆任务、分诊,三个专业 Agent(订单/物流/售后)各管一摊、各自带最小化的工具集;会话状态统一放 Redis,Agent 本身无状态、可水平扩展;并发场景下主管可以并行调度多个 Agent;异常方面做超时控制、死循环防护、敏感操作审批和转人工兜底。选多 Agent 而不是单 Agent 的核心原因是<b>每个 Agent 上下文更专注、工具更少,准确率更高、更好独立迭代</b>。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>就是<b>医院分诊台模式</b>:病人描述症状(用户问题)→ 分诊台判断挂哪科(Supervisor 路由)→ 各科医生用自己科室的设备问诊(专业 Agent 调用各自的工具)→ 复杂病情请多科室会诊(多 Agent 协作)→ 最后分诊台汇总结果给你。如果只有一个"全科医生"(单 Agent)包治百病,他要么啥都会一点但都不精,要么设备太多手忙脚乱——这就是拆分 Agent 的意义。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 拓扑结构:Supervisor(星型)</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 500 266" role="img" aria-label="Multi-Agent 电商客服 Supervisor 星型架构">
+  <rect class="sd-box-amber" x="160" y="16" width="180" height="60" rx="10"/>
+  <text class="sd-t" x="250" y="42" text-anchor="middle">Supervisor Agent</text>
+  <text class="sd-ts" x="250" y="60" text-anchor="middle">意图·拆解·汇总·转人工</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M250 76 L86 118"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M250 76 L250 118"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M250 76 L414 118"/>
+  <rect class="sd-box" x="16" y="120" width="140" height="56" rx="10"/>
+  <text class="sd-t" x="86" y="144" text-anchor="middle">订单 Agent</text>
+  <text class="sd-ts" x="86" y="162" text-anchor="middle">查订单·改地址·催发货</text>
+  <rect class="sd-box" x="180" y="120" width="140" height="56" rx="10"/>
+  <text class="sd-t" x="250" y="144" text-anchor="middle">物流 Agent</text>
+  <text class="sd-ts" x="250" y="162" text-anchor="middle">查轨迹·预测·异常件</text>
+  <rect class="sd-box" x="344" y="120" width="140" height="56" rx="10"/>
+  <text class="sd-t" x="414" y="144" text-anchor="middle">售后 Agent</text>
+  <text class="sd-ts" x="414" y="162" text-anchor="middle">退款·换货·工单</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M86 176 L86 206"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M250 176 L250 206"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M414 176 L414 206"/>
+  <rect class="sd-box-teal" x="16" y="208" width="140" height="42" rx="10"/>
+  <text class="sd-t" x="86" y="233" text-anchor="middle">订单系统 API</text>
+  <rect class="sd-box-teal" x="180" y="208" width="140" height="42" rx="10"/>
+  <text class="sd-t" x="250" y="233" text-anchor="middle">物流 API</text>
+  <rect class="sd-box-teal" x="344" y="208" width="140" height="42" rx="10"/>
+  <text class="sd-t" x="414" y="233" text-anchor="middle">工单/退款 API</text>
+</svg></div>
+        <p>路由方式:轻量意图分类器(小模型或规则)先粗分,拿不准的交给 Supervisor 用 LLM 判断;支持<b>并行调度</b>——"我的货到哪了顺便把发票改一下"这类复合请求,订单 Agent 和物流 Agent 同时干活。</p>
+        <p><b>2. 状态管理(关键考点)</b></p>
+        <ul>
+          <li><b>Agent 无状态</b>:所有会话状态(用户信息、对话历史、各 Agent 中间产出)存 <b>Redis</b>(热数据,带 TTL)+ 持久化数据库(冷备)。这样任何一个 Agent 实例挂了,请求换一台机器照样跑——这是高并发的的前提。</li>
+          <li><b>上下文按需传递</b>:不要把整个对话历史塞给每个 Agent,而是 Supervisor 生成"任务卡片"(用户是谁、要办什么、已知哪些字段),每个 Agent 只拿自己需要的——上下文又小又准,token 也省。</li>
+          <li>关键业务状态(如退款单状态)用<b>状态机</b>管理,每次变更落库,可审计可回放。</li>
+        </ul>
+        <p><b>3. 并发处理</b></p>
+        <ul>
+          <li>用户间并发:请求级隔离,Agent 无状态 + 水平扩展天然支持。</li>
+          <li>请求内并发:asyncio / 线程池并行调用多个 Agent,用 asyncio.gather 汇聚结果。</li>
+          <li>下游保护:对订单系统等内部 API 做<b>限流 + 熔断</b>,防止 Agent 流量打挂业务系统(面试官很爱问这一点:AI 系统不能成为压垮业务系统的元凶)。</li>
+        </ul>
+        <p><b>4. 异常处理(体现工程成熟度)</b></p>
+        <ul>
+          <li><b>超时</b>:单 Agent 调用限时(如 5s),超时降级。</li>
+          <li><b>死循环防护</b>:限制 Supervisor 最大调度轮次(如 8 轮)和总 token 预算,超了直接转人工。</li>
+          <li><b>意图不清</b>:反问用户澄清,而不是瞎猜。</li>
+          <li><b>情绪检测</b>:用户发火 / 连续不满意 → 无条件转人工。</li>
+          <li><b>敏感操作</b>:退款、改地址这类写操作,Agent 只能"起草",需要用户二次确认或人工审批后执行(工具层面做成两段式:预览 → 执行)。</li>
+          <li><b>兜底</b>:所有失败路径最终收敛到"转人工 + 道歉话术",绝不能让用户卡死在机器上。</li>
+        </ul>
+        <p><b>5. 工具权限最小化</b>:每个 Agent 只能访问自己领域的 API,售后 Agent 摸不到订单修改接口——就算被 Prompt 注入攻击,损失也被限制在最小范围。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:为什么要拆 3 个 Agent,一个大 Agent 加全部工具不行吗?</summary><div class="an">三个原因:① 工具一多(30+),模型选错工具的概率显著上升;② 每个 Agent 的系统提示词可以写得更专业、上下文更聚焦;③ 各 Agent 可独立迭代、独立评估、独立回滚,团队协作也好分工。反过来说,<b>如果场景简单(工具 &lt; 10 个、流程线性),单 Agent 更简单可靠</b>——能说出这个 trade-off 才是加分项。</div></details>
+        <details class="qa"><summary class="qu">Q:Agent 之间怎么通信?</summary><div class="an">不直接对话,通过<b>共享状态 + Supervisor 中转</b>:子 Agent 写结果到会话状态,Supervisor 决定下一步。这比自由对话式(AutoGen 风格)更可控、好调试。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么防止两个 Agent 互相踢皮球?</summary><div class="an">路由职责在 Supervisor 而不是子 Agent 自己声明"这不归我管";子 Agent 只执行不转发;Supervisor 路由置信度低时主动反问或转人工。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么评估这个系统?</summary><div class="an">分 Agent 评估(各自的任务成功率、工具调用准确率)+ 端到端评估(问题解决率、转人工率、用户满意度),线上做 AB 实验,离线用 LLM-as-judge 批量回归测试集。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>Supervisor 模式</b>:主管 Agent 统一调度子 Agent 的架构。</div>
+          <div class="term-item"><b>无状态服务</b>:请求不依赖服务器内存,随便扩容。</div>
+          <div class="term-item"><b>HITL</b>:Human-in-the-loop,关键环节人工介入。</div>
+          <div class="term-item"><b>两段式工具</b>:先预览再执行,防误操作。</div>
+          <div class="term-item"><b>LLM-as-judge</b>:用强模型给回答打分做自动评估。</div>
+        </div>
+      </div>
+</article>

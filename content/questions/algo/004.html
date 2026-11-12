@@ -1,0 +1,96 @@
+<article class="q" id="algo-004" data-topic="algo" data-title="Human feedback的消化吸收与RL策略更新" data-difficulty="3" data-tags="人类反馈,策略更新" data-company="字节(真题)" data-source="P5Q23" data-kw="human feedback RLHF DPO PPO GRPO 奖励模型 数据飞轮 策略更新 偏好 字节">
+
+  <div class="q-no">Agent核心 · Q23</div>
+  <h3>human feedback是怎么被agent消化吸收的？有没有用rl进行策略更新？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#人类反馈</span><span class="tag">#策略更新</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我分<b>显式反馈</b>和<b>隐式反馈</b>两条线:显式是点赞点踩、纠错、评分,隐式是转人工率、是否采纳、点击等行为信号。消化分两个层次:<b>短期</b>——反馈结构化后写进记忆/偏好库,靠检索注入即时改变后续行为;<b>长期</b>——积累成偏好对数据,走数据飞轮更新策略。有没有用 RL:我的答案是<b>按收益选</b>——简单场景先做 DPO(直接偏好优化)或拒绝采样 + SFT,成本低见效快;只有当奖励信号复杂、需要探索更多行为时,才上 PPO/GRPO 这类 RL,并配 KL 约束防把模型训崩。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>学徒拜师</b>:师傅当场指出"这句话说得不对、应该这么回"(显式反馈),学徒当场改口(短期消化);学徒做砸了几单被客户投诉,师傅把这几单记下来当反面教材(隐式反馈→数据),攒多了给学徒系统性地"重修一遍手艺"(长期策略更新)。要不要上"强化训练"这种重手段?简单活多练几遍就会(DPO/SFT),只有复杂活才需要师傅设计奖惩机制反复练(RLHF/PPO)。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 反馈的采集与分类</b></p>
+    <table>
+      <tr><th>类型</th><th>信号举例</th><th>特点</th></tr>
+      <tr><td><b>显式反馈</b></td><td>👍/👎、纠错、评分、"这不对"</td><td>信号强、量少、有噪声</td></tr>
+      <tr><td><b>隐式反馈</b></td><td>转人工率、是否采纳、停留时长、复述</td><td>信号弱、量大、需归因</td></tr>
+    </table>
+    <p><b>2. 短期消化(当天生效,不改模型)</b></p>
+    <ul>
+      <li>反馈结构化:抽成"用户偏好"("回答要简洁")或"纠正事实"("公司名是 X 不是 Y"),写进用户级记忆/偏好库。</li>
+      <li>检索注入:后续对话按话题检索这些偏好进 system prompt,即时改行为——这是最快、可回滚的消化方式。</li>
+      <li>规则即时更新:高频负反馈对应的硬规则(如某类问题必须转人工)直接改配置上线,无需重训。</li>
+    </ul>
+    <p><b>3. 长期消化:数据飞轮(改模型/策略)</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 880 186" role="img" aria-label="Human feedback 数据飞轮">
+  <rect class="sd-box-rose" x="14" y="60" width="120" height="60" rx="10"/>
+  <text class="sd-t" x="74" y="86" text-anchor="middle">线上反馈</text>
+  <text class="sd-ts" x="74" y="104" text-anchor="middle">显式/隐式信号</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M134 90 L156 90"/>
+  <rect class="sd-box" x="160" y="60" width="120" height="60" rx="10"/>
+  <text class="sd-t" x="220" y="86" text-anchor="middle">清洗去噪</text>
+  <text class="sd-ts" x="220" y="104" text-anchor="middle">去重·去脏·投票</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M280 90 L302 90"/>
+  <rect class="sd-box" x="306" y="60" width="120" height="60" rx="10"/>
+  <text class="sd-t" x="366" y="86" text-anchor="middle">构造偏好对</text>
+  <text class="sd-ts" x="366" y="104" text-anchor="middle">chosen vs rejected</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M426 90 L448 90"/>
+  <rect class="sd-box-amber" x="452" y="60" width="120" height="60" rx="10"/>
+  <text class="sd-t" x="512" y="86" text-anchor="middle">更新策略</text>
+  <text class="sd-ts" x="512" y="104" text-anchor="middle">DPO/SFT/PPO·GRPO</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M572 90 L594 90"/>
+  <rect class="sd-box" x="598" y="60" width="110" height="60" rx="10"/>
+  <text class="sd-t" x="653" y="86" text-anchor="middle">离线评测</text>
+  <text class="sd-ts" x="653" y="104" text-anchor="middle">黄金集评测</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M708 90 L730 90"/>
+  <rect class="sd-box-teal" x="734" y="60" width="120" height="60" rx="10"/>
+  <text class="sd-t" x="794" y="86" text-anchor="middle">灰度·全量</text>
+  <text class="sd-ts" x="794" y="104" text-anchor="middle">AB → 灰度 → 全量</text>
+  <path class="sd-an" marker-end="url(#sd-arr)" d="M794 120 L794 150 L74 150 L74 122"/>
+  <text class="sd-l" x="434" y="166" text-anchor="middle">继续收集反馈 · 数据飞轮闭环</text>
+</svg>
+</div>
+    <p><b>4. 有没有用 RL:分层选型(面试官要听出你的判断力)</b></p>
+    <ul>
+      <li><b>DPO</b>:直接用偏好对做梯度,<b>不需要奖励模型</b>,训练稳定、成本低,是现在多数团队的首选。它本质是把"让 chosen 比 rejected 更可能"这件事优化掉。</li>
+      <li><b>拒绝采样 + SFT</b>:先用当前模型采样多条,挑人类/奖励打分最高的做 SFT——最稳,适合起步。</li>
+      <li><b>PPO/GRPO</b>:需要先训一个<b>奖励模型(RM)</b>,再让策略在奖励引导下<b>探索更多行为</b>。适合需要模型"主动尝试不同解法"的复杂场景,但训练不稳定、工程重、易 reward hacking。</li>
+    </ul>
+    <pre class="code"><span class="c"># PPO 截断目标(clipped objective)</span>
+L^CLIP(θ) = E[ min( r_t(θ)·Â_t , clip(r_t(θ), 1-ε, 1+ε)·Â_t ) ]
+
+<span class="c"># r_t 是新旧策略概率比,Â_t 是优势函数;clip 防止更新步过大</span>
+r_t(θ) = π_θ(a_t|s_t) / π_θ_old(a_t|s_t)</pre>
+    <ul>
+      <li><b>选型结论(经验)</b>:数据规模小、信号简单 → DPO;要奖励模型做在线/离线统一打分 → 先训 RM,再决定;要强探索、复杂多步任务 → 才上 PPO/GRPO,且一定加 KL 惩罚约束策略别飘太远。</li>
+    </ul>
+    <p><b>5. 风险与护栏</b>:reward hacking(模型钻奖励空子,如刷长度骗分)→ KL 约束 + 奖励模型校准 + 滚动人工评估;反馈噪声 → 清洗 + 置信度加权;上线 → 全链路离线回归 + 小流量 AB。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:反馈里有很多噪声(用户乱点/情绪化),怎么办?</summary><div class="an">三重过滤:① 规则清洗——重复、超短、无意义的先剔掉;② 置信度加权——显式纠错权重高,无脑点踩权重低;③ 多模型投票——用强模型二次判断这条反馈是否真的成立。最后按"被多次独立验证"的反馈才进训练集,脏数据宁可不用。</div></details>
+    <details class="qa"><summary class="qu">Q:RL 会不会把模型训坏(reward hacking)?</summary><div class="an">会,这是 RLHF 的头号风险。对策:① 加 KL 惩罚,约束新策略别离参考模型太远;② 奖励模型持续校准、和人类真实评分对拍;③ 除了奖励分,再挂一条"任务成功率/人工抽检"做护栏,发现指标背离就回滚。所以我的默认顺序是 DPO 优先,真上 RL 也要小步灰度。</div></details>
+    <details class="qa"><summary class="qu">Q:反馈到策略更新的上线节奏怎么定?</summary><div class="an">显式规则/偏好当天生效;数据飞轮按周或按月批量更新策略。每次更新走"离线评测集 → 小流量 AB(看采纳率/转人工率/满意度)→ 灰度 → 全量"四步,任何一步指标倒退就回滚,保留旧版本快照。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>RLHF</b>:用人类反馈训练奖励模型、再强化学习的流程。</div>
+      <div class="term-item"><b>DPO</b>:直接用偏好对优化,无需单独训奖励模型。</div>
+      <div class="term-item"><b>PPO</b>:一种策略梯度算法,带截断目标防更新过大。</div>
+      <div class="term-item"><b>GRPO</b>:组相对策略优化,去掉价值网络、省显存。</div>
+      <div class="term-item"><b>Reward Model</b>:给输出打分的奖励模型。</div>
+      <div class="term-item"><b>Reward Hacking</b>:模型钻奖励空子而非真正变好。</div>
+      <div class="term-item"><b>数据飞轮</b>:反馈回流→更新→效果提升的循环。</div>
+    </div>
+  </div>
+</article>

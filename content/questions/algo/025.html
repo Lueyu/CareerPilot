@@ -1,0 +1,65 @@
+<article class="q" id="algo-025" data-topic="algo" data-title="推导BeamSearch时间复杂度" data-difficulty="3" data-tags="BeamSearch,复杂度分析" data-company="无公司" data-source="P6Q24" data-kw="BeamSearch 束搜索 时间复杂度 复杂度分析 词表 V beam size 贪心解码">
+
+  <div class="q-no">Agent算法 · Q24</div>
+  <h3>推导 Beam Search 的时间复杂度</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#BeamSearch</span><span class="tag">#复杂度分析</span>
+    <span class="company">无公司</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"Beam Search 每步维护 k 个最优候选(beam),每个候选向词表扩展出 V 个下一步,共 k·V 个候选,从中选 top-k 保留。n 步下来时间复杂度是 <b>O(n·k·V)</b>;若计入模型计算 logits 的隐藏维度 d,则每步一次前向是 O(k·V·d),总复杂度 <b>O(n·k·V·d)</b>。它比贪心 O(n·V) 慢 k 倍,但比暴力搜索 O(Vⁿ) 指数级快。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>Beam Search 像"<b>同时养 k 条候选路线</b>"的导航:每到一个路口(每一步),把当前 k 条路线各自延伸出 V 个可能的下一站(共 k·V 条),然后只留分数最高的 k 条继续走。走 n 步,每步都要评估 k·V 条候选再挑 k 条,所以总工作量约 n·k·V。k=1 就退化成贪心(只养 1 条),k 大到穷举则爆炸——beam size 是"快"和"准"之间的旋钮。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 算法回顾</b></p>
+    <ul>
+      <li>维护一个大小为 k 的候选集(beam)。每步:对 beam 里每个部分序列 → 计算下一个 token 的 V 个 logits → 得到 k·V 个候选 → 按累计 log 概率取 top-k 更新 beam。</li>
+      <li>终止:生成长度到 n 或全部命中 EOS;最终选累计分数最高的一条(注意长度惩罚)。</li>
+    </ul>
+    <p><b>2. 复杂度推导</b></p>
+    <pre class="code"><span class="c"># 每步</span>
+k 个 beam × V 个候选扩展 = k·V 个候选
+从中选 top-k(排序或用堆维护)
+
+单步:  O(k·V)          <span class="c"># 评估 + 选择</span>
+总:    O(n · k · V)    <span class="c"># n = 序列长度, V = 词表大小, k = beam size</span>
+
+<span class="c"># 若计入模型计算 logits 的隐藏维度 d</span>
+每步一次前向(k 个 beam 批量计算): O(k · V · d)
+总:  O(n · k · V · d)</pre>
+    <p><b>3. 各项含义与对照</b></p>
+    <ul>
+      <li>n = 生成序列长度,V = 词表大小,k = beam size,d = 隐藏维度。</li>
+      <li><b>贪心(k=1)</b>:O(n·V) 或 O(n·V·d)。</li>
+      <li><b>暴力/穷举</b>:O(Vⁿ),指数爆炸,不可行。</li>
+      <li>Beam Search 是对"贪心太贪、穷举太慢"的折中。</li>
+    </ul>
+    <p><b>4. trade-off 与工程优化</b></p>
+    <ul>
+      <li><b>k 越大</b>:候选更多、找到更优解的概率大,但计算量线性增加、生成多样性下降、更容易复读短句。</li>
+      <li>工程优化:批量前向(把 k 个 beam 拼成一个 batch 一次算)、早期剪枝(每 beam 先取 top-m)、长度惩罚修正短句偏好。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么 beam size 越大效果不一定越好?</summary><div class="an">更大的 beam 在"找全局最优序列"上更强,但下游 BLEU/ROUGE 等指标会随 k 增大<b>先升后降</b>:k 太大时更偏好短句、复读、多样性低,翻译任务里大 beam 反而更差的现象很常见。所以 beam size 是任务相关的超参,不是越大越好。</div></details>
+    <details class="qa"><summary class="qu">Q:复杂度里要不要算排序的 log 因子?</summary><div class="an">严格说选 top-k 需要 O(k·V·log(k·V))(排序)或用堆降到 O(k·V·log k)。但复杂度惯例里,主导项是 k·V 个候选的评估与 logit 计算,log 因子是常数级且远小于 V,通常略去,记为 O(n·k·V)。面试里主动提一句"选 top-k 还有 log 因子,通常忽略"会更严谨。</div></details>
+    <details class="qa"><summary class="qu">Q:长度惩罚是干什么的?</summary><div class="an">因为每步 log 概率 ≤ 0,序列越长累计分数越低,模型会偏向提前输出 EOS 生成短句。长度惩罚把分数除以长度^α(或加上长度项)来抵消这个 bias,让长短句公平比较。</div></details>
+    <details class="qa"><summary class="qu">Q:采样(sampling)和 beam search 怎么选?</summary><div class="an">需要多样性/创造性(对话、写作)用温度采样 + top-p/top-k;需要确定性、接近最优(翻译、代码、数学)用 beam search。现代对话系统多用采样,因为 beam search 输出偏保守、多样性差。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>Beam</b>:每步保留的 top-k 候选集合。</div>
+      <div class="term-item"><b>贪心解码</b>:每步只取概率最大的 token(k=1)。</div>
+      <div class="term-item"><b>长度惩罚</b>:修正长序列累计分数偏低的问题。</div>
+      <div class="term-item"><b>top-k 采样</b>:只从概率最高的 k 个 token 里采样。</div>
+    </div>
+  </div>
+</article>

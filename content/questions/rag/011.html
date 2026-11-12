@@ -1,0 +1,91 @@
+<article class="q" id="rag-011" data-topic="rag" data-title="设计自适应RAG检索策略" data-difficulty="4" data-tags="RAG,自适应,检索优化" data-company="所有公司（通用）" data-source="P6Q3" data-kw="RAG 自适应 检索策略 查询路由 难度分级 检索深度 混合检索 topk 迭代检索 自反思">
+
+  <div class="q-no">Agent算法 · Q3</div>
+  <h3>设计一个自适应的 RAG 检索策略</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#RAG</span><span class="tag">#自适应</span><span class="tag">#检索优化</span>
+    <span class="company">所有公司（通用）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"核心是<b>先给查询分级,再按级配检索深度</b>,而不是所有查询一视同仁。三步:第一,<b>查询分析</b>——分类器判断难度(简单事实 / 单跳 / 多跳 / 需推理)和时效性、意图;第二,<b>策略路由</b>——简单题走浅检索(BM25/向量 top3 就够),难题走多路混合检索 + 大 topk + 多跳迭代;第三,<b>自适应升级</b>——首轮召回质量不达标(置信度低、答案无法支撑)就自动改写 query、扩 topk、二次检索,最多 N 轮。这样<b>平均延迟和成本下降,同时难题召回率不降</b>——这是它相比固定策略的价值。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就是<b>调度员按件派活</b>:有的快递就在隔壁小区(简单问题,直接拿就完事);有的要跨几个中转站(多跳,得多跑几趟);有的地址写得含糊(模糊查询,得先问清楚再跑)。聪明的调度不会让每个快递员都跑全城,而是<b>看"这单有多难"决定派几趟、跑多远</b>。统一策略就像不管啥件都按"最难的"处理——又慢又贵;或都按"最简单的"处理——难件就丢了。自适应是两者之间动态取平衡。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 为什么需要自适应(先讲清统一策略的痛点)</b></p>
+    <ul>
+      <li>查询难度差异极大:"公司地址"一个精确匹配就中,"X 与 Y 的共同投资者"要跨多个实体多跳。固定 topk/固定策略只能取折中,结果是<b>简单题过度检索(浪费)、难题检索不足(漏召回)</b>。</li>
+      <li>自适应的收益不是"把难题变简单",而是<b>把省下来的算力投到真正难的地方</b>:简单题省 90% 检索开销,难题用多出来的预算做更深检索。</li>
+    </ul>
+    <p><b>2. 查询分析(路由的依据)</b></p>
+    <ul>
+      <li>维度:<b>难度</b>(是否单跳/多跳/需跨文档推理)、<b>类型</b>(事实 / 定义 / 对比 / 汇总 / 实时)、<b>时效</b>(是否要求最新)、<b>歧义度</b>(是否需澄清)。</li>
+      <li>实现:<b>小模型/规则分类器</b>(快、便宜、可控)做主路由,拿不准的交 LLM 细判;关键是要"快",路由本身的开销必须远小于它省的检索开销。</li>
+    </ul>
+    <p><b>3. 策略分档(核心设计表)</b></p>
+    <table>
+      <tr><th>档位</th><th>典型查询</th><th>检索策略</th><th>topk</th></tr>
+      <tr><td><b>L0 简单</b></td><td>精确事实、单一关键词("CEO 是谁")</td><td>BM25 或向量,单路</td><td>3</td></tr>
+      <tr><td><b>L1 常规</b></td><td>一般语义问答</td><td>混合检索(BM25+向量)+ RRF</td><td>10~20</td></tr>
+      <tr><td><b>L2 复杂</b></td><td>多跳、跨文档、需推理/对比</td><td>子问题分解 + 多路融合 + 图/多跳扩展</td><td>30~50</td></tr>
+      <tr><td><b>L3 迭代</b></td><td>首轮不确定、需自我反思</td><td>L2 + Query 改写 + 二次检索,最多 N 轮</td><td>动态</td></tr>
+    </table>
+    <p><b>4. 自适应升级(怎么判断"检索够了"并动态加深)</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 608 108" role="img" aria-label="自适应 RAG 检索：分级检索与质量自检升级循环">
+  <rect class="sd-box-rose" x="10" y="36" width="80" height="56" rx="10"/>
+  <text class="sd-t" x="50" y="58" text-anchor="middle">查询</text>
+  <text class="sd-ts" x="50" y="76" text-anchor="middle">用户问题</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M90 64 L110 64"/>
+  <rect class="sd-box2" x="114" y="36" width="96" height="56" rx="10"/>
+  <text class="sd-t" x="162" y="58" text-anchor="middle">查询分级</text>
+  <text class="sd-ts" x="162" y="76" text-anchor="middle">L0/L1/L2</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M210 64 L230 64"/>
+  <rect class="sd-box-teal" x="234" y="36" width="100" height="56" rx="10"/>
+  <text class="sd-t" x="284" y="58" text-anchor="middle">按档检索</text>
+  <text class="sd-ts" x="284" y="76" text-anchor="middle">BM25/向量/图</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M334 64 L354 64"/>
+  <rect class="sd-box" x="358" y="36" width="100" height="56" rx="10"/>
+  <text class="sd-t" x="408" y="58" text-anchor="middle">质量自检</text>
+  <text class="sd-ts" x="408" y="76" text-anchor="middle">覆盖度/置信度</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M458 64 L478 64"/>
+  <rect class="sd-box-amber" x="482" y="36" width="110" height="56" rx="10"/>
+  <text class="sd-t" x="537" y="58" text-anchor="middle">生成答案</text>
+  <text class="sd-ts" x="537" y="76" text-anchor="middle">LLM 输出</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M408 36 L408 14 L284 14 L284 32"/>
+  <text class="sd-l" x="346" y="22" text-anchor="middle">不够 → 升级策略 · 再检索(≤N轮)</text>
+</svg></div>
+    <ul>
+      <li><b>升级触发信号</b>:检索分数分布过平(没有明显峰值)、rerank 后 top 相关度仍低于阈值、LLM 自评"无法回答/信息不足"。</li>
+      <li><b>升级动作</b>:Query 改写(补全/消歧)、HyDE(生成假设答案再检索)、子问题分解、扩大 topk、换/加索引路(如加关键词或图谱)。</li>
+      <li><b>上限保护</b>:最多 N 轮(如 3 轮),避免"越查越慢";到上限仍不够就诚实降级("没找到充分证据")而不是硬编。</li>
+    </ul>
+    <p><b>5. 工程与评估</b></p>
+    <ul>
+      <li><b>路由开销控制</b>:分类器用缓存 + 规则优先;同一查询幂等重放。</li>
+      <li><b>评估要分档看</b>:不能只看全局 recall,要拆 L0~L3 各自的 recall / 延迟 / 成本;自适应的价值体现在"简单题延迟显著下降、难题 recall 持平或提升"。</li>
+      <li><b>冷启动</b>:初期用规则/人工标注的难度标签起步,积累线上日志后用真实 query 训练分类器。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:查询分类器判错了(难题被判成简单题)怎么办?</summary><div class="an">靠"升级机制"兜底:即使被判成 L0,只要首轮质量自检不通过,就会自动升级到更深策略重查。所以路由判错不致命,真正要保证的是<b>质量自检这一环灵敏</b>——宁可简单题偶尔多查一次,也不能难题在浅检索上直接出答案。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么量化判断"检索结果够了"?</summary><div class="an">几个可操作信号:① rerank 后 top1 相关度是否过阈值;② 生成答案的引用覆盖度(答案每个关键论断是否都有检索片段支撑);③ LLM 自评(带结构化输出"充分/不充分")。组合使用比单一阈值稳,能显著降低误判。</div></details>
+    <details class="qa"><summary class="qu">Q:自适应会不会反而引入额外延迟?</summary><div class="an">会,但净收益为正:简单题占大多数,它们省下的检索时间远大于难题多花的几轮;关键是<b>路由要便宜</b>(小模型/规则,几十毫秒内)且<b>难题只占小头</b>。用分档 P99 延迟 + 平均延迟一起看,别只看最坏情况。</div></details>
+    <details class="qa"><summary class="qu">Q:这和 Query Rewriting、HyDE 是什么关系?</summary><div class="an">它们是自适应策略的"工具"而非替代:Query 改写、HyDE、子问题分解都是"升级动作"里可选的算子,由自适应框架决定"什么时候该用哪个"。没有自适应的调度,这些技巧就变成对所有查询无差别开启,又贵又不一定有用。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>查询路由</b>:按查询特征把它分派到不同检索策略。</div>
+      <div class="term-item"><b>迭代检索</b>:首轮不够就改写再查,多轮逼近答案。</div>
+      <div class="term-item"><b>HyDE</b>:先让模型生成"假设答案"再拿它去检索。</div>
+      <div class="term-item"><b>RRF</b>:倒数排名融合,合并多路检索结果。</div>
+      <div class="term-item"><b>质量自检</b>:生成前判断检索结果是否足以支撑回答。</div>
+    </div>
+  </div>
+</article>

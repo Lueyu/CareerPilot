@@ -1,0 +1,81 @@
+<article class="q" id="harness-026" data-topic="harness" data-title="Agent工具Tool设计及Workflow与自主Agent的取舍" data-difficulty="2" data-tags="工具设计,Workflow" data-company="字节（真题）" data-source="P5Q51" data-kw="工具设计 Tool Schema Workflow Agent ReAct 编排 幂等 两段式 读操作 写操作 字节">
+
+  <div class="q-no">Agent核心 · Q51</div>
+  <h3>问Agent的工具tool的设计，是否是workflow形式？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐</span>
+    <span class="tag">#工具设计</span><span class="tag">#Workflow</span>
+    <span class="company">字节（真题）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我分两层回答：<b>工具怎么设计</b>、<b>流程怎么组织</b>。工具设计上，每个工具是一份 <b>JSON Schema</b>——名称、一句话描述（重点写清<b>什么时候该用/不该用</b>）、参数（类型/必填/枚举）、返回值结构；粒度遵循『<b>一次干成一件事</b>』，<b>读/写分离</b>，写操作做成<b>幂等 + 两段式（预览 → 执行）</b>。流程组织上<b>不是非此即彼，而是一条光谱</b>：一端是 <b>Workflow（确定性编排）</b>——步骤固定、代码编排、LLM 只填空；另一端是<b>自主 Agent</b>——LLM 自由决定调哪个工具、调几次。我的做法：<b>能确定的部分用 workflow 固化成图，需要模型判断的部分才交给 Agent 自主选工具</b>——确定性优先，不确定性交给模型。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>做菜</b>：Workflow 是<b>标准化菜谱</b>——先放油、再放菜、炒三分钟，步骤写死，照着做就行（可预期、稳定）；自主 Agent 是<b>让厨师自由发挥</b>——看冰箱里有什么、客人什么口味，自己决定切什么、炒什么（灵活、但可能翻车）。工具就是<b>厨房里的设备</b>——锅、刀、烤箱，每个都要标清"能干嘛、怎么用、什么时候别用"，标得越清楚，厨师越不容易用错。聪明做法是<b>把熟练的菜写成菜谱（workflow），把新菜让厨师即兴发挥（Agent），两者混搭</b>。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 工具怎么设计（Tool 设计五原则）</b></p>
+    <ul>
+      <li><b>Schema 清晰</b>：name / description / parameters（JSON Schema）/ 返回值结构。description 里一定要写"<b>什么时候该用、什么时候不该用</b>"——这直接决定模型选对工具的概率。</li>
+      <li><b>粒度适中</b>：一次一个原子动作（"查订单"而非"查订单顺便改地址"）。太粗（瑞士军刀式巨型工具）参数多、模型易选错/漏参；太细一次任务调用几十次，延迟和 token 暴涨。</li>
+      <li><b>读/写分离</b>：读操作无副作用、可安全重试；写操作（下单、退款、改配置）要有<b>幂等键 + 两段式（先预览、再确认/审批执行）</b>，并做<b>权限最小化</b>。</li>
+      <li><b>返回值精简</b>：把底层返回的大 JSON 裁剪成模型真正需要的字段 + 明确的错误码，省 token、少幻觉。</li>
+      <li><b>错误可回喂</b>：工具报错要结构化返回给模型，让 Agent 能"看着错误自我纠正"（换参数、换工具、或承认失败）。</li>
+    </ul>
+    <p><b>2. 是 workflow 形式吗？——一条光谱，不是二选一</b></p>
+    <table>
+      <tr><th>维度</th><th>Workflow（确定性编排）</th><th>自主 Agent（工具自主选择）</th></tr>
+      <tr><td><b>步骤</b></td><td>固定 DAG/状态机，代码定死</td><td>LLM 在 ReAct 循环里自主决定</td></tr>
+      <tr><td><b>谁做决策</b></td><td>代码（条件分支）</td><td>LLM（工具路由）</td></tr>
+      <tr><td><b>可控/可测</b></td><td>强（可预期、可回归）</td><td>弱（不确定、可能死循环）</td></tr>
+      <tr><td><b>成本</b></td><td>低</td><td>高（多步多次 LLM 调用）</td></tr>
+      <tr><td><b>适用</b></td><td>流程明确的标准化业务</td><td>开放、长尾、路径不固定的任务</td></tr>
+    </table>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 634 152" role="img" aria-label="组织方式光谱">
+  <text class="sd-l" x="10" y="30">组织方式光谱 · 确定性 → 灵活性</text>
+  <rect class="sd-box2" x="10" y="76" width="140" height="60" rx="10"/>
+  <text class="sd-t" x="80" y="102" text-anchor="middle">纯 Workflow</text>
+  <text class="sd-ts" x="80" y="120" text-anchor="middle">步骤写死 · 最稳最便宜</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M150 106 L226 106"/>
+  <rect class="sd-box" x="230" y="76" width="160" height="60" rx="10"/>
+  <text class="sd-t" x="310" y="102" text-anchor="middle">Agent + 护栏</text>
+  <text class="sd-ts" x="310" y="120" text-anchor="middle">白名单+预算+校验·生产主流</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M390 106 L466 106"/>
+  <rect class="sd-box-rose" x="470" y="76" width="150" height="60" rx="10"/>
+  <text class="sd-t" x="545" y="102" text-anchor="middle">纯自主 Agent</text>
+  <text class="sd-ts" x="545" y="120" text-anchor="middle">自由选工具 · 最难控</text>
+</svg></div>
+    <p><b>3. 生产主流是"中间态"：Agent + 护栏</b></p>
+    <ul>
+      <li>用<b>状态机/LangGraph</b>把合法流程固化，但节点内部可以是"自主 Agent 子图"，让模型在受限范围内选工具。</li>
+      <li>护栏四件套：<b>工具白名单/路由、最大步数 + token 预算、输出校验、失败转人工</b>——把 Agent 的"自由"关进确定性的笼子。</li>
+    </ul>
+    <p><b>4. 决策标准（什么时候用哪个）</b></p>
+    <ul>
+      <li>步骤确定、工具少且固定、容错要求高 → <b>Workflow</b>，别为"看起来高级"硬上 Agent。</li>
+      <li>路径不固定、工具多且动态、需要模型临场判断 → <b>Agent</b>，但要配护栏。</li>
+      <li>落地策略：<b>高频主流程先用 workflow 固化（约 80%），开放长尾问题再交给 Agent 承接</b>，共用同一套原子工具层，兜底转人工。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:工具切太细会有什么问题？太粗呢？</summary><div class="an">太细：一次任务要连续调几十次，延迟和 token 线性累积，中间结果还会把上下文塞满、淹没关键信息。太粗（巨型工具）：参数太多，模型容易选错工具或漏传参数，且一个工具承担多个副作用、难做权限隔离。平衡点是"<b>一次一个原子动作</b>"，复杂动作靠编排（workflow 串起来）或 Agent 多次调用组合实现。</div></details>
+    <details class="qa"><summary class="qu">Q:写操作工具怎么做才安全？</summary><div class="an">三件套：① <b>幂等键</b>——同一操作重复执行无副作用（防重试/重派导致重复下单）；② <b>两段式</b>——先返回 preview（将要做什么、影响什么），用户或人工确认后再 execute；③ <b>权限最小化</b>——敏感接口只给"起草"权限，真正执行走审批。目标是让 Agent 永远只能"提议"，不能"直接越权执行"。</div></details>
+    <details class="qa"><summary class="qu">Q:同一个工具既在 workflow 里又在 Agent 里用，有冲突吗？</summary><div class="an">不冲突，这是推荐做法：工具是"原子能力"，workflow 是"固定编排"，Agent 是"自主编排"，两者<b>共享同一套工具层</b>。区别在于——对 workflow 来说工具描述只是文档，对 Agent 来说 description 是模型选对工具的关键信号，所以工具的 description 要按"服务 Agent 的视角"写清楚（何时用/不用、参数含义），这样两个场景都能吃。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么判断一个需求该用 workflow 还是 Agent？</summary><div class="an">看三点：① <b>步骤确定性</b>——流程固定选 workflow，路径发散选 Agent；② <b>工具集合大小</b>——工具少且固定选 workflow，工具多且动态选 Agent；③ <b>容错/成本要求</b>——强容错低成本选 workflow。经验法则是"<b>能用 workflow 别上 Agent</b>"，Agent 只兜开放长尾，最后用端到端成功率做 AB 验证，别凭感觉。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>Tool Schema</b>:工具的名称/描述/参数/返回值的结构化定义。</div>
+      <div class="term-item"><b>ReAct</b>:推理 + 行动的循环，Agent 自主选工具的范式。</div>
+      <div class="term-item"><b>Workflow</b>:步骤固定的确定性编排，代码主导。</div>
+      <div class="term-item"><b>幂等</b>:同一操作执行多次效果和一次相同。</div>
+      <div class="term-item"><b>两段式执行</b>:先预览再执行，防误操作的写保护。</div>
+      <div class="term-item"><b>LangGraph</b>:能把 workflow 与 Agent 节点混合编排的图引擎。</div>
+    </div>
+  </div>
+</article>

@@ -1,0 +1,84 @@
+<article class="q" id="biz-017" data-topic="biz" data-title="如何确保Agent行为安全可控符合人类意图(对齐方法)" data-difficulty="4" data-tags="Agent,安全性,对齐" data-company="字节 / 阿里 / 腾讯(重要)" data-source="P5Q13" data-kw="对齐 安全 可控 RLHF DPO 护栏 Guardrails 红队测试 工具白名单 最小权限 意图 字节 阿里 腾讯">
+
+  <div class="q-no">Agent核心 · Q13</div>
+  <h3>如何确保一个 Agent 的行为是安全、可控且符合人类意图的？在 Agent 的设计中，有哪些保障对齐方法？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#Agent</span><span class="tag">#安全性</span><span class="tag">#对齐</span>
+    <span class="company">字节 / 阿里 / 腾讯(重要)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我分三层讲:<b>模型层对齐</b>——用 RLHF/DPO 等偏好训练,让模型"愿意"遵循意图而非仅仅"能";<b>系统层护栏</b>——工具白名单、最小权限、两段式执行、人工审批,把风险约束在代码层而不是指望模型自觉;<b>运行层防护</b>——输入输出的内容安全过滤、全链路审计、红队测试持续回归。核心观点一句话:<b>对齐不是一次性训练,而是"训练对齐 + 运行时护栏 + 持续评测"的闭环,而且安全底线必须由确定性代码保证,不能靠 Prompt 约定</b>。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>培养一个合格的司机</b>:驾校学交规、练技术(RLHF 偏好训练,教会他"该怎么做");上路后靠<b>红绿灯、限速牌、电子围栏</b>约束他(运行时护栏);车厂定期召回检测、跑路试找漏洞(红队测试)。光教技术不够,<b>物理护栏才是最后底线</b>——对应到 Agent 就是"权限在系统层,不在模型的话术层",即使模型被诱导"想"违规,工具层没凭证也做不成。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>0. 先厘清概念:什么叫"对齐"</b></p>
+    <p>LLM 的训练目标是"预测下一个 token",这和"做人类想让它做的事"是两码事。对齐(Alignment)就是让模型的行为、目标、边界与人类意图一致——包括<b>有用(helpful)、诚实(honest)、无害(harmless)</b>三个维度,以及"不在授权范围外自作主张"这个 Agent 特有维度。</p>
+    <p><b>1. 三层保障架构(先给框架)</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 710 130" role="img" aria-label="Agent 三层安全对齐架构">
+  <rect class="sd-box-amber" x="10" y="16" width="210" height="96" rx="10"/>
+  <text class="sd-t" x="115" y="40" text-anchor="middle">模型层（训练对齐）</text>
+  <text class="sd-ts" x="115" y="60" text-anchor="middle">RLHF · DPO · 宪法 AI</text>
+  <text class="sd-ts" x="115" y="78" text-anchor="middle">指令遵循 · 偏好对齐</text>
+  <rect class="sd-box" x="245" y="16" width="210" height="96" rx="10"/>
+  <text class="sd-t" x="350" y="40" text-anchor="middle">系统层（工程护栏）</text>
+  <text class="sd-ts" x="350" y="60" text-anchor="middle">工具白名单 · 最小权限</text>
+  <text class="sd-ts" x="350" y="78" text-anchor="middle">两段式执行 · 人工审批</text>
+  <rect class="sd-box-rose" x="480" y="16" width="210" height="96" rx="10"/>
+  <text class="sd-t" x="585" y="40" text-anchor="middle">运行层（过滤+审计）</text>
+  <text class="sd-ts" x="585" y="60" text-anchor="middle">内容安全过滤 · trace</text>
+  <text class="sd-ts" x="585" y="78" text-anchor="middle">红队测试 · 持续回归</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M220 64 L241 64"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M455 64 L476 64"/>
+</svg>
+</div>
+    <p><b>2. 模型层对齐(让模型"愿意"守规矩)</b></p>
+    <ul>
+      <li><b>RLHF</b>:先训奖励模型(人类偏好排序),再用 PPO 优化策略——经典但工程重、训练不稳定。</li>
+      <li><b>DPO</b>:跳过奖励模型,直接从偏好对里优化,更简单稳定,现在是主流替代方案。</li>
+      <li><b>宪法式(Constitutional AI)</b>:用一组规则文本让模型自我批判、自我修正,减少人工标注量。</li>
+      <li>注意边界:训练对齐给的是<b>概率意义上的倾向</b>,不是保证。所以才有下面两层。</li>
+    </ul>
+    <p><b>3. 系统层护栏(把风险关进代码的笼子)</b></p>
+    <table>
+      <tr><th>护栏类型</th><th>手段</th><th>拦的是什么</th></tr>
+      <tr><td><b>输入护栏</b></td><td>Prompt 注入检测、敏感词/越权意图识别</td><td>攻击者诱导、越权请求</td></tr>
+      <tr><td><b>工具护栏</b></td><td>白名单 + 最小权限 + 参数校验(类型/范围)</td><td>调不该调的工具、传危险参数</td></tr>
+      <tr><td><b>动作护栏</b></td><td>读写分离、两段式(预览→执行)、高危操作人工审批</td><td>静默执行写操作、不可逆副作用</td></tr>
+      <tr><td><b>输出护栏</b></td><td>内容安全过滤、引用校验、事实一致性检查</td><td>有害/违规/幻觉内容外泄</td></tr>
+    </table>
+    <p>关键工程原则:<b>模型只产出"意图",执行器拿着真实用户凭证做二次鉴权;凭证永不经过模型</b>。这样即使模型被 Prompt 注入骗到,想越权也拿不到对应权限。</p>
+    <p><b>4. 运行层防护(持续兜底)</b></p>
+    <ul>
+      <li><b>全链路审计</b>:记录谁、何时、让 Agent 调了什么、入参出参、是否经审批,可回溯可追责。</li>
+      <li><b>内容安全</b>:输入输出双向过安全模型/关键词/规则,高敏词触发阻断或转人工。</li>
+      <li><b>红队测试</b>:定期用对抗样本(注入、越狱、越权诱导)攻击自己的系统,把发现沉淀成回归用例。</li>
+      <li><b>置信度与人工兜底</b>:模型不确定、用户情绪激动、连续失败时,收敛到"转人工 + 保守话术"。</li>
+    </ul>
+    <p><b>5. 度量(说得出指标才算闭环)</b>:有害输出率、越权拦截率、拒绝率、任务成功率、人工接管率——对齐效果要像性能指标一样进 CI 回归,新 Prompt/模型让它恶化就拦截发布。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:训练对齐和运行时护栏是什么关系,有 RLHF 还不够吗?</summary><div class="an">不够,两者是"概率保障"和"确定保障"的关系。RLHF 给的是统计倾向——模型"大概率"遵守,但可被对抗样本绕过、也会随上下文漂移;护栏是确定性代码,无论模型输出什么,越权调用在工具层就被拦下。正确姿势是<b>双层防御:训练对齐负责降低风险频率,工程护栏负责兜住下限</b>。面试里能主动指出"不能把可靠性寄托在模型自觉上"是明显加分点。</div></details>
+    <details class="qa"><summary class="qu">Q:对齐会不会牺牲模型能力(对齐税)?</summary><div class="an">会,业界叫 alignment tax:过度对齐会让模型变"怂"、拒答变多、创造力下降。缓解思路:① 对齐数据和训练过程少用"硬拒绝"、多用"安全但有用的替代回答";② 按风险分级,只对高风险域严格对齐,低风险域放宽;③ 用宪法式/DPO 等更温和的方法替代粗暴 RLHF。要点是承认这个 trade-off,并说明你会按场景调阈值。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么度量一个 Agent 到底"对齐"得好不好?</summary><div class="an">分层测:模型层看有用/诚实/无害三指标的基准分数;系统层看越权拦截率、有害输出率、误杀率(把正常请求也拦了的比例,这是护栏的双刃剑);线上看人工接管率和用户投诉归因。关键是<b>离线评测集 + 线上抽样 + 红队对抗</b>三路数据合起来看,任何单指标都会骗人。</div></details>
+    <details class="qa"><summary class="qu">Q:Agent 场景下对齐和普通 Chat 有什么不同?</summary><div class="an">多了一个"工具/动作"维度。Chat 只需管住"说的话",Agent 还要管住"做的事":它可能调用真实系统、产生副作用(退款、删数据、发消息)。所以 Agent 对齐的重心从"输出内容"前移到"动作权限"——工具白名单、两段式、审批流这些是 Agent 独有的、Chat 里没有的防线。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>Alignment</b>:让模型行为与人类意图、价值一致。</div>
+      <div class="term-item"><b>RLHF</b>:用人类偏好训练奖励模型,再优化策略。</div>
+      <div class="term-item"><b>DPO</b>:跳过奖励模型、直接优化偏好对的轻量对齐。</div>
+      <div class="term-item"><b>Guardrails</b>:运行时的输入/工具/输出多层护栏。</div>
+      <div class="term-item"><b>红队测试</b>:主动用对抗攻击找系统漏洞。</div>
+      <div class="term-item"><b>对齐税</b>:过度对齐带来的能力/效率损失。</div>
+    </div>
+  </div>
+</article>

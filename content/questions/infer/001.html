@@ -1,0 +1,60 @@
+<article class="q" id="infer-001" data-topic="infer" data-title="设计LLM Gateway(API网关)" data-difficulty="4" data-tags="网关,限流,负载均衡" data-company="" data-source="P1Q6" data-kw="网关 限流 熔断 负载均衡 多供应商 failover 成本 缓存 LiteLLM">
+
+      <div class="q-no">系统设计 · Q6</div>
+      <h3>设计一个 LLM Gateway(API 网关)</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#网关</span><span class="tag">#限流</span><span class="tag">#负载均衡</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"LLM 网关是所有模型调用的<b>统一入口</b>,解决五个问题:① <b>协议统一</b>——用适配器把 OpenAI、Claude、国产模型统一成一套 API;② <b>高可用</b>——主供应商超时/限流时自动 failover 到备胎,配熔断器防止雪崩;③ <b>限流</b>——按应用/租户用令牌桶控并发;④ <b>成本治理</b>——按调用方记账、配额、预算告警;⑤ <b>缓存与观测</b>——语义缓存省钱,全链路 trace。开源参考 LiteLLM、OneAPI。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>就是<b>旅行社代理 + 公司差旅系统</b>:不管你要坐哪家航司(OpenAI/Claude/国产),都从这一个入口出票(统一 API);某航班老取消(供应商故障)自动给你改签别家(failover);每个部门有差旅预算(per-app 配额与记账);行政月底给你一张总账单(成本报表);常用航线还有协议价(缓存)。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 统一协议(适配器层)</b></p>
+        <ul>
+          <li>以 <b>OpenAI 的 /chat/completions 格式为事实标准</b>(业内都是这么做的),内部每个供应商一个 Adapter:请求翻译出去、响应翻译回来、<b>错误码统一映射</b>(把各家的 429/超时/内容审核拒绝翻成统一错误枚举)。</li>
+          <li>能力差异处理:有的不支持 system role、没有 function calling —— 降级模拟(system 拼进 user;FC 用 ReAct 文本协议模拟)。</li>
+        </ul>
+        <p><b>2. 路由与高可用</b></p>
+        <ul>
+          <li><b>路由策略</b>可配:成本优先(同类问题走便宜模型)、质量优先、延迟优先;支持按百分比灰度切流量(新模型先切 5% 观察)。</li>
+          <li><b>Failover 链</b>:主模型超时 3s / 连续 429 → 自动切备用 → 再切兜底模型,对调用方透明。</li>
+          <li><b>熔断器</b>(三态):闭合(正常)→ 错误率超 50% <b>打开</b>(直接拒绝,快速失败不再打上游)→ 30s 后<b>半开</b>(放一个探测请求,成功则闭合)。防止故障时所有请求都挂满超时,拖垮整个服务(雪崩)。</li>
+          <li><b>重试与熔断配合</b>:先重试(最多 2 次指数退避),重试都失败才计入熔断统计;只重试幂等的读式调用。</li>
+        </ul>
+        <p><b>3. 限流(保护自己和上游)</b></p>
+        <ul>
+          <li><b>令牌桶</b>:桶里匀速发令牌,请求拿到才走,允许小突发——比固定窗口平滑,不会在窗口边界瞬间双倍流量。</li>
+          <li>双层限流:入口按 app_key/租户限(保护自己),出口按供应商配额限(如 OpenAI 的 RPM/TPM)。</li>
+          <li>并发信号量:LLM 是长连接,必须限制同时在途请求数,排队而非拒绝(排队给个预计时间)。</li>
+        </ul>
+        <p><b>4. 成本治理</b></p>
+        <ul>
+          <li>每次调用记录:调用方、模型、输入/输出 token、单价 → 事件流(Kafka)→ 聚合 → 按天/租户/应用出账。</li>
+          <li><b>配额与预算</b>:软限制(用量 80% 告警)、硬限制(超限 429 或降级到便宜模型)。</li>
+        </ul>
+        <p><b>5. 缓存</b>:精确缓存(相同 prompt+参数 hash 命中)+ 语义缓存(相似问题命中);缓存要按租户隔离,防止串答案。</p>
+        <p><b>6. 可观测</b>:每次调用一条 trace(入参出参、路由决策、耗时、重试次数),接 LangFuse/Prometheus。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:熔断打开了,正在排队的请求怎么办?</summary><div class="an">快速失败 + 返回兜底(切换备供应商),排队请求设置最大等待时间;配合客户端背压提示。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么防止一个业务方把全公司配额吃光?</summary><div class="an">per-app 令牌桶隔离配额 + 大调用方单独通道;全局配额预留 20% 给关键业务。</div></details>
+        <details class="qa"><summary class="qu">Q:流式响应经过网关怎么处理?</summary><div class="an">网关透传 SSE 分块,边转发边统计 token(增量计数),熔断/超时逻辑同样适用于流(首包超时和总时长分开算)。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>Failover</b>:故障自动切换备用。</div>
+          <div class="term-item"><b>熔断器</b>:错误率高时直接拒绝,保护系统不雪崩。</div>
+          <div class="term-item"><b>令牌桶</b>:匀速发令牌的限流算法,允许突发。</div>
+          <div class="term-item"><b>RPM/TPM</b>:每分钟请求数/token 数,供应商配额单位。</div>
+        </div>
+      </div>
+</article>

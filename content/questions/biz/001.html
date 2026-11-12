@@ -1,0 +1,62 @@
+<article class="q" id="biz-001" data-topic="biz" data-title="设计Prompt管理与版本控制系统" data-difficulty="4" data-tags="Prompt,版本控制,管理" data-company="" data-source="P1Q14" data-kw="Prompt 管理 版本控制 A/B测试 回滚 模板 效果对比 灰度">
+
+      <div class="q-no">系统设计 · Q14</div>
+      <h3>设计一个 Prompt 管理与版本控制系统</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#Prompt</span><span class="tag">#版本控制</span><span class="tag">#管理</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"核心一句话:<b>把 Prompt 当代码管理</b>。模板化(Jinja2 变量渲染)+ Git 式版本化(每次变更可 diff、可追责)+ 发布流水线(改动先跑黄金集评估,再灰度 5% 流量)+ A/B 实验看指标 + 生产指针秒级回滚。再加两个工程细节:模板渲染的自动化测试,和生产环境 Prompt <b>只读+审批</b>(它是核心资产,不能被人随手改坏)。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>很多团队的 Prompt 是"仓库里一个 final_v3_really_final.txt"——这就是<b>没有 Git 时代的代码</b>:谁改的不知道、改了啥不知道、改坏了回不去。所以要照抄软件工程那套:<b>代码有 Git、发布有流水线、上线有灰度、出事有回滚</b>——Prompt 一个字都没差,全照搬。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 模板管理</b></p>
+        <ul>
+          <li>Prompt = 模板 + 变量。模板用 Jininja2 类语法:<code>你是一个{{domain}}助手,今天是{{date}},参考资料:{{context}}</code>。</li>
+          <li>变量类型和来源注册(检索结果、用户信息、记忆);渲染失败的兜底(缺变量给默认值,别让用户看到一串 Jinja 原文——经典事故)。</li>
+          <li>组件复用:系统角色、输出格式约束、安全条款做成<b>可组合的片段库</b>。</li>
+        </ul>
+        <p><b>2. 版本控制</b></p>
+        <ul>
+          <li>每次保存生成新版本:内容 diff、作者、变更原因、关联的评估报告。</li>
+          <li><b>发布环境隔离</b>:dev → staging(黄金集自动评估)→ prod;生产环境模板只读,变更走 PR 式审批(两人 review)。</li>
+          <li>环境配置 = "场景名 + 模板版本 + 模型 + 参数"的组合,本身也版本化。</li>
+        </ul>
+        <p><b>3. A/B 测试</b></p>
+        <ul>
+          <li>按用户 hash 稳定分流(同一用户体验一致),新版本先 5%~10% 灰度。</li>
+          <li>核心指标:回答质量(judge 打分)、用户点踩率、平均输出 token(质量不变但更长=变贵了没变好,要能发现)。</li>
+          <li>跑满样本量、显著性达标再全量(详见第四部分 AB 测试题)。</li>
+        </ul>
+        <p><b>4. 回滚</b></p>
+        <ul>
+          <li>生产配置存"版本指针"(指针指向 v27),回滚 = 指针拨回 v26,<b>秒级生效</b>不用重新部署。</li>
+          <li>每个历史版本保留效果曲线(质量分/成本/点踩率随时间变化),一眼看出"哪次改动把系统改坏过"。</li>
+        </ul>
+        <p><b>5. 自动化测试(把事故挡在上线前)</b></p>
+        <ul>
+          <li>模板单测:多组变量渲染不报错、总长度不超上下文预算、特殊字符不破坏格式。</li>
+          <li>黄金集回归:每次变更跑 100~300 条核心评估集,分数低于基线自动拦截发布。</li>
+        </ul>
+        <p><b>6. 安全</b>:Prompt 是核心资产——界面隐藏完整系统提示词(防内部泄露)、导出审批、和业务代码同等的访问控制。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:模型一升级 Prompt 全要重调,版本爆炸怎么管?</summary><div class="an">配置矩阵:模板版本 × 模型版本的兼容性标注;升级时批量跑黄金集筛选出受影响模板,只重调这些;把"模型升级"也当作一次受控发布流程。</div></details>
+        <details class="qa"><summary class="qu">Q:LangFuse/LangSmith 里现成的 Prompt 管理了解吗?</summary><div class="an">了解:都提供 prompt 版本化 + playground 试跑 + 与 trace 关联(哪次请求用了哪个版本),自研可以直接对齐这套模型,或直接用。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>黄金集</b>:每次变更必跑的核心评估样本。</div>
+          <div class="term-item"><b>版本指针</b>:指向某版本的可快速拨动的引用。</div>
+          <div class="term-item"><b>Prompt 注入</b>:用户话术诱导系统吐出/篡改提示词。</div>
+        </div>
+      </div>
+</article>

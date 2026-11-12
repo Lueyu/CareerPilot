@@ -1,0 +1,95 @@
+<article class="q" id="sys-010" data-topic="sys" data-title="多Agent异步任务稳定性与结果一致性" data-difficulty="4" data-tags="异步执行,一致性" data-company="字节(真题)" data-source="P5Q34" data-kw="异步执行 一致性 消息队列 幂等 分布式锁 租约 Saga 补偿 exactly-once 超时 死信队列 字节">
+
+  <div class="q-no">Agent核心 · Q34</div>
+  <h3>在多Agent系统中，如何保证异步任务执行的稳定性和结果一致性？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#异步执行</span><span class="tag">#一致性</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"稳定性靠<b>消息队列 + 超时重试 + 租约 + 死信队列</b>四件套;一致性靠<b>幂等 + 状态机 + 分布式锁 + Saga 补偿</b>。具体:任务异步投递到队列,Worker 带租约领取、执行完 ACK,宕机自动重派;所有写操作设计成<b>幂等</b>(带幂等键),重复执行无副作用;跨 Agent 的多步副作用用 <b>Saga 模式</b>,失败逐步补偿回滚;共享状态用<b>单写者 + 乐观锁</b>避免并发覆盖。要承认一个事实:<b>分布式里没有完美的 exactly-once,只能做到 at-least-once + 幂等 = 效果上的 exactly-once</b>。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就是<b>多人协作填一份电子表格 + 一条流水线作业</b>:任务派下去可能有人中途掉线(<b>超时重派</b>),所以每个操作都要设计成"重复做一遍也不会出乱子"(<b>幂等</b>——比如"把状态改成已发货"重做两次结果一样);多个人不能同时改同一格(<b>分布式锁/乐观锁</b>);已经做了前面几步、后面失败了,要按记录把前面的步骤撤销(<b>Saga 补偿</b>)。核心原则:允许失败,但失败后状态不能烂在半路。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 稳定性:任务不丢、不卡死、不雪崩</b></p>
+    <ul>
+      <li><b>消息队列解耦</b>:任务异步投递,生产者/消费者解耦,天然削峰;队列本身提供持久化,任务先落队再执行。</li>
+      <li><b>租约(lease)+ 心跳</b>:Worker 领取任务设租期并续期,执行中宕机→租约到期→任务重派。解决"任务不丢"和"不双跑"的平衡。</li>
+      <li><b>超时 + 有限重试 + 指数退避</b>:单步设超时,失败重试但设上限(如 3 次),退避避免打爆下游;超上限进<b>死信队列</b>人工处理。</li>
+      <li><b>熔断/限流</b>:下游(LLM、业务 API)异常时熔断,防止一个 Agent 的故障拖垮整条链路。</li>
+    </ul>
+    <p><b>2. 一致性:重复、并发、部分失败三个坑</b></p>
+    <ul>
+      <li><b>幂等(核心)</b>:给任务和写操作配<b>幂等键</b>,执行前抢 <code>SETNX</code> 锁或用唯一键去重;副作用操作(发消息、扣款、写单)按幂等键去重。有了幂等,重派/重试才敢放心做。</li>
+      <li><b>交付语义要讲清楚</b>:at-most-once(可能丢)、at-least-once(可能重)、exactly-once(靠"at-least-once + 幂等"近似实现)。<b>明确"我选 at-least-once + 幂等",这是工程上的标准答案。</b></li>
+      <li><b>并发写冲突</b>:共享状态用<b>单写者模式</b>(同一任务同一时刻只一个 Worker 写)或<b>乐观锁/版本号</b>(CAS 更新,版本不符则重读重算)。</li>
+      <li><b>部分失败</b>:跨 Agent 多步操作用 <b>Saga</b>——每步成功记录 + 配一个"补偿动作",中途失败按逆序补偿回滚,保证要么全成、要么回到一致状态。</li>
+    </ul>
+    <p><b>3. 状态管理是稳定性的地基</b></p>
+    <ul>
+      <li>Agent 本身<b>无状态</b>,状态外置(Redis 热 + DB 冷),进程挂了换机器继续跑。</li>
+      <li>任务状态机(pending→running→succeeded/failed/dead)每次变更落库,可审计、可回放、可恢复。</li>
+      <li>关键长任务做 <b>checkpoint</b>,断点续跑而非从头再来。</li>
+    </ul>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 592 282" role="img" aria-label="多Agent异步任务稳定性与一致性">
+  <rect class="sd-layer" x="4" y="8" width="584" height="266"/>
+  <text class="sd-l" x="16" y="26">多 Agent 异步任务 · 稳定性 + 一致性</text>
+  <rect class="sd-box-rose" x="12" y="44" width="120" height="56" rx="10"/>
+  <text class="sd-t" x="72" y="68" text-anchor="middle">生产者</text>
+  <text class="sd-ts" x="72" y="86" text-anchor="middle">异步投递任务</text>
+  <rect class="sd-box-teal" x="150" y="44" width="120" height="56" rx="10"/>
+  <text class="sd-t" x="210" y="68" text-anchor="middle">消息队列</text>
+  <text class="sd-ts" x="210" y="86" text-anchor="middle">持久化 · 削峰</text>
+  <rect class="sd-box" x="288" y="44" width="120" height="56" rx="10"/>
+  <text class="sd-t" x="348" y="68" text-anchor="middle">Worker</text>
+  <text class="sd-ts" x="348" y="86" text-anchor="middle">租约+幂等+重试</text>
+  <rect class="sd-box-teal" x="426" y="44" width="120" height="56" rx="10"/>
+  <text class="sd-t" x="486" y="68" text-anchor="middle">成功 ACK</text>
+  <text class="sd-ts" x="486" y="86" text-anchor="middle">结果落库一致</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M132 72 L148 72"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M270 72 L286 72"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M408 72 L424 72"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M348 100 L348 136"/>
+  <text class="sd-ts" x="356" y="120" text-anchor="start">失败超上限</text>
+  <rect class="sd-box-rose" x="270" y="140" width="156" height="56" rx="10"/>
+  <text class="sd-t" x="348" y="164" text-anchor="middle">死信队列 DLQ</text>
+  <text class="sd-ts" x="348" y="182" text-anchor="middle">告警 + 人工处理</text>
+  <text class="sd-l" x="12" y="246">多步副作用</text>
+  <rect class="sd-box2" x="120" y="224" width="88" height="44" rx="10"/>
+  <text class="sd-t" x="164" y="250" text-anchor="middle">步骤1 ✓</text>
+  <rect class="sd-box2" x="222" y="224" width="88" height="44" rx="10"/>
+  <text class="sd-t" x="266" y="250" text-anchor="middle">步骤2 ✓</text>
+  <rect class="sd-box-rose" x="324" y="224" width="88" height="44" rx="10"/>
+  <text class="sd-t" x="368" y="250" text-anchor="middle">步骤3 ✗</text>
+  <rect class="sd-box" x="426" y="224" width="150" height="44" rx="10"/>
+  <text class="sd-t" x="501" y="250" text-anchor="middle">逆序补偿 2′/1′</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M208 246 L220 246"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M310 246 L322 246"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M412 246 L424 246"/>
+</svg></div>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么不能真正 exactly-once?</summary><div class="an">因为"提交结果"和"确认 ACK"之间存在网络边界:执行完写库成功、但 ACK 前网络断了,队列会重派一次,操作就执行了两次。这是分布式系统的固有难题(two generals problem 的变体)。解法不是追求绝对不重,而是<b>让它重复执行也无害——即幂等</b>,对外效果就等于 exactly-once。</div></details>
+    <details class="qa"><summary class="qu">Q:两个 Agent 同时写同一个会话状态,会覆盖吗?</summary><div class="an">会。所以用<b>版本号/乐观锁</b>:写入时带 expected_version,CAS 不匹配就冲突,重读重算;或对同一会话<b>串行化</b>(按 session_id 路由到同一队列/加分布式锁),牺牲一点并发换正确性。Agent 中间态合并建议用 reducer(如列表追加)而非整对象覆盖。</div></details>
+    <details class="qa"><summary class="qu">Q:Saga 补偿动作本身失败了怎么办?</summary><div class="an">补偿动作也要<b>幂等且可重试</b>(失败进重试队列);仍然失败就进<b>人工补偿队列</b>告警,由人兜底处理;同时把"待补偿"状态持久化,绝不能静默丢弃——宁可显式报"部分完成待人工"也不能悄悄不一致。</div></details>
+    <details class="qa"><summary class="qu">Q:任务延迟敏感,队列重试会不会拖太久?</summary><div class="an">分级处理:实时交互类走低延迟路径(同步 + 短超时 + 快速降级),离线重任务才进队列;重试用指数退避但要封顶,超时可并行启动"降级方案"(如换小模型、返回缓存),不让用户干等重试。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>幂等</b>:同一操作执行多次,效果与一次相同。</div>
+      <div class="term-item"><b>租约</b>:带有效期的执行权,到期自动回收重派。</div>
+      <div class="term-item"><b>Saga</b>:长事务拆小步,失败逐步补偿回滚。</div>
+      <div class="term-item"><b>At-least-once</b>:至少送达一次,可能重复,靠幂等兜底。</div>
+      <div class="term-item"><b>DLQ</b>:死信队列,反复失败任务的收容所。</div>
+      <div class="term-item"><b>乐观锁</b>:版本号 CAS 更新,冲突则重试。</div>
+    </div>
+  </div>
+</article>

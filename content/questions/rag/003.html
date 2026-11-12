@@ -1,0 +1,89 @@
+<article class="q" id="rag-003" data-topic="rag" data-title="设计Agent知识库更新系统" data-difficulty="4" data-tags="知识库,增量更新,RAG" data-company="" data-source="P1Q13" data-kw="知识库 增量更新 索引 冷热分离 版本管理 回滚 RAG 哈希 双缓冲">
+
+      <div class="q-no">系统设计 · Q13</div>
+      <h3>设计一个 Agent 知识库更新系统</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#知识库</span><span class="tag">#增量更新</span><span class="tag">#RAG</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"原则是<b>增量优先、更新不停服</b>:变更检测用文档哈希指纹比对(或 CMS webhook 推送),只处理变化部分;增量向量化写入<b>双缓冲索引</b>,建好后原子切换别名,查询全程走旧索引无感;冷热分离按检索日志的访问频率调度;每次更新生成版本快照,可一键回滚。最容易被忽略但必须主动讲的:更新后<b>缓存要跟着失效</b>(缓存 key 带版本号)。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>就是<b>图书馆上新书</b>:绝不能"闭馆三天重新整理所有书架"(全量重建),而是新到的书直接上架(增量);常被借的书放门口展示区(热数据,SSD/多副本),没人借的搬地下室(冷归档);每次大批上架前先拍照存档(<b>版本快照</b>),发现一批书分类错了,整批撤回重摆(<b>回滚</b>);读者正在看的书不从他手里抢走(查询无感切换)。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 变更检测(三档灵敏度)</b></p>
+        <ul>
+          <li><b>推送式</b>:CMS/网盘 webhook 实时通知——最快,首选。</li>
+          <li><b>轮询比对</b>:定时拉文件列表,比<b>内容哈希(MD5)</b>(不能只比 mtime,有人只是重新保存了一下)。</li>
+          <li><b>删除检测</b>:源里消失的文档要从索引下架——<b>最容易被忘记的 bug 来源</b>。</li>
+        </ul>
+        <p><b>2. 增量处理管道</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 846 92" role="img" aria-label="知识库增量更新管道与双缓冲切换">
+  <rect class="sd-box2" x="10" y="16" width="100" height="56" rx="10"/>
+  <text class="sd-t" x="60" y="40" text-anchor="middle">变更事件</text>
+  <text class="sd-ts" x="60" y="58" text-anchor="middle">webhook·哈希</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M110 44 L128 44"/>
+  <rect class="sd-box" x="130" y="16" width="100" height="56" rx="10"/>
+  <text class="sd-t" x="180" y="40" text-anchor="middle">解析</text>
+  <text class="sd-ts" x="180" y="58" text-anchor="middle">PDF·HTML·表格</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M230 44 L248 44"/>
+  <rect class="sd-box" x="250" y="16" width="100" height="56" rx="10"/>
+  <text class="sd-t" x="300" y="40" text-anchor="middle">chunk 对齐</text>
+  <text class="sd-ts" x="300" y="58" text-anchor="middle">锚点·重切变化区</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M350 44 L368 44"/>
+  <rect class="sd-box-amber" x="370" y="16" width="100" height="56" rx="10"/>
+  <text class="sd-t" x="420" y="40" text-anchor="middle">增量向量化</text>
+  <text class="sd-ts" x="420" y="58" text-anchor="middle">只算变化 chunk</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M470 44 L488 44"/>
+  <rect class="sd-box-teal" x="490" y="16" width="100" height="56" rx="10"/>
+  <text class="sd-t" x="540" y="40" text-anchor="middle">影子索引</text>
+  <text class="sd-ts" x="540" y="58" text-anchor="middle">版本·时间·来源</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M590 44 L608 44"/>
+  <rect class="sd-box-rose" x="610" y="16" width="100" height="56" rx="10"/>
+  <text class="sd-t" x="660" y="40" text-anchor="middle">原子切换</text>
+  <text class="sd-ts" x="660" y="58" text-anchor="middle">别名切换</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M710 44 L728 44"/>
+  <rect class="sd-box2" x="730" y="16" width="100" height="56" rx="10"/>
+  <text class="sd-t" x="780" y="40" text-anchor="middle">旧索引只读</text>
+  <text class="sd-ts" x="780" y="58" text-anchor="middle">3~7天·回滚</text>
+</svg></div>
+        <p><b>3. 双缓冲(蓝绿)切换</b></p>
+        <ul>
+          <li>增量写入影子 collection,build 完成 + 抽检质量后,<b>alias 原子切换</b>(毫秒级,查询无缝)。</li>
+          <li>旧索引保留 3~7 天只读:出问题把别名切回去 = <b>秒级回滚</b>;长期审计需求留每日快照。</li>
+          <li>大重构(换了 chunk 策略/ embedding 模型)才走全量重建,安排在深夜低峰。</li>
+        </ul>
+        <p><b>4. 冷热分离</b></p>
+        <ul>
+          <li>统计检索日志:近 30 天被命中的 chunk = 热数据(多副本、常驻内存);未命中 = 冷数据(降副本、HDD/归档),查询时按需唤醒。</li>
+          <li>典型比例:5% 的热文档承接 80% 的检索(员工手册、产品 FAQ 就是永远的热点)。</li>
+        </ul>
+        <p><b>5. 版本管理与回滚</b></p>
+        <ul>
+          <li>版本 = 索引快照 + manifest(文档 ID 清单 + 源版本 + embedding 模型版本)。<b>embedding 模型升级必须全量重建且新旧索引隔离</b>(向量空间不可混)。</li>
+          <li>支持"时间点视图":回答"这个答案基于哪一版制度生成的"(合规审计刚需)。</li>
+        </ul>
+        <p><b>6. 缓存一致性</b>:语义缓存/FAQ 预生成答案的 key 绑定知识库版本号,切换即旧缓存全部失效,防止"新政策出了还答旧的"。</p>
+        <p><b>7. 任务编排</b>:增量任务走实时低优先队列;批量重建走深夜批处理;失败任务死信队列人工介入。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:文档改了一句话,要重嵌入整个文档吗?</summary><div class="an">不用。结构化 chunk 锚点定位到受影响的 chunk 重切重嵌入;但若改动影响语义连贯(章节标题变更),向上扩一层(整章)重切——用"最小受影响范围"策略平衡成本和正确性。</div></details>
+        <details class="qa"><summary class="qu">Q:更新很频繁(分钟级)怎么办?</summary><div class="an">小增量实时入主索引(向量库支持 upsert);双缓冲只用于大批量;配合"延迟合并"——高频小写先攒批再合并,减少索引碎片。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么发现"该更新没更新"?</summary><div class="an">对账任务:定期全量比源和索引的文档哈希清单;差异告警——把"索引和源不一致"当成 P1 故障对待。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>双缓冲/蓝绿</b>:新旧两套并行,原子切换。</div>
+          <div class="term-item"><b>Manifest</b>:索引内容清单,用于对账。</div>
+          <div class="term-item"><b>Chunk 锚点</b>:按文档结构定位切块,变更可局部化。</div>
+          <div class="term-item"><b>Upsert</b>:存在则更新不存在则插入。</div>
+        </div>
+      </div>
+</article>

@@ -1,0 +1,59 @@
+<article class="q" id="rag-007" data-topic="rag" data-title="如何实现RAG的增量索引更新" data-difficulty="4" data-tags="增量更新,索引,RAG" data-company="" data-source="P2Q7" data-kw="增量 索引 更新 RAG 哈希 对账 upsert 热更新 embedding">
+
+      <div class="q-no">工程实践 · Q7</div>
+      <h3>如何实现 RAG 的增量索引更新?</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#增量更新</span><span class="tag">#索引</span><span class="tag">#RAG</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"闭环四步:① <b>变更检测</b>——文档内容哈希(MD5)比对或 CMS webhook 推送,只找变化的部分;② <b>增量管道</b>——结构化 chunk 对齐后只重嵌入受影响的块;③ <b>upsert 写入</b>向量库(带稳定 chunk ID,而非删除重建);④ <b>一致性保障</b>——缓存 key 绑定版本号失效,定期对账任务比对源与索引。<b>embedding 模型升级是特例</b>:向量空间不兼容,必须全量重建+双缓冲切换。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>超市补货</b>:每天盘点只看"货架上的和仓库清单差在哪"(哈希对账),缺什么补什么(增量 upsert);新品上架不关门(热更新);收银台的商品价签同步更新(缓存失效);月底大盘一次防漏(全量对账)。最忌讳"每天把超市推平重建一遍"(全量重建)——又贵又影响营业。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 变更检测</b></p>
+        <ul>
+          <li>首选 <b>webhook</b>(CMS/网盘推送"这个文档变了"),准实时、零扫描。</li>
+          <li>轮询兜底:定时拉清单比 <b>内容哈希</b>(不要只比修改时间——"打开又保存"会误报,内容没变就不该重建)。</li>
+          <li>三类事件:<b>新增 / 修改 / 删除</b>——删除最容易被忽略,源里消失的文档必须同步下架索引。</li>
+        </ul>
+        <p><b>2. chunk 对齐(增量正确性的核心)</b></p>
+        <ul>
+          <li>chunk 按<b>文档结构锚点</b>(章节标题/段落序号)生成稳定 ID:<code>doc_id::section_hash</code>。文档改了第 3 节 → 只有第 3 节的 chunk hash 变了 → 只重嵌入这些。</li>
+          <li>若无结构(纯文本):滑动窗口按位置 diff,变化区前后各扩一个窗口(边界信息可能被牵连)。</li>
+        </ul>
+        <p><b>3. 增量写入</b></p>
+        <ul>
+          <li>向量库 <b>upsert</b>(相同 chunk ID 覆盖),删除走批量 delete;注意 upsert 后 HNSW 碎片/性能退化,夜间做小规模合并(或选择支持在线 compaction 的库)。</li>
+          <li>高频小更新攒批(1~5 分钟一批),减少索引抖动。</li>
+        </ul>
+        <p><b>4. 一致性保障</b></p>
+        <ul>
+          <li><b>版本号贯穿</b>:每次更新生成 KB version;查询带版本,答案/缓存都引用版本——"这个回答基于 V12 制度生成的"。</li>
+          <li><b>对账任务</b>:每日全量比"源哈希清单 vs 索引清单",差异 &gt; 0 触发告警并自动补齐——防止管道漏消息(webhook 丢了、任务挂了)造成长期不一致。</li>
+          <li>缓存失效:绑定版本的 key 随更新自动失效(详见第一部分 Q13)。</li>
+        </ul>
+        <p><b>5. 特例:embedding 模型升级</b></p>
+        <ul>
+          <li>不同模型的向量空间<b>不可混用</b>——必须全量重嵌入 + 新建索引 + 双缓冲原子切换 + 查询侧 embedding 调用同步升级(接口版本化,平滑迁移)。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:怎么验证增量更新是正确的?</summary><div class="an">三招:对账清单 diff 必须为空;抽样查询比对(同一 query 更新前后应只受"预期变化"影响);更新前后跑固定评估集,Recall 不应无故波动。</div></details>
+        <details class="qa"><summary class="qu">Q:增量更新会不会让索引越来越碎片化?</summary><div class="an">会,所以设"碎片率"指标(删除空洞占比),超阈值触发分片内的后台重建(merged by scheduling,错峰执行)。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>内容哈希</b>:文档指纹,判断"真的变了"。</div>
+          <div class="term-item"><b>Chunk 对齐</b>:新旧切块位置对应,支持局部更新。</div>
+          <div class="term-item"><b>对账</b>:源和索引定期比对防漏。</div>
+        </div>
+      </div>
+</article>

@@ -1,0 +1,92 @@
+<article class="q" id="sys-007" data-topic="sys" data-title="GPU有限时推理与微调共存的资源分配调度" data-difficulty="4" data-tags="资源管理,调度策略" data-company="字节(真题)" data-source="P5Q17" data-kw="GPU 资源分配 推理 微调 调度 抢占 MIG QLoRA 动态批处理 SLA 时延 吞吐 字节">
+
+  <div class="q-no">Agent核心 · Q17</div>
+  <h3>如果你要在 GPU 资源有限的条件下同时提供推理和微调服务，如何做资源分配和任务调度以保证时延和吞吐？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#资源管理</span><span class="tag">#调度策略</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"核心原则:<b>在线推理 SLA 优先,离线微调让路、可抢占</b>。资源上用 <b>MIG 或显存配额</b>把 GPU 切分隔离;调度上给推理配高优先级、微调配低优先级,支持<b>抢占式调度</b>——推理流量上来,微调自动降速/暂停并落 checkpoint;微调侧用 <b>QLoRA/PEFT</b> 把显存压到单卡可容;推理侧用<b>动态批处理 + 量化小模型</b>提吞吐;再加弹性扩缩容:闲时把卡还给训练,忙时收回。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>一台机器同时当"前台叫号机"和"后台跑报表"</b>:前台(推理)是实时服务,客人一来必须立刻响应,所以它最高优先级;后台报表(微调)是离线活,可以先暂停、存个进度(checkpoint),等前台不忙了接着跑(抢占 + 恢复)。为让两者塞进同一台小机器,报表用更省的算法(QLoRA 量化),前台用小模型 + 拼单(动态批处理);白天前台优先,夜里前台闲下来报表全力跑。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 先讲清矛盾(这是这道题的立意)</b></p>
+    <p>在线推理要<b>低时延、稳定</b>(P99 不能抖),离线微调要<b>持续吃算力、长时独占</b>;两者抢的是同一批 GPU 的<b>算力和显存</b>。硬凑在一起,推理时延会抖、微调会 OOM。所以答案是"<b>隔离 + 优先级 + 抢占 + 弹性</b>"四件套。</p>
+    <p><b>2. 资源隔离方案(对比选型)</b></p>
+    <table>
+      <tr><th>方案</th><th>粒度</th><th>特点</th><th>适用</th></tr>
+      <tr><td><b>MIG 硬隔离</b></td><td>物理切分 GPU</td><td>显存/算力强隔离,互不干扰</td><td>A100/H100,固定配比</td></tr>
+      <tr><td><b>显存配额</b></td><td>逻辑限制</td><td>灵活但算力仍可能争抢</td><td>显存是主要瓶颈时</td></tr>
+      <tr><td><b>容器 + 时间片</b></td><td>K8s 调度</td><td>按时间/权重轮换</td><td>多任务混合</td></tr>
+    </table>
+    <p><b>3. 调度策略(优先级 + 抢占 + 弹性)</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 480 292" role="img" aria-label="GPU 推理与微调共存调度">
+  <rect class="sd-box-rose" x="14" y="18" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="89" y="42" text-anchor="middle">推理请求</text>
+  <text class="sd-ts" x="89" y="60" text-anchor="middle">高优先级·SLA 优先</text>
+  <rect class="sd-box2" x="14" y="130" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="89" y="154" text-anchor="middle">微调任务</text>
+  <text class="sd-ts" x="89" y="172" text-anchor="middle">低优先级·可抢占</text>
+  <rect class="sd-box-teal" x="260" y="72" width="150" height="64" rx="10"/>
+  <text class="sd-t" x="335" y="100" text-anchor="middle">GPU 池</text>
+  <text class="sd-ts" x="335" y="118" text-anchor="middle">算力·显存·MIG 隔离</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M164 46 L256 96"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M164 158 L256 112"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M335 136 L246 208"/>
+  <text class="sd-ts" x="290" y="165" text-anchor="middle">流量上涨</text>
+  <rect class="sd-box-rose" x="180" y="210" width="120" height="54" rx="10"/>
+  <text class="sd-t" x="240" y="233" text-anchor="middle">抢占微调</text>
+  <text class="sd-ts" x="240" y="251" text-anchor="middle">checkpoint 暂停</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M300 237 L338 237"/>
+  <text class="sd-ts" x="319" y="230" text-anchor="middle">流量回落</text>
+  <rect class="sd-box-teal" x="340" y="210" width="120" height="54" rx="10"/>
+  <text class="sd-t" x="400" y="233" text-anchor="middle">恢复微调</text>
+  <text class="sd-ts" x="400" y="251" text-anchor="middle">空闲卡回收</text>
+  <path class="sd-an" marker-end="url(#sd-arr)" d="M400 210 L352 138"/>
+</svg>
+</div>
+    <ul>
+      <li><b>优先级</b>:推理 = 在线服务,永远优先;微调 = 批处理任务,可延迟、可中断。</li>
+      <li><b>抢占式调度</b>:推理需要算力时,微调任务被挂起(写 checkpoint)释放 GPU,忙完再恢复——比"杀掉重跑"省大量时间。</li>
+      <li><b>弹性</b>:按推理 QPS 预测,低谷期把卡划给训练,高峰期收回;配合 K8s 或云上弹性实例。</li>
+    </ul>
+    <p><b>4. 微调侧省显存(让离线"挤得进去")</b></p>
+    <ul>
+      <li><b>QLoRA/PEFT</b>:基座量化到 4-bit + 低秩适配器,把全参微调的显存需求压 1~2 个数量级,单卡即可微调大模型。</li>
+      <li>梯度累积 + 小 batch:降低瞬时显存峰值,换训练吞吐。</li>
+      <li>定期 checkpoint:让抢占随时可安全发生,不丢进度。</li>
+    </ul>
+    <p><b>5. 推理侧保时延 + 提吞吐</b></p>
+    <ul>
+      <li><b>动态批处理</b>:攒请求成 batch,吞吐上升;但 batch 大 → 排队久 → 时延高,要按 SLA 反推最大 batch 和最长排队。</li>
+      <li><b>量化/蒸馏小模型</b>:显存和算力占用小,单位 GPU 能并发更多请求。</li>
+      <li>模型分级:简单请求走小模型,复杂请求才上大模型,把大模型的稀缺算力留给真正需要的。</li>
+    </ul>
+    <p><b>6. 保证 SLA 的最后一道</b>:对推理做<b>严格的并发上限和队列超时</b>;一旦算力吃紧,宁可拒绝/降级新请求(排队提示),也不让已接受请求的时延失控——这是"保时延优先于保吞吐"的取舍。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:抢占微调时,训练进度会丢吗?</summary><div class="an">会,但可控:训练框架定期存 checkpoint(每 N 步或每 N 分钟),抢占前强制再落一次盘,恢复时从最近 checkpoint 续训,损失的只是最近一小段。关键是<b>抢占动作要"优雅"</b>——先发信号让任务在安全点停,而不是直接 kill 进程(直接 kill 可能损坏 checkpoint)。还可以给微调设最小运行时间片,避免频繁抢占导致来回切换的开销大于收益。</div></details>
+    <details class="qa"><summary class="qu">Q:单张卡上能同时跑推理和微调吗?</summary><div class="an">能,但不推荐硬共享:靠显存配额 + 进程隔离可以共存,风险是<b>算力争抢导致推理 P99 抖动</b>,且显存碎片化容易 OOM。更稳的做法是<b>物理/逻辑隔离</b>——有 MIG 就 MIG 切块(推理、微调各一块,显存算力都隔开);没有 MIG 就按"推理优先 + 微调可抢占"的方式分时复用,而不是让两者在微观上抢同一时刻。一句话:能共存,但共存的质量取决于隔离是否彻底。</div></details>
+    <details class="qa"><summary class="qu">Q:时延和吞吐怎么权衡(batch 到底设多大)?</summary><div class="an">这是典型的跷跷板:batch 越大,GPU 利用率越高、吞吐越高,但排队时延越长。做法是<b>从 SLA 反推</b>——比如 P99 要 &lt; 800ms,其中排队 + 计算要压进这个预算,从而定出"最大允许 batch × 最长排队长度";再配合<b>动态批处理</b>(不是固定 batch,而是"攒到上限或超时(如 5ms)就发车"),在吞吐和时延之间取动态平衡点。核心:先立时延红线,再在红线内最大化吞吐。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>MIG</b>:把一块 GPU 物理切分成多个隔离实例。</div>
+      <div class="term-item"><b>抢占式调度</b>:高优先级任务可挂起低优先级任务。</div>
+      <div class="term-item"><b>QLoRA</b>:量化基座 + LoRA,微调省显存。</div>
+      <div class="term-item"><b>动态批处理</b>:攒请求成 batch 一起算提吞吐。</div>
+      <div class="term-item"><b>Checkpoint</b>:训练进度快照,用于安全中断与恢复。</div>
+      <div class="term-item"><b>SLA</b>:服务等级协议,约束时延/可用性目标。</div>
+    </div>
+  </div>
+</article>

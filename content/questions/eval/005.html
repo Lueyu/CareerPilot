@@ -1,0 +1,53 @@
+<article class="q" id="eval-005" data-topic="eval" data-title="如何设计RAG系统的A/B测试" data-difficulty="4" data-tags="ABTest,RAG,实验" data-company="" data-source="P4Q3" data-kw="AB test 实验 RAG 分流 指标 统计显著性 样本量 对照">
+
+      <div class="q-no">业务落地 · Q3</div>
+      <h3>如何设计 RAG 系统的 A/B 测试?</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#ABTest</span><span class="tag">#RAG</span><span class="tag">#实验</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"实验五要素:<b>单一变量</b>(只改一个东西:chunk 策略/rerank/模型)、<b>随机分流</b>(用户 hash,保证同质)、<b>预设指标</b>(主指标:回答质量 judge 分或解决率;护栏指标:延迟、成本、点踩率)、<b>样本量</b>(按预期效应量事前算好)、<b>固定观察期</b>(防偷看)。结论只认统计显著性(p&lt;0.05),并且警惕 RAG 特有的坑:<b>用 LLM 当裁判要校正位置/长度偏差</b>。</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>像<b>药物临床试验</b>:试验组吃新药、对照组吃安慰剂,病人<b>随机分</b>(否则重症都进了对照组,结果没法看);<b>双盲</b>(用户不知道自己用的哪个版本);<b>不能中途偷看数据</b>(peeking:看到一次领先就宣布有效,是临床和 AB 共同的大忌);样本量不足就"还没看出疗效"硬宣布有效——是事故。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 实验设计五步(背这个框架)</b></p>
+        <ul>
+          <li><b>① 假设单一变量</b>:"把 chunk 从 512 改 256 会提升回答质量"——一次只动一个变量,否则提升不知道归谁。</li>
+          <li><b>② 随机分组</b>:用户 ID hash % 100 &lt; 10 → 实验组;同用户同组(一致性);留意新用户的体验落差。</li>
+          <li><b>③ 指标预注册</b>(动手前白纸黑字):主指标 + 护栏指标 + 分析方法。典型 RAG 指标:主=回答质量(LLM-as-judge 按 rubric 打分)或解决率(用户行为);护栏=延迟 P99、单次成本、引用率。</li>
+          <li><b>④ 样本量</b>:按 MDE(最小可检测效应)算——预期提升 3%,基线方差已知 → 反推每组样本;避免"跑了三天觉得差不多就下结论"。</li>
+          <li><b>⑤ 固定观察期</b>:覆盖完整周期(含工作日/周末),到时间才开盲;中途只看护栏做止损,不看主指标。</li>
+        </ul>
+        <p><b>2. RAG 特有的实验坑(拉开差距的细节)</b></p>
+        <ul>
+          <li><b>judge 校准</b>:LLM 裁判有位置/长度/自我偏好——对比时随机打乱 A/B 顺序、固定裁判模型版本、抽 5% 人工对齐(judge 与人一致率 ≥85% 才可用)。</li>
+          <li><b>新奇效应</b>:新版本因为"回答更详细"短期点踩少,两周后回落——观察期别太短。</li>
+          <li><b>变量泄漏</b>:A/B 之外的东西悄悄变了(模型供应商那天升级了后端)——用 A/A 测试(同版本对同版本)校验系统本身的噪声底。</li>
+          <li><b>长尾问题</b>:整体均值好看,但长尾场景(罕见问题)变差被平均掉——分组看指标分布,不只看均值。</li>
+        </ul>
+        <p><b>3. 离线/在线的配合(高频追问点)</b></p>
+        <ul>
+          <li>离线评估集先筛:改动先过黄金集(便宜、快、可复现),有希望再上线上 AB(真实、贵、慢)——<b>离线是漏斗,在线是终审</b>。</li>
+          <li>线上实验同时回收新 bad case → 回流测试集,实验也是数据采集。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:流量小(内部系统几百人)怎么做 AB?</summary><div class="an">切换到交替时间窗(本周 A 下周 B,多轮交叉)或用户内交叉(每人交替体验);再小就干脆用离线评估+人工评审,承认"没有足够流量做统计",别假装在做 AB。</div></details>
+        <details class="qa"><summary class="qu">Q:质量提升了但成本也涨了,怎么决策?</summary><div class="an">定义复合决策函数(质量分-成本权重)或先定约束(成本不得超基线 10%)下最大化质量;把 trade-off 亮给业务方拍板——工程师给帕累托前沿,不做独裁。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>MDE</b>:最小可检测效应,决定样本量。</div>
+          <div class="term-item"><b>A/A 测试</b>:同版本对打,校验系统噪声。</div>
+          <div class="term-item"><b>Peeking</b>:中途偷看主指标的作弊行为。</div>
+        </div>
+      </div>
+</article>

@@ -1,0 +1,61 @@
+<article class="q" id="eval-021" data-topic="eval" data-title="为什么BLEU、ROUGE等传统NLP指标难以评估现代LLM" data-difficulty="2" data-tags="评估指标,BLEU,ROUGE" data-company="字节 / 阿里 / 腾讯（高频）" data-source="P7Q1" data-kw="评估指标 BLEU ROUGE n-gram 语义相似度 BERTScore BLEURT LLM-as-judge 局限 生成质量 参考答案">
+
+  <div class="q-no">评估讨论 · Q1</div>
+  <h3>为什么传统的 NLP 评估指标（如 BLEU, ROUGE）对于评估现代 LLM 的生成质量来说，存在很大的局限性？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐</span>
+    <span class="tag">#评估指标</span><span class="tag">#BLEU</span><span class="tag">#ROUGE</span>
+    <span class="company">字节 / 阿里 / 腾讯（高频）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"一句话:BLEU/ROUGE 量的是<b>字面重合度</b>,而现代 LLM 考的是<b>语义正确 + 遵循指令 + 事实准确</b>,两者根本不在一个维度。三点局限:① <b>n-gram 重叠 ≠ 语义等价</b>——同一意思换个说法分数就暴跌;② <b>强依赖参考答案</b>——开放式生成往往没有唯一标准答案;③ <b>不检查事实与推理</b>——流畅但胡编的答案照样拿高分。所以现在都转向语义相似度(BERTScore/BLEURT)、程序化校验和 LLM-as-judge。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就像用<b>「错别字数量」给作文打分</b>:两篇作文可以表达完全相同的意思,但一篇用了"她很伤心"、另一篇用了"她泪流满面",逐字对比就会判成"完全不一样"。更糟的是,一篇<b>通篇胡扯但字词和范文重合度高</b>的文章,反而能拿高分——这就是只看字面重合、不看"说得对不对"的荒谬之处。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 先搞清 BLEU / ROUGE 在算什么</b></p>
+    <ul>
+      <li><b>BLEU</b>:Bilingual Evaluation Understudy,算<b>精确率</b>——生成文本里有多少 n-gram 出现在参考答案里,再乘一个 <b>brevity penalty(长度惩罚)</b>防止答案过短刷分。原本为<b>机器翻译</b>设计,有标准译文可对齐。</li>
+      <li><b>ROUGE</b>:Recall-Oriented Understudy,算<b>召回率</b>——参考答案里有多少 n-gram 被生成文本覆盖(ROUGE-N 看 n-gram,ROUGE-L 看最长公共子序列)。原本为<b>文本摘要</b>设计。</li>
+      <li>共性:都是<b>基于参考答案的字符串重叠</b>,本质是"和标准答案字面上像不像",而不是"对不对、好不好"。</li>
+    </ul>
+    <p><b>2. 三大核心局限(逐个讲)</b></p>
+    <ul>
+      <li><b>① 语义等价 ≠ 字面重叠</b>:LLM 的回答是生成式、高度复述的。"她情绪低落"和"她很难过"语义相同,但 n-gram 几乎不重合,BLEU 会给出极低分。模型越好、表达越灵活,传统指标反而越"吃亏"。</li>
+      <li><b>② 依赖参考答案,开放式任务没有唯一答案</b>:对话、写作、创意、代码这类任务,同一需求有无数种正确答法。BLEU/ROUGE 需要"标准答案",一旦答案多样,指标就失效;且"多个参考答案"也只能有限缓解。</li>
+      <li><b>③ 不评估正确性与推理</b>:它只看<b>形式</b>不看<b>内容</b>。一句流畅但捏造事实的话("珠穆朗玛峰高 8844 米")和正确的话得分一样高;一段结论对但推理链错乱的数学题,也可能因为关键词重合而蒙混过关。它还完全无视<b>指令遵循</b>(格式、语气、长度要求)。</li>
+    </ul>
+    <table>
+      <tr><th>评估范式</th><th>测的是什么</th><th>典型指标/方法</th><th>适用</th></tr>
+      <tr><td><b>字面重叠</b></td><td>和参考答案像不像</td><td>BLEU、ROUGE、METEOR</td><td>机器翻译/摘要(有标准答案)</td></tr>
+      <tr><td><b>语义相似度</b></td><td>意思近不近</td><td>BERTScore、BLEURT、COMET</td><td>生成质量、复述</td></tr>
+      <tr><td><b>程序化校验</b></td><td>对错是否可执行验证</td><td>代码跑单测、数学验算、Schema 校验</td><td>代码/数学/工具调用</td></tr>
+      <tr><td><b>模型裁判</b></td><td>综合质量、多维度打分</td><td>LLM-as-judge(人工校准)</td><td>开放式、主观维度</td></tr>
+    </table>
+    <p><b>3. 为什么还没被完全淘汰</b></p>
+    <ul>
+      <li>在<b>机器翻译、单文档摘要</b>等"有标准答案、重字面"的场景,BLEU/ROUGE 仍便宜、快、可复现,做<b>回归监控</b>仍有价值。</li>
+      <li>面试加分点:能说出"指标要<b>按任务选</b>,字面重叠指标只在参考式(有 gold)场景兜底,生成式场景交给语义/裁判式指标"。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:BERTScore 和 BLEU 到底差在哪？</summary><div class="an">BLEU 比的是<b>离散的 n-gram 字符串</b>,要求完全一致才算命中;BERTScore 把生成文本和参考答案都编码成 <b>embedding</b>,逐 token 算余弦相似度再做贪心对齐取平均(还能按 IDF 加权,让稀有词权重更高)。所以"伤心"和"难过"在 BERTScore 里相似度很高,在 BLEU 里就是 0。代价是 BERTScore 更贵、更依赖预训练模型的语义空间。</div></details>
+    <details class="qa"><summary class="qu">Q:加了长度惩罚(BP)是不是就够了？</summary><div class="an">不够。BP 只解决"答案太短刷精确率"的问题,没解决语义等价、参考答案依赖、事实正确性这三个根本问题。它只是 BLEU 内部的一个修正项,不改变"字面重叠"这一前提。</div></details>
+    <details class="qa"><summary class="qu">Q:那现在实际工作中用什么？</summary><div class="an">分层组合:① 能程序化的(代码/数学/工具调用)用<b>执行式校验</b>,最可靠;② 开放式文本用 <b>LLM-as-judge</b> + 人工抽检校准;③ 需要快速回归时用 BERTScore 等语义指标做信号。单一指标基本被淘汰,都是"多指标 + 人工锚定"。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>BLEU</b>:基于 n-gram 精确率的机器翻译指标,带长度惩罚。</div>
+      <div class="term-item"><b>ROUGE</b>:基于 n-gram 召回率的摘要指标,有 ROUGE-N/L。</div>
+      <div class="term-item"><b>BERTScore</b>:用 embedding 余弦相似度衡量语义接近程度。</div>
+      <div class="term-item"><b>参考式评估</b>:必须有标准答案(gold)才能打分的评估方式。</div>
+      <div class="term-item"><b>指令遵循</b>:是否满足格式、语气、长度等显式要求。</div>
+    </div>
+  </div>
+</article>

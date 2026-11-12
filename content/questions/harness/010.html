@@ -1,0 +1,69 @@
+<article class="q" id="harness-010" data-topic="harness" data-title="A2A协议与Agent框架的核心区别" data-difficulty="3" data-tags="Agent,A2A,前沿技术" data-company="" data-source="P5Q10" data-kw="A2A Agent2Agent 协议 互操作 Agent Card MCP 框架 通信 发现 JSON-RPC">
+
+  <div class="q-no">Agent核心 · Q10</div>
+  <h3>了解 A2A 框架吗？它和普通 Agent 框架的区别在哪，挑一个最关键的不同点说明。</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#Agent</span><span class="tag">#A2A</span><span class="tag">#前沿技术</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"了解。A2A(Agent2Agent)是 Google 2025 年提出的<b>开放互操作协议</b>,解决"不同厂商、不同框架的 Agent 之间怎么互相发现、互相协作"。它和普通 Agent 框架(LangChain/AutoGen)根本不是一类东西:<b>框架管"单个 Agent 内部怎么做",A2A 管"Agent 与 Agent 之间怎么对话"</b>。最关键的一个不同点:框架是<b>构建 Agent 的 SDK</b>,A2A 是<b>Agent 之间的通信标准</b>——用 Agent Card 描述能力、用 JSON-RPC 2.0 over HTTP 传任务与消息,与具体框架无关,相当于"Agent 世界的 HTTP"。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>框架是给一个人配的<b>"内部工作方法"</b>(怎么拆任务、怎么用工具);A2A 是人与人之间的<b>"通讯录 + 通话标准"</b>(对方是谁、会什么、任务怎么发、结果怎么回)。一个人再强,和陌生人协作也得先有"自我介绍 + 统一通话协议"——A2A 就是这个:它不管你内部怎么干活,只规定你们怎么对接。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. A2A 是什么(先厘清定位)</b></p>
+    <ul>
+      <li>全称 <b>Agent2Agent</b>,Google 主导的开源协议,目标是让<b>异构 Agent(不同厂商、不同框架、不同语言)能即插即用地互操作</b>,避免每个 Agent 都要为别人写一套私有适配。</li>
+      <li>它解决的是一类新问题:<b>Agent 生态互联互通</b>——类似"HTTP 之于 Web 服务"。而普通框架解决的是"如何快速搭出一个 Agent"。</li>
+    </ul>
+    <p><b>2. 核心机制(记住四个词)</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 720 150" role="img" aria-label="A2A 协议四大核心机制">
+  <rect class="sd-layer" x="6" y="8" width="708" height="120"/>
+  <text class="sd-l" x="16" y="24">A2A 协议 · 四大核心机制</text>
+  <rect class="sd-box" x="10" y="44" width="150" height="64" rx="10"/>
+  <text class="sd-t" x="85" y="72" text-anchor="middle">① Agent Card</text>
+  <text class="sd-ts" x="85" y="90" text-anchor="middle">名称·能力·端点·认证</text>
+  <rect class="sd-box" x="185" y="44" width="150" height="64" rx="10"/>
+  <text class="sd-t" x="260" y="72" text-anchor="middle">② Task</text>
+  <text class="sd-ts" x="260" y="90" text-anchor="middle">状态 + 生命周期</text>
+  <rect class="sd-box" x="360" y="44" width="150" height="64" rx="10"/>
+  <text class="sd-t" x="435" y="72" text-anchor="middle">③ Message</text>
+  <text class="sd-ts" x="435" y="90" text-anchor="middle">文本·文件·结构化</text>
+  <rect class="sd-box-teal" x="535" y="44" width="150" height="64" rx="10"/>
+  <text class="sd-t" x="610" y="72" text-anchor="middle">④ 传输</text>
+  <text class="sd-ts" x="610" y="90" text-anchor="middle">JSON-RPC 2.0 / SSE</text>
+</svg>
+</div>
+    <p><b>3. 与 MCP 的关系(面试常被一起问)</b></p>
+    <table>
+      <tr><th></th><th>MCP</th><th>A2A</th></tr>
+      <tr><td><b>解决什么</b></td><td>Agent ↔ 工具/数据源 的连接</td><td>Agent ↔ Agent 的连接</td></tr>
+      <tr><td><b>类比</b></td><td>给 Agent 接"手"(USB 外设标准)</td><td>让 Agent 互相"通话"(网络协议)</td></tr>
+      <tr><td><b>发起方</b></td><td>Anthropic</td><td>Google</td></tr>
+    </table>
+    <p><b>4. 最关键的不同点(只挑一个讲透)</b></p>
+    <p><b>框架是"构建 Agent 的内部脚手架",A2A 是"Agent 之间的外部接口标准"</b>。普通框架抽象的是<b>单个 Agent 内部</b>的模型调用、工具执行、状态流转;A2A 完全不碰这些,它抽象的是<b>跨 Agent 的发现、寻址、任务协商与结果回传</b>。所以一个 A2A 兼容的 Agent 完全可以用 LangChain 实现——<b>框架决定它"怎么想、怎么做",A2A 决定它"怎么被别的 Agent 找到、派活"</b>,两者正交、可叠加。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:A2A 和 MCP 是什么关系,二选一还是都要?</summary><div class="an">不冲突,解决不同问题:MCP 给 Agent 接工具和数据(context),A2A 让 Agent 之间互相对接(communication)。一个要"用好工具"的 Agent 用 MCP,一个要"跟别的 Agent 协作"的系统用 A2A,很多场景两者同时用:MCP 管单个 Agent 的能力,A2A 管 Agent 群的协作。</div></details>
+    <details class="qa"><summary class="qu">Q:A2A 的 Agent Card 里最关键的是什么?</summary><div class="an">最关键的是<b>能力的机器可读描述 + 安全/认证信息</b>:别人靠它判断"这个 Agent 能干什么、我能不能调用、怎么鉴权"。能力描述要足够结构化(而非一句自由文本),否则发现机制无法可靠路由——这直接决定互操作能不能真的落地。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么选 JSON-RPC 2.0 over HTTP 这种"老"技术?</summary><div class="an">因为它<b>成熟、无状态、跨语言、基础设施全兼容</b>(网关/代理/观测都好接)。协议的价值在"低门槛被广泛实现",不在"技术炫";用现有标准能让异构 Agent 最快接入,而不是再造一套没人会实现的重协议。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>A2A</b>:Agent2Agent,Agent 间互操作协议。</div>
+      <div class="term-item"><b>Agent Card</b>:Agent 的能力/端点/认证自描述。</div>
+      <div class="term-item"><b>MCP</b>:Model Context Protocol,连接工具与数据源的协议。</div>
+      <div class="term-item"><b>JSON-RPC 2.0</b>:轻量的远程调用协议,A2A 的传输基础。</div>
+      <div class="term-item"><b>互操作性</b>:异构系统无需私有适配即可协作。</div>
+    </div>
+  </div>
+</article>

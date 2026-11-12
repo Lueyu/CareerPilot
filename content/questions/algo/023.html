@@ -1,0 +1,62 @@
+<article class="q" id="algo-023" data-topic="algo" data-title="推导交叉熵损失与负对数似然的关系" data-difficulty="3" data-tags="损失函数,理论推导" data-company="无公司" data-source="P6Q22" data-kw="交叉熵 负对数似然 NLL 极大似然估计 MLE one-hot 损失函数 理论推导">
+
+  <div class="q-no">Agent算法 · Q22</div>
+  <h3>推导 Cross-Entropy Loss 与 Negative Log-Likelihood 的关系</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#损失函数</span><span class="tag">#理论推导</span>
+    <span class="company">无公司</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"交叉熵损失和负对数似然在分类任务里是<b>同一个东西</b>。NLL = −log y_true,只取真实类别概率的负对数;交叉熵 CE = −Σ tᵢ·log yᵢ,当标签是 one-hot 时,求和里只有真实类那一项非零,所以 <b>CE = NLL,严格相等</b>。两者的本质都是极大似然估计(MLE):最小化 NLL/CE 等价于最大化模型在数据上的似然。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>想象你在猜骰子:模型对每个面给一个概率,真实结果是"3 点"。负对数似然说:<b>"我只关心模型给 3 点那个面的概率,越低我罚得越重"</b>。交叉熵说:"我把真实分布(3 点是 100%、其他面 0%)和模型预测分布逐面对比"。因为真实分布只有 3 点那一面是 1、其余全是 0,逐面对比下来,最后也只剩 3 点那一项在起作用——所以两者算出来的数一模一样。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 两个定义</b></p>
+    <ul>
+      <li><b>交叉熵</b>:CE(p, q) = −Σ p(x)·log q(x),p 是真实分布,q 是模型预测分布。</li>
+      <li><b>负对数似然(NLL)</b>:NLL = −log q(y|x),y 是真实标签,q(y|x) 是模型给该标签的概率。</li>
+    </ul>
+    <p><b>2. 等价性推导</b></p>
+    <pre class="code"><span class="c"># 设真实标签为 one-hot: t = (0,…,1,…,0), 真实类为 c, 即 t_c = 1</span>
+<span class="c"># 模型输出概率分布: y = (y₁,…,y_K), Σᵢ yᵢ = 1</span>
+
+交叉熵:   CE = − Σᵢ tᵢ · log yᵢ = − log y_c      (只有 i=c 项非零)
+负对数似然: NLL = − log P_θ(y=c | x) = − log y_c
+
+∴ CE = NLL    (分类 + one-hot 标签下严格相等)</pre>
+    <p><b>3. 与极大似然估计(MLE)的关系</b></p>
+    <ul>
+      <li>样本似然 L = Π q(xᵢ);对数似然 log L = Σ log q(xᵢ)。</li>
+      <li>最大化 log-likelihood ⇔ 最小化 −Σ log q(xᵢ) ⇔ 最小化 NLL ⇔ 最小化 CE。</li>
+      <li>结论:用交叉熵训练分类器,本质就是在做<b>极大似然估计</b>。</li>
+    </ul>
+    <p><b>4. 什么时候不再相等(边界)</b></p>
+    <ul>
+      <li>标签非 one-hot(标签平滑、软标签、知识蒸馏)时,CE = −Σ tᵢ·log yᵢ 仍成立,但<b>不能再简化</b>成单个 −log y_c,此时 CE 是软标签下的期望 NLL。</li>
+      <li>二分类特例:BCE = −[ t·log y + (1−t)·log(1−y) ]。</li>
+      <li>严格说,NLL 是 CE 在 one-hot 标签下的特例;CE 是更一般的定义。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么分类不用 MSE,而用交叉熵?</summary><div class="an">两层原因:① 交叉熵配 softmax 梯度为 y−t,简洁且不饱和;MSE 配 softmax 会多出 y(1−y) 因子,输出接近 0/1 时梯度消失、学得慢。② 概率视角下 MSE 假设误差服从高斯分布,而分类标签是类别分布,交叉熵才是与 Bernoulli/Categorical 分布匹配的 MLE 目标。</div></details>
+    <details class="qa"><summary class="qu">Q:用了标签平滑之后,CE 和 NLL 还相等吗?</summary><div class="an">不等。标签平滑把 t 从 one-hot 改成 t_c = 1−ε、其余 ε/(K−1),此时 CE = −Σ tᵢ·log yᵢ 是软标签下的期望,无法再简化成单个 −log y_c。这正好说明 NLL(单点形式)只是 CE 在 one-hot 下的特例,CE 更一般。</div></details>
+    <details class="qa"><summary class="qu">Q:多标签分类(一条样本多个标签)能用 softmax+CE 吗?</summary><div class="an">不能直接。softmax 假设标签互斥(总和为 1 的单标签),多标签场景应改用 <b>sigmoid + BCE</b>:每个标签独立做二分类,损失为各标签 BCE 之和。这道题常用来测候选人是否理解损失函数背后的"分布假设"。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>交叉熵(CE)</b>:真实分布与预测分布差异的期望信息量。</div>
+      <div class="term-item"><b>负对数似然(NLL)</b>:真实类别概率取负对数。</div>
+      <div class="term-item"><b>MLE</b>:极大似然估计,选参数使观测数据概率最大。</div>
+      <div class="term-item"><b>one-hot</b>:唯一位置为 1、其余为 0 的标签编码。</div>
+      <div class="term-item"><b>标签平滑</b>:把 one-hot 软化,抑制过拟合。</div>
+    </div>
+  </div>
+</article>

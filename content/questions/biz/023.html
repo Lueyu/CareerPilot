@@ -1,0 +1,56 @@
+<article class="q" id="biz-023" data-topic="biz" data-title="顶尖AI Agent工程师应具备的核心素质" data-difficulty="2" data-tags="核心素质,职业发展" data-company="所有公司(高频)" data-source="P7Q17" data-kw="核心素质 职业发展 能力模型 工程师 工程 评估 产品思维 debug 沟通 Agent">
+
+  <div class="q-no">评估讨论 · Q17</div>
+  <h3>总结一下，你认为一个顶尖的AI Agent工程师，应该具备哪些核心素质？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐</span>
+    <span class="tag">#核心素质</span><span class="tag">#职业发展</span>
+    <span class="company">所有公司(高频)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我总结成<b>四合一</b>。① <b>扎实的软件工程底子</b>——Agent 本质是"带不确定性的分布式系统",并发、重试、可观测、成本控制这些工程能力是地基;② <b>对模型『脾气』的判断力</b>——知道什么时候改 prompt、什么时候换模型、什么时候改架构,这种手感只能靠大量调优和评测喂出来;③ <b>评估与产品思维</b>——能定义"什么算做对",而不是凭"感觉变好了";④ <b>极强的 debug 与归因能力</b>——Agent 的失败常不可复现,能把偶发问题还原成可复现 case 的人,和普通工程师有质的区别。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>顶尖 Agent 工程师像<b>既会看病、又会开药、还能判断疗效的资深医生</b>:会看病=能定位问题(debug),会开药=知道该用 prompt、模型还是架构来治(技术判断),会判断疗效=用指标验证"到底治好了没"(评估),最后能把复杂病情给外行讲明白(沟通)。只会开一种药的医生,遇到新病就抓瞎;只会套模板的工程师,换个场景就翻车。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 四层能力模型(逐层讲为什么重要)</b></p>
+    <ul>
+      <li><b>工程底子(地基)</b>:Agent 跑在真实系统上——要处理网络抖动、模型限流、token 成本、并发竞争。不懂重试/幂等/可观测性的人,写出的 Agent 只能在 demo 里活,一上线就崩。</li>
+      <li><b>模型判断力(手感)</b>:Agent 的问题常常没有唯一解:是 prompt 没写好?是工具描述歧义?是上下文塞爆了?是模型本身不行?<b>能快速定位到正确那一层,决定是改一行还是换方案</b>,这比背任何框架 API 都值钱。</li>
+      <li><b>评估与产品思维(标尺)</b>:顶尖工程师改完东西会问"用什么指标证明它变好了"。没有评估,调优就是玄学,团队也无法协作——这是普通人和顶尖之间最大的一道坎。</li>
+      <li><b>Debug 与归因(分水岭)</b>:LLM 有随机性,同一个输入可能这次对下次错。能通过加日志、固定 seed、控制变量、构造最小复现,把"偶发"变成"必现",是 Agent 调试的核心能力。</li>
+    </ul>
+    <p><b>2. 每层怎么考察/怎么练(给面试官和自己都用的上)</b></p>
+    <table>
+      <tr><th>素质</th><th>面试怎么考</th><th>平时怎么练</th></tr>
+      <tr><td><b>工程底子</b></td><td>问重试/幂等/限流/可观测的设计</td><td>把 demo 部署到生产,扛真实流量与异常</td></tr>
+      <tr><td><b>模型判断力</b></td><td>给一个真实 bad case 问"你会先改哪里、为什么"</td><td>针对一个失败 case 做消融:只改 prompt、只换模型、只改架构,观察差异</td></tr>
+      <tr><td><b>评估思维</b></td><td>问"你怎么证明你的 Agent 比上一版好"</td><td>维护一个黄金集,每次改动跑回归并对比指标</td></tr>
+      <tr><td><b>Debug 归因</b></td><td>给一个"偶发失败"现场,看排查思路</td><td>养成"固定 seed + 全链路日志 + 最小复现"的习惯</td></tr>
+    </table>
+    <p><b>3. 我认为最容易缺、也最该补的一层</b></p>
+    <ul>
+      <li><b>评估思维最容易被跳过</b>:因为"会写 demo"能立刻获得正反馈,而"建评估"枯燥、不性感。但它恰恰是把你从"调包侠"变成"工程师"的那一步。判断一个候选人是否成熟,就问一句:"<b>你上一次改 prompt,靠什么判断它真的变好了?</b>"——答"感觉顺了"的和答"跑了 200 条回归、成功率 82%→88%"的,是两个段位。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:算法功底和工程功底,哪个更重要?</summary><div class="an">对"Agent 应用开发"这个岗位,<b>工程功底是及格线,算法功底是加分项</b>。因为绝大多数业务 Agent 不需要自己训模型,但一定需要把不可靠的模型包进可靠的系统里。但这不等于算法无用:理解注意力、上下文窗口、采样温度、RLHF 这些原理,能让你在"该改 prompt 还是该换模型"上做出更准的判断。一句话:工程决定你能不能上线,算法决定你能不能再往上走。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么判断一个人是"真的会调 Agent"还是"只会套模板"?</summary><div class="an">问两个问题就够了:① <b>给一个具体的失败 case,问他排查顺序</b>——只会套模板的人答"换个大模型试试",会调的人会先拆"是检索错了、还是上下文超了、还是工具描述歧义、还是 prompt 自相矛盾",再逐层排除;② <b>问他怎么验证"改完确实变好"</b>——有没有评估集、有没有回归、有没有记录指标。答案里有没有"评估"这个词,是分水岭。</div></details>
+    <details class="qa"><summary class="qu">Q:你自己在往这个方向走时,最受益的一个习惯是什么?</summary><div class="an">是<b>"永远给每个改动配一个可复现的失败样本 + 一个可量化的指标"</b>。改 prompt 前先造一个能稳定失败的 case,改完看这个 case 过没过、以及整体指标涨没涨。这个习惯逼我把"玄学调参"变成"实验科学",也让我能清楚地向上汇报"为什么值得这么改"。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>可观测性(Observability)</b>:通过日志/指标/trace 看清系统内部状态。</div>
+      <div class="term-item"><b>归因(Root Cause)</b>:从现象追溯到真正原因,而非停在表象。</div>
+      <div class="term-item"><b>黄金集(Golden Set)</b>:一批标注好标准答案的评测样本。</div>
+      <div class="term-item"><b>消融实验</b>:每次只改一个变量,隔离出真正起作用的因素。</div>
+      <div class="term-item"><b>最小复现</b>:把偶发问题压缩成最小可稳定触发的方式。</div>
+    </div>
+  </div>
+</article>

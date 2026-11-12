@@ -1,0 +1,74 @@
+<article class="q" id="harness-012" data-topic="harness" data-title="具身Agent与软件工具Agent的本质区别" data-difficulty="3" data-tags="Agent,具身智能,机器人" data-company="" data-source="P5Q12" data-kw="Agent 具身智能 机器人 游戏 环境 反馈 实时 动作空间 POMDP sim-to-real 分层控制">
+
+  <div class="q-no">Agent核心 · Q12</div>
+  <h3>当一个 Agent 需要在真实或模拟环境中（如机器人、游戏）执行任务时，它与纯粹基于软件工具的 Agent 有什么本质区别？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#Agent</span><span class="tag">#具身智能</span><span class="tag">#机器人</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"本质区别在<b>环境反馈和动作的性质</b>:具身 Agent 面对的是<b>物理/模拟世界</b>——状态部分可观测、反馈有噪声和延迟、动作连续且<b>不可逆</b>、决策有<b>实时硬约束</b>;软件 Agent 面对的是<b>确定性的工具/API</b>——反馈结构化、可精确重放、动作可重试。由此带来架构差异:具身 Agent 必须<b>分层</b>——LLM 做高层规划(干什么),底层控制策略(RL/MPC)负责毫秒级执行(怎么动),两者解耦,还要处理 sim-to-real 迁移和安全约束;软件 Agent 则可以直接让 LLM 选工具、执行、看结果循环。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>软件 Agent 像<b>远程办公的白领</b>:发邮件、查系统,错了能撤回重发,对方的反馈是标准表格;具身 Agent 像<b>现场操作机器人的工人</b>:看到的现场可能被挡住(部分可观测)、传感器有延迟和误差、按错一个键可能造成事故(不可逆)、动作还得跟上流水线节奏(实时)。所以白领可以让 AI 直接干;工人必须"AI 大脑发指令 + 一双熟练的手来执行",中间隔一层——这就是分层控制。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 五组本质区别(逐条对比)</b></p>
+    <table>
+      <tr><th>维度</th><th>纯软件工具 Agent</th><th>具身 Agent(机器人/游戏)</th></tr>
+      <tr><td><b>环境反馈</b></td><td>API 返回结构化结果,确定、可重放</td><td>物理/模拟世界,有噪声、延迟,状态<b>部分可观测</b>(POMDP)</td></tr>
+      <tr><td><b>时间约束</b></td><td>秒级~分钟级可接受,推理慢点没关系</td><td><b>实时闭环</b>,控制频率要到 Hz 级,推理延迟是硬约束</td></tr>
+      <tr><td><b>动作空间</b></td><td>离散的工具调用(选哪个、传什么参)</td><td>连续动作(关节力矩/速度/位移),维度高、有物理约束</td></tr>
+      <tr><td><b>可逆性/安全</b></td><td>失败可重试、副作用可补偿</td><td>物理动作<b>不可逆</b>,有安全风险,需安全约束与代价函数</td></tr>
+      <tr><td><b>感知模态</b></td><td>文本/结构化数据为主</td><td>视觉/深度/触觉/本体感知,需 grounding 到 3D 世界</td></tr>
+    </table>
+    <p><b>2. 由此带来的架构差异:必须分层</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 500 364" role="img" aria-label="具身 Agent 分层控制架构">
+  <rect class="sd-box-amber" x="110" y="16" width="280" height="64" rx="10"/>
+  <text class="sd-t" x="250" y="44" text-anchor="middle">高层规划层（LLM）</text>
+  <text class="sd-ts" x="250" y="62" text-anchor="middle">拆任务 · 语义决策 · 秒级</text>
+  <rect class="sd-box" x="110" y="150" width="280" height="64" rx="10"/>
+  <text class="sd-t" x="250" y="178" text-anchor="middle">底层控制层</text>
+  <text class="sd-ts" x="250" y="196" text-anchor="middle">RL 策略 · MPC · 连续动作 Hz 级</text>
+  <rect class="sd-box-teal" x="110" y="284" width="280" height="64" rx="10"/>
+  <text class="sd-t" x="250" y="312" text-anchor="middle">环境（物理 / 仿真）</text>
+  <text class="sd-ts" x="250" y="330" text-anchor="middle">观测：视觉 · 力觉</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M250 80 L250 146"/>
+  <text class="sd-ts" x="258" y="112">下发子目标 / 技能指令</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M250 214 L250 280"/>
+  <text class="sd-ts" x="258" y="246">输出力矩 / 速度</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M390 316 C470 316 470 48 392 48"/>
+  <text class="sd-l" x="478" y="182" text-anchor="middle" transform="rotate(-90 478 182)">观测回传</text>
+</svg>
+</div>
+    <ul>
+      <li>关键点:<b>不要让 LLM 直接输出关节角度</b>——推理太慢、动作不连续、也不具备实时控制所需的稳定性。LLM 做"想什么",策略网络/控制器做"怎么动",两层解耦。</li>
+      <li>软件 Agent 通常不需要这层分离:LLM 直接"选工具 → 调 API → 看结果",单层闭环就够。</li>
+    </ul>
+    <p><b>3. 两个具身特有的难点</b></p>
+    <ul>
+      <li><b>sim-to-real gap</b>:仿真里训练的策略搬到真机会因物理差异(摩擦、光照、传感器噪声)失效,需要域随机化、真实数据微调、系统辨识等手段弥合。</li>
+      <li><b>部分可观测 + 不确定性</b>:机器人看不到完整状态(被遮挡、传感器漂移),要靠历史序列推断(状态估计/记忆),决策要考虑置信度,这是纯 API 环境里基本不存在的。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么不能让 LLM 直接控制机器人动作?</summary><div class="an">三个原因:① <b>延迟</b>——LLM 推理是秒级,而控制闭环需要 Hz 级实时,慢了就摔倒/跟不上;② <b>不连续</b>——LLM 输出是离散 token,直接当连续力矩会抖动;③ <b>不稳定</b>——概率采样不保证每次动作安全。所以 LLM 只做高层的"语义规划",底层交给确定性更强的策略/控制器。</div></details>
+    <details class="qa"><summary class="qu">Q:游戏里的 Agent 和机器人 Agent 一样吗?</summary><div class="an">同属具身/环境交互类,但差异也明显:游戏环境<b>可无限重试、状态往往全可观测、可并行加速</b>,还能直接拿到精确奖励,所以游戏是训练和验证的好沙箱;机器人则受物理安全、成本、sim-to-real 的硬约束。方法论相通(分层 + 强化学习),但工程约束不同。</div></details>
+    <details class="qa"><summary class="qu">Q:LLM 在具身智能里到底扮演什么角色?</summary><div class="an">主要是<b>高层规划者 + 常识注入者</b>:把自然语言目标拆成可执行子任务、利用世界知识弥补训练数据不足、做语义级的纠错。底层闭环(执行、安全、实时)仍由策略/控制负责——这就是"LLM 出主意,身体去执行"的分工。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>具身智能</b>:在物理/模拟环境中感知并行动的智能。</div>
+      <div class="term-item"><b>POMDP</b>:部分可观测马尔可夫决策过程,描述看不到全状态。</div>
+      <div class="term-item"><b>sim-to-real</b>:仿真训练迁移到真实世界的鸿沟。</div>
+      <div class="term-item"><b>分层控制</b>:高层规划与底层执行解耦的架构。</div>
+      <div class="term-item"><b>实时闭环</b>:感知→决策→执行的高频循环。</div>
+    </div>
+  </div>
+</article>

@@ -1,0 +1,97 @@
+<article class="q" id="algo-002" data-topic="algo" data-title="Agent能力微调与数据集收集方法" data-difficulty="3" data-tags="Agent,微调,数据集" data-company="" data-source="P5Q6" data-kw="微调 SFT 数据集 蒸馏 数据飞轮 负样本 LoRA 工具调用 规划 标注 质检">
+
+  <div class="q-no">Agent核心 · Q6</div>
+  <h3>有微调过 Agent 能力吗？数据集如何收集？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#Agent</span><span class="tag">#微调</span><span class="tag">#数据集</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"有。先想清楚<b>微调哪个能力</b>——通常三块:工具选择与参数抽取、规划轨迹(ReAct 的 thought+action)、以及"不该调工具时忍住"(负样本)。数据四路来源:<b>① 线上日志回流</b>(good/bad case,最值钱)<b>② 强模型蒸馏</b>(GPT-4/Claude 造样本)<b>③ 人工标注</b>(高质量)<b>④ 模板/合成</b>(补边界)。每条样本过质检:Schema 校验 → 沙箱执行验证 → 一致性反推 → 打分去重。最后按 FC:通用对话 ≈ 7:3 混着训,防灾难性遗忘。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就是<b>老师傅带徒弟</b> + <b>错题本</b>:请老师傅(强模型)按考纲(工具 schema)出各种题并写出标准答案(蒸馏);把徒弟平时做对、做错的题都收集起来(日志回流),对的重点强化、错的改好再练;偶尔再请人工把特别刁钻的题标一遍(人工标注);练的时候还夹着普通聊天题,免得徒弟只会调工具、连正常说话都不会了(防遗忘)。练完还要考三科:会不会选工具、参数对不对、不该动手时会不会忍住。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 先定义目标能力</b></p>
+    <ul>
+      <li>Agent 微调 ≠ 通用对话微调,目标更聚焦:<b>工具选择</b>(该不该调、调哪个)、<b>参数抽取</b>(参数值/格式对不对)、<b>规划轨迹</b>(多步任务的 thought/action 序列是否合理)、<b>拒绝能力</b>(负样本:闲聊/无关时不乱调工具)。</li>
+    </ul>
+    <p><b>2. 数据收集四路</b></p>
+    <ul>
+      <li><b>真实日志回流</b>:线上用户请求 + 模型输出 + 结果反馈;好样本直接保留,bad case 人工修正后入池。最贴近真实分布、最值钱。</li>
+      <li><b>强模型蒸馏</b>:用旗舰模型 + few-shot 造样本,速度快、可批量,是冷启动主力。</li>
+      <li><b>人工标注</b>:质量最高,但贵且慢,用于难例和校验集。</li>
+      <li><b>模板/合成</b>:程序化生成边界 case(日期格式、枚举、空值、多轮澄清),保证覆盖。</li>
+    </ul>
+    <p><b>3. 样本要覆盖的维度</b></p>
+    <ul>
+      <li>单工具 / 多工具组合 / 并行 / 多轮参数澄清 / 规划轨迹 / <b>负样本(20~30%)</b>。</li>
+      <li>没有负样本 → 模型"工具上瘾",见谁都想调,这是最常见的翻车点。</li>
+    </ul>
+    <p><b>4. 质量控制(数据决定上限)</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 380 450" role="img" aria-label="Agent 微调数据质检流水线">
+  <rect class="sd-box2" x="20" y="14" width="340" height="48" rx="10"/>
+  <text class="sd-t" x="190" y="34" text-anchor="middle">样本</text>
+  <text class="sd-ts" x="190" y="52" text-anchor="middle">对话 / 工具样本</text>
+  <rect class="sd-box" x="20" y="76" width="340" height="48" rx="10"/>
+  <text class="sd-t" x="190" y="96" text-anchor="middle">① Schema 校验</text>
+  <text class="sd-ts" x="190" y="114" text-anchor="middle">JSON·参数·枚举合法</text>
+  <rect class="sd-box" x="20" y="138" width="340" height="48" rx="10"/>
+  <text class="sd-t" x="190" y="158" text-anchor="middle">② 沙箱执行</text>
+  <text class="sd-ts" x="190" y="176" text-anchor="middle">真实调工具跑通</text>
+  <rect class="sd-box" x="20" y="200" width="340" height="48" rx="10"/>
+  <text class="sd-t" x="190" y="220" text-anchor="middle">③ 一致性反推</text>
+  <text class="sd-ts" x="190" y="238" text-anchor="middle">结果能否回答用户</text>
+  <rect class="sd-box" x="20" y="262" width="340" height="48" rx="10"/>
+  <text class="sd-t" x="190" y="282" text-anchor="middle">④ 打分去重</text>
+  <text class="sd-ts" x="190" y="300" text-anchor="middle">LLM 判分 + 聚类</text>
+  <rect class="sd-box2" x="20" y="324" width="340" height="48" rx="10"/>
+  <text class="sd-t" x="190" y="344" text-anchor="middle">人工抽检</text>
+  <text class="sd-ts" x="190" y="362" text-anchor="middle">5% ~ 10% 抽检</text>
+  <rect class="sd-box-teal" x="20" y="386" width="340" height="48" rx="10"/>
+  <text class="sd-t" x="190" y="406" text-anchor="middle">入库</text>
+  <text class="sd-ts" x="190" y="424" text-anchor="middle">进入训练数据集</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M190 62 L190 72"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M190 124 L190 134"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M190 186 L190 196"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M190 248 L190 258"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M190 310 L190 320"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M190 372 L190 382"/>
+</svg>
+</div>
+    <p><b>5. 训练与防遗忘</b></p>
+    <ul>
+      <li>配比:工具调用样本 : 通用对话 ≈ <b>7:3</b>,防止通用能力崩塌(灾难性遗忘)。</li>
+      <li>方法:全参微调(数据多)或 <b>LoRA</b>(数据少、算力省);小学习率、适度 epoch。</li>
+      <li>格式:转成目标模型的 chat template(不同模型 tool_call 标签写法不同)。</li>
+    </ul>
+    <p><b>6. 数据量与评估</b></p>
+    <ul>
+      <li>经验值:单一工具 1~2K 条即可见效;工具多、场景复杂 1~5 万;质量 &gt; 数量。</li>
+      <li>评估指标:工具选择准确率、参数精确匹配率(EM/F1)、负样本拒绝率;留测试集不参与训练。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:冷启动,没有任何真实用户数据怎么办?</summary><div class="an">先"蒸馏 + 模板"造出第一批:定义工具 schema → 用强模型批量生成 <code>(query → tool_call → result → answer)</code> 样本 + 程序化模板补边界;小规模微调上线 → 用线上日志回流滚起来,进入"数据飞轮"。冷启动阶段数据质量比数量关键,几百条干净样本就能验证方向。</div></details>
+    <details class="qa"><summary class="qu">Q:微调后模型通用能力下降(灾难性遗忘)怎么防?</summary><div class="an">① 混合训练:FC/Agent 样本里混入通用对话(如 7:3 或 8:2);② LoRA 等参数高效方法改动小、遗忘轻;③ 学习率调小、不过度 epoch;④ 训练后同时测"工具任务指标"和"通用基准(MMLU/闲聊)"双护栏,遗忘超阈值就回退。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么评估这次 Agent 微调是有效的?</summary><div class="an">三层:① 离线——留出测试集测工具选择准确率、参数 EM/F1、负样本拒绝率;② 线上——AB 对比任务成功率、平均工具调用轮次、token 成本;③ 持续——监控 bad case 回流,建立回归集防退化。只报离线分数不看线上,是评估大忌。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么不直接靠 prompt,一定要微调?</summary><div class="an">prompt 零成本、可迭代,但四类场景必须微调:① 小模型自身 FC/规划能力弱,靠 prompt 拉不动;② 专有工具特别多且模型没见过,选错率高;③ 高并发低延迟要求用便宜小模型;④ 格式/风格要高度稳定。决策顺序:先 prompt 验证可行性 → 再用蒸馏数据微调降本增效。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>SFT</b>:有监督微调,用标注样本调整模型行为。</div>
+      <div class="term-item"><b>知识蒸馏</b>:强模型的输出当弱模型的训练数据。</div>
+      <div class="term-item"><b>数据飞轮</b>:线上 bad case 回流→再训练→效果提升的正循环。</div>
+      <div class="term-item"><b>负样本</b>:"不该调工具"的样本,防工具上瘾。</div>
+      <div class="term-item"><b>灾难性遗忘</b>:微调后通用能力退化。</div>
+      <div class="term-item"><b>LoRA</b>:低秩适配,参数高效微调。</div>
+    </div>
+  </div>
+</article>

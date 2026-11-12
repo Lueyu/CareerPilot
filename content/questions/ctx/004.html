@@ -1,0 +1,71 @@
+<article class="q" id="ctx-004" data-topic="ctx" data-title="Agent短期记忆与长期记忆系统设计" data-difficulty="3" data-tags="Agent,Memory,系统设计" data-company="字节 / 阿里 / 腾讯（高频）" data-source="P5Q4" data-kw="Memory 记忆 短期 长期 向量数据库 Mem0 Zep MemGPT 摘要 遗忘 检索 冲突消解 字节 阿里 腾讯">
+
+  <div class="q-no">Agent核心 · Q4</div>
+  <h3>Memory 是 Agent 的一个关键模块。请问如何为 Agent 设计短期记忆和长期记忆系统？可以借助哪些外部工具或技术？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#Agent</span><span class="tag">#Memory</span><span class="tag">#系统设计</span>
+    <span class="company">字节 / 阿里 / 腾讯（高频）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"记忆分两层设计:<b>短期记忆</b> = 当前上下文窗口内的对话原文 + 滑动窗口截断 + 递归摘要(必要时用向量检索把历史拉回窗口);<b>长期记忆</b> = 从对话里异步抽取的「事实/偏好/事件」,embedding 后进向量库,按话题检索 top-k 注入上下文。工具上:短期用 Redis,长期用向量库(Milvus/Qdrant/pgvector),现成方案 Mem0/Zep/Letta 可直接用。三个必答点:<b>抽取→冲突消解→更新</b>的写入管道、<b>按需检索</b>的读取策略、<b>时间衰减+访问频率</b>的遗忘机制。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>把人脑搬进系统:<b>短期记忆是"手边便签"</b>——当前正在聊的这几句,记清就行,聊完可扔;<b>长期记忆是"档案柜"</b>——把重要的事(客户叫啥、喜欢简洁回答、公司政策)写成卡片归档,下次遇到相关话题,系统先翻柜子把相关卡片抽出来放到眼前(注入上下文)。便签满了就把旧内容浓缩成一句话摘要(递归摘要);档案太久没翻、不重要的就慢慢归档遗忘(时间衰减)。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 为什么要拆短期/长期</b></p>
+    <ul>
+      <li>上下文窗口有限:尽管 128K/1M 越来越大,但 token 成本与噪音随长度上升(注意力复杂度 O(n²·d))。</li>
+      <li>短期要「快、全、当前相关」;长期要「持久、可检索、可更新」。</li>
+    </ul>
+    <p><b>2. 短期记忆设计(四档递进)</b></p>
+    <ul>
+      <li><b>全量上下文</b>:窗口内的对话原文直接进 prompt。</li>
+      <li><b>滑动窗口</b>:超出窗口的轮次截断,只保留最近 N 轮(简单但会"失忆")。</li>
+      <li><b>递归摘要</b>:把旧对话压缩成摘要,和最近原文一起拼(记忆密度高、细节会丢)。</li>
+      <li><b>检索增强式(类 MemGPT)</b>:把历史对话分块向量化,每轮按相关性拉回 top-k——在"窗口限制"和"记忆完整"之间折中,是当前主流。</li>
+    </ul>
+    <p><b>3. 长期记忆设计</b></p>
+    <ul>
+      <li><b>写入</b>:异步抽取(LLM 把对话抽成"主体-属性-值"事实/偏好)→ <b>冲突消解</b>(去重 / 最新覆盖 / 合并)→ embedding + 元数据入库。</li>
+      <li><b>读取</b>:每轮用话题 embedding 检索 top-k(5~10)注入 system prompt,不追求全量。</li>
+      <li><b>更新/遗忘</b>:打分 = 近期性(时间衰减)× 访问频率 × 重要性;低分降冷存储;用户可查可删(合规)。</li>
+    </ul>
+    <p><b>4. 外部工具/技术选型</b></p>
+    <table>
+      <tr><th>用途</th><th>选型</th><th>说明</th></tr>
+      <tr><td>短期热数据</td><td>Redis(带 TTL)</td><td>快,会话级</td></tr>
+      <tr><td>语义记忆检索</td><td>Milvus / Qdrant / Pinecone / pgvector</td><td>向量库,按相似度取记忆</td></tr>
+      <tr><td>结构化属性</td><td>Postgres / SQLite</td><td>称呼、偏好等强字段</td></tr>
+      <tr><td>知识图谱</td><td>Neo4j / Zep(Graphiti)</td><td>实体关系 + 时序</td></tr>
+      <tr><td>现成框架</td><td>Mem0 / Zep / Letta(MemGPT)/ LangChain Memory</td><td>抽取+检索易集成;时间感知图;虚拟上下文;接口规范</td></tr>
+    </table>
+    <p><b>5. 设计权衡</b></p>
+    <ul>
+      <li>记忆越多,检索噪音越大、注入 token 越贵 → 检索质量和 top-k 控制是关键。</li>
+      <li>抽取可能引入幻觉 → 带置信度、可纠正、可溯源。</li>
+      <li>短期 vs 长期的边界没有银弹,按业务「记忆跨会话是否重要」决定投入。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:现在上下文窗口 128K 甚至 1M,还需要 Memory 系统吗?</summary><div class="an">需要。原因:① token 成本随长度增长(注意力复杂度 O(n²·d)),全塞历史不经济;② 长上下文的"中间信息"易被遗忘(lost in the middle),检索式记忆把关键信息放到相关位置更可靠;③ 长期记忆要跨会话持久、可更新、可遗忘,不是"无限上下文"能替代的。窗口变大只是让短期记忆的截断压力变小,长期记忆系统依然必要。</div></details>
+    <details class="qa"><summary class="qu">Q:Memory 和 RAG 有什么区别?</summary><div class="an">目标不同、更新主体不同。RAG 检索的是「外部静态知识库」(文档),主要是读;Memory 记录的是「与用户交互产生的个性化状态」(事实/偏好/事件),且要写(抽取-更新-遗忘),是活的、随对话演化的。实现上底层都可复用向量检索,但 Memory 多了写入管道和冲突消解。</div></details>
+    <details class="qa"><summary class="qu">Q:抽取出的记忆是错的怎么办?</summary><div class="an">抽取时带置信度 + 来源对话 ID;低置信度标记待确认;用户纠正时反向覆盖/删除;高风险的记忆(如医疗/权限类)不作为唯一决策依据;重要记忆加"用户确认"环节。核心是让记忆可溯源、可撤销。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>短期记忆</b>:当前上下文窗口内的对话。</div>
+      <div class="term-item"><b>长期记忆</b>:跨会话持久化的事实/偏好/事件。</div>
+      <div class="term-item"><b>递归摘要</b>:反复把旧内容压缩成摘要,控制上下文长度。</div>
+      <div class="term-item"><b>冲突消解</b>:新旧记忆矛盾时的去重/覆盖/合并策略。</div>
+      <div class="term-item"><b>时间衰减</b>:记忆分数随"最近使用时间"下降。</div>
+      <div class="term-item"><b>MemGPT/Letta</b>:用虚拟上下文管理把记忆分层,突破窗口。</div>
+    </div>
+  </div>
+</article>

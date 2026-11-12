@@ -1,0 +1,88 @@
+<article class="q" id="rag-009" data-topic="rag" data-title="RAG+知识图谱的更新机制与实时性保证" data-difficulty="3" data-tags="知识图谱,实时更新" data-company="字节(真题)" data-source="P5Q14" data-kw="知识图谱 实时更新 RAG GraphRAG CDC 实体对齐 图数据库 增量 批流一体 一致性 字节">
+
+  <div class="q-no">Agent核心 · Q14</div>
+  <h3>在 RAG+知识图谱的 Agent 系统中，知识图谱更新的机制是怎样的？是怎样保证实时性的？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#知识图谱</span><span class="tag">#实时更新</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我分两条链路讲:<b>离线全量</b>——定时从数据源重新抽取、融合、重建全图,保证最终正确性;<b>在线增量</b>——数据变更经 <b>CDC/消息队列</b>事件驱动,实时触发"抽取→实体对齐→写入图库"。实时性靠三点保证:① 用 CDC/Kafka 事件驱动而非轮询,变更秒级可感知;② 增量写图和向量索引,避免全量重建;③ <b>版本号 + 读写分离</b>防脏读。结论:实时性越高成本越高,业务上用"准实时(秒~分钟级)+ 最终一致"通常就够,不必盲目追求强一致。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>导航地图的更新机制</b>:厂商不会每次封路都重画整张地图(离线全量),而是靠路况上报(传感器/用户)→ 实时回传云端(CDC)→ 几秒推到你导航上(增量写入)。实体对齐像"同一条路只存一份,各种叫法都指向同一个路口",避免重复画线;版本号像"你读的是 2026-11 版地图,不会半路拿到半张新旧拼接的图"。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 先分清"构建"和"更新"</b></p>
+    <ul>
+      <li><b>构建(冷启动)</b>:一次性从结构化库 + 非结构化文档做知识抽取(实体、关系、属性),经融合去重后灌入图数据库,通常是离线批量跑。</li>
+      <li><b>更新(持续运营)</b>:知识会变(人离职、产品下架、政策调整),图谱必须跟得上,否则 Agent 检索到的是过时知识,危害比没有更大。</li>
+    </ul>
+    <p><b>2. 更新链路(架构)</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 510 424" role="img" aria-label="RAG 知识图谱更新流水线">
+  <rect class="sd-layer" x="54" y="10" width="452" height="398"/>
+  <text class="sd-l" x="66" y="26">知识图谱更新流水线</text>
+  <rect class="sd-box-rose" x="70" y="34" width="160" height="56" rx="10"/>
+  <text class="sd-t" x="150" y="58" text-anchor="middle">数据源</text>
+  <text class="sd-ts" x="150" y="76" text-anchor="middle">业务库/文档/日志</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M150 90 L150 110"/>
+  <rect class="sd-box" x="70" y="112" width="160" height="56" rx="10"/>
+  <text class="sd-t" x="150" y="136" text-anchor="middle">变更捕获</text>
+  <text class="sd-ts" x="150" y="154" text-anchor="middle">CDC/Kafka 事件驱动</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M150 168 L150 188"/>
+  <rect class="sd-box" x="70" y="190" width="160" height="56" rx="10"/>
+  <text class="sd-t" x="150" y="214" text-anchor="middle">抽取</text>
+  <text class="sd-ts" x="150" y="232" text-anchor="middle">实体识别/关系抽取</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M150 246 L150 266"/>
+  <rect class="sd-box" x="70" y="268" width="160" height="56" rx="10"/>
+  <text class="sd-t" x="150" y="292" text-anchor="middle">融合</text>
+  <text class="sd-ts" x="150" y="310" text-anchor="middle">实体对齐/消歧/仲裁</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M150 324 L150 344"/>
+  <rect class="sd-box-teal" x="70" y="346" width="160" height="56" rx="10"/>
+  <text class="sd-t" x="150" y="370" text-anchor="middle">写入图数据库</text>
+  <text class="sd-ts" x="150" y="388" text-anchor="middle">Neo4j/NebulaGraph</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M230 374 L332 374"/>
+  <text class="sd-ts" x="281" y="366" text-anchor="middle">同时触发</text>
+  <rect class="sd-box-teal" x="334" y="346" width="160" height="56" rx="10"/>
+  <text class="sd-t" x="414" y="370" text-anchor="middle">向量索引更新</text>
+  <text class="sd-ts" x="414" y="388" text-anchor="middle">GraphRAG 语义层</text>
+</svg>
+</div>
+    <p><b>3. 实时性怎么保证(核心考点)</b></p>
+    <ul>
+      <li><b>事件驱动,不轮询</b>:用 <b>CDC</b>(如 binlog、Debezium)捕获数据库增量变更,投递到 Kafka;下游订阅者秒级消费。轮询是"每秒问一次",CDC 是"变了就推给你",延迟和成本都更优。</li>
+      <li><b>增量而非全量</b>:只处理变更的那部分实体/关系,热点路径(<b>增量索引</b>)和向量库的 HNSW 增量插入配合,避免每次全量重建。</li>
+      <li><b>批流一体</b>:实时流做"快更新"(新事实尽快可见),离线批做"慢修正"(重算全局统计、清理脏数据),两者对账兜底。</li>
+      <li><b>读写分离</b>:查询走只读副本,写入走主节点,更新不阻塞查询。</li>
+    </ul>
+    <p><b>4. 一致性控制(实时与正确之间的平衡)</b></p>
+    <ul>
+      <li><b>版本号/快照</b>:图谱和向量索引带版本号,Agent 一次检索读同一版本,避免"图是新的一半、向量是旧的一半"。</li>
+      <li><b>最终一致</b>:图谱更新大多接受秒~分钟级最终一致,比强一致成本低一个量级;只有对账/风控等少数场景要强一致。</li>
+      <li><b>冲突仲裁</b>:同一实体的多个来源数据打架时,用优先级规则(权威源优先)+ 时间戳 + 人工复核。</li>
+    </ul>
+    <p><b>5. 语义层的同步(易被忽略)</b></p>
+    <p>GraphRAG 里图谱常和向量检索配合:图谱更新后,新实体/关系的 embedding 也要算并写进向量库,否则"图里有、向量搜不到"。这一步要纳入同一条变更流水线,和结构化写入<b>事务性/至少最终同步</b>。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:实时增量更新和离线全量怎么选?</summary><div class="an">看数据的<b>时效敏感性</b>和<b>变更频率</b>:高频且影响决策的(价格、库存、人员状态)走实时增量;低频、结构稳定、或需要全局重算的(社区发现、全图统计特征)走离线批量。工程上常是<b>双跑</b>:实时流管"快",夜间批任务管"对",定期对账纠偏。核心是承认"实时是有成本的",别一上来就全量实时。</div></details>
+    <details class="qa"><summary class="qu">Q:实体对齐具体怎么做?</summary><div class="an">判断"两个来源的实体是不是同一个"——先做<b>强键匹配</b>(ID、证件号、邮箱等唯一键直接对齐),再对无强键的做<b>属性相似度</b>(名称编辑距离/向量相似度 + 上下文特征),过了阈值进入候选对,再用规则或模型判定;判定后做<b>消歧合并</b>,冲突属性按来源权威度仲裁。规模大时用分块(blocking)先粗筛候选对,避免全量两两比较。</div></details>
+    <details class="qa"><summary class="qu">Q:更新期间,查询会不会读到脏数据或半截数据?</summary><div class="an">会,所以要控:① <b>版本号快照</b>——一次查询绑定一个版本,读到的是一致视图;② <b>读写分离</b>——副本切换是原子的,主节点写不阻塞读副本;③ 增量写入按"实体级事务"提交,同一实体的属性更新要么全可见要么全不可见。业务若只要求最终一致,可以接受短暂延迟,但绝不允许"半新半旧"。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>CDC</b>:捕获数据库增量变更并下发。</div>
+      <div class="term-item"><b>实体对齐</b>:判定不同来源的实体是否同一。</div>
+      <div class="term-item"><b>图数据库</b>:以节点/边建模、支持图查询的库。</div>
+      <div class="term-item"><b>批流一体</b>:实时流与离线批共用一套逻辑。</div>
+      <div class="term-item"><b>最终一致</b>:数据最终收敛一致,允许短暂延迟。</div>
+    </div>
+  </div>
+</article>

@@ -1,0 +1,77 @@
+<article class="q" id="biz-016" data-topic="biz" data-title="Agent框架选型方法与场景评估指标" data-difficulty="3" data-tags="Agent,框架选型,评估" data-company="" data-source="P5Q8" data-kw="Agent 框架 选型 LangGraph LlamaIndex CrewAI 评估 指标 成功率 延迟 成本 转人工率">
+
+  <div class="q-no">Agent核心 · Q8</div>
+  <h3>你用过哪些 Agent 框架？选型是如何选的？你最终场景的评价指标是什么？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#Agent</span><span class="tag">#框架选型</span><span class="tag">#评估</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我用过的分三类:<b>编排</b>用 LangChain + LangGraph(生产主力),<b>数据/RAG</b>用 LlamaIndex,<b>多 Agent</b>原型试过 AutoGen 和 CrewAI。选型我走四步:<b>先定需求边界 → 列硬约束(部署/合规/团队栈)→ 用自家数据做 PoC 实测 → 评可维护性</b>;原则是"<b>用它的组件、不锁死它的编排</b>",关键链路自研。最终场景(智能客服 Agent)的评价指标分三层:可靠性指标(任务成功率、工具调用准确率、P95 延迟、单次成本)+ 业务指标(问题解决率、转人工率),再加离线 LLM-as-judge 回归和线上 AB 对照。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>装修选施工队</b>:不能光看广告词(文档漂亮),要看它<b>做过你家这种户型的活</b>(用自家数据做 PoC),再掂量<b>工人手艺和后期维修成本</b>(可维护性);哪怕选了大品牌,也只买它的主材、自己盯关键工序("用组件不用编排")。验收不看"师傅多努力",看<b>工期、质量、返工率、总花费</b>——这四样就是评价指标。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 用过哪些(按用途分,别只报名字)</b></p>
+    <ul>
+      <li><b>LangChain</b>:入门最早,链/工具/记忆抽象全,适合快速原型;但生产里抽象多、排障深。</li>
+      <li><b>LangGraph</b>:复杂 Agent 工作流的主力,图编排 + checkpoint + 人工介入,可控性好。</li>
+      <li><b>LlamaIndex</b>:RAG 数据管道,连接器与检索抽象最细。</li>
+      <li><b>AutoGen / CrewAI</b>:多 Agent 协作原型验证,交互模式跑通后再固化进自研编排。</li>
+    </ul>
+    <p><b>2. 选型四步(要有方法论,不是凭感觉)</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 380 300" role="img" aria-label="Agent 框架选型四步">
+  <rect class="sd-box" x="20" y="14" width="340" height="56" rx="10"/>
+  <text class="sd-t" x="190" y="38" text-anchor="middle">① 需求边界</text>
+  <text class="sd-ts" x="190" y="56" text-anchor="middle">纯 RAG？多步 Agent？多 Agent 协作？</text>
+  <rect class="sd-box" x="20" y="84" width="340" height="56" rx="10"/>
+  <text class="sd-t" x="190" y="108" text-anchor="middle">② 硬约束</text>
+  <text class="sd-ts" x="190" y="126" text-anchor="middle">私有化/合规 · 团队栈 · 生态维护</text>
+  <rect class="sd-box" x="20" y="154" width="340" height="56" rx="10"/>
+  <text class="sd-t" x="190" y="178" text-anchor="middle">③ PoC 实测</text>
+  <text class="sd-ts" x="190" y="196" text-anchor="middle">自家 3~5 场景对比准率/延迟/踩坑</text>
+  <rect class="sd-box" x="20" y="224" width="340" height="56" rx="10"/>
+  <text class="sd-t" x="190" y="248" text-anchor="middle">④ 可维护性</text>
+  <text class="sd-ts" x="190" y="266" text-anchor="middle">依赖树 · 抽象泄漏 · 升级成本</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M190 70 L190 80"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M190 140 L190 150"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M190 210 L190 220"/>
+</svg>
+</div>
+    <ul>
+      <li>判断标准一句话:<b>能少一个抽象就少一个抽象</b>——核心链路其实很短,自研 500 行可控,框架只在"确实省事"的组件上引入。</li>
+    </ul>
+    <p><b>3. 评价指标(分层讲,面试官最想听这个)</b></p>
+    <table>
+      <tr><th>层级</th><th>指标</th><th>怎么测 / 为什么重要</th></tr>
+      <tr><td><b>可靠性</b></td><td>任务成功率、工具调用准确率</td><td>构造固定测试集,统计"最终把事办成"的占比;工具选对+参数对才叫准</td></tr>
+      <tr><td><b>体验</b></td><td>P50/P95 延迟、TTFT(首字)</td><td>Agent 多步调用延迟会累积,要压到用户可接受(<b>P95</b> 看长尾)</td></tr>
+      <tr><td><b>成本</b></td><td>单任务 token / 单次对话成本</td><td>多步 Agent 一次任务多次 LLM 调用,成本是软件 Agent 的隐形瓶颈</td></tr>
+      <tr><td><b>业务</b></td><td>问题解决率、转人工率、用户满意度</td><td>端到端才反映"有没有真的帮到人",内部指标再漂亮也要业务兜底</td></tr>
+    </table>
+    <ul>
+      <li><b>评估体系 = 离线 + 在线</b>:离线用 LLM-as-judge 对固定集批量回归(每次改动都跑);上线做灰度 AB,看业务指标是否变好、成本是否可控。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么最终没选择纯用某个框架?</summary><div class="an">三点:① 依赖树大,一个简单功能引入上百个传递依赖,安全审计和升级都是税;② 抽象泄漏,出问题要翻框架源码,排障路径变长;③ 版本不稳,破坏性变更是持续成本。所以只复用经过考验的组件,把编排这层"胶水"掌握在自己手里。</div></details>
+    <details class="qa"><summary class="qu">Q:任务成功率怎么定义?会不会定义得太松?</summary><div class="an">定义成"<b>端到端把用户请求办成、且无错误副作用</b>",不是"LLM 给了一句合理回复"。严格的判定最好用判定规则 + LLM-as-judge 双通道:规则查工具调用和结果对不对,LLM 判语义是否达标,两者取"较严"的那个,避免模型互相放水。</div></details>
+    <details class="qa"><summary class="qu">Q:框架升级破坏生产,你怎么办?</summary><div class="an">把框架依赖<b>钉版本 + 锁依赖树</b>,升级走"先在测试集回归 → 灰度 → 全量";同时在自研层做一层薄适配,让框架只在边缘可替换,升级风险就不伤核心链路。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>PoC</b>:概念验证,拿真实场景小范围跑通再决策。</div>
+      <div class="term-item"><b>任务成功率</b>:端到端"把事办成"的比例。</div>
+      <div class="term-item"><b>P95 延迟</b>:95% 请求比它快,看长尾不看平均。</div>
+      <div class="term-item"><b>转人工率</b>:机器没搞定、转人工的比例,越低越好。</div>
+      <div class="term-item"><b>LLM-as-judge</b>:用强模型给回答打分做自动评估。</div>
+    </div>
+  </div>
+</article>

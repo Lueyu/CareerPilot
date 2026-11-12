@@ -1,0 +1,124 @@
+<article class="q" id="harness-015" data-topic="harness" data-title="视觉问答模块与动作模块的协同逻辑" data-difficulty="4" data-tags="模块设计,多模态Agent" data-company="字节(真题)" data-source="P5Q22" data-kw="模块堆叠 多模态Agent VQA 视觉问答 动作模块 协同 感知 规划 结构化观察 闭环 字节">
+
+  <div class="q-no">Agent核心 · Q22</div>
+  <h3>你们这种模块堆叠的架构是怎么设计视觉问答模块和动作模块的协同逻辑的？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#模块设计</span><span class="tag">#多模态Agent</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我按<b>感知 → 规划 → 动作</b>三层堆叠,视觉问答模块是'眼睛',动作模块是'手',两者靠<b>结构化观察 + 接口契约</b>协同,而不是视觉模块吐一段自然语言、动作模块再猜一遍。关键三点:① 视觉模块输出<b>任务相关的结构化观察</b>——目标物体 ID、图像坐标、属性、置信度,不写小作文;② 动作模块读这套 schema 做决策,输出动作;③ 走<b>闭环</b>:动作执行后再次观察,和目标比对,偏差就重新规划。这样拆的好处是<b>可解释、可独立迭代、可单独替换</b>,代价是模块间会有误差传递,所以靠置信度和重观察兜底。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就像<b>人抓桌上的杯子</b>:眼睛先"看"——杯子的位置、距离、手该伸多长(视觉模块输出结构化信息),大脑算好路径(规划),手再执行(动作模块);手伸出去发现偏了,眼睛再看一眼、大脑修正一下(闭环),而不是闭眼盲抓。模块堆叠就是让"看、想、做"各由一个专职模块负责,它们之间说<b>同一种规范语言</b>(结构化接口),才能顺畅接力。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 模块堆叠的总览</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 300 430" role="img" aria-label="视觉问答与动作模块堆叠">
+  <rect class="sd-box-rose" x="80" y="14" width="180" height="56" rx="10"/>
+  <text class="sd-t" x="170" y="38" text-anchor="middle">输入</text>
+  <text class="sd-ts" x="170" y="56" text-anchor="middle">图像/视频 + 指令</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M170 70 L170 94"/>
+  <rect class="sd-box-amber" x="80" y="98" width="180" height="56" rx="10"/>
+  <text class="sd-t" x="170" y="122" text-anchor="middle">视觉问答 VQA</text>
+  <text class="sd-ts" x="170" y="140" text-anchor="middle">理解图像·结构化观察</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M170 154 L170 178"/>
+  <rect class="sd-box" x="80" y="182" width="180" height="56" rx="10"/>
+  <text class="sd-t" x="170" y="206" text-anchor="middle">规划模块</text>
+  <text class="sd-ts" x="170" y="224" text-anchor="middle">观察+目标·动作序列</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M170 238 L170 262"/>
+  <rect class="sd-box" x="80" y="266" width="180" height="56" rx="10"/>
+  <text class="sd-t" x="170" y="290" text-anchor="middle">动作模块</text>
+  <text class="sd-ts" x="170" y="308" text-anchor="middle">坐标/API/机械臂指令</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M170 322 L170 346"/>
+  <rect class="sd-box-teal" x="80" y="350" width="180" height="56" rx="10"/>
+  <text class="sd-t" x="170" y="374" text-anchor="middle">执行</text>
+  <text class="sd-ts" x="170" y="392" text-anchor="middle">执行动作</text>
+  <path class="sd-an" marker-end="url(#sd-arr)" d="M170 406 C40 406 40 126 78 126"/>
+  <text class="sd-l" x="30" y="266" text-anchor="middle" transform="rotate(-90 30 266)">再观察·闭环</text>
+</svg>
+</div>
+    <p><b>2. 视觉模块的输出设计(协同的关键)</b></p>
+    <ul>
+      <li>核心原则:<b>视觉模块的输出是"给下一模块的输入",必须结构化、任务相关</b>。不是泛泛的图片描述("一张桌子的照片"),而是:<code>{目标: "红色杯子", bbox: [x1,y1,x2,y2], 置信度: 0.92, 属性: {是否被遮挡: false}}</code>。</li>
+      <li>带<b>置信度</b>:低置信度的观察,规划层可以选择"再看一次"或"换角度",而不是盲目执行。</li>
+      <li>按需调用:任务只需要定位,就输出坐标;需要语义,再输出属性/关系——避免冗余信息干扰动作决策。</li>
+    </ul>
+    <p><b>3. 协同逻辑:接口契约 + 共享状态</b></p>
+    <ul>
+      <li><b>接口契约(Schema 对齐)</b>:视觉输出和动作输入共用一套数据结构(物体 ID、坐标、类别、置信度),模块间不互相猜格式,这是能堆叠的前提。</li>
+      <li><b>共享状态</b>:各模块的中间结果写进统一 State(当前观察、已完成动作、目标),动作模块不只依赖视觉单次输出,还能看到历史上下文。</li>
+      <li><b>同步 vs 异步</b>:感知和规划可串行;多路观察(多视角/多帧)可并行,再汇总进规划。</li>
+    </ul>
+    <p><b>4. 闭环校正(体现"Agent"而非单次推理)</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 540 350" role="img" aria-label="感知动作闭环校正">
+  <rect class="sd-box-amber" x="14" y="30" width="110" height="56" rx="10"/>
+  <text class="sd-t" x="69" y="54" text-anchor="middle">观察</text>
+  <text class="sd-ts" x="69" y="72" text-anchor="middle">感知</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M124 58 L142 58"/>
+  <rect class="sd-box" x="146" y="30" width="110" height="56" rx="10"/>
+  <text class="sd-t" x="201" y="54" text-anchor="middle">动作</text>
+  <text class="sd-ts" x="201" y="72" text-anchor="middle">规划输出</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M256 58 L274 58"/>
+  <rect class="sd-box-teal" x="278" y="30" width="110" height="56" rx="10"/>
+  <text class="sd-t" x="333" y="54" text-anchor="middle">执行</text>
+  <text class="sd-ts" x="333" y="72" text-anchor="middle">执行动作</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M388 58 L406 58"/>
+  <rect class="sd-box-amber" x="410" y="30" width="110" height="56" rx="10"/>
+  <text class="sd-t" x="465" y="54" text-anchor="middle">再观察</text>
+  <text class="sd-ts" x="465" y="72" text-anchor="middle">闭环回看</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M465 86 L465 146"/>
+  <rect class="sd-box" x="410" y="150" width="110" height="56" rx="10"/>
+  <text class="sd-t" x="465" y="174" text-anchor="middle">与目标比对</text>
+  <text class="sd-ts" x="465" y="192" text-anchor="middle">偏差 vs 阈值</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M410 178 L302 178"/>
+  <text class="sd-ts" x="356" y="170" text-anchor="middle">偏差 ≥ 阈值</text>
+  <rect class="sd-box-rose" x="150" y="150" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="225" y="174" text-anchor="middle">重新规划</text>
+  <text class="sd-ts" x="225" y="192" text-anchor="middle">重试/换策略·循环N次</text>
+  <path class="sd-an" marker-end="url(#sd-arr)" d="M225 150 L201 88"/>
+  <text class="sd-ts" x="205" y="130" text-anchor="middle">重试</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M465 206 L465 266"/>
+  <rect class="sd-box-teal" x="410" y="270" width="110" height="56" rx="10"/>
+  <text class="sd-t" x="465" y="294" text-anchor="middle">完成</text>
+  <text class="sd-ts" x="465" y="312" text-anchor="middle">偏差 &lt; 阈值</text>
+  <path class="sd-an" marker-end="url(#sd-arr)" d="M225 206 L225 266"/>
+  <rect class="sd-box-rose" x="150" y="270" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="225" y="294" text-anchor="middle">转人工</text>
+  <text class="sd-ts" x="225" y="312" text-anchor="middle">循环上限 N 次</text>
+</svg>
+</div>
+    <p><b>5. 为什么堆叠而不是端到端(必答的 trade-off)</b></p>
+    <table>
+      <tr><th>维度</th><th>模块堆叠</th><th>端到端 VLA 单模型</th></tr>
+      <tr><td><b>可解释性</b></td><td>每步都能看"看到了什么、为什么这么做"</td><td>黑盒,难定位</td></tr>
+      <tr><td><b>可迭代</b></td><td>换更好的 VQA 不动动作模块</td><td>牵一发动全身</td></tr>
+      <tr><td><b>数据需求</b></td><td>各模块分开训练,数据好造</td><td>要大规模"图-指令-动作"配对</td></tr>
+      <tr><td><b>误差传递</b></td><td>模块间会累积误差</td><td>无显式接口,误差内隐</td></tr>
+      <tr><td><b>延迟</b></td><td>串行多跳,略慢</td><td>单次前向,更快</td></tr>
+    </table>
+    <p><b>6. 工程细节</b>:误差传递靠"置信度 + 重观察 + 人工兜底"控制;模块间用超时和重试防止卡死;视觉模块的失败(识别不出)要走降级路径,而不是让动作模块瞎猜。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:视觉模块看错了(误识别),动作模块会照做吗?</summary><div class="an">不会。视觉输出带置信度,低于阈值时规划层触发"重观察"(换帧/换视角/调用更高精度模型),仍不达标就拒执行并转人工。动作模块拿到的观察里明确标着低置信,不会盲目执行——这是和"端到端直接吐动作"最大的区别:错误能在模块边界被拦截。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么不干脆用一个端到端的多模态大模型?</summary><div class="an">端到端快、省事,但三处吃亏:① 定位难、出了错没法归因;② 数据要海量"图-指令-动作"对齐样本,难造;③ 想单独升级视觉或动作能力得整体重训。工程上务实做法是:先用模块堆叠把能力跑通、可监控可迭代,积累足够数据后再考虑蒸馏成端到端小模型做低延迟场景。</div></details>
+    <details class="qa"><summary class="qu">Q:模块之间怎么避免误差不断累积放大?</summary><div class="an">三点:① 每个模块输出都带置信度,下游对低置信输入有降级策略;② 闭环校正,动作后重新观察,把累积误差在下一轮"拉回来";③ 模块间接口做校验(格式/范围),非法输入拒绝进入下一层,而不是让它继续传播。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>VQA</b>:视觉问答,理解图像并回答/输出结构化信息。</div>
+      <div class="term-item"><b>VLA</b>:Vision-Language-Action,视觉-语言-动作一体化模型。</div>
+      <div class="term-item"><b>结构化观察</b>:带坐标/属性/置信度的机器可读输出。</div>
+      <div class="term-item"><b>接口契约</b>:模块间约定的数据 Schema。</div>
+      <div class="term-item"><b>感知-规划-动作</b>:机器人/Agent 的三层经典闭环。</div>
+    </div>
+  </div>
+</article>

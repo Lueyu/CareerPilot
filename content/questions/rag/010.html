@@ -1,0 +1,122 @@
+<article class="q" id="rag-010" data-topic="rag" data-title="提升GraphRAG多跳推理召回率" data-difficulty="4" data-tags="GraphRAG,多跳推理,算法优化" data-company="字节 / 阿里（真题）" data-source="P6Q1" data-kw="GraphRAG 多跳推理 召回率 知识图谱 社区摘要 实体链接 混合检索 索引优化 字节 阿里">
+
+  <div class="q-no">Agent算法 · Q1</div>
+  <h3>如何提升 GraphRAG 的多跳推理召回率？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#GraphRAG</span><span class="tag">#多跳推理</span><span class="tag">#算法优化</span>
+    <span class="company">字节 / 阿里（真题）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"GraphRAG 多跳召回率低的根因不在检索那一下,而在<b>前置的图建得不准、切得不对、查得不对路</b>。我从四层提升:第一,<b>建图质量</b>——实体抽取和关系抽取用强模型 + Schema 约束 + few-shot,别名合并、共指消解,图不准后面全白搭;第二,<b>索引粒度</b>——社区检测(Leiden)做分层,局部问题走实体级子图、全局问题走社区摘要,别一刀切;第三,<b>查询策略</b>——Query 改写(别名扩展、子问题分解)+ 多路检索(实体检索 + 向量 + BM25 + 图邻居扩展)融合;第四,<b>评估闭环</b>——用 HotpotQA / MuSiQue 这类多跳基准逐层定位是抽取、链接还是检索哪一环漏了。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>多跳推理就像<b>侦探连证据链</b>:要答"A 的导师的机构是哪家",得先找到 A,再顺着"师生关系"找到导师,最后查导师的任职机构——一环断了整条链就断。GraphRAG 相当于先把所有书拆成一张<b>人物关系网</b>(知识图谱),侦探在网里定位起点再顺藤摸瓜。召回率低 = 证据链断掉,通常三种原因:① 关系网里根本<b>没把这个人画进去</b>(抽取漏了);② 同名同姓<b>画错了人</b>(链接错了);③ 侦探<b>只翻了局部没翻全</b>(检索范围不对)。提升召回率就是修这三个环节。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 先定位漏在哪里(别上来就调参)</b></p>
+    <ul>
+      <li>多跳召回率是<b>级联乘积</b>:第 k 跳的召回 ≈ (实体抽取率 × 链接准确率 × 关系抽取率 × 每跳检索命中率)^k。任何一环 90%,三跳后只剩约 0.73;所以多跳对<b>每一环的精度都极度敏感</b>——这是多跳比单跳难得多的根本原因。</li>
+      <li>先做<b>分层归因</b>:把失败 case 分到"实体没抽取到 / 链接错 / 关系缺失 / 检索没命中 / Query 表达不对"五类,哪类占比高就优先打哪。</li>
+    </ul>
+    <p><b>2. 建图质量(召回率的地基)</b></p>
+    <ul>
+      <li><b>实体抽取</b>:定义目标 Schema(人物/机构/概念/事件等),用强模型 + few-shot + 结构化输出(JSON),提示词里明确"哪些算实体、哪些算属性";低置信度实体用阈值过滤或人工抽检。</li>
+      <li><b>关系抽取</b>:对每对候选实体判断关系类型;关系本体不能无限膨胀,先按业务收敛到几十类核心关系。</li>
+      <li><b>实体对齐 / 共指消解</b>:这是多跳最常见漏点——"OpenAI"和"OpenAI Inc"、"乔布斯"和"Steve Jobs"本是一体,不合并就断链。做法:同义词典 + 向量相似度聚类 + 规则(缩写、大小写)。</li>
+      <li><b>别名与多义</b>:同一实体多个别名建别名索引;同名不同实体靠上下文消歧(LLM 判或实体类型 + 邻居结构辅助)。</li>
+    </ul>
+    <p><b>3. 社区检测与分层索引(粒度是核心 trade-off)</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 732 258" role="img" aria-label="GraphRAG 多跳召回：离线建图分层索引与在线查询路由">
+  <rect class="sd-layer" x="6" y="14" width="712" height="88"/>
+  <text class="sd-l" x="18" y="30">离线建图 · 分层索引</text>
+  <rect class="sd-box2" x="10" y="36" width="92" height="56" rx="10"/>
+  <text class="sd-t" x="56" y="58" text-anchor="middle">原始文档</text>
+  <text class="sd-ts" x="56" y="76" text-anchor="middle">语料库</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M102 64 L120 64"/>
+  <rect class="sd-box" x="124" y="36" width="104" height="56" rx="10"/>
+  <text class="sd-t" x="176" y="58" text-anchor="middle">实体/关系抽取</text>
+  <text class="sd-ts" x="176" y="76" text-anchor="middle">强模型+Schema</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M228 64 L246 64"/>
+  <rect class="sd-box-teal" x="250" y="36" width="92" height="56" rx="10"/>
+  <text class="sd-t" x="296" y="58" text-anchor="middle">知识图谱</text>
+  <text class="sd-ts" x="296" y="76" text-anchor="middle">实体-关系边</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M342 64 L360 64"/>
+  <rect class="sd-box" x="364" y="36" width="100" height="56" rx="10"/>
+  <text class="sd-t" x="414" y="58" text-anchor="middle">社区检测</text>
+  <text class="sd-ts" x="414" y="76" text-anchor="middle">Leiden 分层</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M464 64 L482 64"/>
+  <rect class="sd-box2" x="486" y="36" width="92" height="56" rx="10"/>
+  <text class="sd-t" x="532" y="58" text-anchor="middle">分层社区</text>
+  <text class="sd-ts" x="532" y="76" text-anchor="middle">粗→细</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M578 64 L596 64"/>
+  <rect class="sd-box-amber" x="600" y="36" width="108" height="56" rx="10"/>
+  <text class="sd-t" x="654" y="58" text-anchor="middle">社区摘要</text>
+  <text class="sd-ts" x="654" y="76" text-anchor="middle">LLM+证据引用</text>
+  <rect class="sd-layer" x="6" y="114" width="496" height="130"/>
+  <text class="sd-l" x="18" y="130">在线查询 · 按类型路由</text>
+  <rect class="sd-box-rose" x="12" y="142" width="80" height="56" rx="10"/>
+  <text class="sd-t" x="52" y="164" text-anchor="middle">查询</text>
+  <text class="sd-ts" x="52" y="182" text-anchor="middle">问题输入</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M92 170 L108 170"/>
+  <rect class="sd-box2" x="112" y="142" width="84" height="56" rx="10"/>
+  <text class="sd-t" x="154" y="164" text-anchor="middle">问题路由</text>
+  <text class="sd-ts" x="154" y="182" text-anchor="middle">局部/全局</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M196 158 L214 154"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M196 184 L214 204"/>
+  <rect class="sd-box2" x="222" y="126" width="92" height="54" rx="10"/>
+  <text class="sd-t" x="268" y="147" text-anchor="middle">局部问题</text>
+  <text class="sd-ts" x="268" y="165" text-anchor="middle">事实多跳</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M314 153 L334 153"/>
+  <rect class="sd-box-teal" x="338" y="126" width="152" height="54" rx="10"/>
+  <text class="sd-t" x="414" y="147" text-anchor="middle">实体子图检索</text>
+  <text class="sd-ts" x="414" y="165" text-anchor="middle">BFS 邻居扩展</text>
+  <rect class="sd-box2" x="222" y="182" width="92" height="54" rx="10"/>
+  <text class="sd-t" x="268" y="203" text-anchor="middle">全局问题</text>
+  <text class="sd-ts" x="268" y="221" text-anchor="middle">主题/汇总</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M314 209 L334 209"/>
+  <rect class="sd-box-amber" x="338" y="182" width="152" height="54" rx="10"/>
+  <text class="sd-t" x="414" y="203" text-anchor="middle">社区摘要检索</text>
+  <text class="sd-ts" x="414" y="221" text-anchor="middle">map-reduce</text>
+</svg></div>
+    <ul>
+      <li>社区切太粗:一个社区塞进上千实体,摘要变成"大杂烩",目标信息被稀释;切太细:社区碎片化,跨社区的桥接边(多跳的"跳"就靠这个)被切断。经验上是<b>分层存储、按查询动态选层</b>,而不是只留一层。</li>
+      <li>Leiden 算法(比 Louvain 更优,避免"坏连接"社区)的分辨率参数决定粒度;可以按领域数据做网格搜索,用下游 recall 做指标。</li>
+      <li>GraphRAG 原版主打<b>全局性问题</b>("总结全文主题")靠社区摘要;而<b>多跳事实查询更像局部问题</b>,直接对实体子图做邻居扩展往往比摘要更准——能说出"GraphRAG 的社区摘要不是多跳事实问答的银弹"是加分点。</li>
+    </ul>
+    <p><b>4. 查询策略(检索那一层怎么提召回)</b></p>
+    <ul>
+      <li><b>Query 改写</b>:先做子问题分解(把"X 和 Y 的共同投资者"拆成"X 的投资者""Y 的投资者"再求交),多跳查询直接拆成多个单跳子查询分别检索再汇合,比直接喂整句更容易命中。</li>
+      <li><b>别名扩展 + 实体链接</b>:Query 里识别的实体先链接到图谱节点(而非只匹配字符串),再把该节点的所有别名展开参与检索。</li>
+      <li><b>多路检索融合</b>:实体/关系结构化检索(精确)+ 向量检索(语义近似)+ BM25(关键词)+ 图谱邻居扩展(BFS 1~2 跳)并行,用 RRF 融合。单一路线在多跳场景几乎必漏。</li>
+      <li><b>迭代检索 / 自我反思</b>:首轮结果不足以支撑答案时,根据已命中实体再扩展下一跳,最多 N 轮;这是多跳检索的标准做法。</li>
+    </ul>
+    <p><b>5. 评估与闭环</b></p>
+    <ul>
+      <li>多跳基准:HotpotQA(2 跳)、2WikiMultihopQA(2~4 跳)、MuSiQue(可组合多跳、更难)。</li>
+      <li>指标别只看端到端 recall,要分<b>抽取 recall / 链接准确率 / 每跳命中率 / 端到端 F1</b> 逐层看,才能定位瓶颈。</li>
+      <li>成本 trade-off:GraphRAG 建图 + 社区摘要很贵(token 消耗大),在线时把社区摘要预生成缓存;增量更新只重建受影响的社区而非全图。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:社区切分的粒度到底怎么定?有客观方法吗?</summary><div class="an">以"下游指标"为准做搜索:固定抽取质量后,扫不同分辨率参数,看在多跳评测集上的端到端 recall;经验上"社区内实体数十到数百、跨社区桥接边足够"是合理区间。也可以分层保留——粗层管全局摘要、细层管局部检索,查询时动态选层,避免二选一。</div></details>
+    <details class="qa"><summary class="qu">Q:实体链接错了/漏了怎么办?尤其同名多义和别名。</summary><div class="an">三层兜底:① 建<b>别名索引</b>,Query 实体先展开全部别名再检索;② 用<b>向量相似度 + 类型约束</b>做候选链接,再让 LLM 结合上下文消歧(看句子语境指哪个);③ 链接置信度低时不硬链,而是把多个候选都带进检索、由后续推理消歧。链接错一次,后面全错,所以低置信度宁多勿错。</div></details>
+    <details class="qa"><summary class="qu">Q:GraphRAG 建图成本很高,怎么平衡成本与召回?</summary><div class="an">分场景:① 全局/主题级问答才需要社区摘要,事实多跳只要实体-关系子图,可以<b>只建图不做社区摘要</b>,省掉一大块 token;② 社区摘要离线预生成并缓存,增量更新走"局部社区重建"而非全量重跑;③ 抽取用便宜模型 + 强模型抽检,高频冷门实体用规则兜底。核心是"按查询类型决定用图的哪一层"。</div></details>
+    <details class="qa"><summary class="qu">Q:多跳问题怎么判断该走图,而不是普通向量检索就够?</summary><div class="an">用轻量分类器/规则判断查询是否含关系推理词("…的…的…"、比较、桥接实体),或先跑一次单跳向量检索,看能否直接命中答案;命中不了且查询含多个实体 → 升级走图。判断本身要便宜,否则自适应省下来的被路由开销吃掉了。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>GraphRAG</b>:微软提出的图增强 RAG,用实体-关系图 + 社区摘要回答全局问题。</div>
+      <div class="term-item"><b>Leiden</b>:社区检测算法,比 Louvain 更能保证社区连通性。</div>
+      <div class="term-item"><b>共指消解</b>:把指向同一实体的不同说法合并成一个节点。</div>
+      <div class="term-item"><b>RRF</b>:倒数排名融合,把多路检索结果合成一个榜单。</div>
+      <div class="term-item"><b>多跳推理</b>:需要跨多个事实/实体串联才能回答的推理。</div>
+      <div class="term-item"><b>MuSiQue</b>:可组合的多跳问答基准,比 HotpotQA 更难。</div>
+    </div>
+  </div>
+</article>

@@ -1,0 +1,107 @@
+<article class="q" id="harness-016" data-topic="harness" data-title="电商Agent的多模态输入选型" data-difficulty="2" data-tags="场景设计,多模态,电商Agent" data-company="字节(真题)" data-source="P5Q25" data-kw="电商 Agent 多模态 输入 文本 图像 视频 购买记录 结构化 场景设计 字节">
+
+  <div class="q-no">Agent核心 · Q25</div>
+  <h3>如果要做电商agent，你会选择哪些模态的信息作为输入？比如文本评论、图像、视频、购买记录？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐</span>
+    <span class="tag">#场景设计</span><span class="tag">#多模态</span><span class="tag">#电商Agent</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我的原则是<b>按收益/成本比选模态,不是越多越好</b>。电商 Agent 我选四层:① <b>结构化数据</b>——购买记录、订单、价格、库存,这是决策主干,最便宜最可靠;② <b>文本</b>——商品标题、评论、客服对话,是语义理解的主力,embedding 和检索成本可控;③ <b>图像</b>——只在需要视觉判断时上,如商品主图、售后凭证 OCR、以图搜图;④ <b>视频</b>——基本不作为实时输入,离线抽关键帧+摘要即可。一句话:能结构化就不上多模态,能文本就不上图像视频,每加一个模态都要回答'它带来什么增量、花多少成本'。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>把它想成<b>金牌导购员</b>接待顾客:他先看你的<b>购物小票和会员档案</b>(结构化数据),快速了解你买过什么、预算多少;再听你<b>口头描述需求</b>(文本)抓关键信息;看不清的商品他才拿起来<b>仔细端详</b>(图像,比如你指着一件衣服问"有没有同款");至于你发的<b>开箱视频</b>,他只会快进扫几眼(<b>视频离线抽帧</b>),不会一帧帧看。老练的导购不会什么都看,只会看"最有用、最省事"的那几样——选模态也是这个道理。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 为什么模态不是越多越好(先立观点)</b></p>
+    <ul>
+      <li>每个模态都对应一条独立管道:图像要视觉模型,视频要抽帧+时序建模,结构化要解析清洗。</li>
+      <li>多模态 = 多一套模型 + 多一份延迟 + 多一份成本 + 多一个出错点,模态之间还要做对齐/融合。</li>
+      <li>选型判据(定性):<b>信息增益 ÷ (延迟 + 成本 + 复杂度)</b>,增益小成本高的模态坚决砍掉。</li>
+    </ul>
+    <p><b>2. 四层模态定位</b></p>
+    <table>
+      <tr><th>模态</th><th>电商场景典型信息</th><th>角色</th><th>成本/延迟</th></tr>
+      <tr><td><b>结构化数据</b></td><td>购买记录、浏览轨迹、订单、库存、价格</td><td>决策主干</td><td>极低,毫秒级</td></tr>
+      <tr><td><b>文本</b></td><td>商品标题、评论、客服对话、搜索词</td><td>语义主力</td><td>低,embedding+检索</td></tr>
+      <tr><td><b>图像</b></td><td>商品主图、售后凭证、用户上传图</td><td>按需视觉判断</td><td>中,视觉模型</td></tr>
+      <tr><td><b>视频</b></td><td>开箱视频、直播切片、买家秀</td><td>几乎不实时</td><td>高,抽帧+摘要</td></tr>
+    </table>
+    <p><b>3. 具体怎么选(分任务对齐)</b></p>
+    <ul>
+      <li><b>商品推荐/个性化</b>:结构化购买记录 + 文本评论语义 + 图像风格特征(可选),视频基本不用。</li>
+      <li><b>售后客服</b>:文本对话 + 图像凭证(破损照片 OCR/识别)+ 订单结构化数据。</li>
+      <li><b>以图搜图/找同款</b>:图像 embedding 必须,文本辅助描述。</li>
+      <li><b>直播带货 Agent</b>:视频只做离线理解(关键帧+字幕),在线输入仍是结构化+文本。</li>
+    </ul>
+    <p><b>4. 融合方式(视频先"降维")</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 664 352" role="img" aria-label="电商Agent多模态输入分层融合">
+  <rect class="sd-layer" x="8" y="8" width="648" height="336"/>
+  <text class="sd-l" x="20" y="26">多模态输入 · 按收益/成本分层融合</text>
+  <rect class="sd-box-rose" x="16" y="44" width="108" height="56" rx="10"/>
+  <text class="sd-t" x="70" y="68" text-anchor="middle">结构化数据</text>
+  <text class="sd-ts" x="70" y="86" text-anchor="middle">订单·价格·库存</text>
+  <rect class="sd-box-rose" x="16" y="120" width="108" height="56" rx="10"/>
+  <text class="sd-t" x="70" y="144" text-anchor="middle">文本</text>
+  <text class="sd-ts" x="70" y="162" text-anchor="middle">评论·对话·搜索</text>
+  <rect class="sd-box-rose" x="16" y="196" width="108" height="56" rx="10"/>
+  <text class="sd-t" x="70" y="220" text-anchor="middle">图像</text>
+  <text class="sd-ts" x="70" y="238" text-anchor="middle">主图·售后凭证</text>
+  <rect class="sd-box-rose" x="16" y="272" width="108" height="56" rx="10"/>
+  <text class="sd-t" x="70" y="296" text-anchor="middle">视频</text>
+  <text class="sd-ts" x="70" y="314" text-anchor="middle">开箱·直播切片</text>
+  <rect class="sd-box2" x="148" y="44" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="223" y="68" text-anchor="middle">特征层融合</text>
+  <text class="sd-ts" x="223" y="86" text-anchor="middle">直接拼进 prompt</text>
+  <rect class="sd-box2" x="148" y="120" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="223" y="144" text-anchor="middle">文本向量化</text>
+  <text class="sd-ts" x="223" y="162" text-anchor="middle">embedding · 检索</text>
+  <rect class="sd-box2" x="148" y="196" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="223" y="220" text-anchor="middle">视觉向量化</text>
+  <text class="sd-ts" x="223" y="238" text-anchor="middle">embedding · 字幕</text>
+  <rect class="sd-box2" x="148" y="272" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="223" y="296" text-anchor="middle">离线抽帧</text>
+  <text class="sd-ts" x="223" y="314" text-anchor="middle">关键帧 → 摘要</text>
+  <rect class="sd-box-teal" x="340" y="52" width="120" height="272" rx="10"/>
+  <text class="sd-t" x="400" y="180" text-anchor="middle">统一特征层</text>
+  <text class="sd-ts" x="400" y="200" text-anchor="middle">特征·摘要·对齐</text>
+  <rect class="sd-box-amber" x="496" y="140" width="158" height="96" rx="10"/>
+  <text class="sd-t" x="575" y="184" text-anchor="middle">多模态 LLM</text>
+  <text class="sd-ts" x="575" y="202" text-anchor="middle">融合后决策·生成</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M124 72 L146 72"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M124 148 L146 148"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M124 224 L146 224"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M124 300 L146 300"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M298 72 L338 72"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M298 148 L338 148"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M298 224 L338 224"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M298 300 L338 300"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M460 188 L494 188"/>
+</svg></div>
+    <p><b>5. 关键 trade-off</b></p>
+    <ul>
+      <li>端到端多模态大模型(GPT-4V/Qwen-VL)能直接吃图,但贵且慢;工程上常用<b>"视觉模型抽取成结构化描述 → 再喂便宜文本 LLM"</b>的分层方案。</li>
+      <li>在线 vs 离线:能离线预处理的(视频摘要、图像特征入库)绝不放到在线实时算。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么不直接上一个多模态大模型,把图、文、视频都丢进去?</summary><div class="an">端到端多模态大模型省事,但有三个代价:① 贵——视觉 token 比文本贵得多,每次请求都带图成本翻倍;② 慢——首字时间和吞吐都受影响;③ 不可控——一个模型管所有模态,出了问题难定位。工程折中是"多模态感知 + 文本决策":视觉模型只做抽取(识别/字幕/结构化描述),结果转成文本再交给便宜的文本 LLM 推理。只有场景强依赖细粒度视觉(看复杂表格/截图)时才上端到端多模态。</div></details>
+    <details class="qa"><summary class="qu">Q:购买记录这类隐私敏感数据,作为输入要注意什么?</summary><div class="an">三点:① 最小化——只取和当前意图相关的字段,不全量吐给模型;② 脱敏——手机号、地址、卡号等 PII 进模型前脱敏;③ 权限与审计——读用户数据需用户授权,访问日志可审计。另外结构化数据尽量走确定性逻辑(规则/检索)而非让 LLM 自由发挥,既省 token 又防泄漏。</div></details>
+    <details class="qa"><summary class="qu">Q:视频为什么基本不作为实时输入?</summary><div class="an">视频单条信息密度低、解码和时序建模成本极高,实时喂模型不划算(延迟和成本都扛不住)。常规做法是离线管道:抽关键帧 → 图文识别 → 摘要,把一段视频压缩成几张关键图 + 几句话,在线只用这个摘要。只有在"必须理解动态过程"(如动作质检)的垂直场景才做在线视频理解,且通常用专用小模型。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>多模态(Multimodal)</b>:同时处理文本、图像、音频等多种信息形态。</div>
+      <div class="term-item"><b>结构化数据</b>:有固定 schema 的记录型数据(订单、库存),可直接程序处理。</div>
+      <div class="term-item"><b>视觉 embedding</b>:把图像编码成向量,用于以图搜图/相似度计算。</div>
+      <div class="term-item"><b>关键帧抽取</b>:从视频里挑出代表性画面,降低后续处理量。</div>
+      <div class="term-item"><b>收益/成本比</b>:选型判据——新增模态的价值是否盖过它的成本。</div>
+    </div>
+  </div>
+</article>

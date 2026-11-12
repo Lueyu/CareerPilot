@@ -1,0 +1,67 @@
+<article class="q" id="algo-003" data-topic="algo" data-title="LoRA训练如何选择冻结层及依据" data-difficulty="3" data-tags="LoRA,层选择" data-company="字节(真题)" data-source="P5Q15" data-kw="LoRA 冻结层 低秩 注意力 QKV rank QLoRA 灾难性遗忘 微调 参数效率 字节">
+
+  <div class="q-no">Agent核心 · Q15</div>
+  <h3>训练 LoRA 模型时，你是如何选择冻结层的？依据是什么？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#LoRA</span><span class="tag">#层选择</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"结论:<b>冻结全部预训练权重(基座),只在注意力层的投影上挂低秩适配器</b>。默认做法是在 <b>Q/K/V/O 四个投影层</b>各挂一个 LoRA(工程上也有只挂 Q/V 或 Q/K/V 以省参数的做法);Embedding 和 LayerNorm 通常也冻结。依据三条:① <b>参数效率</b>——冻结基座让可训练参数降到百万级,显存和算力下降几个数量级;② <b>效果</b>——原论文表明只调注意力层就足以逼近全参微调;③ <b>防灾难性遗忘</b>——基座不动,通用能力不丢。任务更难、数据更多时,再扩展到 MLP 层或调大 rank。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>给一台高配电脑外接一个 U 盘</b>:电脑本体(基座权重)原封不动锁死,你在 U 盘(低秩适配器)上装补丁,插上电脑就"升级"了。为什么只动 U 盘?因为拆主板重焊成本极高(全参微调要存梯度、优化器状态,显存爆表),而且乱动主板容易把原厂能力搞没(灾难性遗忘)。注意力层相当于"最值得插 U 盘的那个 USB 口"——对语义影响最敏感、收益最大。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. LoRA 的数学原理(先讲清楚在冻结什么)</b></p>
+    <p>把权重更新分解成两个低秩矩阵的乘积,只训练这两个小矩阵:</p>
+    <pre class="code">h = W₀·x + ΔW·x = W₀·x + (B·A)·x
+<span class="c"># W₀: 冻结的原始权重  d×k</span>
+<span class="c"># A ∈ R^(r×k): 降维矩阵, 高斯初始化</span>
+<span class="c"># B ∈ R^(d×r): 升维矩阵, 零初始化</span>
+<span class="c"># r &lt;&lt; min(d,k): 秩, 常取 8/16/32</span>
+<span class="c"># 缩放因子 α/r; B 初始为 0, 保证训练开始时 ΔW=0</span></pre>
+    <p>冻结的正是 <b>W₀</b>:不参与反向传播、不存梯度与优化器状态;可训练参数只剩 A、B。</p>
+    <p><b>2. 冻结什么、训练什么(层级清单)</b></p>
+    <table>
+      <tr><th>模块</th><th>默认处理</th><th>原因</th></tr>
+      <tr><td><b>注意力 Q/K/V/O</b></td><td><b>挂 LoRA(核心)</b></td><td>语义表征最敏感,收益最大</td></tr>
+      <tr><td><b>FFN / MLP 层</b></td><td>通常冻结</td><td>存储"知识",动它易忘且参数更多</td></tr>
+      <tr><td><b>Embedding</b></td><td>冻结(除非换词表)</td><td>大且与任务无关,微调易过拟合</td></tr>
+      <tr><td><b>LayerNorm</b></td><td>冻结或极小 lr 训练</td><td>参数量小但影响分布,一般不动</td></tr>
+    </table>
+    <p><b>3. 为什么"挂注意力、冻 MLP"(选择依据)</b></p>
+    <ul>
+      <li><b>效果依据</b>:原始 LoRA 论文(Hu et al., 2021)在 GPT-3 上的实验表明,<b>只对注意力层的 Q、V(甚至仅 Q/V 的一部分)加 LoRA 就能匹配全参微调</b>;挂到全注意力层(Q/K/V/O)通常是最稳的默认起点。</li>
+      <li><b>成本依据</b>:注意力投影的参数量比 FFN 小一个量级,挂 LoRA 后可训练参数只占基座的万分之一到千分之一,显存、显存通信、检查点体积全面下降。</li>
+      <li><b>遗忘依据</b>:冻结基座从机制上杜绝了"学新任务把旧能力洗掉",这是做多任务/持续学习时的关键诉求。</li>
+    </ul>
+    <p><b>4. 什么时候打破默认(重要 trade-off)</b></p>
+    <ul>
+      <li>下游任务<b>与预训练分布差异大</b>(如从通用语料微调到代码/医疗专域),可加挂 FFN 的 LoRA 或调大 rank,补足容量。</li>
+      <li>数据少、任务简单:r=8~16 已够,挂 Q/V 甚至更省;数据多、任务难:r=32~64,并考虑 Q/K/V/O + FFN 全挂。</li>
+      <li><b>QLoRA</b>:把基座量化到 4-bit 再冻结,LoRA 反向传播时反量化计算,进一步把显存压到单卡可微调大模型;这是资源受限时的首选。</li>
+      <li>先冻结后解冻:也有"LoRA 预热 + 最后解冻 LayerNorm/部分层小幅精调"的做法,但工程上收益不稳定,默认不推荐。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么不微调 Embedding 层?</summary><div class="an">三个原因:① 参数规模大(词表 × 维度,常占模型参数相当比例),微调它会显著增加优化器显存;② 它学的是通用 token 语义,对单个下游任务不是主要瓶颈,微调收益低且易过拟合;③ 冻结它有利于保持跨任务的一致性。例外是<b>换词表场景</b>(如新增大量领域专用 token),这时必须训练新 embedding 行,否则新 token 没有有效初始化。</div></details>
+    <details class="qa"><summary class="qu">Q:只挂注意力层什么时候不够?</summary><div class="an">当任务需要学到<b>新的知识/事实</b>而不仅是"换种说法"时——知识主要存储在 FFN 权重里,冻结 FFN 会让模型难以真正吸收新事实,只能靠注意力"拼凑"。所以:风格迁移、指令遵循这类"已有知识重排"的任务,只挂注意力就很好;而注入大量新领域知识、或任务分布偏离预训练很远时,要挂 FFN、调大 rank,甚至考虑全参微调。能区分"重排已有知识"和"学习新知识",是这道题的高分点。</div></details>
+    <details class="qa"><summary class="qu">Q:rank 怎么选?</summary><div class="an">经验值:小任务 r=8~16 足够,复杂任务 r=32~64。原则是<b>从低到高试</b>:rank 翻倍观察验证集,收益趋平就停。理论上 LoRA 的 ΔW 是低秩的,秩太小欠拟合、太大过拟合且逼近全参的成本。另外注意 <b>α/r 缩放</b>:调 rank 时要同步调 α(一般保持 α ≈ 2×r 的比例),否则会影响有效学习率。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>LoRA</b>:冻结基座、只训低秩适配器的微调法。</div>
+      <div class="term-item"><b>低秩分解</b>:用两个小矩阵的乘积近似大矩阵更新。</div>
+      <div class="term-item"><b>QLoRA</b>:量化基座(4-bit)+ LoRA,极致省显存。</div>
+      <div class="term-item"><b>灾难性遗忘</b>:学新任务导致旧能力退化。</div>
+      <div class="term-item"><b>rank</b>:低秩矩阵的秩,控制适配器容量。</div>
+    </div>
+  </div>
+</article>

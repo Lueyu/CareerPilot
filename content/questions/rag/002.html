@@ -1,0 +1,87 @@
+<article class="q" id="rag-002" data-topic="rag" data-title="设计支持流式输出的RAG系统" data-difficulty="4" data-tags="RAG,流式输出,系统设计" data-company="" data-source="P1Q3" data-kw="流式输出 SSE WebSocket TTFT 首token 检索 生成 并行 前端 打字机">
+
+      <div class="q-no">系统设计 · Q3</div>
+      <h3>设计一个支持流式输出的 RAG 系统</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#RAG</span><span class="tag">#流式输出</span><span class="tag">#系统设计</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"核心思路是把『等全部生成完再返回』改成『<b>边检索边反馈、边生成边推送</b>』:用 SSE 长连接,检索阶段先推送状态事件(正在查什么、命中哪些文档),生成阶段 LLM 的 token 一到就转发给前端;核心指标是 <b>TTFT(首字时间)</b>,通过检索/生成流水线并行把它压到 500ms 内;同时要处理客户端断连中止生成、断线重连续传这些工程细节。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>差别就像<b>请客吃饭</b>:非流式是"后厨把十道菜全做完一起上",客人饿等 20 分钟;流式是"<b>凉菜先上,热菜一道道端</b>"——菜的总时长没变,但客人 2 分钟就有东西吃,感知上快了 10 倍。首字时间 TTFT 就是"第一盘凉菜多久上桌"。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 为什么要流式(先讲清价值)</b></p>
+        <p>生成一段 500 token 的答案要 3~5 秒。用户盯着白屏 3 秒就会觉得"卡死了";而首字 300ms 出现、后面每秒吐 50 字,<b>总时长没变,但感知延迟从 3 秒降到 0.3 秒</b>。这就是为什么所有主流 AI 产品(ChatGPT、Kimi、豆包)都是流式。</p>
+        <p><b>2. 协议选型:SSE 优先</b></p>
+        <table>
+          <tr><th></th><th>SSE(推荐)</th><th>WebSocket</th></tr>
+          <tr><td><b>方向</b></td><td>服务器→客户端单向</td><td>双向</td></tr>
+          <tr><td><b>底层</b></td><td>普通 HTTP</td><td>独立协议,需升级握手</td></tr>
+          <tr><td><b>基础设施</b></td><td>CDN/网关/代理天然兼容</td><td>可能被中间件断长连接</td></tr>
+          <tr><td><b>断线重连</b></td><td>浏览器原生自动重连 + Last-Event-ID 续传</td><td>要自己实现</td></tr>
+          <tr><td><b>适用</b></td><td>AI 回答推送,95% 的场景</td><td>语音全双工、协同编辑</td></tr>
+        </table>
+        <p><b>3. 流水线并行(降低 TTFT 的关键)</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 520 360" role="img" aria-label="流式 RAG 时间轴事件流">
+  <text class="sd-l" x="12" y="46">t=0ms</text>
+  <rect class="sd-box2" x="110" y="16" width="390" height="56" rx="10"/>
+  <text class="sd-t" x="126" y="40">event:status</text>
+  <text class="sd-ts" x="126" y="58">收到问题 · 立即推送「正在理解问题」</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M305 72 L305 82"/>
+  <text class="sd-l" x="12" y="114">t=50ms</text>
+  <rect class="sd-box2" x="110" y="84" width="390" height="56" rx="10"/>
+  <text class="sd-t" x="126" y="108">event:status</text>
+  <text class="sd-ts" x="126" y="126">Query 改写完成 → 正在检索知识库</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M305 140 L305 150"/>
+  <text class="sd-l" x="12" y="182">t=250ms</text>
+  <rect class="sd-box-teal" x="110" y="152" width="390" height="56" rx="10"/>
+  <text class="sd-t" x="126" y="176">event:sources</text>
+  <text class="sd-ts" x="126" y="194">检索完成 · 命中 3 篇文档(先展示引用)</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M305 208 L305 218"/>
+  <text class="sd-l" x="12" y="250">t=400ms</text>
+  <rect class="sd-box-amber" x="110" y="220" width="390" height="56" rx="10"/>
+  <text class="sd-t" x="126" y="244">event:delta</text>
+  <text class="sd-ts" x="126" y="262">LLM 首 token 到达 · 逐 token 转发</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M305 276 L305 286"/>
+  <text class="sd-l" x="12" y="318">t=3500ms</text>
+  <rect class="sd-box" x="110" y="288" width="390" height="56" rx="10"/>
+  <text class="sd-t" x="126" y="312">event:done</text>
+  <text class="sd-ts" x="126" y="330">生成完毕 · 完整答案 + 引用 + 会话ID</text>
+</svg></div>
+        <p>细节:① <b>引用来源先推</b>,用户在等首字时已经在读文档标题,焦虑感大幅下降;② 生成和重排可重叠——rerank 完成前就可以让 LLM 基于 top 文档先开写(激进策略,适合超低延迟场景);③ SSE 事件设计成类型化(status/sources/delta/done/error),前端好编排。</p>
+        <p><b>4. 工程细节(拉开差距的地方)</b></p>
+        <ul>
+          <li><b>客户端断连必须中止生成</b>:用户关页面了还继续生成就是白烧钱。监听连接断开事件,向上游 LLM 发 cancel。</li>
+          <li><b>背压</b>:客户端网络慢,发送缓冲区堆积时要暂停从 LLM 读取(暂停拉取即可,SSE 场景 rarely 需要)。</li>
+          <li><b>断线重连</b>:事件带序号,客户端带 Last-Event-ID 回来,服务端从 Redis 里补发缺失的事件。</li>
+          <li><b>代理配置</b>:Nginx 要关 buffering(proxy_buffering off),否则 SSE 会被攒着一起发,流式失效——这是最常见的上线翻车点。</li>
+        </ul>
+        <p><b>5. 前端展示优化</b></p>
+        <ul>
+          <li>打字机效果 + 平滑滚动跟随;光标闪烁指示生成中。</li>
+          <li><b>Markdown 渐进渲染</b>:token 流随时渲染,但要注意不完整的代码块/表格(常见做法:边收边渲染,未闭合的块等闭合后再格式化)。</li>
+          <li>生成中途提供"停止"按钮 → 触发 cancel。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:生成到一半断线了怎么办?</summary><div class="an">服务端把已生成内容暂存 Redis(带会话 ID),客户端重连带 Last-Event-ID,补发缺失 delta;若 LLM 调用已断,展示半截答案 + "重新生成"按钮。</div></details>
+        <details class="qa"><summary class="qu">Q:多个用户同时流式,服务器连接数会不会爆?</summary><div class="an">SSE 是长连接,3000 并发就要 3000 连接——用异步框架(FastAPI + asyncio)单机可撑上万连接;更大规模靠网关层水平扩展 + 连接粘性(同一会话路由回同一节点,或状态外置 Redis 解耦)。</div></details>
+        <details class="qa"><summary class="qu">Q:Token 是一个个到吗?网络开销会不会大?</summary><div class="an">LLM 上游本来就是 chunk 到达;服务端可以攒 20~50ms 或若干 token 再 flush,平衡流畅度和包数量。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>TTFT</b>:Time To First Token,首字时间。</div>
+          <div class="term-item"><b>SSE</b>:Server-Sent Events,HTTP 长连接单向推送。</div>
+          <div class="term-item"><b>背压</b>:下游消费慢时向上游反压减速。</div>
+          <div class="term-item"><b>Nginx buffering</b>:代理攒响应,流式场景必须关闭。</div>
+        </div>
+      </div>
+</article>

@@ -1,0 +1,98 @@
+<article class="q" id="eval-007" data-topic="eval" data-title="Agent效果评估:指标、离线在线与LLM-as-judge" data-difficulty="3" data-tags="Agent评估,效果评价" data-company="字节 / 阿里(高频)" data-source="P5Q37" data-kw="Agent 评估 效果评价 指标 任务成功率 LLM-as-judge 离线 在线 AB测试 回归 幻觉率 成本">
+
+  <div class="q-no">Agent核心 · Q37</div>
+  <h3>Agent怎么评估效果？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#Agent评估</span><span class="tag">#效果评价</span>
+    <span class="company">字节 / 阿里(高频)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"评估分<b>指标、离线、在线</b>三层:第一,<b>指标多维</b>——不能只看'答对没',要看任务成功率、工具/参数准确率、平均步数、延迟、单任务成本、幻觉率;第二,<b>离线评估</b>——固定测试集 + 自动评分,规则/程序化校验/LLM-as-judge 三级打分,接进 CI 每次发版跑回归;第三,<b>在线评估</b>——AB 实验 + 用户反馈(点踩、转人工、修正行为),bad case 回流成新的测试样本。核心思想:离线防退化、在线看真相,两层必须结合。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>教练评估运动员</b>:不能只看"这场比赛赢没赢",要看<b>训练成绩</b>(离线测试集)、<b>正式比赛成绩</b>(线上 AB 实验)、<b>比赛录像复盘</b>(bad case 回流),还要综合体能、伤病、训练成本这些指标。只看训练成绩会选出"训练型选手"(应试过拟合),只看一两场比赛又太慢噪声大——所以两层都要,指标要全面。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 为什么 Agent 评估比普通模型难</b></p>
+    <ul>
+      <li>Agent 是<b>多步、有交互、有副作用</b>的:中间一步工具调错了,最后答案可能"碰巧"对或错,单看最终答案会误判。</li>
+      <li>任务开放:很多 Agent 任务(写方案、查信息、操作订单)没有唯一标准答案,需要人工或裁判模型来判。</li>
+      <li>所以评估要<b>过程 + 结果 + 成本</b>一起看。</li>
+    </ul>
+    <p><b>2. 指标体系(别只会说"准确率")</b></p>
+    <table>
+      <tr><th>维度</th><th>指标</th><th>说明</th></tr>
+      <tr><td><b>效果</b></td><td>任务成功率、工具选择准确率、参数准确率</td><td>核心指标,离线可测</td></tr>
+      <tr><td><b>效率</b></td><td>平均步数、工具调用次数、P50/P99 延迟</td><td>步数多=绕路,费钱费时</td></tr>
+      <tr><td><b>成本</b></td><td>单任务 token、折算金额</td><td>老板最关心</td></tr>
+      <tr><td><b>安全</b></td><td>幻觉率、越权操作数、拒答合理率</td><td>红线指标</td></tr>
+    </table>
+    <p><b>3. 离线评估:测试集 + 三级自动评分</b></p>
+    <ul>
+      <li><b>L1 规则评分</b>:关键词/精确匹配,快而便宜但死板。</li>
+      <li><b>L2 程序化校验</b>:代码题跑单测、工具调用比 Schema、数学题验算——<b>能程序化的尽量程序化,最可靠</b>。</li>
+      <li><b>L3 LLM-as-judge</b>:给 rubric(维度+分值+示例)让强模型打分。三个坑:<b>位置偏差</b>(对比时偏爱先出现的)、<b>自我偏好</b>(偏爱自己家族)、<b>长度偏差</b>(偏爱长答案)——对策:随机顺序、换裁判模型家族、rubric 明确"长度不加分"。</li>
+      <li>测试集要<b>版本化</b>、分层(核心集/全量集/专项集),和被测系统版本绑定保证可复现。</li>
+    </ul>
+    <p><b>4. 在线评估:AB 实验 + 用户反馈</b></p>
+    <ul>
+      <li>同期同流量随机分流,看<b>解决率、点踩率、转人工率、CSAT</b>,跑够样本量看统计显著性。</li>
+      <li>用户<b>点踩/修正行为</b>是最值钱的评估信号,自动回流成新测试样本。</li>
+    </ul>
+    <p><b>5. 评估闭环(加分点)</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 602 234" role="img" aria-label="Agent评估闭环离线防退化在线看真相">
+  <rect class="sd-layer" x="4" y="8" width="594" height="218"/>
+  <text class="sd-l" x="16" y="26">Agent 评估闭环 · 离线防退化 · 在线看真相</text>
+  <rect class="sd-box-rose" x="12" y="44" width="130" height="56" rx="10"/>
+  <text class="sd-t" x="77" y="68" text-anchor="middle">发版</text>
+  <text class="sd-ts" x="77" y="86" text-anchor="middle">版本上线</text>
+  <rect class="sd-box" x="160" y="44" width="130" height="56" rx="10"/>
+  <text class="sd-t" x="225" y="68" text-anchor="middle">离线回归</text>
+  <text class="sd-ts" x="225" y="86" text-anchor="middle">核心集跑分·拦截</text>
+  <rect class="sd-box2" x="308" y="44" width="130" height="56" rx="10"/>
+  <text class="sd-t" x="373" y="68" text-anchor="middle">线上灰度</text>
+  <text class="sd-ts" x="373" y="86" text-anchor="middle">小流量观察</text>
+  <rect class="sd-box-teal" x="456" y="44" width="130" height="56" rx="10"/>
+  <text class="sd-t" x="521" y="68" text-anchor="middle">全量</text>
+  <text class="sd-ts" x="521" y="86" text-anchor="middle">指标监控</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M142 72 L158 72"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M290 72 L306 72"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M438 72 L454 72"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M521 100 L521 158"/>
+  <rect class="sd-box-rose" x="456" y="160" width="130" height="56" rx="10"/>
+  <text class="sd-t" x="521" y="184" text-anchor="middle">用户反馈</text>
+  <text class="sd-ts" x="521" y="202" text-anchor="middle">点踩/转人工/抽检</text>
+  <rect class="sd-box2" x="308" y="160" width="130" height="56" rx="10"/>
+  <text class="sd-t" x="373" y="184" text-anchor="middle">bad case 回流</text>
+  <text class="sd-ts" x="373" y="202" text-anchor="middle">自动生成样本</text>
+  <rect class="sd-box" x="160" y="160" width="130" height="56" rx="10"/>
+  <text class="sd-t" x="225" y="184" text-anchor="middle">测试集更新</text>
+  <text class="sd-ts" x="225" y="202" text-anchor="middle">版本化 · 分层</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M456 188 L440 188"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M308 188 L292 188"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M225 160 L225 102"/>
+</svg></div>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:离线分数高、线上反馈差,怎么办?</summary><div class="an">说明测试集分布和真实用户偏了。用线上真实 query 重采样测试集、定期轮换;离线指标只用来防退化,效果决策以在线为准。</div></details>
+    <details class="qa"><summary class="qu">Q:Agent 是多步的,中间对最后错怎么算分?</summary><div class="an">过程分和结果分分开:轨迹级(每步工具选择是否合理、参数是否对)+ 结果级(最终答案),再统计"有效步占比"看有多少调用是白干的。</div></details>
+    <details class="qa"><summary class="qu">Q:开放性问题没有标准答案,怎么评?</summary><div class="an">用 LLM-as-judge 按 rubric 打分 + 人工抽检 5% 校准 judge 可信度(judge 与人的一致率 &gt; 85% 才敢信);或把开放任务拆成可校验子项(引用了正确来源吗、满足了用户要求吗)。</div></details>
+    <details class="qa"><summary class="qu">Q:评估本身要花多少 LLM 成本?</summary><div class="an">裁判用便宜但靠谱的模型 + 缓存裁判结果;核心集控制在几百条,一次回归几块钱以内。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>任务成功率</b>:完成用户目标的任务占比,核心效果指标。</div>
+      <div class="term-item"><b>LLM-as-judge</b>:用强模型按 rubric 给回答打分。</div>
+      <div class="term-item"><b>Rubric</b>:评分细则(维度+标准+示例)。</div>
+      <div class="term-item"><b>回归测试</b>:发版前防退化的自动化验证。</div>
+      <div class="term-item"><b>幻觉率</b>:答案中无依据内容占比,安全红线。</div>
+      <div class="term-item"><b>CSAT</b>:客户满意度评分。</div>
+    </div>
+  </div>
+</article>

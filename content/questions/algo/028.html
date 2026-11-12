@@ -1,0 +1,76 @@
+<article class="q" id="algo-028" data-topic="algo" data-title="推导TemperatureScaling对概率分布的影响" data-difficulty="3" data-tags="Temperature,采样,理论" data-company="" data-source="P6Q27" data-kw="Temperature 温度 采样 softmax 熵 概率分布 校准 探索 知识蒸馏 数学证明">
+
+  <div class="q-no">Agent算法 · Q27</div>
+  <h3>推导 Temperature Scaling 对概率分布的影响</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#Temperature</span><span class="tag">#采样</span><span class="tag">#理论</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"温度 T 是对 softmax 输入的<b>缩放因子</b>:pᵢ = exp(zᵢ/T) / Σⱼ exp(zⱼ/T)。三个关键结论:① T=1 是标准 softmax;② <b>T→0 退化成 argmax</b>(只留概率最大那一个);③ <b>T→∞ 退化成均匀分布</b>。数学上可以严格证明:<b>熵 H 关于 T 单调不减</b>,导数 dH/dT = Var(z)/T³ ≥ 0——温度越高,分布越平、熵越大、采样越"随机探索";温度越低,分布越尖、越确定。所以高温用于采样多样性和知识蒸馏,低温用于贪心解码和校准修正。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>把 logits 想象成<b>几个候选人的"能力分"</b>,温度就是面试官的<b>严格程度</b>:温度很低时,面试官只把 Offer 给第一名,几乎不看别人(接近 argmax);温度适中,能力强的概率大、弱的概率小;温度很高时,面试官<b>佛系了</b>,大家机会几乎一样(均匀)。所谓"熵变大",就是结果从"基本确定"变成"谁都可能",这就是温度调节采样随机性的本质。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 定义</b></p>
+    <pre class="code">pᵢ(T) = exp(zᵢ/T) / Σⱼ exp(zⱼ/T)      <span class="c"># zᵢ 为第 i 类的 logit,T &gt; 0 为温度</span></pre>
+    <ul>
+      <li>温度不改变排序:zᵢ &gt; zⱼ ⟺ zᵢ/T &gt; zⱼ/T,所以 argmax 永远不变,<b>T 只改变概率的"集中程度",不改冠军归属</b>。</li>
+    </ul>
+    <p><b>2. 两个极限(直接看定义即可证)</b></p>
+    <pre class="code">T → 0⁺ :  pᵢ → 1(若 zᵢ 最大),否则 → 0     <span class="c"># 退化为 one-hot / argmax,熵 → 0</span>
+T → ∞  :  zᵢ/T → 0, pᵢ → 1/K            <span class="c"># 退化为均匀分布,熵 → ln K(K 为类别数)</span></pre>
+    <ul>
+      <li>严格说 T→0⁺ 要求最大值唯一;若最大值并列,则概率均分到这些并列项上。</li>
+    </ul>
+    <p><b>3. 核心证明:熵随温度单调不减</b></p>
+    <p>定义配分函数 Z = Σⱼ exp(zⱼ/T),期望 ⟨z⟩ = Σᵢ pᵢ zᵢ。由 pᵢ = exp(zᵢ/T)/Z 可得:</p>
+    <pre class="code">H = −Σᵢ pᵢ ln pᵢ = ln Z − (1/T)⟨z⟩</pre>
+    <p>对 T 求导,分两步:</p>
+    <pre class="code">dZ/dT = Σⱼ exp(zⱼ/T)·(−zⱼ/T²) = −(1/T²)Σⱼ zⱼ exp(zⱼ/T)
+d(ln Z)/dT = (1/Z)(dZ/dT) = −(1/T²)⟨z⟩</pre>
+    <p>再算 ⟨z⟩ 对 T 的导数。由 d(ln pᵢ)/dT = −zᵢ/T² + ⟨z⟩/T² = (⟨z⟩ − zᵢ)/T²,得 dpᵢ/dT = pᵢ(⟨z⟩ − zᵢ)/T²,于是:</p>
+    <pre class="code">d⟨z⟩/dT = Σᵢ zᵢ (dpᵢ/dT) = (1/T²)[⟨z⟩² − ⟨z²⟩] = −(1/T²)Var(z)</pre>
+    <p>合并两段:</p>
+    <pre class="code">dH/dT = d(ln Z)/dT − d[(1/T)⟨z⟩]/dT
+      = −(1/T²)⟨z⟩ − [ −(1/T²)⟨z⟩ + (1/T)(d⟨z⟩/dT) ]
+      = −(1/T)(d⟨z⟩/dT) = Var(z)/T³ ≥ 0</pre>
+    <ul>
+      <li>因为方差 Var(z) ≥ 0、T³ &gt; 0,所以 <b>dH/dT ≥ 0 恒成立</b>——温度升高,熵只增不减,分布单调变"平"。</li>
+      <li>这严格证明了"T 越大越均匀、越随机"不是经验感觉,而是数学结论。</li>
+    </ul>
+    <p><b>4. 与自由能/优化的联系(进阶理解)</b></p>
+    <ul>
+      <li>可把带温度 softmax 看作带熵正则的优化解:p(T) 是"在给定能量 z 下最大化 H、且 −log Z 是对应自由能"的分布族。T 即温度,对应正则强度。</li>
+      <li>T→0 即去掉熵正则,回到硬最大;T→∞ 即只最大化熵,回到均匀。</li>
+    </ul>
+    <p><b>5. 三个实战用途</b></p>
+    <table>
+      <tr><th>用途</th><th>方向</th><th>原因</th></tr>
+      <tr><td><b>采样多样性</b></td><td>T ↑</td><td>分布更平,缓解重复与退化,生成更有创造性(对话、写作)</td></tr>
+      <tr><td><b>知识蒸馏</b></td><td>T ↑(教师)</td><td>软标签保留类别间相对关系,给学生更多"暗知识"(Hinton 2015)</td></tr>
+      <tr><td><b>校准(Calibration)</b></td><td>T ↑(通常)</td><td>过自信模型调大 T 使概率更贴合真实频率,降低 ECE(Guo 2017)</td></tr>
+    </table>
+    <p><b>6. 与 top-p/top-k 的关系</b>:温度改变整个分布的锐度,top-k/top-p 则是"截断 + 重归一化",两者正交,常组合使用(如 temperature=0.7 + top_p=0.9)。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:温度会把 argmax 变掉吗?</summary><div class="an">不会。T &gt; 0 时 exp 是单调增函数,除以 T 只是单调缩放,zᵢ/T 的相对大小不变,argmax 恒等。温度只重分配概率质量,不重排顺序——所以"调温度"改变的是随机性,不是"该选哪个最好"。</div></details>
+    <details class="qa"><summary class="qu">Q:知识蒸馏里为什么老师用高温、学生推理时又用 T=1?</summary><div class="an">训练时对老师 logits 除以高温再 softmax,得到平滑的"软标签",它能透露"猫更像狗还是更像卡车"这类类间相似结构,信息量远大于 one-hot;学生训练完、推理时恢复 T=1,得到正常的校准概率。若学生也用同样高温推理,概率会被过度抹平、置信度失真。</div></details>
+    <details class="qa"><summary class="qu">Q:校准为什么通常要把 T 调大于 1?</summary><div class="an">现代大模型普遍"过自信"——softmax 输出的概率(如 0.98)高于真实正确率(如 0.85)。调大 T 使分布变平、峰值下降,让预测概率逼近经验频率,从而降低 ECE。T 本身是在验证集上最小化 NLL 学出来的单标量,不改变任何预测结果,纯属后处理。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>Temperature</b>:softmax 的缩放因子,控制分布锐度。</div>
+      <div class="term-item"><b>熵 H</b>:分布不确定性的度量,−Σp ln p。</div>
+      <div class="term-item"><b>argmax</b>:T→0 的极限,只取概率最大的类别。</div>
+      <div class="term-item"><b>ECE</b>:期望校准误差,预测概率与真实频率之差。</div>
+      <div class="term-item"><b>软标签</b>:蒸馏中教师输出的平滑概率向量。</div>
+    </div>
+  </div>
+</article>

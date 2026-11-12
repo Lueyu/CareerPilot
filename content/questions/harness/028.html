@@ -1,0 +1,104 @@
+<article class="q" id="harness-028" data-topic="harness" data-title="Multi-Agent共识机制设计" data-difficulty="5" data-tags="MultiAgent,共识机制,协作" data-company="" data-source="P6Q9" data-kw="MultiAgent 多智能体 共识 投票 自洽性 辩论 裁判 一致性 置信度 外部验证 协作">
+
+  <div class="q-no">Agent算法 · Q9</div>
+  <h3>Multi-Agent 共识机制设计</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐⭐</span>
+    <span class="tag">#MultiAgent</span><span class="tag">#共识机制</span><span class="tag">#协作</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"三个 Agent 答案不一致,核心不是'少数服从多数',而是<b>给分歧定价 + 找可验证的证据</b>。我分四层:第一,让每个 Agent 输出答案 + <b>置信度 + 推理链 + 依据</b>,先看有没有可被外部工具/事实核验的,能验证的当场裁决;第二,验证不了的上<b>交叉辩论</b>——互相读对方的理由、指出漏洞、修正,迭代 1~2 轮;第三,交给<b>裁判 Agent</b>,用带评分标准(rubric)的 LLM-as-judge 打分,按置信度加权而非简单投票;第四,分歧仍大就<b>保守输出</b>(标注不确定、降级给用户选或转人工)。关键点:三个 Agent 要保证<b>异构</b>(不同模型/角色/温度),否则投票只是同一个错误的回声。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>三位医生会诊</b>给出不同诊断:不能简单数票(三个都错就团灭),也不能谁嗓门大听谁的。正确流程是——各自说依据(推理链),能做的检查赶紧做(外部工具核验),依据冲突就当面会诊互相质疑(辩论),最后主治医生按"证据强度 + 谁更靠谱"拍板(加权裁判)。如果三个全是同一个师父带出来的、想法雷同(同模型),那再多票也是同一种偏见——所以要请不同背景的医生(异构 Agent)。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 为什么需要共识(先回答"为什么要做")</b></p>
+    <ul>
+      <li>单个 LLM 有幻觉、有随机性、有视角盲区;多个 Agent 各自采样再聚合,能把"个体错误"摊薄——这正是 self-consistency 能提分的原因。</li>
+      <li>但多 Agent 也可能"集体犯错":如果它们<b>同模型、同 prompt、低温度</b>,彼此高度相关,共识的增益趋近于零。</li>
+    </ul>
+    <p><b>2. 第一层:多数投票(self-consistency)</b></p>
+    <ul>
+      <li>同一个问题采样 k 条推理链,取最终答案的<b>众数</b>。实现最简单、零额外模型。</li>
+      <li><b>失效场景</b>:错误答案一致且占多数(模型系统性偏见)、答案空间连续(写代码/长文,"哪个对"无法按字符串投票)、投票项彼此不独立。</li>
+      <li>所以投票是<b>底座</b>,不是终局。</li>
+    </ul>
+    <p><b>3. 第二层:交叉辩论(Multi-Agent Debate)</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 751 306" role="img" aria-label="Multi-Agent 共识机制：独立作答到辩论裁判与外部验证">
+  <text class="sd-ts" x="10" y="28">三个异构 Agent(不同模型/角色/温度)先独立作答</text>
+  <rect class="sd-box-rose" x="10" y="52" width="140" height="56" rx="10"/>
+  <text class="sd-t" x="80" y="74" text-anchor="middle">Agent A</text>
+  <text class="sd-ts" x="80" y="92" text-anchor="middle">答案A + 理由</text>
+  <rect class="sd-box-rose" x="10" y="132" width="140" height="56" rx="10"/>
+  <text class="sd-t" x="80" y="154" text-anchor="middle">Agent B</text>
+  <text class="sd-ts" x="80" y="172" text-anchor="middle">答案B + 理由</text>
+  <rect class="sd-box-rose" x="10" y="212" width="140" height="56" rx="10"/>
+  <text class="sd-t" x="80" y="234" text-anchor="middle">Agent C</text>
+  <text class="sd-ts" x="80" y="252" text-anchor="middle">答案C + 理由</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M150 80 L211 138"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M150 160 L211 160"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M150 240 L211 182"/>
+  <rect class="sd-box2" x="215" y="132" width="140" height="56" rx="10"/>
+  <text class="sd-t" x="285" y="154" text-anchor="middle">交叉辩论</text>
+  <text class="sd-ts" x="285" y="172" text-anchor="middle">互读理由·修正反驳</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M355 160 L401 160"/>
+  <rect class="sd-box" x="405" y="132" width="140" height="56" rx="10"/>
+  <text class="sd-t" x="475" y="154" text-anchor="middle">裁判聚合</text>
+  <text class="sd-ts" x="475" y="172" text-anchor="middle">加权·rubric 打分</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M545 160 L591 160"/>
+  <rect class="sd-box" x="595" y="132" width="140" height="56" rx="10"/>
+  <text class="sd-t" x="665" y="154" text-anchor="middle">共识/降级输出</text>
+  <text class="sd-ts" x="665" y="172" text-anchor="middle">保守·转人工</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M475 188 L475 216"/>
+  <rect class="sd-box-teal" x="405" y="220" width="140" height="48" rx="10"/>
+  <text class="sd-t" x="475" y="238" text-anchor="middle">外部验证</text>
+  <text class="sd-ts" x="475" y="256" text-anchor="middle">工具/事实兜底</text>
+  <text class="sd-ts" x="215" y="292">辩论迭代 1~2 轮 · 可外部验证的当场裁决</text>
+</svg></div>
+    <ul>
+      <li>参考 Du et al. 2023 的 multi-agent debate:让多个实例轮流"读别人的论证 → 更新自己的答案",多轮后通常能收敛到更优解。</li>
+      <li><b>风险</b>:辩论也可能"劣币驱逐良币"——本来对的 Agent 被两个错的说服带偏。缓解:① 要求每次改动附证据而非空口反驳;② 保留每轮的<b>初始立场</b>供裁判参考;③ 迭代轮数设上限(1~2 轮),防止过拟合到"更能言善辩"而非"更正确"。</li>
+    </ul>
+    <p><b>4. 第三层:裁判聚合(加权而非数票)</b></p>
+    <ul>
+      <li>用一个独立的裁判(更强的 LLM 或专门训练的 judge),按 rubric(正确性、完整性、逻辑、依据充分性)给每个答案打分。</li>
+      <li><b>加权要素</b>:每个 Agent 的历史准确率(信誉分)、自报置信度、答案的<b>可验证性</b>(能落到事实/代码的权重高)、答案间的一致性(多数支持的轻微加成)。</li>
+      <li>最终分 = Σ w_i · score_i,而不是 argmax 票数。</li>
+    </ul>
+    <p><b>5. 第四层:外部验证兜底(最可靠的一层)</b></p>
+    <ul>
+      <li>能执行的就执行:代码题跑测试用例、事实题查工具/数据库、计算题用计算器复算。<b>能被 ground truth 裁决的,绝不用"嘴"裁决。</b></li>
+      <li>都验证不了 → 保守输出:返回"争议项 + 各方案",标注置信度,或转人工。</li>
+    </ul>
+    <p><b>6. 关键设计点(面试加分项)</b></p>
+    <table>
+      <tr><th>设计点</th><th>做法</th></tr>
+      <tr><td><b>保证多样性</b></td><td>异构模型、不同角色设定、不同温度、不同 few-shot 视角,让 Agent 犯错"不相关"</td></tr>
+      <tr><td><b>独立性</b></td><td>先各自独立作答,再交流;避免早期互相污染</td></tr>
+      <tr><td><b>成本控制</b></td><td>按问题难度分级:易题单 Agent 直答,难题才上多 Agent + 辩论;设总 token/轮次预算</td></tr>
+      <tr><td><b>可解释</b></td><td>输出最终答案 + "为什么放弃另外两个"(让用户信任)</td></tr>
+    </table>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:如果三个 Agent 是同一个模型,投票还有意义吗?</summary><div class="an">有,但增益有限且主要来自<b>采样多样性</b>:同一模型在高温度下多次采样,投票能压掉"随机噪声"导致的个体错误(self-consistency 就靠这个),但压不掉"模型共有的系统性偏见"——同一个知识点三个都错,投票只会更笃定地错。所以:同模型投票 = 抗随机方差;跨模型/跨角色共识 = 抗系统性偏差。要讲清这两层,并说"同模型时提高温度、换角色 prompt 能部分增加多样性"。</div></details>
+    <details class="qa"><summary class="qu">Q:辩论会不会把原本对的答案带偏?</summary><div class="an">会,这是 debate 的已知风险(错误多数 + 更会辩的个体胜出)。缓解:① 辩论只允许"基于证据的反驳",禁止无依据坚持;② 裁判同时看<b>初始答案 + 辩论过程</b>,而不是只看最终版本;③ 引入外部验证作为"一票否决";④ 设 1~2 轮上限并做消融——超过 2 轮增益递减、反而过拟合到修辞。</div></details>
+    <details class="qa"><summary class="qu">Q:成本随 Agent 数怎么涨?怎么控制?</summary><div class="an">线控上:多一个 Agent 多一份生成成本,辩论还要乘轮次。控制三招:① <b>分级调度</b>——先用轻量分类器判难度,简单题单 Agent、中等题投票、难题才辩论+裁判;② <b>预算上限</b>——设总 token/轮次上限,超了就按当前最优输出;③ <b>剪枝</b>——第一轮投票若高度一致(如 3/3 同),直接结束,不浪费辩论。目标是把"多 Agent 税"只花在真正不确定的题上。</div></details>
+    <details class="qa"><summary class="qu">Q:有没有更"算法化"的共识,而不是纯靠 LLM 嘴辩?</summary><div class="an">有。① <b>MCTS 式</b>:把"候选答案"当节点,用价值模型估计每条路径的正确性,搜索 + 回传更新置信度,而非线性辩论;② <b>图式聚合</b>:答案之间做"支持/冲突"关系图,用置信传播/加权 PageRank 收敛到一致;③ <b>贝叶斯</b>:把每个 Agent 建模成有历史准确率的"投票者",用其可信度加权(类似 Dawid-Skene 标签聚合)。这些方法的好处是可推导、可证明,坏处是仍需可靠的"证据信号"打底。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>self-consistency</b>:多次采样取众数,压随机错误。</div>
+      <div class="term-item"><b>Multi-Agent Debate</b>:多实例互读论证、迭代收敛。</div>
+      <div class="term-item"><b>LLM-as-judge</b>:用强模型按 rubric 给答案打分。</div>
+      <div class="term-item"><b>rubric</b>:评分标准,让裁判打分可复现、少漂移。</div>
+      <div class="term-item"><b>异构 Agent</b>:不同模型/角色/温度的 Agent,降低相关性。</div>
+      <div class="term-item"><b>置信度</b>:Agent 对自身答案确定性的估计,用于加权。</div>
+    </div>
+  </div>
+</article>

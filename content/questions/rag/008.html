@@ -1,0 +1,89 @@
+<article class="q" id="rag-008" data-topic="rag" data-title="如何实现RAG的多语言支持" data-difficulty="4" data-tags="多语言,RAG,国际化" data-company="" data-source="P2Q12" data-kw="多语言 RAG 国际化 跨语言 embedding BGE-M3 语言检测 检索 翻译">
+
+      <div class="q-no">工程实践 · Q12</div>
+      <h3>如何实现 RAG 的多语言支持?</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#多语言</span><span class="tag">#RAG</span><span class="tag">#国际化</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"两条路线:<b>跨语言检索</b>——用多语言 Embedding(BGE-M3 这类)让中文 query 直接命中英文文档,零翻译成本、实时性好,是默认选择;<b>翻译管道</b>——query 翻译成索引语言再检索,适合 embedding 模型多语言能力不足的语种。工程上:入口<b>语言检测</b>路由(含中英混杂处理),检索可<b>双路并行</b>(原 query + 翻译版各查一遍 RRF 融合),生成侧<b>跟随用户语言</b>输出;效果必须<b>分语言评估</b>,小语种单独建回归集。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>联合国图书馆</b>:方案一:图书管理员懂 100 种语言,你用中文描述"关于气候变化的书",他直接把英文书、阿拉伯文书都抱过来(<b>跨语言 embedding</b>——向量空间里"意思相近"不分语言);方案二:先把你中文的需求翻成英文,再按英文书名找(<b>翻译管道</b>——多一道工序,翻译不好就找错书);最后都请一位同声传译把找到的内容讲回中文给你听(<b>生成跟随用户语言</b>)。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. Embedding 选型(地基)</b></p>
+        <ul>
+          <li>首选<b>多语言模型</b>:BGE-M3(100+ 语言,还同时支持稠密/稀疏/多向量三种检索)、multilingual-e5、jina 多语言版;验证方法:<b>用自己的中英平行 query-文档对测跨语言 Recall</b>,别只信榜单。</li>
+          <li>坑:单语模型(如纯中文训练的)的向量空间里,中英文"同义"距离很远——跨语言检索直接失效,这是多语言 RAG 第一大坑。</li>
+        </ul>
+        <p><b>2. 语言检测与路由</b></p>
+        <ul>
+          <li>入口轻量检测(fastText/规则,毫秒级);按语言路由到对应策略和分词器(BM25 分词对语言敏感:中文要 IK 分词,英文空格切分)。</li>
+          <li><b>中英夹杂</b>是中文场景日常:"帮我看看这个 PR 的 review 意见"——检测主语言即可,不用强行翻译;BM25 混合索引 + embedding 天然处理。</li>
+        </ul>
+        <p><b>3. 检索策略(双路并行,兼得)</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 466 388" role="img" aria-label="多语言 RAG 双路检索架构">
+  <rect class="sd-box-rose" x="140" y="16" width="180" height="54" rx="10"/>
+  <text class="sd-t" x="230" y="37" text-anchor="middle">用户 query</text>
+  <text class="sd-ts" x="230" y="55" text-anchor="middle">中文 · 退款政策</text>
+  <path class="sd-a" d="M230 70 L230 86"/>
+  <path class="sd-a" d="M115 86 L345 86"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M115 86 L115 100"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M345 86 L345 100"/>
+  <rect class="sd-box-teal" x="10" y="100" width="210" height="60" rx="10"/>
+  <text class="sd-t" x="115" y="124" text-anchor="middle">跨语言直检</text>
+  <text class="sd-ts" x="115" y="142" text-anchor="middle">多语言embedding→索引 top50</text>
+  <rect class="sd-box2" x="240" y="100" width="210" height="60" rx="10"/>
+  <text class="sd-t" x="345" y="124" text-anchor="middle">翻译路</text>
+  <text class="sd-ts" x="345" y="142" text-anchor="middle">中→英→英文索引 top50</text>
+  <path class="sd-a" d="M115 160 L115 176"/>
+  <path class="sd-a" d="M345 160 L345 176"/>
+  <path class="sd-a" d="M115 176 L345 176"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M230 176 L230 190"/>
+  <rect class="sd-box" x="130" y="190" width="200" height="54" rx="10"/>
+  <text class="sd-t" x="230" y="211" text-anchor="middle">RRF 融合</text>
+  <text class="sd-ts" x="230" y="229" text-anchor="middle">双路结果合并 top20</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M230 244 L230 254"/>
+  <rect class="sd-box" x="130" y="254" width="200" height="54" rx="10"/>
+  <text class="sd-t" x="230" y="275" text-anchor="middle">rerank</text>
+  <text class="sd-ts" x="230" y="293" text-anchor="middle">多语言 cross-encoder</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M230 308 L230 318"/>
+  <rect class="sd-box-teal" x="130" y="318" width="200" height="54" rx="10"/>
+  <text class="sd-t" x="230" y="339" text-anchor="middle">Top5 结果</text>
+  <text class="sd-ts" x="230" y="357" text-anchor="middle">进入生成</text>
+</svg></div>
+        <ul>
+          <li>翻译质量用便宜模型即可(检索对翻译噪声不敏感);高频 query 的翻译结果缓存。</li>
+          <li>文档侧:保持<b>原文索引</b>(存原语言,检索后按需翻译展示),不做全量预翻译——预翻译有损且维护成本高,除非检索质量实在不行。</li>
+        </ul>
+        <p><b>4. 生成语言控制</b></p>
+        <ul>
+          <li>规则一:Prompt 明确"始终用用户的语言回答"+把检索到的外文片段标注"以下是英文参考资料";强模型基本遵守。</li>
+          <li>兜底:输出语言检测不对,带"用 X 语言重写"轻量重试一次。</li>
+          <li>注意"答案语种"与"引用原文":引用块保持原语言并给出翻译,可信度和可读性都要。</li>
+        </ul>
+        <p><b>5. 评估必须分语言(很多人栽在这)</b></p>
+        <ul>
+          <li>每种支持的语言建独立评估集;常见结果:英语 95 分、中文 90 分、小语种 70 分——<b>小语种差主要差在 embedding 和分词</b>,针对性补数据或加翻译路。</li>
+          <li>线上监控分语言的满意度/点踩率。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:小语种(泰语/越南语)检索很差,怎么办?</summary><div class="an">① 翻译管道保底(query 翻成英文检索,效果好但加延迟);② 小语种文档额外建"英文影子索引"(离线翻译入库);③ 评估收益后决定,别为 1% 流量的语种做 30% 的复杂度。</div></details>
+        <details class="qa"><summary class="qu">Q:跨语言 embedding 的原理是什么?</summary><div class="an">训练时用了大规模平行语料(同义多语言对齐),把"同义不同语"的文本拉到向量空间的相近位置——所以语义检索能跨语言;但它的单语言内精度通常略低于专用单语模型,是 trade-off。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>跨语言检索</b>:一种语言的 query 检索另一种语言的文档。</div>
+          <div class="term-item"><b>平行语料</b>:同一内容的多语言对照文本。</div>
+          <div class="term-item"><b>影子索引</b>:为同一内容建的另一语言索引。</div>
+        </div>
+      </div>
+</article>

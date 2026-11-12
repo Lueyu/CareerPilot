@@ -1,0 +1,112 @@
+<article class="q" id="harness-027" data-topic="harness" data-title="优化Agent规划效率(ReAct从8步到5步)" data-difficulty="4" data-tags="Agent,规划,优化" data-company="所有公司（通用）" data-source="P6Q4" data-kw="Agent 规划 效率 优化 ReAct 步骤压缩 合并 并行 工具调用 Plan-and-Execute 反思">
+
+  <div class="q-no">Agent算法 · Q4</div>
+  <h3>如何优化 Agent 的规划效率？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#Agent</span><span class="tag">#规划</span><span class="tag">#优化</span>
+    <span class="company">所有公司（通用）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"把 ReAct 从 8 步减到 5 步,核心是<b>减少无效往返</b>,三招:第一,<b>事前规划</b>——Plan-and-Execute,先出一份全局子目标计划再执行,别每走一步才想下一步;第二,<b>步骤合并与并行</b>——把多个可并行的工具调用放进同一步,把『观察→思考→行动』合成一轮,少一次 LLM 往返就少一步;第三,<b>精简观察</b>——工具结果只保留决策需要的字段(截断/摘要),减少"信息过载导致的犹豫",反思只在失败时触发而非每步都反思。目标是<b>步数下降,成功率不降</b>——如果只砍步数丢了成功率,那是伪优化。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>ReAct 像<b>边走边问路的司机</b>:开 500 米停一次、打开地图看一眼、再开 500 米——总共停 8 次(8 步)。优化后像<b>出发前先看全局导航</b>:规划好整条路线(plan),一口气开几段,能同时办的两件事(比如加油 + 买水)顺路一起办了(并行合并);只有真正走错路才停下来重新规划(条件反思)。停的次数从 8 次降到 5 次,路程就短了、人也轻松了。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 先搞清 ReAct 为什么步数多(才能对症下药)</b></p>
+    <ul>
+      <li>ReAct 每步都是"观察 → 思考(Thought)→ 行动(Action)→ 再观察"一个完整 LLM 往返,步数 = LLM 调用次数,直接决定延迟和成本。</li>
+      <li>步数多的三个来源:① <b>无全局计划</b>,每步都在局部决策,容易绕路;② <b>串行工具调用</b>,本可并行的也一个接一个;③ <b>观察信息过载</b>,工具吐一堆无关字段,模型要花额外步骤去"消化"和澄清。</li>
+      <li>先量化:8 步里哪几步是"必要的动作",哪几步是"消化信息/试错/空转"。优化目标是对准后者的。</li>
+    </ul>
+    <p><b>2. 事前规划:Plan-and-Execute(把"边想边走"改成"先想好再走")</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 634 224" role="img" aria-label="ReAct 与 Plan-and-Execute 规划效率对比">
+  <text class="sd-l" x="10" y="30">ReAct · 边做边想(每步一次往返)</text>
+  <rect class="sd-box" x="10" y="40" width="64" height="48" rx="10"/>
+  <text class="sd-t" x="42" y="68" text-anchor="middle">想</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M74 64 L90 64"/>
+  <rect class="sd-box" x="94" y="40" width="64" height="48" rx="10"/>
+  <text class="sd-t" x="126" y="68" text-anchor="middle">做</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M158 64 L174 64"/>
+  <rect class="sd-box-teal" x="178" y="40" width="64" height="48" rx="10"/>
+  <text class="sd-t" x="210" y="68" text-anchor="middle">观察</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M242 64 L258 64"/>
+  <rect class="sd-box" x="262" y="40" width="64" height="48" rx="10"/>
+  <text class="sd-t" x="294" y="68" text-anchor="middle">想</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M326 64 L342 64"/>
+  <rect class="sd-box" x="346" y="40" width="64" height="48" rx="10"/>
+  <text class="sd-t" x="378" y="68" text-anchor="middle">做</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M410 64 L426 64"/>
+  <rect class="sd-box-teal" x="430" y="40" width="64" height="48" rx="10"/>
+  <text class="sd-t" x="462" y="68" text-anchor="middle">观察</text>
+  <text class="sd-ts" x="512" y="68">…</text>
+  <text class="sd-l" x="10" y="130">Plan-and-Execute · 先想好再走</text>
+  <rect class="sd-box-amber" x="10" y="140" width="88" height="56" rx="10"/>
+  <text class="sd-t" x="54" y="162" text-anchor="middle">规划器</text>
+  <text class="sd-ts" x="54" y="180" text-anchor="middle">LLM 出计划</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M98 168 L118 168"/>
+  <rect class="sd-box2" x="122" y="140" width="104" height="56" rx="10"/>
+  <text class="sd-t" x="174" y="162" text-anchor="middle">子目标</text>
+  <text class="sd-ts" x="174" y="180" text-anchor="middle">[P1 P2 P3]</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M226 168 L246 168"/>
+  <rect class="sd-box" x="250" y="140" width="112" height="56" rx="10"/>
+  <text class="sd-t" x="306" y="162" text-anchor="middle">执行器</text>
+  <text class="sd-ts" x="306" y="180" text-anchor="middle">依次/并行执行</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M362 168 L382 168"/>
+  <rect class="sd-box" x="386" y="140" width="104" height="56" rx="10"/>
+  <text class="sd-t" x="438" y="162" text-anchor="middle">结果校验</text>
+  <text class="sd-ts" x="438" y="180" text-anchor="middle">偏差检测</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M490 168 L510 168"/>
+  <rect class="sd-box-rose" x="514" y="140" width="104" height="56" rx="10"/>
+  <text class="sd-t" x="566" y="162" text-anchor="middle">重规划</text>
+  <text class="sd-ts" x="566" y="180" text-anchor="middle">偏差大才触发</text>
+  <text class="sd-ts" x="10" y="212">优化:事前规划 + 并行合并 + 条件反思 → 8 步降到 5 步</text>
+</svg></div>
+    <ul>
+      <li>规划器先分解任务为目标列表,执行器照单执行,省掉"每步重新决策下一步"的往返。</li>
+      <li>动态重规划:计划不是死的,执行中发现偏差(某步失败、环境变化)才重新规划,而不是每步都反思。</li>
+    </ul>
+    <p><b>3. 步骤合并与并行(一箭多雕)</b></p>
+    <ul>
+      <li><b>并行工具调用</b>:一次返回多个 function_call("同时查订单 + 查物流"),把 N 个串行步骤压成 1 步。前提是工具间无依赖;有依赖的用"DAG 依赖图"先算可并行层。</li>
+      <li><b>动作聚合</b>:把"连续的小动作"合并成一个复合动作,或让模型一次规划出"接下来 k 个动作"批量执行。</li>
+      <li><b>减少元步骤</b>:把纯"确认/复述/我已收到"这类不产生信息增量的步骤砍掉,用提示词引导模型"结果拿到了就直接下一步"。</li>
+    </ul>
+    <p><b>4. 精简观察(治"信息过载")</b></p>
+    <ul>
+      <li>工具返回往往是完整 JSON/整页 HTML,几万字符;模型被噪音淹没会多花步骤去定位关键字段,甚至看漏。</li>
+      <li>做法:① <b>截断 + 字段白名单</b>(只回传决策需要的字段);② <b>工具结果摘要</b>(LLM 先压缩再进上下文);③ 结构化展示(表格/列表)降低理解成本。观察干净了,模型"想一步就够"。</li>
+    </ul>
+    <p><b>5. 条件反思(不每步都反思)</b></p>
+    <ul>
+      <li>反思(Reflexion)很贵,每步都反思会把步数翻倍;改为<b>事件触发</b>:工具报错、结果明显异常、连续两步无进展、最终答案质量自检不过——才触发一次反思。</li>
+      <li>自我纠错只解决"真出错了",不解决"本来没出错还要停下来自省",后者是步数虚高的常见原因。</li>
+    </ul>
+    <p><b>6. 模型侧与评估</b></p>
+    <ul>
+      <li>提示词引导"果断决策":明确"不确定时用已有信息给最优答案 + 说明不确定性",减少反复试探;可选地对规划器做微调,让"出计划"更准更少重规划。</li>
+      <li>评估三件套:<b>平均步数</b>(效率)、<b>任务成功率</b>(不能掉)、<b>总 token/成本与端到端延迟</b>(步数省了但每步变贵也可能亏)。三者一起看,单独报"步数降了"没有意义。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:减少步数会不会牺牲成功率?怎么保证?</summary><div class="an">会有一组 trade-off,所以要"分场景优化 + 双指标验收":对简单、流程固定的任务激进合并(收益大、风险小);对高风险任务(下单、写库)保留必要的确认步骤,不为了省步数而跳过安全动作。上线用 AB 实验同时看步数和成功率,成功率掉超阈值就回滚。砍掉的是"无效步骤",不是"关键步骤"。</div></details>
+    <details class="qa"><summary class="qu">Q:Plan 一开始就错了,怎么办?</summary><div class="an">Plan-and-Execute 不是"计划一次执行到底",而是"计划 + 偏差检测 + 重规划":执行中监控子目标是否达成、结果是否与预期一致,偏差大到阈值就只重规划剩余部分(不是全部推倒)。比 ReAct 省步数,又保留了对错误的响应能力。</div></details>
+    <details class="qa"><summary class="qu">Q:并行工具调用有依赖关系怎么办?</summary><div class="an">先做静态依赖分析:工具间是否有数据依赖(输出喂输入)。无依赖的同一批并行发;有依赖的按依赖 DAG 分层,层内并行、层间串行。同时让规划器显式输出"哪些可并行",把依赖判断交给模型而不是盲发。</div></details>
+    <details class="qa"><summary class="qu">Q:步数降了但每步 token 暴涨,怎么权衡?</summary><div class="an">看<b>总成本 + 总延迟</b>而不是只看步数:并行合并会让单步 token 变大,但只要总 token 和端到端延迟下降就是赚。真正要优化的是"LLM 往返次数 × 每次成本"的总和。汇报时用"端到端延迟 + 总 token"做主指标,步数做辅助指标。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>ReAct</b>:Reason+Act,交替"思考-行动-观察"的推理范式。</div>
+      <div class="term-item"><b>Plan-and-Execute</b>:先出全局计划再执行的规划范式。</div>
+      <div class="term-item"><b>Reflexion</b>:让 Agent 基于反馈反思并改进下一次尝试。</div>
+      <div class="term-item"><b>并行工具调用</b>:一次 LLM 往返同时发起多个无依赖工具。</div>
+      <div class="term-item"><b>条件反思</b>:只在出错/无进展时反思,而非每步反思。</div>
+    </div>
+  </div>
+</article>

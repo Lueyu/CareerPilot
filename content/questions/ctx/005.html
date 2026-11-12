@@ -1,0 +1,91 @@
+<article class="q" id="ctx-005" data-topic="ctx" data-title="设计Agent记忆系统与长期记忆存储查询优化" data-difficulty="3" data-tags="记忆系统,存储优化" data-company="字节 / 阿里(高频)" data-source="P5Q20" data-kw="记忆系统 长期记忆 存储 向量检索 查询优化 冷热分层 HNSW PQ 量化 摘要 字节 阿里">
+
+  <div class="q-no">Agent核心 · Q20</div>
+  <h3>你是怎么设计agent的记忆系统？长期记忆如何存储？如果历史记录量非常大，怎么优化查询效率？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#记忆系统</span><span class="tag">#存储优化</span>
+    <span class="company">字节 / 阿里(高频)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我按认知分层设计:<b>工作记忆</b>(当前对话滑动窗口,Redis)→ <b>会话摘要</b>(超窗口的历史压缩)→ <b>长期记忆</b>(抽取出来的事实/偏好)。长期记忆<b>分多种存储各司其职</b>:结构化高频字段走属性表、语义事实走向量库、带时序关系走知识图谱、原始对话归档对象存储。历史量非常大时,查询优化靠四招:① <b>冷热分层</b>,热记忆小索引、冷记忆归档不参与默认检索;② <b>粗筛精排</b>,先用属性过滤把候选砍到千级,再向量精排取 top-k;③ <b>索引优化</b>,HNSW + PQ 量化压缩内存、标量字段建过滤索引;④ <b>压缩</b>,原始对话做增量摘要,只保留抽取后的记忆。核心是<b>别全量塞,按需检索注入</b>。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像给一个<b>认识你很久的老管家</b>建档案:他脑子里记着"你正在聊的事"(工作记忆);昨天聊过啥,他只留个大概(摘要);而你"不吃辣""公司在上海"这种<b>沉淀下来的事实</b>,他写进分门别类的档案柜(长期记忆)——常用信息贴在柜门(热存储),陈年旧账装箱进地下室(冷存储)。要找信息时,他不会把整个地下室搬出来,而是<b>先按标签筛出几本,再逐页精读</b>(粗筛精排)——档案越多,越要靠索引和分类,而不是靠翻。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 分层记忆模型</b></p>
+    <table>
+      <tr><th>层级</th><th>存什么</th><th>存储介质</th><th>生命周期</th></tr>
+      <tr><td><b>工作记忆</b></td><td>当前会话最近 N 轮原文</td><td>Redis 列表(滑动窗口)</td><td>会话期间</td></tr>
+      <tr><td><b>会话摘要</b></td><td>超窗口历史压缩成的摘要</td><td>Redis + DB</td><td>数天~数周</td></tr>
+      <tr><td><b>长期记忆</b></td><td>抽取的事实/偏好/事件三元组</td><td>向量库 + 属性表 + 图存储</td><td>长期(可衰减)</td></tr>
+    </table>
+    <p><b>2. 长期记忆怎么存(多存储协同,不是只塞向量库)</b></p>
+    <ul>
+      <li><b>结构化属性表</b>:高频确定字段(称呼、语言偏好、所在城市)直接 KV 存,读起来 O(1),不走向量检索,又准又快。</li>
+      <li><b>向量库</b>:模糊语义事实("用户喜欢简洁回答")存 embedding,靠相似度检索。</li>
+      <li><b>知识图谱</b>:实体间带时间的关系(在职/离职、素食→复食),能回答"上个月还是 A,现在呢"这类时序问题。</li>
+      <li><b>对象存储归档</b>:原始对话全文不删,压缩后归档做冷备,供审计和未来重抽取。</li>
+    </ul>
+    <p><b>3. 历史量非常大时,查询效率优化的四板斧(重点)</b></p>
+    <p><b>① 冷热分层</b>:记忆按分数(近期性×频率×重要性)分热/温/冷。热记忆(高活跃)进小索引,默认检索只查热层;冷记忆归档,只有显式搜索才扫——把"每次要扫的候选量"压到总量的 1/10 以下。</p>
+    <p><b>② 粗筛精排(两阶段检索)</b>:</p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 820 196" role="img" aria-label="长期记忆粗筛精排查询">
+  <rect class="sd-layer" x="140" y="84" width="500" height="92"/>
+  <text class="sd-l" x="152" y="100">两阶段检索 · 粗筛精排</text>
+  <rect class="sd-box-rose" x="14" y="104" width="100" height="60" rx="10"/>
+  <text class="sd-t" x="64" y="130" text-anchor="middle">查询</text>
+  <text class="sd-ts" x="64" y="148" text-anchor="middle">query</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M114 134 L146 134"/>
+  <rect class="sd-box" x="150" y="104" width="150" height="60" rx="10"/>
+  <text class="sd-t" x="225" y="130" text-anchor="middle">标量预过滤</text>
+  <text class="sd-ts" x="225" y="148" text-anchor="middle">user_id·时间窗·类别</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M300 134 L326 134"/>
+  <rect class="sd-box2" x="330" y="104" width="140" height="60" rx="10"/>
+  <text class="sd-t" x="400" y="130" text-anchor="middle">候选收敛</text>
+  <text class="sd-ts" x="400" y="148" text-anchor="middle">千万级 → 千级</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M470 134 L496 134"/>
+  <rect class="sd-box-amber" x="500" y="104" width="130" height="60" rx="10"/>
+  <text class="sd-t" x="565" y="130" text-anchor="middle">向量精排</text>
+  <text class="sd-ts" x="565" y="148" text-anchor="middle">top-k (k≤10)</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M630 134 L656 134"/>
+  <rect class="sd-box-teal" x="660" y="104" width="130" height="60" rx="10"/>
+  <text class="sd-t" x="725" y="130" text-anchor="middle">注入上下文</text>
+  <text class="sd-ts" x="725" y="148" text-anchor="middle">按需检索注入</text>
+</svg>
+</div>
+    <ul>
+      <li>先用元数据过滤(必做,user 级隔离 + 时间窗 + 类型),再用向量算相似度——<b>过滤索引比暴力向量扫描快两个数量级</b>。</li>
+      <li>混合检索:重要关键词(如"发票""报销")走倒排精确命中,语义模糊走向量,融合后精排。</li>
+    </ul>
+    <p><b>③ 索引与压缩</b>:</p>
+    <ul>
+      <li><b>HNSW</b> 图索引换查询速度(吃内存),配合 <b>PQ(乘积量化)/SQ</b> 把向量压缩 4~8 倍,内存降了缓存命中率反而升、距离计算变快。</li>
+      <li>分片:记忆量超单机内存时按 user_id 一致性哈希分片,检索只落在目标分片,天然并行。</li>
+    </ul>
+    <p><b>④ 数据层压缩</b>:原始对话不无限堆,走<b>增量摘要</b>——旧对话先抽取出记忆,原文降级为摘要或删除,避免"历史越长上下文越贵越吵"。</p>
+    <p><b>4. 读写的 trade-off</b>:写入走异步抽取管道(不阻塞回复),读取是同步路径所以要快;为保查询效率,宁可写入时多做一步(抽取+建索引),换来读取时的低延迟。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:向量检索在千万级记忆库下还是很慢,怎么进一步压?</summary><div class="an">组合拳:① user 级一致性哈希分片,单查询只扫一个分片;② 属性预过滤把候选降到千级再向量算;③ PQ 量化降低单次距离计算成本;④ 热数据放内存、温数据放 SSD、冷数据归档,分级响应。必要时上 GPU 暴力检索(百毫秒扫千万),或用倒排索引先命中再精排。</div></details>
+    <details class="qa"><summary class="qu">Q:记忆库和 RAG 知识库有什么区别?</summary><div class="an">三个区别:① 作用域——知识库是全局静态文档,记忆是 user 级、随对话演化;② 时效——知识库靠版本更新,记忆要时间衰减和冲突消解(新事实覆盖旧事实);③ 检索粒度——知识库返回文档片段,记忆返回结构化事实/偏好。所以两者存储和更新策略都不一样,别混为一谈。</div></details>
+    <details class="qa"><summary class="qu">Q:原始对话记录要不要全留?</summary><div class="an">全留但分级:热数据(近 N 天)原文存可快速访问介质;冷数据先抽取出记忆后,原文压缩或归档到对象存储(便宜、可审计)。目的是"既能追溯,又不让它污染每次检索的上下文"。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>分层记忆</b>:工作/摘要/长期三层,按粒度与生命周期分。</div>
+      <div class="term-item"><b>HNSW</b>:多层图索引,查询快、吃内存。</div>
+      <div class="term-item"><b>PQ(乘积量化)</b>:向量压缩技术,换内存和速度。</div>
+      <div class="term-item"><b>冷热分层</b>:活跃数据与归档数据分开存、分开查。</div>
+      <div class="term-item"><b>粗筛精排</b>:先过滤砍候选,再精算排序。</div>
+      <div class="term-item"><b>一致性哈希</b>:按 key 分片,检索只落单分片。</div>
+    </div>
+  </div>
+</article>

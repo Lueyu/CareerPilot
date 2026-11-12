@@ -1,0 +1,88 @@
+<article class="q" id="ctx-008" data-topic="ctx" data-title="Agent Memory压缩算法设计" data-difficulty="4" data-tags="Memory,压缩算法,Agent" data-company="所有公司（通用）" data-source="P6Q2" data-kw="Memory 压缩算法 Agent 长对话 摘要 滑动窗口 关键信息保留 令牌压缩 记忆管理 30%">
+
+  <div class="q-no">Agent算法 · Q2</div>
+  <h3>Agent Memory 压缩算法设计</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#Memory</span><span class="tag">#压缩算法</span><span class="tag">#Agent</span>
+    <span class="company">所有公司（通用）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"Memory 爆炸的解法不是'无脑截断',而是<b>分级压缩</b>:第一,<b>关键信息抽取</b>——从对话里抽出事实、任务目标、未完成事项、用户偏好、约束条件,这些才是必须保留的;第二,<b>递进式摘要</b>——超出滑动窗口的旧轮次压缩成摘要,摘要再滚入更上一层的摘要,形成金字塔;第三,<b>结构化分流</b>——高频稳定信息沉淀到长期记忆(向量/属性表),瞬态信息留在窗口。目标是<b>10 轮 5000 token 压到约 30%</b>,且用『信息保留率 + 下游任务成功率』双指标评估,而不是只看压缩率。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就是<b>给第二天接班的同事写交接纪要</b>:开了 3 小时会、录音转成 5000 字,你不能把全文甩给同事,得写一页纸——结论、待办、关键数字、人名都留,寒暄和重复讨论都删。压缩算法就是"AI 纪要员",真正的难点不是"删字",而是<b>判断哪些字删了会坏事</b>:漏记一条"客户要求周五前交付",同事第二天就翻车。所以好的压缩算法是"有选择地忘",不是"平均地砍"。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 问题定义:为什么必须压缩</b></p>
+    <ul>
+      <li>长对话 10 轮轻松到 5000 token,而成本、上下文窗口、注意力稀释三重压力同时存在:<b>成本</b>(每轮都重算全历史)、<b>窗口</b>(超长被截断丢尾部)、<b>精度</b>(关键信息淹没在冗长历史里,模型越聊越"失焦")。</li>
+      <li>压缩到 30% 只是手段,<b>真正的目标是"压缩后模型表现不降"</b>——所以评估必须绑定下游任务,不能只看压缩率。</li>
+    </ul>
+    <p><b>2. 压缩的三个层次(别只想到摘要)</b></p>
+    <table>
+      <tr><th>层次</th><th>做法</th><th>信息损失</th><th>适用</th></tr>
+      <tr><td><b>Token 级</b></td><td>去停用词、压缩冗长工具输出、截断重复</td><td>小(有损)</td><td>打底,先砍掉明显冗余</td></tr>
+      <tr><td><b>块级(摘要)</b></td><td>把若干轮对话重写成更短的摘要/要点</td><td>中</td><td>历史轮次、已闭环的旧任务</td></tr>
+      <tr><td><b>语义级(抽取)</b></td><td>抽成结构化记忆:事实/目标/偏好/约束</td><td>可控</td><td>跨会话必须保留的核心信息</td></tr>
+    </table>
+    <p><b>3. 关键信息识别(压缩算法的灵魂)</b></p>
+    <ul>
+      <li>按"删除代价"给信息分级:① <b>任务目标与约束</b>("周五前交付""预算 5 万")删除代价最高,必留;② <b>未完成事项 / 待办</b>必留;③ <b>用户偏好与事实</b>("不吃香菜""base 在上海")长期有效,抽到长期记忆;④ <b>已完成任务的中间过程</b>可大胆压缩,只留结论;⑤ <b>寒暄、重复、兜圈子</b>直接删。</li>
+      <li>实现:用 LLM 做抽取 + 打分(重要性/时效性/可复用性),结构化输出成 key-value 或三元组,便于后续检索与更新。</li>
+    </ul>
+    <p><b>4. 分级压缩架构(金字塔)</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 386 380" role="img" aria-label="Agent Memory 分级压缩金字塔">
+  <rect class="sd-box" x="110" y="20" width="200" height="56" rx="10"/>
+  <text class="sd-t" x="210" y="42" text-anchor="middle">当前轮次</text>
+  <text class="sd-ts" x="210" y="60" text-anchor="middle">原文保留 · 工作记忆</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M210 76 L210 112"/>
+  <text class="sd-ts" x="222" y="98">超出窗口</text>
+  <rect class="sd-box2" x="90" y="116" width="240" height="56" rx="10"/>
+  <text class="sd-t" x="210" y="138" text-anchor="middle">滚动摘要 L1</text>
+  <text class="sd-ts" x="210" y="156" text-anchor="middle">会话内摘要 · 近几轮浓缩</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M210 172 L210 208"/>
+  <text class="sd-ts" x="222" y="194">再次超出</text>
+  <rect class="sd-box2" x="70" y="212" width="280" height="56" rx="10"/>
+  <text class="sd-t" x="210" y="234" text-anchor="middle">滚动摘要 L2</text>
+  <text class="sd-ts" x="210" y="252" text-anchor="middle">会话级摘要 · 全局浓缩</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M210 268 L210 304"/>
+  <text class="sd-ts" x="222" y="290">跨会话沉淀</text>
+  <rect class="sd-box-teal" x="50" y="308" width="320" height="56" rx="10"/>
+  <text class="sd-t" x="210" y="330" text-anchor="middle">长期记忆</text>
+  <text class="sd-ts" x="210" y="348" text-anchor="middle">事实/偏好/画像 · 向量+属性</text>
+</svg></div>
+    <ul>
+      <li><b>滑动窗口 + 递进式摘要(rolling summary)</b>:窗口外的轮次异步压成摘要,新内容进来时旧摘要被"再摘要"一次,保证越旧的信息占用越少。</li>
+      <li><b>异步压缩</b>:压缩不阻塞回复,在回复返回后/空闲时进行,避免增加首字延迟。</li>
+      <li><b>召回保护</b>:被压缩掉的内容不是真删——原始记录落库保留,压缩后的摘要只是"在线工作副本";用户追问细节时可按时间/话题检索回原始片段(类似人"想起细节去翻记录")。</li>
+      <li>与 p1q7 的长期记忆系统打通:压缩后抽取出的稳定事实流入长期记忆,避免"每次会话都重新自我介绍"。</li>
+    </ul>
+    <p><b>5. 压缩率与评估(说清 30% 怎么达成、怎么验证)</b></p>
+    <ul>
+      <li>达成 30% 靠组合拳:去冗余(省 10%~20%)+ 块级摘要(历史轮次可压到原文 1/3~1/5)+ 关键信息结构化(只保留"信息"不保留"修辞")。通常 token 级 + 块级就能把历史压到 30% 附近。</li>
+      <li>评估三指标:<b>压缩率</b>(压缩后/原 token 数)、<b>信息保留率</b>(构造"关键信息清单"看压缩后还剩多少条可被召回)、<b>下游任务成功率</b>(同一批任务用压缩 vs 全历史的答对率之差,这是最硬的指标)。</li>
+      <li>trade-off:压得越狠越省越便宜,但细节丢失风险越高;所以<b>压缩率应该按任务风险动态调</b>——高价值任务(合同、医疗)保守压缩,闲聊类可激进。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:怎么证明压缩后关键信息没丢?</summary><div class="an">不能靠"看着像",要用测试量化:造一批带明确关键信息的会话(目标/约束/偏好),压缩后让模型回答"针对这些信息"的追问,计算<b>信息保留率</b>;再跑一遍真实任务看<b>成功率是否持平</b>。同时保留原始记录可回查,被压缩掉不等于永久丢失。</div></details>
+    <details class="qa"><summary class="qu">Q:递进式摘要和直接全文摘要有什么区别?为什么用递进式?</summary><div class="an">直接全文摘要要等会话很长了才重算全量历史,又贵又慢,而且每次都从头读全文;递进式只处理"新增的窗口外那一段",和历史摘要合并再浓缩,增量 O(新增量)、延迟低、适合流式在线场景。代价是摘要误差会逐层累积,所以需要定期"全局重整"校准。</div></details>
+    <details class="qa"><summary class="qu">Q:压缩是同步做还是异步做?会不会拖慢回复?</summary><div class="an">异步:主链路先用现有窗口 + 上次摘要直接生成回复,压缩任务丢到后台队列,完成后更新"下一轮可用的记忆"。这样首字延迟零影响;代价是极高频对话下压缩可能落后一拍,可以用"达到阈值立刻触发 + 优先级队列"缓解。</div></details>
+    <details class="qa"><summary class="qu">Q:用户明确说"这个一定要记住"的信息,怎么保证不被压缩掉?</summary><div class="an">显式标记高优先级,进入"受保护记忆":不参与压缩/衰减,单独存关键事实表并加"用户明确要求"标签;摘要时强制原样保留或只做无损改写。这就是"重要信息例外通道",比统一压缩更稳。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>递进式摘要</b>:增量地不断把旧内容再摘要,形成多层浓缩。</div>
+      <div class="term-item"><b>滑动窗口</b>:只保留最近 N 轮原文,更旧的交给压缩层。</div>
+      <div class="term-item"><b>信息保留率</b>:压缩后仍可被召回的关键信息占比。</div>
+      <div class="term-item"><b>关键信息抽取</b>:把事实/目标/偏好抽成结构化记忆。</div>
+      <div class="term-item"><b>异步压缩</b>:后台做压缩,不阻塞对话回复。</div>
+    </div>
+  </div>
+</article>

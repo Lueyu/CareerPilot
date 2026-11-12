@@ -1,0 +1,67 @@
+<article class="q" id="algo-024" data-topic="algo" data-title="推导LayerNorm前向与反向传播" data-difficulty="4" data-tags="LayerNorm,前向传播,反向传播" data-company="无公司" data-source="P6Q23" data-kw="LayerNorm 层归一化 前向传播 反向传播 梯度 均值 方差 RMSNorm Pre-LN">
+
+  <div class="q-no">Agent算法 · Q23</div>
+  <h3>推导 Layer Normalization 的前向和反向传播</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#LayerNorm</span><span class="tag">#前向传播</span><span class="tag">#反向传播</span>
+    <span class="company">无公司</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"LayerNorm 对<b>每个样本自身的特征维</b>做归一化:先算均值 μ 和方差 σ²,再做 (x−μ)/√(σ²+ε),最后用可学习的 γ、β 做仿射变换。反向传播的关键结论是 <b>∂L/∂xᵢ = (dx̂ᵢ − mean(dx̂) − x̂ᵢ·mean(dx̂⊙x̂))/√(σ²+ε)</b>,其中 dx̂ᵢ = ∂L/∂yᵢ·γᵢ。相比 BatchNorm,它不受 batch size 影响、推理和训练行为一致,所以 Transformer 里全用 LayerNorm。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>LayerNorm 像"<b>给每个学生按自己的节奏打分</b>":不看全班排名(BatchNorm 跨样本),只看这一个学生各科成绩的相对水平。算出他自己的平均分 μ 和波动 σ,把每科标准化成"高于/低于自己平均多少个标准差",再用 γ、β 映射回合适的范围。好处是:班里只有 1 个学生也能算(与 batch size 无关),而且考试(推理)和平时(训练)算法完全一样。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 前向传播(是什么)</b></p>
+    <pre class="code"><span class="c"># 输入 x ∈ R^d,沿单个 token 的特征维 d 做归一化</span>
+μ  = (1/d)·Σᵢ xᵢ
+σ² = (1/d)·Σᵢ (xᵢ − μ)²
+x̂ᵢ = (xᵢ − μ) / √(σ² + ε)      <span class="c"># ε 防除零, 如 1e-5</span>
+yᵢ = γᵢ·x̂ᵢ + βᵢ                <span class="c"># γ, β 为可学习的仿射参数</span></pre>
+    <p><b>2. 反向传播(推导结论)</b></p>
+    <pre class="code"><span class="c"># 令 dyᵢ = ∂L/∂yᵢ(上游梯度)</span>
+∂L/∂γᵢ = dyᵢ · x̂ᵢ
+∂L/∂βᵢ = dyᵢ
+
+dx̂ᵢ = dyᵢ · γᵢ
+
+<span class="c"># 对输入 x 的梯度(含均值/方差两条回传路径)</span>
+∂L/∂xᵢ = [ dx̂ᵢ − mean(dx̂) − x̂ᵢ · mean(dx̂ ⊙ x̂) ] / √(σ² + ε)
+
+<span class="c"># 其中 mean(·) = (1/d)·Σᵢ(·), ⊙ 为逐元素相乘</span></pre>
+    <p><b>3. 为什么这个反向公式是对的</b></p>
+    <ul>
+      <li>归一化 y = γ·(x−μ)/σ̂ + β 对 x 是线性的,但 μ、σ̂ 本身由 x 决定,链式法则要同时考虑三条路径:① 直接经 (x−μ)/σ̂;② 经 μ 的变化;③ 经 σ̂ 的变化。</li>
+      <li>三部分合并后,等价于"先对 dx̂ 中心化,再减去与 x̂ 相关的投影",得到上面的紧凑形式。可用 Σᵢ ∂L/∂xᵢ·xᵢ 的守恒性质做数值验证。</li>
+    </ul>
+    <p><b>4. LayerNorm vs BatchNorm</b></p>
+    <table>
+      <tr><th></th><th>LayerNorm</th><th>BatchNorm</th></tr>
+      <tr><td><b>归一化维度</b></td><td>特征维(每样本内)</td><td>batch 维(每特征跨样本)</td></tr>
+      <tr><td><b>batch size 依赖</b></td><td>无</td><td>强</td></tr>
+      <tr><td><b>训练/推理一致性</b></td><td>是</td><td>需移动平均,行为不同</td></tr>
+      <tr><td><b>适用场景</b></td><td>Transformer / RNN</td><td>CNN</td></tr>
+    </table>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么 Transformer 用 LayerNorm 不用 BatchNorm?</summary><div class="an">三点:① 序列长度不定、batch 内样本长度差异大,BN 的跨 batch 统计量不稳定;② 推理时 BN 要用训练时保存的移动平均,训练/推理行为不一致,而 LN 逐样本计算天然一致;③ 自回归生成时逐 token 解码,batch=1 甚至没有 batch,BN 直接失效,LN 不受影响。</div></details>
+    <details class="qa"><summary class="qu">Q:反向公式里 mean(dx̂) 和 mean(dx̂⊙x̂) 是什么含义?</summary><div class="an">它们来自"对 μ 和 σ² 的梯度回传"。归一化让 x̂ 满足两个约束:零均值(Σ x̂ᵢ=0)和单位方差(Σ x̂ᵢ²=d),反向时梯度也必须满足相应约束。mean(dx̂) 是减均值的修正项,x̂ᵢ·mean(dx̂⊙x̂) 是方差回传的修正项,合起来保证梯度不破坏"归一化输出零均值、单位方差"这一性质。</div></details>
+    <details class="qa"><summary class="qu">Q:Pre-LN 和 Post-LN 有什么区别?</summary><div class="an">Post-LN(原版 Transformer):残差相加后再 LN,即 x + LN(SubLayer(x));Pre-LN:LN 放在子层前面,即 x + SubLayer(LN(x))。Pre-LN 训练更稳定、不需要 warmup、梯度不易爆炸,所以现在大模型几乎都用 Pre-LN。这是高频追问。</div></details>
+    <details class="qa"><summary class="qu">Q:RMSNorm 和 LayerNorm 有什么区别?</summary><div class="an">RMSNorm 只做"除以均方根"这一缩放,去掉减均值:y = x/√(mean(x²)+ε)·γ。省掉均值计算、参数更少、更快,效果与 LayerNorm 相当甚至略好,被 LLaMA 等模型采用。注意它"没有中心化",只做缩放。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>LayerNorm</b>:沿特征维的逐样本归一化。</div>
+      <div class="term-item"><b>仿射变换(γ, β)</b>:归一化后恢复尺度和偏移的可学习参数。</div>
+      <div class="term-item"><b>RMSNorm</b>:只保留均方根缩放的简化 LayerNorm。</div>
+      <div class="term-item"><b>Pre-LN</b>:LayerNorm 前置到子层输入,训练更稳定。</div>
+    </div>
+  </div>
+</article>

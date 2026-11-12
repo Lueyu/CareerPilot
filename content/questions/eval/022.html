@@ -1,0 +1,67 @@
+<article class="q" id="eval-022" data-topic="eval" data-title="LLM综合基准测试MMLU Big-Bench HumanEval侧重点" data-difficulty="2" data-tags="基准测试,MMLU,HumanEval" data-company="字节 / 阿里 / OpenAI（高频）" data-source="P7Q2" data-kw="基准测试 MMLU Big-Bench HumanEval GSM8K benchmark 评测 污染 contamination pass@k 刷分">
+
+  <div class="q-no">评估讨论 · Q2</div>
+  <h3>请介绍几个目前行业内广泛使用的 LLM 综合性基准测试，并说明它们各自的侧重点。（例如：MMLU, Big-Bench, HumanEval）</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐</span>
+    <span class="tag">#基准测试</span><span class="tag">#MMLU</span><span class="tag">#HumanEval</span>
+    <span class="company">字节 / 阿里 / OpenAI（高频）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我按能力维度介绍三个:<b>MMLU</b> 测<b>知识与常识广度</b>——约 1.6 万道四选一,覆盖 57 个学科,是通用能力的事实标准;<b>Big-Bench</b> 测<b>任务多样性</b>——200+ 个异构任务,从逻辑、常识到多步推理,考察模型能不能泛化到没见过的任务;<b>HumanEval</b> 测<b>代码生成</b>——164 道手写 Python 题,用 <b>pass@k</b> 按"能不能跑通单元测试"判对错。三个分别对应:知识、泛化、代码执行正确性。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>把模型想象成一个<b>考生</b>,这三个基准是三张不同的卷子:<b>MMLU</b> 是"百科知识竞赛"——57 门科目的选择题,考知识面广不广;<b>Big-Bench</b> 是"趣味全能综艺"——什么题型都有,考应变和举一反三;<b>HumanEval</b> 是"上机编程考试"——不是看代码写得像不像范文,而是<b>直接跑测试用例</b>,跑通了才算对。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. MMLU——知识广度的事实标准</b></p>
+    <ul>
+      <li><b>全称</b>:Massive Multitask Language Understanding。约 1.6 万道四选一选择题,横跨 57 个学科(数学、物理、法律、医学、历史、伦理等),分初高中/大学/专业级难度。</li>
+      <li><b>测什么</b>:模型的知识储备和常识推理,属于"世界知识"维度,是通用大模型发布必报的指标。</li>
+      <li><b>局限</b>:选择题形式容易被"背题"(数据污染),且四选一有随机猜对的成分(25% 基线)。</li>
+    </ul>
+    <p><b>2. Big-Bench——任务多样性与泛化</b></p>
+    <ul>
+      <li><b>全称</b>:Beyond the Imitation Game Benchmark,社区协作收集的 <b>204 个任务</b>,覆盖逻辑推理、常识、数学、编程、讽刺识别、因果判断等异构任务。</li>
+      <li><b>衍生</b>:<b>BIG-Bench Hard(BBH)</b> 从里面挑出当时大模型表现差、人类表现好的 <b>23 个"硬"任务</b>,专门测多步推理上限。</li>
+      <li><b>测什么</b>:模型在<b>未见过的任务</b>上的零样本/少样本泛化能力,而不是刷特定任务。</li>
+    </ul>
+    <p><b>3. HumanEval——代码生成的执行正确性</b></p>
+    <ul>
+      <li><b>内容</b>:164 道手写 Python 题,给出函数签名 + docstring,让模型补全函数体。</li>
+      <li><b>关键设计</b>:用 <b>pass@k</b> 打分——每个题采样 k 个答案,只要有一个跑通隐藏单元测试就算对。避免了"逐 token 匹配参考答案"的旧式代码评分缺陷。</li>
+      <li><b>变体</b>:HumanEval+ 加更严苛的测试;MBPP 是另一套社区编程题;LiveCodeBench 从 LeetCode 实时抓题,专门对抗数据污染。</li>
+    </ul>
+    <table>
+      <tr><th>基准</th><th>任务形式</th><th>侧重点</th><th>判定方式</th></tr>
+      <tr><td><b>MMLU</b></td><td>四选一(57 学科)</td><td>知识广度、常识</td><td>选项精确匹配</td></tr>
+      <tr><td><b>Big-Bench / BBH</b></td><td>异构任务 200+/23</td><td>任务泛化、多步推理</td><td>任务特定规则/judge</td></tr>
+      <tr><td><b>HumanEval</b></td><td>Python 补全 164 题</td><td>代码正确性</td><td>pass@k + 单测</td></tr>
+      <tr><td><b>GSM8K</b>(补充)</td><td>小学数学应用题</td><td>多步数学推理</td><td>最终数值答案</td></tr>
+    </table>
+    <p><b>4. 必答的"坑":数据污染与饱和</b></p>
+    <ul>
+      <li><b>污染(contamination)</b>:训练语料里混入了基准题目,模型"见过原题"就会虚高。对策:动态/私密测试集、去污染检测(n-gram 重叠检索)、LiveCodeBench 这种实时题源。</li>
+      <li><b>榜单饱和</b>:主流基准分数趋近天花板后区分度下降,于是行业不断推出更难的基准(如 BBH、更难的 Agent 基准),这也解释了为什么评估要"追新"。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:pass@1 和 pass@10 有什么区别,报告时用哪个？</summary><div class="an">pass@k 表示"每个题采样 k 次,至少一次通过就算对"。pass@1 测模型<b>一次就写对</b>的能力(生产里用户就看第一版);pass@10 反映模型"给足采样机会能不能解出来"(更接近自修复/多候选场景)。报告要看口径:同一模型 pass@10 天然远高于 pass@1,跨模型对比必须用<b>同一个 k</b>。生产落地我更关心 pass@1。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么判断一个基准分数是不是被数据污染了？</summary><div class="an">几种信号:① 模型对<b>改过字面、语义不变</b>的题目分数骤降(说明背的是字面);② 题目在训练集里能被 n-gram 检索命中;③ 模型对"见过"的题有异常自信。工程上做<b>去污染检查</b> + 用<b>动态/私密测试集</b> + 定期换新题源。</div></details>
+    <details class="qa"><summary class="qu">Q:这些通用基准够不够用,还要看什么？</summary><div class="an">不够。它们是"体检"不是"诊断":能横向比模型,但和你业务不直接相关。落地必须补<b>自有评测集</b>——从真实用户 query 采样、按业务指标打标,再和通用基准一起看。通用基准负责"这个模型底子行不行",自建集负责"它在我的场景行不行"。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>MMLU</b>:57 学科四选一,测知识广度的主流基准。</div>
+      <div class="term-item"><b>Big-Bench</b>:204 个异构任务,测泛化与多步推理。</div>
+      <div class="term-item"><b>HumanEval</b>:164 道 Python 题,跑单测判对错。</div>
+      <div class="term-item"><b>pass@k</b>:采样 k 次至少一次通过即算对的指标。</div>
+      <div class="term-item"><b>Contamination</b>:训练语料泄漏基准题目导致分数虚高。</div>
+    </div>
+  </div>
+</article>

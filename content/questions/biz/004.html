@@ -1,0 +1,84 @@
+<article class="q" id="biz-004" data-topic="biz" data-title="向量数据库选型:Milvus vs Weaviate vs Pinecone vs Chroma" data-difficulty="4" data-tags="向量数据库,选型" data-company="" data-source="P3Q2" data-kw="向量数据库 Milvus Weaviate Pinecone Chroma pgvector 选型 混合检索">
+
+      <div class="q-no">框架选型 · Q2</div>
+      <h3>向量数据库选型:Milvus vs Weaviate vs Pinecone vs Chroma</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#向量数据库</span><span class="tag">#选型</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"我的选型逻辑看四个约束:<b>数据规模、运维能力、预算、混合检索需求</b>。大规模自建选 Milvus(功能全、性能强、但要运维);想要省心的托管选 Pinecone(贵,数据出境合规要过);本地开发/小项目 Chroma(嵌入式零运维);另外我一定会补一句——<b>别忽略 Postgres + pgvector 和 Elasticsearch 这两个'顺手'选项</b>,很多团队已经持有它们,千万级以下向量完全够用,少一个组件就少一份运维成本。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>像<b>存钱选择</b>:Pinecone 是<b>私人银行</b>(服务好、年费高、钱在别人家);Milvus 是<b>自购保险柜</b>(自己掌控、容量大、坏了自己修);Chroma 是<b>抽屉</b>(随手放、小额现金够用);pgvector 是<b>已有的银行账户开了个新储种</b>——不用新开账户,顺手就把钱存了。<b>很多团队的真实答案是"最后一个"</b>,能说出这点说明你真做过选型。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <table>
+          <tr><th>维度</th><th>Milvus</th><th>Weaviate</th><th>Pinecone</th><th>Chroma</th></tr>
+          <tr><td><b>部署</b></td><td>自建为主(云版 Zilliz)</td><td>自建/Docker 友好</td><td>纯 SaaS 托管</td><td>嵌入式/本地</td></tr>
+          <tr><td><b>规模</b></td><td>亿级~十亿级</td><td>千万~亿级</td><td>亿级</td><td>百万级以内</td></tr>
+          <tr><td><b>混合检索</b></td><td>向量+标量过滤强</td><td><b>原生混合(BM25+向量)</b></td><td>稀疏+稠密</td><td>基础</td></tr>
+          <tr><td><b>运维成本</b></td><td>高(分布式组件多)</td><td>中</td><td>零(但贵)</td><td>零</td></tr>
+          <tr><td><b>合规</b></td><td>可私有化(国产,字节/阿里在用)</td><td>可私有化</td><td>数据出境(要过审)</td><td>本地</td></tr>
+          <tr><td><b>适合</b></td><td>大规模企业自建</td><td>要混合检索的中型团队</td><td>快速起步、不愿养运维</td><td>POC、开发、单机应用</td></tr>
+        </table>
+        <p><b>决策路径(现场画出来)</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 466 364" role="img" aria-label="向量数据库选型决策树">
+  <rect class="sd-box" x="10" y="16" width="210" height="56" rx="10"/>
+  <text class="sd-t" x="115" y="38" text-anchor="middle">数据量 &lt; 500万</text>
+  <text class="sd-ts" x="115" y="56" text-anchor="middle">且已有 PG/ES?</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M220 44 L300 44"/>
+  <text class="sd-l" x="260" y="38" text-anchor="middle">是</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M115 72 L115 108"/>
+  <text class="sd-l" x="122" y="93">否</text>
+  <rect class="sd-box-teal" x="300" y="16" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="375" y="38" text-anchor="middle">pgvector / ES</text>
+  <text class="sd-ts" x="375" y="56" text-anchor="middle">少一组件·先跑</text>
+  <rect class="sd-box" x="10" y="108" width="210" height="56" rx="10"/>
+  <text class="sd-t" x="115" y="130" text-anchor="middle">需要私有化部署?</text>
+  <text class="sd-ts" x="115" y="148" text-anchor="middle">数据能否出境</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M220 136 L300 136"/>
+  <text class="sd-l" x="260" y="130" text-anchor="middle">否·合规OK</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M115 164 L115 200"/>
+  <text class="sd-l" x="122" y="185">是</text>
+  <rect class="sd-box-teal" x="300" y="108" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="375" y="130" text-anchor="middle">Pinecone</text>
+  <text class="sd-ts" x="375" y="148" text-anchor="middle">托管·快速上线</text>
+  <rect class="sd-box" x="10" y="200" width="210" height="56" rx="10"/>
+  <text class="sd-t" x="115" y="222" text-anchor="middle">规模 &gt; 千万级?</text>
+  <text class="sd-ts" x="115" y="240" text-anchor="middle">或多租户场景?</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M220 228 L300 228"/>
+  <text class="sd-l" x="260" y="222" text-anchor="middle">是</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M115 256 L115 292"/>
+  <text class="sd-l" x="122" y="277">否</text>
+  <rect class="sd-box-teal" x="300" y="200" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="375" y="222" text-anchor="middle">Milvus</text>
+  <text class="sd-ts" x="375" y="240" text-anchor="middle">分布式·功能全</text>
+  <rect class="sd-box-teal" x="10" y="292" width="210" height="56" rx="10"/>
+  <text class="sd-t" x="115" y="314" text-anchor="middle">Weaviate</text>
+  <text class="sd-ts" x="115" y="332" text-anchor="middle">轻量·混合检索</text>
+</svg></div>
+        <p><b>选型时必须实测的三件事(比看任何榜单都重要)</b></p>
+        <ul>
+          <li><b>自己的数据 + 自己的 query</b>跑 Recall/QPS/延迟(榜单是别人的场景)。</li>
+          <li><b>标量过滤性能</b>:带 tenant_id/权限过滤时的真实表现(HNSW 高选择率过滤的性能坑,不同库差异大)。</li>
+          <li><b>升级与数据迁移路径</b>:索引坏了怎么恢复、扩容怎么做。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:为什么你会主动考虑 pgvector?</summary><div class="an">工程上"少一个组件"价值很大:事务一致性(元数据和向量同库)、备份恢复一套体系、团队已有 DBA;500 万~1000 万级、QPS 不高的内部系统,pgvector 的 HNSW 完全胜任——不当架构膨胀怪。</div></details>
+        <details class="qa"><summary class="qu">Q:Milvus 和 ES 的向量检索怎么选?</summary><div class="an">已有 ES 且需要全文+向量混合检索、团队熟 ES → ES(8.x 的 kNN + RRF);纯向量大规模、要极致性能和分区多租户 → Milvus。ES 的优势是 BM25 和向量一站式,劣势是资源吃得凶。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>pgvector</b>:Postgres 的向量检索扩展。</div>
+          <div class="term-item"><b>Zilliz</b>:Milvus 背后公司的云服务。</div>
+          <div class="term-item"><b>高选择率过滤</b>:过滤掉绝大多数数据的查询,HNSW 性能坑。</div>
+        </div>
+      </div>
+</article>

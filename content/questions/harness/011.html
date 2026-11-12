@@ -1,0 +1,57 @@
+<article class="q" id="harness-011" data-topic="harness" data-title="构建复杂Agent最主要的挑战" data-difficulty="3" data-tags="Agent,挑战,优化" data-company="" data-source="P5Q11" data-kw="Agent 挑战 可靠性 幻觉 评估 上下文 可观测 成本 不确定性 护栏 HITL">
+
+  <div class="q-no">Agent核心 · Q11</div>
+  <h3>在构建一个复杂的 Agent 时，你认为最主要的挑战是什么？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#Agent</span><span class="tag">#挑战</span><span class="tag">#优化</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"如果只能选一个,我认为最主要挑战是<b>可靠性——把不可靠的 LLM 决策变成可靠、可控、可预期的系统行为</b>。复杂 Agent 是长链路,任何一环的幻觉、选错工具、格式不稳都会沿链路放大,最终表现为"时不时抽风"。它派生出四个具体难题:<b>评估难</b>(没有单一标准答案)、<b>上下文管理</b>(信息多而乱)、<b>可观测与调试</b>(黑盒难定位)、<b>成本与延迟</b>(长链路堆 token)。工程解法都指向同一件事:用状态机、校验、重试、降级、HITL 这些<b>确定性护栏把不确定性关进笼子</b>。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>带一个很聪明但偶尔走神的新员工</b>独立负责一整条流水线:他 90% 时间干得漂亮,但 10% 会看错单、填错表;而且他一旦错,下游全跟着错,你还很难查到他哪一步错的。复杂 Agent 的核心挑战就是<b>怎么既用上他的聪明,又保证整条线不出事故</b>——答案是给他定流程、加复核、留人工兜底。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 为什么"可靠性"是核心挑战</b></p>
+    <ul>
+      <li>LLM 输出<b>本质是概率采样</b>:同一个输入可能得到不同结果,而软件工程最怕"不确定"。复杂 Agent 又把几十次这样的不确定性串成一条链,<b>误差随链路长度累积</b>,整体可靠率是每一步可靠率的乘积——某一步 95% 看似不错,十步串起来就只剩约 60%。</li>
+      <li>所以"复杂 Agent"的难度不是"让模型更聪明",而是"<b>在不可靠的基座上搭出可靠的系统</b>"。</li>
+    </ul>
+    <p><b>2. 由此派生的四个具体难题</b></p>
+    <table>
+      <tr><th>难题</th><th>为什么难</th><th>应对思路</th></tr>
+      <tr><td><b>评估难</b></td><td>任务没有唯一正确答案,手工评测不可持续</td><td>分层评估 + LLM-as-judge + 固定回归集 + 线上 AB</td></tr>
+      <tr><td><b>上下文管理</b></td><td>信息塞多了又贵又吵,塞少了又丢关键背景</td><td>分级记忆、按需检索注入、摘要压缩、上下文预算</td></tr>
+      <tr><td><b>可观测/调试</b></td><td>多步推理是黑盒,失败难定位到具体一步</td><td>全链路 trace、每步结构化日志、checkpoint 回放</td></tr>
+      <tr><td><b>成本/延迟</b></td><td>多步调用让 token 和耗时线性放大</td><td>模型分级、并行、缓存、提前终止预算</td></tr>
+    </table>
+    <p><b>3. 解法:确定性护栏(把不确定性关进笼子)</b></p>
+    <ul>
+      <li><b>状态机约束</b>:把 Agent 流程固化成有限状态,而非让 LLM 自由漫游。</li>
+      <li><b>输出校验</b>:工具调用过 Schema 校验、结果做闭环检查,格式错重试一次(带纠错提示)。</li>
+      <li><b>预算与熔断</b>:最大轮次、token 预算、死循环检测,超限降级。</li>
+      <li><b>HITL 兜底</b>:关键/写操作留人工确认,所有失败路径收敛到"转人工 + 降级",绝不让用户卡死。</li>
+    </ul>
+    <p><b>4. 一句话总结</b>:复杂 Agent 的工程本质是"<b>用确定性的流程设计,管理一个概率性的智能</b>"——谁把这个平衡做得好,谁的系统才敢上生产。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么不选"评估难"作为最主要挑战?</summary><div class="an">评估难是"可靠性难"的一个侧面——正因为行为不可靠、答案不唯一,才难以评估。可靠性是根,评估、上下文、可观测、成本是它长出来的枝。把根说清楚,后面四个都能顺着展开,逻辑更闭环。</div></details>
+    <details class="qa"><summary class="qu">Q:可靠性和"智能程度"怎么取舍?</summary><div class="an">核心是<b>按任务风险分级</b>:高确定性场景(查询、计算)优先可靠,用规则/检索兜底;低风险、开放式场景才放开让模型自由发挥。把不确定性限制在"错了也无伤大雅"的地方,而不是在所有环节都赌模型的表现。</div></details>
+    <details class="qa"><summary class="qu">Q:你怎么量度一个复杂 Agent 的可靠性?</summary><div class="an">三层:① 单步指标(工具选择准确率、输出格式通过率);② 端到端任务成功率(固定测试集);③ 线上健康度(失败率、重试率、转人工率、错误类目分布)。尤其看重<b>长尾 bad case</b>的持续回流,可靠性是喂出来的,不是一次性测出来的。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>可靠性</b>:系统在不确定输入下仍稳定产生正确行为。</div>
+      <div class="term-item"><b>误差累积</b>:长链路中每步误差相乘导致整体失准。</div>
+      <div class="term-item"><b>可观测性</b>:通过 trace/日志洞察黑盒内部状态。</div>
+      <div class="term-item"><b>护栏(guardrail)</b>:约束模型输出的规则/校验/熔断。</div>
+      <div class="term-item"><b>HITL</b>:Human-in-the-loop,关键环节人工介入。</div>
+    </div>
+  </div>
+</article>

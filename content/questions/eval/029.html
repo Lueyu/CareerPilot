@@ -1,0 +1,71 @@
+<article class="q" id="eval-029" data-topic="eval" data-title="人工评估的准则与流程设计保证客观一致" data-difficulty="2" data-tags="人工评估,评估流程" data-company="字节、阿里、腾讯" data-source="P7Q9" data-kw="人工评估 评估准则 Rubric 一致性 双盲 标注 Kappa 黄金标准 去偏 标定 仲裁 位置偏差">
+
+  <div class="q-no">评估讨论 · Q9</div>
+  <h3>在进行人工评估时，如何设计合理的评估准则和流程，以保证评估结果的客观性和一致性？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐</span>
+    <span class="tag">#人工评估</span><span class="tag">#评估流程</span>
+    <span class="company">字节、阿里、腾讯</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"核心是三个词：<b>标准化、标定、去偏</b>。第一，先写详细的评估准则（rubric）——把『好』拆成可打分的维度，每个维度配 1~5 分的行为锚点和正反例示例，不给评估员留自由裁量空间；第二，评估前做<b>标定</b>——培训 + 试标 + 一致性校验（算 Cohen's Kappa），不合格就重训；第三，流程上做<b>去偏</b>——双盲、随机打乱顺序、多人标注取一致或仲裁、混入黄金标准题做质检。目标是让不同人面对同一答案给出接近的判断，而不是追求绝对正确。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就像<b>高考作文阅卷</b>：不能每个老师凭感觉打分，要先定评分标准（立意、结构、语言各占几分，每个档次有范文对照），阅卷前统一培训，同一篇作文至少两个老师背靠背打分，分差大了交组长仲裁。没有这套流程，评分就是玄学——同一篇作文这个老师给 50 分、那个给 35 分。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 为什么人工评估难（先讲清问题，才有对策）</b></p>
+    <ul>
+      <li><b>主观性</b>：同一答案"有用"与否，不同人标准不同。</li>
+      <li><b>位置偏差</b>：评估员会受样本出现顺序影响（前面的影响对后面的打分锚定）。</li>
+      <li><b>疲劳与走神</b>：大量重复评估后判断漂移。</li>
+      <li><b>个人偏好</b>：有人偏爱简洁、有人偏爱详细，风格偏好冒充质量判断。</li>
+    </ul>
+    <p><b>2. 评估准则（rubric）怎么设计</b></p>
+    <ul>
+      <li><b>维度拆分</b>：把"质量"拆成可独立打分的维度——正确性、相关性、忠实性（是否忠于事实/引用）、有用性、安全性、格式合规。</li>
+      <li><b>打分量表 + 行为锚点</b>：每个维度用明确的等级（如 1~5），每一级写清"什么样的表现给几分"，并附 1~2 个<b>真实示例</b>（好例/坏例各一个）。行为锚点越具体，一致性越高。</li>
+      <li><b>正反例示例</b>：rubric 里放"这样是 5 分""这样是 2 分"的样例，评估员照着对号入座，而不是自己发明标准。</li>
+    </ul>
+    <p><b>3. 流程设计（去偏是关键）</b></p>
+    <ul>
+      <li><b>双盲</b>：评估员不知道这是哪个模型/版本产出的，避免"大厂模型一定好"的偏见。</li>
+      <li><b>随机排序</b>：样本顺序打乱，且不同评估员看到不同顺序，消除位置偏差。</li>
+      <li><b>多人标注 + 仲裁</b>：同一题至少 2 人独立打分；分歧超过阈值交给第三人或资深评估员仲裁。</li>
+      <li><b>黄金标准题（golden set）</b>：混入一批已知标准答案的题，评估员如果连这些题都评错，说明状态/能力有问题，该批数据作废。</li>
+      <li><b>抽样复核</b>：定期重标一部分，检验一致性是否随时间漂移。</li>
+    </ul>
+    <p><b>4. 标定与一致性度量</b></p>
+    <ul>
+      <li><b>培训 + 试标</b>：先讲 rubric，再让评估员试标一批"有共识答案"的样本，反馈偏差，循环直到达标。</li>
+      <li><b>一致性指标</b>：分类任务用 <b>Cohen's Kappa</b>（剔除"碰巧一致"的部分，比单纯一致率更严格），一般 <b>Kappa ≥ 0.6</b> 算可接受、0.8 以上算好；打分任务可用 Krippendorff's Alpha 或 ICC。</li>
+      <li>Kappa 是重点术语，面试提"我们用 Kappa 而不是一致率，因为它扣除了随机一致性"会显得专业。</li>
+    </ul>
+    <p><b>5. 与自动评估结合</b></p>
+    <ul>
+      <li>人工评估贵、慢，所以先用 <b>LLM-as-judge</b> 粗筛/批量打分，把人工聚焦在<b>机器拿不准的争议样本</b>和定期抽检上。</li>
+      <li>人工评估反过来又用来<b>校准 LLM-judge</b>——两者互相验证，形成"自动打底 + 人工仲裁"的闭环。</li>
+    </ul>
+    <div class="note">一句话总结给面试官：<b>客观性靠 rubric 拆细，一致性靠标定和多人仲裁，无偏见靠双盲和随机化</b>——三者缺一，评估数据就不可信，进而污染后续所有迭代决策。</div>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:几个人标注合适？Kappa 多少算合格？</summary><div class="an">规模上，<b>正式评估每样本至少 2 人</b>，分歧交给第 3 人仲裁；标定阶段可以更少、迭代更频繁。一致性上，<b>Kappa ≥ 0.6 勉强可用、≥ 0.8 是良好</b>，低于 0.4 说明 rubric 有问题或评估员没理解，要先回头改 rubric/重训，而不是硬着头皮收数据。关键：Kappa 不合格时先查"是标准模糊还是人不行"，对症下药。</div></details>
+    <details class="qa"><summary class="qu">Q:评估员自己会带入偏见，怎么消？</summary><div class="an">四个手段：① <b>双盲</b>，不让知道是哪个模型产出的；② <b>rubric 锚定</b>，把判断从"我觉得"变成"对照标准第几条"；③ <b>黄金标准题</b>，有系统性偏差的评估员会在这些题上暴露；④ <b>轮换与多人</b>，个人偏差在多人平均中被稀释。要注意：完全消除偏见不现实，目标是"降到可接受且可度量"。</div></details>
+    <details class="qa"><summary class="qu">Q:能不能干脆全用 LLM-as-judge，省掉人工？</summary><div class="an">不能省，但可以大幅减负。LLM-judge 的问题：它也有自己的偏好（偏长答案、偏讨好语气）、对某些任务不可靠、还可能有立场偏差。<b>人工的价值在于它是"最终仲裁者"和"校准基准"</b>——用人工定期抽检来验证和校准 judge 的可靠性，剩下的批量打分交给 judge。所以是"人工校准 + 自动放量"，不是二选一。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>Rubric</b>:评估准则,把质量拆成维度+等级+锚点。</div>
+      <div class="term-item"><b>Cohen's Kappa</b>:衡量标注一致性、扣除随机一致部分的指标。</div>
+      <div class="term-item"><b>双盲</b>:评估员不知样本来源,消除"品牌偏见"。</div>
+      <div class="term-item"><b>黄金标准题 Golden Set</b>:已知标准答案的题,混入用于质检。</div>
+      <div class="term-item"><b>位置偏差</b>:样本出现顺序影响打分的现象。</div>
+      <div class="term-item"><b>标定 Calibration</b>:培训+试标+校验,把评估员拉到同一标准。</div>
+    </div>
+  </div>
+</article>

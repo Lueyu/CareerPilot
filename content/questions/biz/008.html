@@ -1,0 +1,48 @@
+<article class="q" id="biz-008" data-topic="biz" data-title="异步任务队列选型:Celery vs RQ vs Dramatiq" data-difficulty="3" data-tags="任务队列,异步处理" data-company="" data-source="P3Q8" data-kw="任务队列 Celery RQ Dramatiq 异步 选型 后台任务">
+
+      <div class="q-no">框架选型 · Q8</div>
+      <h3>异步任务队列选型:Celery vs RQ vs Dramatiq</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐</span>
+        <span class="tag">#任务队列</span><span class="tag">#异步处理</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"看<b>复杂度需求</b>:简单场景(几百个后台任务:文档解析、embedding 生成)我选 <b>RQ</b> 或 <b>Dramatiq</b>——RQ 极简(半天上手),Dramatiq 简单且更稳;<b>Celery</b> 功能最全(定时、复杂路由、多消息队列后端)但重、配置繁琐、坑多,'为了发个后台任务引入 Celery'是典型的过度设计。另外 AI 场景我会提一句:<b>IO 密集的 LLM 任务用异步原生方案(arq/dramatiq+async)更香</b>,Celery 的异步支持是补丁式的。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>像<b>厨房设备</b>:RQ 是<b>电饭煲</b>——按一下就煮饭,功能单一但够用;Dramatiq 是<b>多功能料理锅</b>——比电饭锅强一点,还是简单;Celery 是<b>商用后厨系统</b>——蒸烤炸煮全都有,但你得雇个专职厨师(运维成本)才会用。家里三口人(中小项目)买商用后厨,就是自找麻烦。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <table>
+          <tr><th>维度</th><th>Celery</th><th>RQ</th><th>Dramatiq</th></tr>
+          <tr><td><b>定位</b></td><td>全功能任务框架</td><td>极简队列</td><td>简单可靠中间派</td></tr>
+          <tr><td><b>broker</b></td><td>Redis/RabbitMQ…</td><td>仅 Redis</td><td>Redis/RabbitMQ</td></tr>
+          <tr><td><b>定时任务</b></td><td><b>原生强大</b>(beat)</td><td>无(配 RQ-scheduler)</td><td>无(配中间件/外部)</td></tr>
+          <tr><td><b>复杂路由/工作流</b></td><td>强(链/组/和弦)</td><td>基础(依赖)</td><td>管道/分组</td></tr>
+          <tr><td><b>学习/运维成本</b></td><td><b>高</b>(配置项巨多,坑多)</td><td>极低</td><td>低</td></tr>
+          <tr><td><b>可观测</b></td><td>Flower(偏老)</td><td>简单面板</td><td>简单</td></tr>
+        </table>
+        <p><b>我的选法</b></p>
+        <ul>
+          <li>AI 应用典型需求(文档导入、批量 embedding、评估跑分、报告生成):<b>Dramatiq 或 RQ 起步</b>,真的够。</li>
+          <li>已有 Celery 的公司:继续用,别为选型而迁移——"存量技术栈"是正当理由。</li>
+          <li>定时+复杂依赖+海量任务(千万级/天):Celery 或干脆上消息队列原生方案(Kafka + 消费者框架)。</li>
+          <li><b>AI 场景特别提醒</b>:LLM 调用是长时 IO,任务并发数远大于进程数——优先 worker 协程化(arq 是 asyncio 原生的轻量选项),别按 CPU 任务的老思路配 worker 数。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:Celery 的经典坑有哪些?</summary><div class="an">序列化配置(Pickle 安全/JSON 兼容)、时区(UTC 陷阱)、任务幂等(重投导致重复执行)、worker 预取导致任务分布不均、内存泄漏要定期重启——能随口说两个,说明真踩过。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>Broker</b>:消息中间件(Redis/RabbitMQ)。</div>
+          <div class="term-item"><b>Worker</b>:消费执行任务的进程。</div>
+          <div class="term-item"><b>arq</b>:asyncio 原生的轻量任务队列。</div>
+        </div>
+      </div>
+</article>

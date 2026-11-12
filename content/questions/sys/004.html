@@ -1,0 +1,79 @@
+<article class="q" id="sys-004" data-topic="sys" data-title="如何实现Agent的异常重试机制" data-difficulty="4" data-tags="异常处理,重试,Agent" data-company="" data-source="P2Q6" data-kw="异常 重试 指数退避 幂等 降级 兜底 超时 限流">
+
+      <div class="q-no">工程实践 · Q6</div>
+      <h3>如何实现 Agent 的异常重试机制?</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#异常处理</span><span class="tag">#重试</span><span class="tag">#Agent</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"先<b>给错误分类</b>:超时/限流/5xx 可重试,4xx 参数错误/内容审核拒绝重试也没用;可重试的用<b>指数退避 + 随机抖动</b>(防止集体重试形成风暴),设最大次数和总时长预算;副作用操作先做<b>幂等</b>(幂等键);重试耗尽走<b>降级链</b>:备用模型 → 缓存结果 → 兜底话术+转人工。重试的每一跳都要打日志,不然问题被重试掩盖了都不知道。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>打电话</b>:没人接(超时)→ 等一会儿再打,越等越久(指数退避);对方在通话中(限流)→ 挂了过两分钟再打;<b>号码不存在(参数错误)→ 打一百遍也没用</b>,赶紧检查号码;全公司同一时刻都在重拨,交换机炸了(重试风暴)→ 所以每个人加个随机等待(抖动);实在找不到人,找他同事转达(<b>降级</b>)。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 错误分类(第一步,分类错了全白干)</b></p>
+        <table>
+          <tr><th>错误类型</th><th>例子</th><th>策略</th></tr>
+          <tr><td><b>可重试·瞬时</b></td><td>超时、连接重置、502/503</td><td>指数退避重试 2~3 次</td></tr>
+          <tr><td><b>可重试·限流</b></td><td>429 Too Many Requests</td><td>按 Retry-After 头等待;退避重试</td></tr>
+          <tr><td><b>不可重试</b></td><td>400 参数错、401 认证、内容审核拒绝</td><td>立即失败,上报告警,修代码/换内容</td></tr>
+          <tr><td><b>不可重试·部分</b></td><td>模型输出格式错(JSON 解析失败)</td><td>换措辞重问一次(带纠错提示),仍失败走降级</td></tr>
+        </table>
+        <p><b>2. 指数退避 + 抖动(必须能写出公式)</b></p>
+        <pre class="code">delay = min(base * 2**attempt, max_delay) + random_jitter
+<span class="c"># 例:base=1s → 1s → 2s → 4s(封顶 8s),每次加 0~1s 随机抖动</span>
+<span class="c"># 抖动的作用:300 个并发同时失败,不会在恰好 +1s 时又一起涌进来</span></pre>
+        <p><b>3. 预算控制</b></p>
+        <ul>
+          <li>最大重试次数(2~3 次足够,再多说明该降级了);<b>总时长预算</b>(如 10s,防止 3 次退避+慢响应把用户卡死);重试预算耗尽立即触发降级,不让用户干等。</li>
+          <li>LLM 特有:<b>token 预算</b>——重试也是花钱的,失败响应已消耗的 token 要计入成本。</li>
+        </ul>
+        <p><b>4. 幂等性(重试安全的前提)</b></p>
+        <ul>
+          <li>副作用操作(下单、发消息、写库)带<b>幂等键</b>(请求生成唯一 ID,服务端去重:见过这个键直接返回上次结果)。</li>
+          <li>Agent 场景:工具调用重试前检查"这一步是否可能已执行"(先查后写,或事务包裹)。</li>
+        </ul>
+        <p><b>5. 降级链(重试的尽头不是报错)</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 594 96" role="img" aria-label="Agent 异常降级链">
+  <rect class="sd-box-amber" x="10" y="16" width="130" height="64" rx="10"/>
+  <text class="sd-t" x="75" y="42" text-anchor="middle">主模型</text>
+  <text class="sd-ts" x="75" y="60" text-anchor="middle">3次退避重试</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M140 48 L156 48"/>
+  <rect class="sd-box-amber" x="156" y="16" width="130" height="64" rx="10"/>
+  <text class="sd-t" x="221" y="42" text-anchor="middle">备用模型</text>
+  <text class="sd-ts" x="221" y="60" text-anchor="middle">不同供应商·防同源</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M286 48 L302 48"/>
+  <rect class="sd-box-teal" x="302" y="16" width="130" height="64" rx="10"/>
+  <text class="sd-t" x="367" y="42" text-anchor="middle">缓存·模板</text>
+  <text class="sd-ts" x="367" y="60" text-anchor="middle">常见答案·恢复中</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M432 48 L448 48"/>
+  <rect class="sd-box-rose" x="448" y="16" width="130" height="64" rx="10"/>
+  <text class="sd-t" x="513" y="42" text-anchor="middle">兜底</text>
+  <text class="sd-ts" x="513" y="60" text-anchor="middle">道歉·记录·转人工</text>
+</svg></div>
+        <p><b>6. 可观测(重试不能是黑箱)</b></p>
+        <ul>
+          <li>每跳重试记日志:第几次、错误类型、等待多久、结果。<b>重试率是一个核心健康指标</b>——某供应商重试率突然从 2% 涨到 30%,说明它要出事,熔断该上了。</li>
+          <li>用户侧:适当暴露"正在重试"状态,比无限转圈体验好。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:流式请求生成到一半失败了,怎么重试?</summary><div class="an">不能盲目整体重试(已推送的内容用户看了一半)。策略:① 断点续写——把已生成内容放进新请求,要求"接着写,不要重复";② 或回退到"重新生成"并告知用户;幂等键防重复副作用(比如已执行的工具调用不重执行)。</div></details>
+        <details class="qa"><summary class="qu">Q:重试和熔断怎么配合?</summary><div class="an">重试是微观(单请求韧性),熔断是宏观(系统保护);重试失败计数汇入熔断器统计,熔断打开期间新请求不再重试直接走降级——防止"越重试越堵,越堵越重试"的死亡螺旋。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>指数退避</b>:等待时间 1s→2s→4s 翻倍。</div>
+          <div class="term-item"><b>抖动(jitter)</b>:随机偏移,防同步风暴。</div>
+          <div class="term-item"><b>幂等键</b>:去重重复操作的唯一标识。</div>
+          <div class="term-item"><b>Retry-After</b>:限流响应里的建议等待时间。</div>
+        </div>
+      </div>
+</article>

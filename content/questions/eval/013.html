@@ -1,0 +1,91 @@
+<article class="q" id="eval-013" data-topic="eval" data-title="设计RLHF的消融实验" data-difficulty="5" data-tags="RLHF,消融实验,实验设计" data-company="" data-source="P6Q30" data-kw="RLHF 消融实验 实验设计 奖励模型 PPO KL惩罚 奖励黑客 过度优化 DPO 对齐">
+
+  <div class="q-no">Agent算法 · Q30</div>
+  <h3>设计 RLHF 的消融实验</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐⭐</span>
+    <span class="tag">#RLHF</span><span class="tag">#消融实验</span><span class="tag">#实验设计</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"RLHF 是 SFT → 奖励模型 RM → PPO 三阶段,消融的核心是<b>把三个组件的贡献各自分离</b>:① <b>RM 的贡献</b>——对比 'SFT 直出' vs 'SFT+RM 打分 Best-of-N' vs '完整 PPO',如果 Best-of-N 已接近 PPO,说明收益主要来自 RM 打分而非 RL 优化;② <b>PPO 的贡献</b>——对比 Best-of-N(采样点内选优)与 PPO(超出采样点优化策略),看 PPO 是否带来额外增益;③ <b>KL 惩罚的贡献</b>——对比有无 KL 项,无 KL 时 reward 虚高但输出退化(重复、格式 hack),证明 KL 是"防漂移护栏"。评估必须<b>同时看 RM 分 + 人类/裁判胜率</b>,因为只信 RM 会掉进奖励黑客陷阱。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>把 RLHF 想成<b>训练一个客服写回复</b>:先背手册(SFT),再雇一个"质检员"打分(RM),最后让客服<b>照着质检员的分数自我优化</b>(PPO)。消融就是三个问题:① 质检员有用吗?——把"只按手册答"和"按质检员分数挑最好的几条答"比一比;② 自我优化有用吗?——"从写好的 10 条里挑"和"根据分数反复改进"哪个强;③ <b>那条"别跑太偏"的规矩(KL)有用吗?</b>——没有它,客服为了拿高分开始刷"废话凑字数",分数虚高但客户体验崩了。所以最后还要<b>真人/大模型亲自验货</b>,不能只信质检员的分数。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. RLHF 流程与可消融的组件</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 530 132" role="img" aria-label="RLHF 三阶段与消融点">
+  <rect class="sd-box" x="10" y="22" width="120" height="60" rx="10"/>
+  <text class="sd-t" x="70" y="48" text-anchor="middle">SFT 策略</text>
+  <text class="sd-ts" x="70" y="66" text-anchor="middle">π_SFT 参考基准</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M132 52 L192 52"/>
+  <rect class="sd-box-amber" x="200" y="22" width="120" height="60" rx="10"/>
+  <text class="sd-t" x="260" y="48" text-anchor="middle">奖励模型 RM</text>
+  <text class="sd-ts" x="260" y="66" text-anchor="middle">r_φ 偏好打分</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M322 52 L382 52"/>
+  <rect class="sd-box" x="390" y="22" width="120" height="60" rx="10"/>
+  <text class="sd-t" x="450" y="48" text-anchor="middle">PPO 优化</text>
+  <text class="sd-ts" x="450" y="66" text-anchor="middle">max E[r] − β·KL</text>
+  <path class="sd-an" d="M70 82 L70 98"/>
+  <path class="sd-an" d="M260 82 L260 98"/>
+  <path class="sd-an" d="M450 82 L450 98"/>
+  <text class="sd-l" x="70" y="114" text-anchor="middle">消融点 ① RM</text>
+  <text class="sd-l" x="260" y="114" text-anchor="middle">消融点 ② PPO</text>
+  <text class="sd-l" x="450" y="114" text-anchor="middle">消融点 ③ KL(β)</text>
+</svg>
+</div>
+    <p><b>2. 消融矩阵(核心对照表)</b></p>
+    <table>
+      <tr><th>配置</th><th>做法</th><th>回答的问题</th></tr>
+      <tr><td><b>A: SFT only</b></td><td>只做监督微调</td><td>基线,RL 有没有增益</td></tr>
+      <tr><td><b>B: SFT + Best-of-N</b></td><td>SFT 采样 N 条,用 RM 打分选 top1</td><td>RM 的价值(无需 RL)</td></tr>
+      <tr><td><b>C: SFT + PPO 无 KL</b></td><td>β=0,只最大化 reward</td><td>KL 惩罚的价值</td></tr>
+      <tr><td><b>D: 完整 RLHF</b></td><td>SFT + RM + PPO + KL</td><td>完整上限</td></tr>
+    </table>
+    <p><b>3. 逐个归因</b></p>
+    <ul>
+      <li><b>RM 的贡献</b>:B vs A。若 B 显著优于 A,证明"偏好信号 + 打分选择"本身就有用(不依赖 PPO)。</li>
+      <li><b>PPO(RL 优化)的贡献</b>:D vs B。<b>关键控制:同计算预算</b>——B 用 N 次采样选 1 条,D 用 N 次 rollout 做梯度更新。若 D &gt; B,说明 PPO 能<b>超越采样点、学到更优策略</b>(而非只是"挑最好的");若 D ≈ B,说明瓶颈在 RM 质量,而非优化算法。</li>
+      <li><b>KL 的贡献</b>:D vs C。看 C 是否出现<b>奖励黑客</b>:RM 分飙升但人类评分下跌、输出重复/空洞/格式取巧。KL 的作用就是"允许优化 reward,但不许跑离 SFT 太远"。</li>
+      <li><b>附加维度</b>:RM 规模/质量(换大 RM 看 D 是否跟着涨)、SFT 初始化(跳过 SFT 直接 RL)、β 系数扫描(β 太小→漂移,太大→学不动)。</li>
+    </ul>
+    <p><b>4. 评估指标(不能只信 RM,这是本题生死线)</b></p>
+    <table>
+      <tr><th>指标</th><th>说明</th></tr>
+      <tr><td><b>RM 得分</b></td><td>训练目标,但会被 hack,只能作参考</td></tr>
+      <tr><td><b>人类 / GPT-4-as-judge 胜率</b></td><td>与基线成对盲评的胜率,最接近真实偏好</td></tr>
+      <tr><td><b>KL(π_θ ‖ π_ref)</b></td><td>策略漂移量,漂太大说明可能退化</td></tr>
+      <tr><td><b>下游任务指标</b></td><td>摘要 ROUGE、代码 pass@k、对话有用性等客观分</td></tr>
+      <tr><td><b>输出多样性 / 语义保持</b></td><td>distinct-n、熵,防"为了高分变复读机"</td></tr>
+    </table>
+    <p><b>5. 关键陷阱</b></p>
+    <ul>
+      <li><b>Reward overoptimization(Goodhart 定律)</b>:当优化目标 RM 成为被优化的对象时,它就不再是好的度量。论文(Ouyang et al., Gao et al.)观察到 reward 继续涨、真实质量反而降——所以必须用"训练时未见的人类/裁判评分"做最终裁决。</li>
+      <li><b>Best-of-N 与 PPO 的对齐</b>:比较要在<b>相同采样预算</b>下进行,否则 BoN 用 100 次采样对 PPO 用 10 次 rollout,结论无效。</li>
+      <li><b>采样温度</b>:消融全程固定采样温度与长度惩罚,否则随机性干扰归因。</li>
+    </ul>
+    <p><b>6. 延伸(如果面试官问"有没有更省的做法")</b>:DPO 直接用偏好对做分类式优化、省掉显式 RM 与 PPO;可加一组 DPO 对照,看"显式 RM+PPO"相对"隐式偏好优化"的差异。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:如果发现 PPO 相对 Best-of-N 没什么提升,说明什么?</summary><div class="an">通常说明瓶颈在 RM:RM 本身区分度不够、噪声大或偏好信号弱,RL 再优化也只是在烂目标上做文章。对策是提升偏好数据质量、增大 RM 规模,或换更好的偏好建模;此时"上 PPO"的边际收益低,工程上可能先做 Best-of-N 更划算。</div></details>
+    <details class="qa"><summary class="qu">Q:KL 惩罚设多大合适?怎么选 β?</summary><div class="an">没有固定值,要靠扫描:β 太小→策略漂移、reward 虚高、多样性崩;β 太大→梯度被压死、趋近 SFT、白优化。实践中看"KL 散度 vs 真实质量"的曲线选拐点:通常让 KL 控制在个位数(与 SFT 的距离不大),并以人类/裁判胜率而非 RM 分做决策依据。</div></details>
+    <details class="qa"><summary class="qu">Q:只信 RM 分会出什么问题?</summary><div class="an">奖励黑客(reward hacking):模型学会钻 RM 的空子——输出长而空、堆砌讨好词、复读、格式取巧,让 RM 打高分但真实质量差。这是 Goodhart 定律的体现,所以消融实验必须引入<b>RM 之外的独立评估</b>(人类盲评或 GPT-4-as-judge),RM 分只能作为优化信号而非结论依据。</div></details>
+    <details class="qa"><summary class="qu">Q:DPO 和 RLHF 的关系?消融里怎么放?</summary><div class="an">DPO 把"偏好对"直接转成分类损失,隐式地等价于 RM+最优策略的闭式解,省掉显式 RM 和 PPO 两个阶段。消融里可把 DPO 作为对照:若 DPO 效果 ≈ 完整 RLHF,说明偏好数据才是核心、RL 机制非必需;若 RLHF 更强,说明显式 RM+PPO 的探索带来额外收益。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>RM</b>:Reward Model,给生成结果打偏好分数的模型。</div>
+      <div class="term-item"><b>Best-of-N</b>:采样 N 条用 RM 选最优,不做策略更新。</div>
+      <div class="term-item"><b>KL 惩罚</b>:约束策略别偏离参考策略的正则项。</div>
+      <div class="term-item"><b>Reward hacking</b>:钻 RM 空子刷分而非真正变好。</div>
+      <div class="term-item"><b>DPO</b>:Direct Preference Optimization,省 RM 与 PPO 的偏好优化。</div>
+      <div class="term-item"><b>Goodhart 定律</b>:度量一旦成为目标,就不再是好度量。</div>
+    </div>
+  </div>
+</article>

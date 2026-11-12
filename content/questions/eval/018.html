@@ -1,0 +1,70 @@
+<article class="q" id="eval-018" data-topic="eval" data-title="设计VLM幻觉评估实验构建数据集与指标" data-difficulty="4" data-tags="VLM,幻觉,实验设计" data-company="" data-source="P6Q35" data-kw="VLM 幻觉 评估 实验设计 数据集 指标 视觉 对象存在 POPE 反事实 假阳性 对比">
+
+  <div class="q-no">Agent算法 · Q35</div>
+  <h3>设计 VLM 幻觉问题的评估实验</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#VLM</span><span class="tag">#幻觉</span><span class="tag">#实验设计</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"VLM 幻觉评估我按『<b>五类幻觉 + 探测式数据集 + 双指标</b>』搭:① 幻觉类型分对象存在、属性、关系、计数、OCR 文本五类;② <b>数据集</b>用 POPE 式『图像+一句断言,答 yes/no』,正负样本 1:1 配平,负样本来自对真图像做『对象不存在/改属性』的反事实扰动,答案已知可判定;③ <b>指标</b>报 yes-准确率、精确率/召回率/F1,并单独看『不该答 yes 却答了』的假阳性率(幻觉核心);④ 对照组:强模型/人工标注上界、盲评;⑤ 消融:提示(加不加 CoT)、分辨率、解码温度,横向对比不同模型。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就像<b>让一个爱吹牛的讲解员看图说话</b>:图里只有一只猫,他硬说还有条狗(对象幻觉)、说猫在飞(关系幻觉)。评估就是准备好一批"标准答案已知"的图,专门问他"图里有狗吗?""猫是飞的吗?",统计他把"没有"说成"有"的次数——这就是吹牛率。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 先定"可判定"的幻觉类型(评估前提是答案有 ground-truth)</b></p>
+    <ul>
+      <li>五类:对象存在(图里没有的物体)、属性(颜色/材质/大小说错)、关系(空间/动作关系错)、计数(数量数错)、OCR 文本(读错文字)。</li>
+      <li>只做这些"对错明确"的场景,不做"描述得好不好"这类主观题,否则无法自动、可复现地打分。</li>
+    </ul>
+    <p><b>2. 数据集构建(四步)</b></p>
+    <ul>
+      <li><b>选图</b>:MSCOCO / GQA / 文档图等有标注的图像。</li>
+      <li><b>造断言</b>:正样本 = 图里真实成立的事实;负样本 = <b>反事实</b>(随机替换对象、改属性、改关系、改数量),保证"是假"。</li>
+      <li><b>配平与分层</b>:正负 1:1,并按对象类别、罕见对象、小目标/遮挡分层,避免模型靠"高频对象一定在"猜对。</li>
+      <li><b>人工复核</b>:抽验负样本确实为假、正样本确实为真,控制标注噪声。</li>
+    </ul>
+    <p><b>3. 指标:精确率/召回率 + 假阳性率</b></p>
+    <table>
+      <tr><th>指标</th><th>含义</th><th>说明</th></tr>
+      <tr><td><b>yes-准确率</b></td><td>正负整体判对比例</td><td>粗看够,细看不够</td></tr>
+      <tr><td><b>精确率 / 召回率 / F1</b></td><td>答 yes 里有多少真 yes;真 yes 里答对多少</td><td>精确率低=爱瞎说有</td></tr>
+      <tr><td><b>假阳性率(幻觉率)</b></td><td>负样本被答 yes 的比例</td><td>幻觉核心指标,越低越好</td></tr>
+      <tr><td><b>拒答率</b></td><td>模型"不答/说看不清"的比例</td><td>单独统计,别和"答错"混</td></tr>
+    </table>
+    <p><b>4. 对照组与消融</b></p>
+    <ul>
+      <li><b>对照组</b>:强模型上界、人工标注、随机基线。</li>
+      <li><b>消融</b>:提示模板(裸问 vs 让模型先定位再判断 vs CoT)、输入分辨率、temperature / beam。</li>
+      <li><b>横向对比</b>:不同 VLM + 不同提示策略,报精确率-召回率权衡曲线(不是单点)。</li>
+    </ul>
+    <p><b>5. 高频坑</b></p>
+    <ul>
+      <li><b>负样本生成偏差</b>:只换高频对象,模型凭先验"见过"就能猜,难度失真 → 掺入罕见对象/组合。</li>
+      <li><b>拒答混入</b>:把"不回答"单独记,否则会误判为"没幻觉"。</li>
+      <li>若用 LLM 复核图像内容当 judge,同样要校准其自身的幻觉。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:POPE 的 yes/no 太简单,能代表真实幻觉吗?</summary><div class="an">它是"可自动、可复现"的下界测试,适合做回归门禁和横向对比,但不等于真实自由生成里的幻觉率。真实场景要补开放生成评估(如 CHAIR 式 caption 幻觉率、或用图-文一致性打分),两者配合用。</div></details>
+    <details class="qa"><summary class="qu">Q:模型"拒答"你怎么算?</summary><div class="an">拒答不算"判对"也不算"幻觉",单独记一个拒答率指标。如果模型靠大量拒答把假阳性率压到 0,要同时看它牺牲了多少召回——那是"躺平"不是"靠谱"。</div></details>
+    <details class="qa"><summary class="qu">Q:负样本怎么造才没有偏差?</summary><div class="an">别只随机换一个对象,要按"对象类别、出现频率、遮挡/小目标、罕见组合"分层采样负样本;并且负样本的"替换对象"要和原图语义可区分(换明显的、不相关的),避免模棱两可的样本污染。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么证明是"看图幻觉"而不是"模型常识错"?</summary><div class="an">做"有图/无图"消融:同一断言在给图和不给图(纯文本)两种条件下测,幻觉率差就是图像引入的增量;也可以构造"图像与常识相反"的样本,看模型信图还是信常识。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>VLM</b>:视觉语言模型,同时理解图像和文本。</div>
+      <div class="term-item"><b>对象幻觉</b>:描述图像中不存在的物体。</div>
+      <div class="term-item"><b>反事实样本</b>:人为改成"假"的样本,用于测幻觉。</div>
+      <div class="term-item"><b>假阳性率</b>:负样本被判"有"的比例,幻觉核心指标。</div>
+      <div class="term-item"><b>POPE</b>:Polling-based Object Probing,对象存在探测基准。</div>
+      <div class="term-item"><b>精确率/召回率</b>:查准/查全,幻觉要重点看精确率。</div>
+    </div>
+  </div>
+</article>

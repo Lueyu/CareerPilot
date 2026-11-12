@@ -1,0 +1,68 @@
+<article class="q" id="infer-003" data-topic="infer" data-title="如何实现跨模型的统一API" data-difficulty="4" data-tags="API设计,适配器模式,统一接口" data-company="" data-source="P2Q10" data-kw="统一API 适配器 模式 参数映射 错误码 降级 OpenAI兼容 接口抽象">
+
+      <div class="q-no">工程实践 · Q10</div>
+      <h3>如何实现跨模型的统一 API?</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#API设计</span><span class="tag">#适配器模式</span><span class="tag">#统一接口</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"标准<b>适配器模式</b>:定义统一抽象层(chat/ stream/ embed/ 工具调用接口),每个供应商一个 Adapter 做参数翻译、响应翻译和<b>错误码归一化</b>;<b>OpenAI 的请求格式当事实标准</b>(业内通用,新供应商基本都兼容它,适配成本最低);能力差异不做'假统一'而是<b>能力协商</b>——不支持 function calling 的模型自动降级 ReAct 文本协议;加健康检查和路由,新模型接入≈写一个 Adapter + 注册配置。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>就是<b>万能转接头</b>(出国旅行插头转换器):你的电器插头(业务代码)永远是中国标准(统一接口),到不同国家插不同转接头(Adapter)——回国不用换电器,新去一个国家只要新买一个转接头。最忌讳每个国家单独买一套电器(每个供应商写一套业务代码)。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 抽象层设计(接口定义)</b></p>
+        <pre class="code">class LLMClient(ABC):
+    def chat(messages, tools=None, **params) -> LLMResponse     <span class="c"># 同步</span>
+    def stream(messages, tools=None, **params) -> Iterator[LLMDelta] <span class="c"># 流式</span>
+    def embed(texts) -> list[Vector]
+    <span class="c"># 统一返回:content / tool_calls / usage{in,out} / finish_reason</span></pre>
+        <ul>
+          <li>统一参数:<b>通用的直接传,特有的放 extra</b>(如某家的 top_k)——别为了统一丢掉特色能力。</li>
+          <li><b>以 OpenAI 格式为基准</b>的好处:绝大多数国产模型/推理框架(vLLM、Ollama)都提供 OpenAI 兼容端点,一层 Adapter 通吃,甚至很多供应商零成本接入。</li>
+        </ul>
+        <p><b>2. 错误码归一化(比参数映射更容易被漏掉,却更重要)</b></p>
+        <table>
+          <tr><th>统一错误枚举</th><th>OpenAI</th><th>Claude</th><th>处理建议</th></tr>
+          <tr><td>RATE_LIMITED</td><td>429</td><td>429</td><td>退避重试</td></tr>
+          <tr><td>CONTEXT_OVERFLOW</td><td>400 (max tokens)</td><td>400 (prompt too long)</td><td>截断/压缩后重发</td></tr>
+          <tr><td>CONTENT_FILTERED</td><td>content_policy</td><td>refusal</td><td>不重试,改写或降级</td></tr>
+          <tr><td>AUTH_FAILED</td><td>401</td><td>401</td><td>告警,不重试</td></tr>
+        </table>
+        <p>把"上下文超长"归一化特别有价值:上层可以统一实现"自动摘要压缩后重试"的通用逻辑。</p>
+        <p><b>3. 能力协商与降级兼容</b></p>
+        <ul>
+          <li>每个 Adapter 声明能力矩阵:支持 system role?支持 tools?最大上下文?支持 JSON mode?</li>
+          <li>运行时按能力自动降级:不支持 system → 拼进首条 user;不支持 FC → 切换 <b>ReAct 文本协议</b>(Prompt 里教模型输出工具调用格式,正则解析);不支持 JSON mode → 修复性解析+重试。</li>
+          <li>能力变化只改 Adapter 声明,业务代码零改动。</li>
+        </ul>
+        <p><b>4. 工厂 + 配置路由</b></p>
+        <ul>
+          <li>注册表:model_name → Adapter 实例(带连接池);新增供应商 = 实现 Adapter + 配置注册,<b>业务代码一行不动</b>。</li>
+          <li>路由策略挂在工厂之上:按用途/成本/可用性选实例(和 LLM Gateway 配合,见第一部分 Q6)。</li>
+        </ul>
+        <p><b>5. 测试与质量</b></p>
+        <ul>
+          <li>契约测试:同一批请求过所有 Adapter,断言统一响应结构一致(字段齐全、语义一致)。</li>
+          <li>黄金用例集:工具调用、多轮、长文本、中文等各一,新 Adapter 必须全绿。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:统一会不会抹平各家优势功能?</summary><div class="an">核心接口统一,特色能力通过 extra 参数和能力协商暴露(比如 Claude 的 prefill、思考模式),不搞"削足适履"的假统一;判断标准:80% 场景纯统一,20% 高级能力可按模型寻址。</div></details>
+        <details class="qa"><summary class="qu">Q:流式响应的适配有什么坑?</summary><div class="an">各家的 chunk 结构差异大:增量内容字段不同、工具调用可能跨多个 chunk 分片(要聚合)、finish_reason 语义不一;统一 LLMDelta 结构 + Adapter 内做聚合缓冲,坑基本都能填。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>Adapter 模式</b>:接口翻译层,桥接不同实现。</div>
+          <div class="term-item"><b>ReAct</b>:用文本协议模拟工具调用,兼容无 FC 模型。</div>
+          <div class="term-item"><b>契约测试</b>:验证所有实现符合同一契约。</div>
+        </div>
+      </div>
+</article>

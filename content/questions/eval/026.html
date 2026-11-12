@@ -1,0 +1,85 @@
+<article class="q" id="eval-026" data-topic="eval" data-title="Agent能力基准测试及其环境与任务构建方式" data-difficulty="3" data-tags="Agent基准,测试环境" data-company="字节 / 阿里" data-source="P7Q6" data-kw="Agent基准 测试环境 SWE-bench AgentBench WebArena GAIA tau-bench OSWorld 沙箱 执行式评估 任务构建">
+
+  <div class="q-no">评估讨论 · Q6</div>
+  <h3>你了解哪些专门用于评估 Agent 能力的基准测试？这些基准通常如何构建测试环境和任务？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#Agent基准</span><span class="tag">#测试环境</span>
+    <span class="company">字节 / 阿里</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我按场景分五类:<b>SWE-bench</b> 测<b>软件工程</b>——从真实 GitHub issue 出题,让 Agent 改代码、跑隐藏单测判对错;<b>AgentBench</b> 测<b>多环境通用性</b>——8 个环境(操作系统、数据库、网页购物、知识图谱等);<b>WebArena</b> 测<b>网页操作</b>——自建真实网站(GitLab/商城/论坛);<b>GAIA</b> 测<b>真实世界助手能力</b>——多步、需用工具、答案可用程序判定;<b>τ²-bench</b> 测<b>工具调用 + 用户对话</b>——用规则化用户模拟器和数据库评估。它们的共性:真实/仿真环境 + 执行式评估 + 防污染。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>这些基准就像给 Agent 办的<b>不同工种的上岗实操考试</b>:SWE-bench 是"程序员改 bug"——给你真实项目的报错单,改完代码跑测试用例验活;AgentBench 是"全能打杂"——一会儿查数据库、一会儿逛淘宝、一会儿玩卡牌;WebArena 是"网页办事员"——在真实网站上发帖、购物、建仓库;GAIA 是"私人助理"——交给你一个真实任务,过程随便你用什么工具,最后只看结果对不对。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 代表性 Agent 基准(逐个讲)</b></p>
+    <table>
+      <tr><th>基准</th><th>领域/环境</th><th>任务来源</th><th>判定方式</th></tr>
+      <tr><td><b>SWE-bench</b></td><td>软件工程(真实 Python 仓库)</td><td>真实 GitHub issue</td><td>跑单测(隐藏测试补丁)</td></tr>
+      <tr><td><b>AgentBench</b></td><td>8 环境:OS/数据库/知识图谱/网页购物/ALFWorld 等</td><td>人工构造</td><td>各环境自带成功函数</td></tr>
+      <tr><td><b>WebArena</b></td><td>自建真实网站(GitLab/商城/论坛/CMS)</td><td>人工编写任务</td><td>环境状态断言</td></tr>
+      <tr><td><b>GAIA</b></td><td>真实世界助手(自由用工具)</td><td>人工出题、防检索捷径</td><td>精确答案匹配</td></tr>
+      <tr><td><b>τ²-bench</b></td><td>工具 + 对话(零售/航空/电信等域)</td><td>领域数据库 + 用户模拟器</td><td>pass^k + 数据库状态校验</td></tr>
+    </table>
+    <p><b>2. 各自特点与侧重点</b></p>
+    <ul>
+      <li><b>SWE-bench</b>:任务 = "给 issue 描述 + 仓库快照,生成 patch"。评估 = 用<b>test patch(测试补丁)</b>跑测试,通过即通过。衍生出 SWE-bench Verified(精选 500 条、去污染)是当前软件 Agent 的硬通货。</li>
+      <li><b>AgentBench</b>:强调<b>跨环境通用性</b>,同一个 Agent 不做微调去闯 8 个完全不同的环境(如 ALFWorld 家务、WebShop 购物、OS 命令、数据库 SQL),考的是"通用 Agent 能力"而非单点。</li>
+      <li><b>WebArena</b>:把真实网站(GitLab、电商、论坛、内容管理)自托管,任务从"找帖子"到"购物下单",评估靠<b>环境状态断言</b>(最终页面/数据库是否达到目标),真实感强。</li>
+      <li><b>GAIA</b>:466 个真实助手任务,需要多步 + 组合工具(搜索/计算/阅读文件);人类平均 90%+,而早期 GPT-4 配插件仅 15% 左右;故意<b>限制 API 直连</b>防止模型"作弊",答案做成可精确判定的形式。</li>
+      <li><b>τ²-bench(tau²-bench)</b>:把"Agent + 用户 + 工具 + 领域数据库"打包成一个闭环,用<b>规则化用户模拟器</b>按脚本对话,用 <b>pass^k</b>(k 次对话中至少一次成功)评估,能测"多轮交互 + 工具执行 + 策略遵循"。</li>
+    </ul>
+    <p><b>3. 环境与任务通常怎么构建(方法论)</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 722 122" role="img" aria-label="Agent基准环境与任务构建流程">
+  <rect class="sd-layer" x="6" y="16" width="710" height="90"/>
+  <text class="sd-l" x="18" y="33">Agent 基准：环境与任务的通用构建流程</text>
+  <rect class="sd-box" x="14" y="44" width="126" height="60" rx="10"/>
+  <text class="sd-t" x="77" y="70" text-anchor="middle">任务收集</text>
+  <text class="sd-ts" x="77" y="88" text-anchor="middle">真实 issue · 日志 · 人工</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M144 74 L152 74"/>
+  <rect class="sd-box" x="156" y="44" width="126" height="60" rx="10"/>
+  <text class="sd-t" x="219" y="70" text-anchor="middle">环境搭建</text>
+  <text class="sd-ts" x="219" y="88" text-anchor="middle">沙箱 · 自建网站 · 仿真库</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M286 74 L294 74"/>
+  <rect class="sd-box" x="298" y="44" width="126" height="60" rx="10"/>
+  <text class="sd-t" x="361" y="70" text-anchor="middle">可执行接口</text>
+  <text class="sd-ts" x="361" y="88" text-anchor="middle">bash · 浏览器 · API</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M428 74 L436 74"/>
+  <rect class="sd-box" x="440" y="44" width="126" height="60" rx="10"/>
+  <text class="sd-t" x="503" y="70" text-anchor="middle">评估器</text>
+  <text class="sd-ts" x="503" y="88" text-anchor="middle">单测 · 状态断言 · judge</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M570 74 L578 74"/>
+  <rect class="sd-box" x="582" y="44" width="126" height="60" rx="10"/>
+  <text class="sd-t" x="645" y="70" text-anchor="middle">防污染</text>
+  <text class="sd-ts" x="645" y="88" text-anchor="middle">私密集 · 定期换新 · 去污</text>
+</svg></div>
+    <ul>
+      <li><b>环境隔离</b>:Docker 沙箱 / 虚拟机隔离,保证 Agent 动作不影响宿主、可快速重置、可并行跑。</li>
+      <li><b>执行式评估优先</b>:能用"结果状态"(测试是否过、数据库是否对、页面是否到位)判定的,绝不用主观打分——这是 Agent 基准和纯文本基准最大的区别。</li>
+      <li><b>真实 vs 仿真权衡</b>:真实(WebArena、SWE-bench)信度高但贵、难维护;仿真(ALFWorld、部分 AgentBench 环境)便宜可控但可能与现实有 gap。</li>
+      <li><b>防污染与可复现</b>:数据集版本化、隐藏测试、限制 API 直连(GAIA),保证分数不被"刷题"污染。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:SWE-bench 具体怎么判定一个 patch 对不对？</summary><div class="an">每个实例给 Agent 的是<b>代码仓库 + issue 描述</b>,Agent 产出 patch(代码改动)。评估时应用 patch,再运行该 issue 对应的<b>失败测试(F2P)+ 通过测试(P2P)</b>:要"原来失败的测试现在过了,且原来通过的测试没被破坏"。避免只看"通过了新测试"却引入了回归。这比用 LLM 看代码"像不像"可靠得多。</div></details>
+    <details class="qa"><summary class="qu">Q:WebArena 和 GAIA 都是真实任务,区别在哪？</summary><div class="an">核心在<b>环境可控性</b>和<b>自由度</b>:WebArena 把网站<b>自托管</b>,环境状态可控、评估靠状态断言,重"网页交互"这个特定技能;GAIA 不限定环境,让 Agent <b>自由组合外部工具</b>(搜索、读文件、计算),重"多步规划 + 工具组合"的通用助手能力,并用精确答案 + 限制 API 直连来防作弊。一个是"限定考场考网页操作",一个是"开放考场考综合办事"。</div></details>
+    <details class="qa"><summary class="qu">Q:这些公开基准有什么短板,实际工作够用吗？</summary><div class="an">短板:① <b>和业务场景有 gap</b>——测的是通用能力,不一定对应你的真实任务分布;② <b>成本高</b>——Agent 多步执行,大测评一遍很贵;③ <b>污染风险</b>——公开题可能被训进模型;④ 部分环境简化,和真实系统有差异。所以公开基准用于"选型 + 横向对比",落地一定要<b>自建与业务对齐的评测集</b>,公开基准分数不能直接当 KPI。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>SWE-bench</b>:真实 GitHub issue 改代码、跑测试的软件 Agent 基准。</div>
+      <div class="term-item"><b>AgentBench</b>:8 环境、测通用 Agent 能力的基准。</div>
+      <div class="term-item"><b>WebArena</b>:自托管真实网站、测网页操作能力的基准。</div>
+      <div class="term-item"><b>GAIA</b>:真实助手任务、多步规划 + 工具组合的基准。</div>
+      <div class="term-item"><b>τ²-bench</b>:工具 + 用户模拟器 + 数据库的多轮交互基准。</div>
+      <div class="term-item"><b>执行式评估</b>:通过跑代码/状态断言判定对错,而非主观打分。</div>
+    </div>
+  </div>
+</article>

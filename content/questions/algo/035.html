@@ -1,0 +1,91 @@
+<article class="q" id="algo-035" data-topic="algo" data-title="DPO论文的理论推导:从RLHF到闭式解" data-difficulty="5" data-tags="论文解读,DPO,理论" data-company="" data-source="P6Q44" data-kw="DPO RLHF Bradley-Terry 隐式奖励 闭式解 偏好优化 对齐 PPO 强化学习 直接偏好优化 KL散度">
+
+  <div class="q-no">Agent算法 · Q44</div>
+  <h3>DPO 论文的理论推导</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐⭐</span>
+    <span class="tag">#论文解读</span><span class="tag">#DPO</span><span class="tag">#理论</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"DPO 的核心贡献是把 RLHF 的<b>两步(先训奖励模型,再跑 PPO)</b>合并成<b>一步(直接在偏好数据上做分类式损失)</b>。推导链条四步:① RLHF 的目标是"最大化奖励、同时用 KL 惩罚偏离参考策略",这个目标有<b>唯一闭式最优解</b>;② 把闭式解<b>反解</b>出隐式奖励 r(x,y)=β·log(π_θ/π_ref);③ 把它代入 <b>Bradley-Terry</b> 偏好模型,其中与 y 无关的配分项 Z(x) 在奖励差里抵消;④ 得到可微的 DPO loss,直接梯度下降。于是不需要显式奖励模型、不需要采样和强化学习,训练更稳定、更省。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>RLHF 像<b>选秀比赛</b>:先请一群评委给每位选手打分(训奖励模型),再让选手反复彩排、只为刷高评委分(PPO),中间人(评委)和试错环节都很贵还不稳。DPO 的发现是:<b>"评委的打分"本质上就等于"你比参考答案好多少"</b>——把这个关系反解出来,就能把评委约掉,直接对"你更喜欢 A 还是 B"做对比学习。少一个评委、少一轮试错,目标更直接,结果更稳。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 回顾 RLHF 三阶段(DPO 要替代的是后两段)</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 544 116" role="img" aria-label="RLHF 三阶段流程">
+  <rect class="sd-layer" x="176" y="8" width="360" height="96"/>
+  <text class="sd-l" x="186" y="22">DPO 省掉的后两段</text>
+  <rect class="sd-box" x="10" y="32" width="140" height="60" rx="10"/>
+  <text class="sd-t" x="80" y="58" text-anchor="middle">SFT</text>
+  <text class="sd-ts" x="80" y="76" text-anchor="middle">监督微调</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M152 62 L180 62"/>
+  <rect class="sd-box-amber" x="186" y="32" width="150" height="60" rx="10"/>
+  <text class="sd-t" x="261" y="58" text-anchor="middle">奖励模型 RM</text>
+  <text class="sd-ts" x="261" y="76" text-anchor="middle">给偏好对打分</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M338 62 L364 62"/>
+  <rect class="sd-box-amber" x="370" y="32" width="150" height="60" rx="10"/>
+  <text class="sd-t" x="445" y="58" text-anchor="middle">PPO</text>
+  <text class="sd-ts" x="445" y="76" text-anchor="middle">在线采样 + 强化学习</text>
+</svg>
+</div>
+    <ul>
+      <li>痛点:RM 是隐式的"代理指标",可能被策略钻空子(reward hacking);PPO 要在线采样、训练不稳定、实现复杂、算力开销大。</li>
+    </ul>
+    <p><b>2. RLHF 的目标函数(带 KL 正则)</b></p>
+    <pre class="code"><span class="c"># 在奖励最大化的同时,用 KL 惩罚策略偏离参考策略 π_ref(通常是 SFT 模型)</span>
+max_π  E_{x~D, y~π}[ r(x,y) ]  −  β·KL[ π(y|x) ‖ π_ref(y|x) ]</pre>
+    <ul>
+      <li>β 是 KL 系数,控制"敢不敢偏离参考策略"。KL 项防止策略为了刷高奖励而崩坏(输出胡话、分布坍塌)。</li>
+    </ul>
+    <p><b>3. 关键第一步:该目标有闭式最优解</b></p>
+    <pre class="code"><span class="c"># 玻尔兹曼(Boltzmann)分布形式的唯一最优策略</span>
+π*(y|x) = (1/Z(x)) · π_ref(y|x) · exp( r(x,y) / β )
+Z(x) = Σ_y π_ref(y|x)·exp( r(x,y)/β )        <span class="c"># 配分函数,只依赖 x</span></pre>
+    <p><b>4. 关键第二步:反解出「隐式奖励」</b></p>
+    <pre class="code"><span class="c"># 对闭式解取对数、移项,把奖励写成策略比值(隐式奖励)</span>
+r(x,y) = β · log( π_θ(y|x) / π_ref(y|x) )  +  β·log Z(x)
+<span class="c"># Z(x) 与 y 无关,后面会在奖励差里抵消,故可省略</span></pre>
+    <p><b>5. 关键第三步:代入 Bradley-Terry 偏好模型</b></p>
+    <pre class="code"><span class="c"># BT 模型:回答 y_w 比 y_l 更被喜欢的概率 = sigmoid(奖励差)</span>
+p(y_w ≻ y_l | x) = σ( r(x,y_w) − r(x,y_l) )
+                 = exp(r_w) / ( exp(r_w) + exp(r_l) )</pre>
+    <ul>
+      <li>把隐式奖励代入,β·log Z(x) 在奖励差里<b>恰好抵消</b>,于是偏好概率完全用策略比值表达。</li>
+    </ul>
+    <p><b>6. 最终 DPO 损失(负对数似然)</b></p>
+    <pre class="code">L_DPO = −E_{(x,y_w,y_l)}[ log σ( β·log(π_θ(y_w|x)/π_ref(y_w|x)) − β·log(π_θ(y_l|x)/π_ref(y_l|x)) ) ]</pre>
+    <ul>
+      <li>直观解读:增大「chosen 回答相对 reference 的提升」、减小「rejected 回答相对 reference 的提升」,且两者差值越大越好。</li>
+      <li>π_ref 是冻结的参考策略(常用 SFT 模型),训练时只有 π_θ 更新;这就是一个普通的交叉熵/分类式损失,直接梯度下降即可。</li>
+    </ul>
+    <p><b>7. 为什么说它和 RLHF「等价」又「更简单」</b></p>
+    <ul>
+      <li>等价性:在理想假设(闭式解可达、BT 模型成立、偏好数据来自同一奖励)下,DPO 优化的是和 RLHF <b>同一个目标</b>,只是换了个参数化。</li>
+      <li>更简单:免去了 RM 训练 + 在线采样 + PPO 三件套;实践中更稳定、计算开销小,已成为主流开源模型的常用对齐手段。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:DPO 能绕开奖励模型和 PPO,最关键的是哪一步?</summary><div class="an">是「闭式解 + 反解」这一对操作。RLHF 目标带 KL 正则时存在唯一闭式最优策略 π*∝π_ref·exp(r/β);把它取对数反解,奖励就变成策略比值的函数 r=β·log(π/π_ref)+β·log Z(x)。又因为 Bradley-Terry 只关心<b>奖励差</b>,与 y 无关的 Z(x) 被消掉,于是偏好概率完全用策略比值表达——奖励模型这个"中间人"被代数消元掉了。</div></details>
+    <details class="qa"><summary class="qu">Q:β 的作用是什么?太大或太小会怎样?</summary><div class="an">β 是 KL 正则系数,控制策略偏离参考策略 π_ref(通常 SFT 模型)的程度。β 大→约束强,策略贴近 π_ref,训练保守、分布不易崩,但可能对偏好拟合不足;β 小→约束弱,更激进地拟合偏好数据,但容易 reward hacking、输出退化。通常按任务调,经验值常在 0.1~1.0 量级(依赖数据与模型),没有万能值。</div></details>
+    <details class="qa"><summary class="qu">Q:隐式奖励里的 Z(x) 哪去了,凭什么能丢?</summary><div class="an">Z(x)=Σ_y π_ref(y|x)exp(r/β) 是配分函数,只依赖 x、不依赖具体的 y。在 Bradley-Terry 里只出现奖励差 r(x,y_w)−r(x,y_l),两项各带一个相同的 β·log Z(x),相减抵消。所以可以只保留与 y 相关的部分 r=β·log(π_θ/π_ref)。它是"隐式"的——训练中并不真的算出这个数,只作为理论工具把偏好概率和策略比值连起来。</div></details>
+    <details class="qa"><summary class="qu">Q:DPO 和 PPO 相比有什么缺点或争议?</summary><div class="an">DPO 是<b>离线</b>的,只用静态偏好对,不引入在线采样,可能欠探索、分布覆盖有限;有后续工作指出 DPO 会同时压低 chosen 与 rejected 的绝对似然而偏向让两者拉开差距,可能造成分布漂移。针对这些有 IPO(引入正则)、KTO(允许单条反馈)、ORPO(合并 SFT+对齐)等改进。答题时点出"DPO 不是终点,是一系列偏好优化工作的起点"显得有深度。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>RLHF</b>:基于人类偏好的强化学习对齐流程(SFT→RM→PPO)。</div>
+      <div class="term-item"><b>Bradley-Terry 模型</b>:两两比较中「偏好概率 = sigmoid(奖励差)」。</div>
+      <div class="term-item"><b>KL 散度正则</b>:约束新策略别偏离参考策略,防崩坏。</div>
+      <div class="term-item"><b>闭式解</b>:目标函数能写出解析形式的最优解。</div>
+      <div class="term-item"><b>隐式奖励</b>:由策略比值 r=β·log(π/π_ref) 反推出的奖励,不必显式训练。</div>
+      <div class="term-item"><b>PPO</b>:策略梯度 + 裁剪(clip)的在线强化学习算法。</div>
+    </div>
+  </div>
+</article>

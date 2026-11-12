@@ -1,0 +1,89 @@
+<article class="q" id="harness-025" data-topic="harness" data-title="Agent工具调用失败的容错重试降级与澄清机制" data-difficulty="3" data-tags="容错机制,降级策略" data-company="字节(真题)" data-source="P5Q45" data-kw="容错 降级 重试 超时 工具调用 失败 澄清 兜底 指数退避 幂等 字节">
+
+  <div class="q-no">Agent核心 · Q45</div>
+  <h3>你的Agent如何处理工具调用失败(如API超时、返回空)？有设计重试、降级或用户澄清机制吗？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#容错机制</span><span class="tag">#降级策略</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>我会按<b>"先分类 → 再重试 → 后降级 → 必要时澄清 → 最终兜底"</b>的链条处理：第一步区分失败类型（可重试的网络/超时 vs 不可重试的参数错/无权限），<b>只对可重试错误做指数退避重试</b>；重试仍失败就<b>降级</b>（换备用工具、用缓存、给部分结果）；信息不足导致无法执行时<b>反问用户澄清</b>；所有路径最终收敛到<b>明确告知 + 转人工/给替代建议</b>，绝不让用户卡死。核心原则：<b>重试要有上限、降级要有预案、澄清要一次问清</b>。</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>餐厅点菜 + 骑手送餐</b>：你点的菜后厨没食材了（工具返回空），服务员不是干等，而是<b>先换一道类似菜</b>（降级）或<b>回来问你"换 A 还是 B"</b>（澄清）；外卖超时了平台<b>隔一会儿再催一次</b>（重试），催三次还不行就<b>退款 + 道歉</b>（兜底）。关键在"服务员不能把客人晾在那儿"——每一步都有下一步，且最后一定给你一个说法。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 失败分类（先分清楚，才谈得上策略）</b></p>
+    <table>
+      <tr><th>失败类型</th><th>示例</th><th>策略</th></tr>
+      <tr><td><b>可重试·瞬时</b></td><td>超时、网络抖动、429 限流</td><td>指数退避重试 + 熔断</td></tr>
+      <tr><td><b>可重试·语义</b></td><td>参数格式错、返回空可换参</td><td>模型自纠参数后重试 1~2 次</td></tr>
+      <tr><td><b>不可重试</b></td><td>无权限、资源不存在、非法参数</td><td>直接降级/澄清，不空转</td></tr>
+      <tr><td><b>业务空结果</b></td><td>查无此人、酒店满房</td><td>换条件、给替代、反问澄清</td></tr>
+    </table>
+    <p><b>2. 重试机制（要点：可重试性 + 退避 + 上限 + 幂等）</b></p>
+    <ul>
+      <li><b>指数退避 + 抖动</b>：如 0.5s → 1s → 2s，加随机抖动避免惊群；总重试上限 2~3 次、总预算限时。</li>
+      <li><b>只重试幂等操作</b>：查询可以安全重试；<b>写操作（下单/扣款）必须幂等</b>，否则"超时其实已成功"会造成重复执行——用幂等键/两段式防重。</li>
+      <li><b>熔断</b>：某工具连续失败（如 5 次），短时间内直接短路不再调用，保护下游 + 快速失败。</li>
+      <li><b>模型自纠</b>：参数类错误把工具返回的错误信息回填给模型，让它修正参数重试，这是 Agent 相对普通重试特有的能力。</li>
+    </ul>
+    <p><b>3. 降级机制（体现工程成熟度）</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 696 152" role="img" aria-label="工具失败降级链">
+  <rect class="sd-box-rose" x="10" y="76" width="110" height="60" rx="10"/>
+  <text class="sd-t" x="65" y="102" text-anchor="middle">主工具失败</text>
+  <text class="sd-ts" x="65" y="120" text-anchor="middle">触发降级</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M120 106 L144 106"/>
+  <rect class="sd-box2" x="144" y="76" width="116" height="60" rx="10"/>
+  <text class="sd-t" x="202" y="102" text-anchor="middle">① 备用工具</text>
+  <text class="sd-ts" x="202" y="120" text-anchor="middle">换数据源/模型</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M260 106 L284 106"/>
+  <rect class="sd-box2" x="284" y="76" width="116" height="60" rx="10"/>
+  <text class="sd-t" x="342" y="102" text-anchor="middle">② 本地缓存</text>
+  <text class="sd-ts" x="342" y="120" text-anchor="middle">结果·可能过期</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M400 106 L424 106"/>
+  <rect class="sd-box2" x="424" y="76" width="116" height="60" rx="10"/>
+  <text class="sd-t" x="482" y="102" text-anchor="middle">③ 部分结果</text>
+  <text class="sd-ts" x="482" y="120" text-anchor="middle">能给的先给</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M540 106 L564 106"/>
+  <rect class="sd-box2" x="564" y="76" width="116" height="60" rx="10"/>
+  <text class="sd-t" x="622" y="102" text-anchor="middle">④ 能力降级</text>
+  <text class="sd-ts" x="622" y="120" text-anchor="middle">降为 RAG 直答</text>
+</svg></div>
+    <ul>
+      <li>降级也要<b>讲清代价</b>：比如缓存结果要提示"非实时"，不能让用户把过期数据当准信。</li>
+      <li>降级链可配置化（策略表），不同工具不同预案；降级本身也要有监控指标（降级率、降级后满意度）。</li>
+    </ul>
+    <p><b>4. 用户澄清（信息/权限不足时）</b></p>
+    <ul>
+      <li>触发时机：缺必要参数（"哪天出发？"）、结果有歧义（多个同名地点）、失败后需要用户拍板（"改期还是换航班？"）。</li>
+      <li><b>一次问清</b>：把澄清项做成选择题/结构化追问，避免多轮挤牙膏；带上下文说明"为什么问这个"。</li>
+      <li>澄清不是万能：能合理默认的（有唯一高置信答案）就默认并告知"已按 X 处理，可改"，减少打断。</li>
+    </ul>
+    <p><b>5. 兜底与可观测（收尾）</b></p>
+    <ul>
+      <li>最终失败：明确告知"当前无法完成，原因 + 建议"或转人工，附上失败上下文方便接手。</li>
+      <li>全链路<b>记录每次工具调用的入参/结果/耗时/重试次数</b>，失败归因可查；把重试率、降级率、澄清率、最终失败率纳入健康度看板。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:重试会不会放大流量，把下游打挂？</summary><div class="an">会，所以要三件套：① 重试上限小（2~3 次）+ 指数退避拉长时间；② <b>熔断</b>，连续失败直接短路；③ 对下游做<b>限流/令牌桶</b>，压住 Agent 侧的并发。还可以在超时后先探测一次（health check）再决定是否真重试。</div></details>
+    <details class="qa"><summary class="qu">Q:写操作超时了，怎么知道到底成功没有？</summary><div class="an">靠<b>幂等键</b>：每次写操作带唯一 id，重试时下游按 id 去重；或者用"查询确认"（调一个读接口看结果落地没有）再决定重试还是补偿。设计原则：<b>写操作要么幂等，要么两段式 + 状态可查询</b>，否则重试就是制造事故。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么决定"重试"还是"直接问用户"？</summary><div class="an">看<b>失败类型和成本</b>：瞬时性、自动可修复的（超时、参数格式）优先自动重试；涉及<b>用户偏好/业务取舍</b>的（满房换哪家、预算超了怎么办）重试无意义，直接澄清。简单说：<b>确定性错误靠重试，不确定性错误靠澄清</b>。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>指数退避</b>:重试间隔按 2^n 增长，加随机抖动。</div>
+      <div class="term-item"><b>熔断</b>:连续失败后短期拒绝调用，防止雪崩。</div>
+      <div class="term-item"><b>幂等</b>:同一操作执行多次，效果等同一次。</div>
+      <div class="term-item"><b>降级链</b>:主路径失败后逐级退到的备用方案序列。</div>
+      <div class="term-item"><b>澄清</b>:信息不足时向用户反问，而非瞎猜。</div>
+    </div>
+  </div>
+</article>

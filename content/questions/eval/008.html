@@ -1,0 +1,105 @@
+<article class="q" id="eval-008" data-topic="eval" data-title="bad case收集与迭代:是否做在线学习" data-difficulty="3" data-tags="迭代优化,在线学习" data-company="字节 / 阿里" data-source="P5Q42" data-kw="bad case 迭代 优化 在线学习 反馈 数据闭环 归因 回流 评测 SFT RLHF DPO 字节 阿里">
+
+  <div class="q-no">Agent核心 · Q42</div>
+  <h3>项目上线后，你是如何收集bad case并迭代模型/策略的？有做在线学习吗？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#迭代优化</span><span class="tag">#在线学习</span>
+    <span class="company">字节 / 阿里</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我搭的是<b>数据闭环</b>:收集 → 归因 → 修复 → 回归 → 上线。① <b>收集</b>:bad case 来自用户点踩、转人工、评价文本、模型低置信、内部抽检,其中<b>用户点踩最值钱</b>;② <b>归因</b>:用 trace 回放定位错在意图/检索/生成/工具哪一环;③ <b>修复</b>:从便宜到贵——补 few-shot、改 prompt、调检索参数、补知识、加工具,最后才上 SFT/RLHF 微调;④ <b>回归</b>:进测试集跑离线评估 + 灰度。关于<b>在线学习,我没做实时版</b>——风险是毒数据、灾难性遗忘、概念漂移、不可回滚,实际做法是<b>'准实时回流 + 定期离线训练 + 灰度上线'</b>。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>餐厅改菜单</b>:把顾客差评、退菜、服务员观察(点踩/转人工)收集起来,后厨归因是"太咸还是食材不新鲜"(归因),对症改配方(修复),先在小桌试菜(灰度回归),好了才全面换。所谓<b>在线学习</b>相当于"顾客边吃边自动改配方"——听着酷,但可能被一两个奇葩顾客带偏,把好好的菜改砸,还改不回来;所以一般<b>攒一批再统一改</b>,而不是实时自动改。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. bad case 从哪来(六类来源)</b></p>
+    <ul>
+      <li><b>用户点踩/差评</b>:最直接的负反馈,含金量最高。</li>
+      <li><b>转人工</b>:AI 接不住才转人工,是能力边界的最佳样本。</li>
+      <li><b>评价文本/投诉</b>:带原因,比单纯点踩信息量大。</li>
+      <li><b>模型低置信/自检失败</b>:主动暴露"我不确定"的样本。</li>
+      <li><b>用户修正行为</b>:用户反复改述/重问,说明首答没解决问题。</li>
+      <li><b>内部抽检</b>:每天抽 N 条人工复核,补自动监控的盲区。</li>
+    </ul>
+    <p><b>2. 归因(定位错在链路哪一环)</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 654 236" role="img" aria-label="bad case 归因定位流程">
+  <rect class="sd-box-rose" x="20" y="30" width="96" height="56" rx="10"/>
+  <text class="sd-t" x="68" y="54" text-anchor="middle">bad case</text>
+  <text class="sd-ts" x="68" y="72" text-anchor="middle">线上负反馈</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M116 58 L140 58"/>
+  <rect class="sd-box2" x="140" y="30" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="215" y="54" text-anchor="middle">打开完整 trace</text>
+  <text class="sd-ts" x="215" y="72" text-anchor="middle">全链路可回放</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M290 58 L314 58"/>
+  <rect class="sd-box" x="314" y="30" width="120" height="56" rx="10"/>
+  <text class="sd-t" x="374" y="54" text-anchor="middle">逐环定位</text>
+  <text class="sd-ts" x="374" y="72" text-anchor="middle">排查故障环节</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M374 86 L374 166"/>
+  <rect class="sd-box2" x="109" y="170" width="90" height="54" rx="10"/>
+  <text class="sd-t" x="154" y="193" text-anchor="middle">意图识别</text>
+  <text class="sd-ts" x="154" y="211" text-anchor="middle">识别错?</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M199 197 L219 197"/>
+  <rect class="sd-box2" x="219" y="170" width="90" height="54" rx="10"/>
+  <text class="sd-t" x="264" y="193" text-anchor="middle">检索召回</text>
+  <text class="sd-ts" x="264" y="211" text-anchor="middle">没召对?</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M309 197 L329 197"/>
+  <rect class="sd-box2" x="329" y="170" width="90" height="54" rx="10"/>
+  <text class="sd-t" x="374" y="193" text-anchor="middle">生成</text>
+  <text class="sd-ts" x="374" y="211" text-anchor="middle">幻觉·答非所问</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M419 197 L439 197"/>
+  <rect class="sd-box2" x="439" y="170" width="90" height="54" rx="10"/>
+  <text class="sd-t" x="484" y="193" text-anchor="middle">工具调用</text>
+  <text class="sd-ts" x="484" y="211" text-anchor="middle">选错·参数错</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M529 197 L549 197"/>
+  <rect class="sd-box2" x="549" y="170" width="90" height="54" rx="10"/>
+  <text class="sd-t" x="594" y="193" text-anchor="middle">兜底</text>
+  <text class="sd-ts" x="594" y="211" text-anchor="middle">没触发?</text>
+</svg></div>
+    <ul>
+      <li>归因错了,修复就白搭——所以<b>全链路 trace 落库 + 可回放</b>是迭代的地基。</li>
+      <li>同类型 case 自动<b>聚类</b>,优先修高频高影响的。</li>
+    </ul>
+    <p><b>3. 修复手段(从便宜到贵,别一上来就微调)</b></p>
+    <table>
+      <tr><th>层级</th><th>手段</th><th>成本/风险</th></tr>
+      <tr><td><b>Prompt</b></td><td>补 few-shot、改指令、加约束</td><td>最低,改完即生效</td></tr>
+      <tr><td><b>规则/检索</b></td><td>调召回、改重排、补知识库、加工具</td><td>低</td></tr>
+      <tr><td><b>小模型</b></td><td>意图/工具选择分类器重训</td><td>中</td></tr>
+      <tr><td><b>基座模型</b></td><td>SFT 微调 / RLHF / DPO</td><td>最高,周期长、要评测</td></tr>
+    </table>
+    <p><b>4. 迭代流程(数据闭环)</b></p>
+    <ul>
+      <li>收集 → 去重/标注/聚类 → 修复 → <b>把 case 写进回归测试集</b> → 离线评估 → 灰度 → 全量。</li>
+      <li>度量迭代效果:新 bad case 率、点踩率、转人工率、解决率,配合 AB 对比,<b>并确认"没把好 case 改坏"</b>。</li>
+    </ul>
+    <p><b>5. 在线学习(考点:为什么不轻易做)</b></p>
+    <ul>
+      <li><b>什么是在线学习</b>:用线上流式数据持续更新模型参数。</li>
+      <li><b>风险</b>:① <b>毒数据</b>——个别恶意/噪声样本直接带偏;② <b>灾难性遗忘</b>——学了新忘旧;③ <b>概念漂移</b>——分布变了模型过拟合当下;④ <b>不可回滚/难评测</b>——出问题难定位是哪个样本害的。</li>
+      <li><b>折中做法(我实际用的)</b>:'准实时回流 + 定期离线 SFT/DPO + 灰度'——数据实时收集,训练周期化,上线走灰度;非参数层面可做轻量在线选择(如 MAB 调工具/模型路由),风险可控。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么不直接做在线学习,技术难点具体是什么?</summary><div class="an">难点不在"能不能实时更新",而在<b>安全与稳定</b>:① 线上反馈噪声大、还有恶意注入,单个样本可能是毒;② 流式微调容易灾难性遗忘和概念漂移;③ 出了问题难回滚、难复现定位。工程上"实时数据 + 周期训练 + 灰度"几乎能拿到在线学习 90% 的收益,风险却小一个量级,所以更常用。</div></details>
+    <details class="qa"><summary class="qu">Q:bad case 量大,怎么高效标注?</summary><div class="an">先<b>聚类</b>(按错误类型/意图),再<b>按影响力排序</b>(高频优先),人工只标代表性样本;用 LLM 半自动打标 + 人工抽检;很多归因可以自动化(工具调用失败、检索空、格式错误都不用人工看)。</div></details>
+    <details class="qa"><summary class="qu">Q:修复后怎么证明没把好 case 改坏?</summary><div class="an">把历史 good case 也放进回归集,修完同时跑"bad 集要变好 + good 集不能退化";再做灰度 AB,看整体点踩率/解决率,而不是只看个别 case 有没有修好。</div></details>
+    <details class="qa"><summary class="qu">Q:做过 RLHF 或 DPO 这类对齐吗?</summary><div class="an">做过 DPO:把点踩/点赞样本构造成偏好对(win/lose),在 SFT 后做偏好对齐;成本比 RLHF 低、更稳定。关键前置是<b>偏好数据质量</b>——点踩不一定代表"回答错",要先归因筛选出真正的偏好信号。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>Bad case</b>:线上表现不佳的样本,迭代的燃料。</div>
+      <div class="term-item"><b>数据闭环</b>:收集→归因→修复→回归→上线的循环。</div>
+      <div class="term-item"><b>在线学习</b>:用流式数据持续更新模型的训练方式。</div>
+      <div class="term-item"><b>灾难性遗忘</b>:学新任务时忘了旧能力。</div>
+      <div class="term-item"><b>概念漂移</b>:数据分布随时间变化导致模型过时。</div>
+      <div class="term-item"><b>DPO</b>:直接偏好优化,用偏好对做对齐,比 RLHF 稳定。</div>
+    </div>
+  </div>
+</article>

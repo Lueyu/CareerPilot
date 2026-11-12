@@ -1,0 +1,88 @@
+<article class="q" id="sys-003" data-topic="sys" data-title="设计支持语音交互的Agent" data-difficulty="4" data-tags="语音交互,多模态,Agent" data-company="" data-source="P1Q12" data-kw="语音 多模态 ASR TTS VAD 打断 实时 延迟 流式 barge-in">
+
+      <div class="q-no">系统设计 · Q12</div>
+      <h3>设计一个支持语音交互的 Agent</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#语音交互</span><span class="tag">#多模态</span><span class="tag">#Agent</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"全链路是 <b>音频流 → VAD(检测说没说话)→ 流式 ASR(边说边出字)→ Agent(文本/多模态推理)→ 流式 TTS(边生成边合成播报)</b>。核心指标是<b>端到端响应延迟 &lt; 1.5s</b> 才像真人对话,所以每一环都必须流式化、流水线重叠执行;另外两个语音特有的难题:<b>断句判定</b>(静音多久算说完)和<b>打断处理</b>(barge-in,用户插嘴要立刻闭嘴听)。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>就是<b>同声传译</b>:译员不等演讲者说完一句才开始(流式 ASR,边听边出文字);脑子里边组织译文(Agent 推理);译出一句就立刻说,不用憋到最后(TTS 分句流式);台下听众突然插话提问,译员立刻停下来听(<b>barge-in 打断</b>)。任何一环憋着攒大招,对话就尬住了。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 整体链路与延迟预算(先亮预算表,非常加分)</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 540 456" role="img" aria-label="语音交互 Agent 全链路流水线">
+  <rect class="sd-box-rose" x="30" y="16" width="150" height="44" rx="10"/>
+  <text class="sd-t" x="105" y="42" text-anchor="middle">麦克风音频流</text>
+  <text class="sd-ts" x="196" y="42">WebSocket → 服务器</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M105 60 L105 74"/>
+  <rect class="sd-box2" x="30" y="76" width="150" height="44" rx="10"/>
+  <text class="sd-t" x="105" y="102" text-anchor="middle">VAD</text>
+  <text class="sd-ts" x="196" y="102">实时检测语音/静音 · ~30ms</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M105 120 L105 134"/>
+  <rect class="sd-box2" x="30" y="136" width="150" height="44" rx="10"/>
+  <text class="sd-t" x="105" y="162" text-anchor="middle">流式 ASR</text>
+  <text class="sd-ts" x="196" y="162">partial 边说边出 · 尾包 ~200ms</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M105 180 L105 194"/>
+  <rect class="sd-box" x="30" y="196" width="150" height="44" rx="10"/>
+  <text class="sd-t" x="105" y="222" text-anchor="middle">断句判定</text>
+  <text class="sd-ts" x="196" y="222">静音 500~700ms 判定「说完了」</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M105 240 L105 254"/>
+  <rect class="sd-box-amber" x="30" y="256" width="150" height="44" rx="10"/>
+  <text class="sd-t" x="105" y="282" text-anchor="middle">Agent 推理</text>
+  <text class="sd-ts" x="196" y="282">首 token ~300ms · 可与断句重叠</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M105 300 L105 314"/>
+  <rect class="sd-box2" x="30" y="316" width="150" height="44" rx="10"/>
+  <text class="sd-t" x="105" y="342" text-anchor="middle">流式 TTS</text>
+  <text class="sd-ts" x="196" y="342">首音 ~150ms · 按句切分合成</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M105 360 L105 374"/>
+  <rect class="sd-box-rose" x="30" y="376" width="150" height="44" rx="10"/>
+  <text class="sd-t" x="105" y="402" text-anchor="middle">播放</text>
+  <text class="sd-ts" x="196" y="402">用户听到回应</text>
+  <text class="sd-l" x="30" y="442">端到端 ≈ 1.2~1.8s(真人 200ms~1s)</text>
+</svg></div>
+        <p><b>2. 流式 ASR</b></p>
+        <ul>
+          <li>选支持 partial hypotheses 的流式模型(Whisper 流式化方案或专用实时 ASR 如 FunASR/Paraformer 流式、厂商实时接口),边收音频边出"暂定文本",说完出最终文本。</li>
+          <li><b>ASR 纠错</b>:数字、专有名词、中英混杂是重灾区——用 LLM 上下文做后处理重写(把"幺零零八六"规范成"10086")。</li>
+        </ul>
+        <p><b>3. VAD 与断句(语音交互的灵魂难题)</b></p>
+        <ul>
+          <li>静音 500~700ms 判定说完(可按场景调:客服场景用户说得慢就放宽)。</li>
+          <li>防误断:说"嗯……让我想想"这种停顿;用 LLM 判断"句子是否语义完整"再决定是否提交。</li>
+          <li>对话式填充:判定期间 Agent 先回"嗯,我查一下"(语音体验版 loading 动画)。</li>
+        </ul>
+        <p><b>4. 打断(barge-in)</b></p>
+        <ul>
+          <li>Agent 播报期间 VAD 持续开着,检测到用户语音(能量+语义双确认,防环境音误触发)→ <b>立即停止 TTS 播放</b>,丢弃未播的合成音频,进入收听态。</li>
+          <li>被打断的上下文要记进对话历史("Agent 说到一半被用户打断,说了 X"),不然 Agent 会失忆。</li>
+        </ul>
+        <p><b>5. 流水线重叠(压延迟的关键)</b></p>
+        <ul>
+          <li>Agent 的首 token 不等最终 ASR 文本——partial 置信度高就开始预热检索。</li>
+          <li>LLM 输出<b>按句子切分喂 TTS</b>:凑满一个短句就送去合成播放,生成/合成/播放三级流水线并行。</li>
+        </ul>
+        <p><b>6. 工程细节</b>:回声消除(AEC,防 Agent 自己的声音被当作用户说话);丢包补偿(弱网音频 PLC);TTS 音色/语速可配;全链路 trace(把延迟分解到每一环,不然没法优化)。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:为什么不直接用语音到语音的端到端模型(如 GPT-4o realtime)?</summary><div class="an">端到端延迟更低、保留语气情绪,但可控性差(难插工具/检索)、贵、不好做业务逻辑。当前主流工程仍是 ASR→LLM→TTS 级联,可插拔可控;实时多模态模型在快速演进,值得跟进——答出这个 trade-off 很加分。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么进一步把 1.5s 压到 1s 以内?</summary><div class="an">① 断句与 Agent 重叠执行(语义完整即预热);② 高频问题预合成音频缓存;③ TTS 用低延迟神经 vocoder;④ 简单问题走小模型旁路(意图识别+模板回答 &lt; 500ms)。</div></details>
+        <details class="qa"><summary class="qu">Q:ASR 识别错了,Agent 就答错了怎么办?</summary><div class="an">低置信度时 Agent 主动复述确认("您是想查 10086 的订单吗?");上下文纠错重写;线上统计 ASR 纠错前后的一致率。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>VAD</b>:Voice Activity Detection,检测有没有人声。</div>
+          <div class="term-item"><b>Partial 结果</b>:流式 ASR 的暂定识别文本。</div>
+          <div class="term-item"><b>Barge-in</b>:用户打断,Agent 立刻闭嘴。</div>
+          <div class="term-item"><b>AEC</b>:回声消除,防自言自语循环。</div>
+        </div>
+      </div>
+</article>

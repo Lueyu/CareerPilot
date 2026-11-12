@@ -1,0 +1,77 @@
+<article class="q" id="algo-007" data-topic="algo" data-title="如何保证大模型稳定输出JSON格式" data-difficulty="3" data-tags="格式化输出,稳定性" data-company="字节（真题）" data-source="P5Q50" data-kw="JSON 格式化输出 结构化输出 JSON Schema function calling guided decoding 校验 重试 json repair 稳定性 字节">
+
+  <div class="q-no">Agent核心 · Q50</div>
+  <h3>问数据的输入输出格式如何保证大模型输出稳定的json做了哪些工作？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#格式化输出</span><span class="tag">#稳定性</span>
+    <span class="company">字节（真题）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我按『<b>约束 → 校验 → 修复 → 兜底</b>』四层做：① <b>约束层</b>——优先用 <b>JSON mode / function calling</b>，再配 <b>structured output / guided decoding</b>（把 JSON Schema 编译成语法约束，只允许采样合法 token）；② <b>提示层</b>——给清晰的 schema 定义 + few-shot 示例 + 字段说明，明确"只输出 JSON、不要 markdown 代码块"；③ <b>校验层</b>——用 Pydantic / JSON Schema 做类型、枚举、必填校验，失败<b>把报错喂回去重试一次</b>；④ <b>修复层</b>——json repair、正则提取代码块、截断补全，都不行就<b>降级</b>（换大模型或返回兜底结构）。核心原则：<b>能用解码约束就别赌 prompt，能程序化校验就别靠人看</b>。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>填一张画好格子的正式表格</b> vs <b>让人自由发挥写一段话</b>：纯 prompt 求 JSON 相当于"请把内容写成表格"，聪明人也会偶尔漏一栏、多打个逗号；JSON mode 相当于<b>直接把格子画死、只许往格子里填</b>——格子（JSON Schema）就是硬约束，想填错都难；再加一个<b>质检员</b>（校验 + 重试），填错了打回重填；最后还有支<b>修正带</b>（json repair）把小的涂改补回来。四层叠起来，稳定性才够上生产。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 为什么 JSON 会不稳（先讲清根因）</b></p>
+    <ul>
+      <li>LLM 是<b>自回归概率采样</b>：逐 token 生成，本身没有"JSON 语法必须合法"的内置约束，长输出、嵌套深、特殊字符多时容易崩。</li>
+      <li>常见错误类型：<b>尾逗号/缺逗号、引号转义错、字段名拼错、输出被 ```json 代码块包裹、超长被截断、混入解释性文字</b>。</li>
+      <li>所以"稳定 JSON"不是靠祈祷，而是靠<b>分层约束 + 验证闭环</b>。</li>
+    </ul>
+    <p><b>2. 输入格式也先做规范（题目问的是"输入输出"）</b></p>
+    <ul>
+      <li>输入侧用<b>统一的 JSON Schema / Pydantic 模型</b>定义字段，把日期时区、枚举值、空值、数字精度等<b>先标准化</b>再喂给模型——喂进去的结构越规整，模型越容易吐回规整的结构。</li>
+      <li>工具参数、抽取字段都走同一份 schema，<b>一处定义、多处复用</b>（既喂给生成，也用于校验）。</li>
+    </ul>
+    <p><b>3. 输出稳定四层方案（核心）</b></p>
+    <table>
+      <tr><th>层</th><th>手段</th><th>作用</th></tr>
+      <tr><td><b>L1 约束</b></td><td>JSON mode / function calling / guided decoding（outlines、guidance、SGLang、vLLM、lm-format-enforcer）</td><td>把 JSON Schema 编译成有限状态自动机（FSM）/语法，每步只采样合法 token，语法 100% 合法</td></tr>
+      <tr><td><b>L2 提示</b></td><td>清晰 schema + few-shot + 字段说明 + 禁止 markdown 代码块</td><td>降低语义歧义，减少"内容错"而不只是"语法错"</td></tr>
+      <tr><td><b>L3 校验</b></td><td>Pydantic / jsonschema 校验类型、必填、枚举；失败带错误信息重试</td><td>抓住漏网之鱼并自动纠正</td></tr>
+      <tr><td><b>L4 修复</b></td><td>json_repair、正则提取、括号平衡、截断补全</td><td>对轻量语法错误止血</td></tr>
+      <tr><td><b>L5 兜底</b></td><td>换更大模型重试 / 返回默认结构 + 错误标记</td><td>保证链路永不因格式挂掉</td></tr>
+    </table>
+    <p><b>4. 校验 + 重试闭环（最关键的一环）</b></p>
+    <pre class="code">def stable_json(prompt, schema, max_retry=2):
+    for i in range(max_retry + 1):
+        raw = llm.chat(prompt, response_format={"type": "json_object"})  <span class="c"># L1 约束</span>
+        obj = parse_and_repair(raw)                                        <span class="c"># L4 修复</span>
+        err = validate(obj, schema)                                        <span class="c"># L3 校验</span>
+        if err is None:
+            return obj
+        prompt = append_feedback(prompt, raw, err)                         <span class="c"># 把报错喂回模型</span>
+    return fallback_structure()                                            <span class="c"># L5 兜底</span></pre>
+    <ul>
+      <li>重试时<b>把上一次的原始输出 + 具体校验错误</b>一起喂回，让模型"看着错改"，通常 1 次就能修掉绝大多数问题。</li>
+    </ul>
+    <p><b>5. 采样参数侧</b></p>
+    <ul>
+      <li>结构化输出场景把 <b>temperature 调到 0 或接近 0</b>，收紧 top_p，降低随机性——注意：低温度只降方差，<b>不保证语法合法</b>，所以仍要靠 L1/L3 兜底。</li>
+    </ul>
+    <p><b>6. 流式场景</b>：用增量解析/状态机边收边验证，未闭合的对象/数组等闭合后再消费，避免拿半截 JSON 去解析失败。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:低温度 + JSON mode 能 100% 保证合法 JSON 吗？</summary><div class="an">不能绝对保证。低温度只降低随机性，不保证语法；JSON mode 能极大提升合法率，但个别实现/边界（超长输出、特殊字符、流式拼接）仍有漏网可能。所以生产里<b>永远是"约束 + 校验 + 重试"的闭环</b>，约束是第一道闸，校验是最后一道闸，谁都不能单独兜底。</div></details>
+    <details class="qa"><summary class="qu">Q:guided decoding 的原理是什么？有什么代价？</summary><div class="an">原理：把目标 JSON Schema 编译成<b>有限状态自动机（FSM）或语法规则</b>，在每一步解码时屏蔽所有"会导致语法非法"的 token，从而保证输出 100% 符合语法。代价：① 编译/维护 schema 有开销；② 部分推理框架或模型不支持；③ 可能轻微影响生成质量或吞吐（约束了采样空间）。可用 outlines、guidance、SGLang、vLLM 的结构化输出实现。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么还要重试，用正则/修复库一步到位不行吗？</summary><div class="an">修复只能救<b>语法错误</b>（缺逗号、多引号、代码块包裹），救不了<b>语义错误</b>（字段名写错、值不符合枚举、漏了必填字段）。带错误反馈的重试能让模型同时纠正语义和格式；修复是"止血"，重试是"纠正"，两者分工不同，缺一不可。</div></details>
+    <details class="qa"><summary class="qu">Q:嵌套很深的复杂 JSON 怎么保证？</summary><div class="an">优先用 guided decoding 按 JSON Schema 直接约束（它对嵌套结构最稳）；其次把复杂结构<b>拆成多步生成</b>——先生成骨架、再逐块填充并各自校验，降低单次生成的复杂度；schema 本身也要设计得扁平化，别堆过深的嵌套。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>JSON mode</b>:模型按 JSON 语法输出，而非自由文本。</div>
+      <div class="term-item"><b>guided decoding</b>:用语法/FSM 约束解码，保证输出合法。</div>
+      <div class="term-item"><b>JSON Schema</b>:描述 JSON 结构、类型、枚举、必填的规范。</div>
+      <div class="term-item"><b>Pydantic</b>:Python 数据校验库，一行注解定义 + 校验。</div>
+      <div class="term-item"><b>json repair</b>:修复轻量 JSON 语法错误的库/手段。</div>
+      <div class="term-item"><b>temperature</b>:采样温度，越低越确定（但非保证合法）。</div>
+    </div>
+  </div>
+</article>

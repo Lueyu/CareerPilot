@@ -1,0 +1,82 @@
+<article class="q" id="algo-008" data-topic="algo" data-title="Agent工具调用错误的SFT与强化学习解决方案" data-difficulty="3" data-tags="错误修正,微调策略" data-company="字节（真题）" data-source="P5Q52" data-kw="工具调用 错误修正 SFT 微调 强化学习 RL GRPO PPO DPO 奖励函数 负样本 工具上瘾 字节">
+
+  <div class="q-no">Agent核心 · Q52</div>
+  <h3>agent调用工具不正确怎么办，采用sft或者强化学习怎么来解决？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#错误修正</span><span class="tag">#微调策略</span>
+    <span class="company">字节（真题）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"先<b>定位错误类型</b>再选方案。工具调用错误通常分四类：<b>选错工具</b>、<b>参数错/漏</b>、<b>该调不调 / 不该调乱调</b>、<b>格式错</b>。短平快先用<b>工程侧</b>（改 schema 描述、few-shot、校验重试、负样本提示）兜住；根治靠训练：<b>SFT</b> 用『用户话术 → 正确工具调用』的高质量数据（蒸馏 + 负样本）直接教模型对齐，见效快、成本低，适合错误模式固定、有数据的场景；<b>强化学习（RL）</b> 适合有<b>可验证奖励</b>的场景——用 GRPO/PPO 把『调用是否正确、参数是否对、步骤是否冗余』做成奖励，让模型在可执行环境里试错优化，适合复杂多步、规则能判对错的场景。我的路线：<b>先 SFT 打底，再用 RL 在可验证任务上精调</b>，两类数据都要带负样本防『工具上瘾』。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>教新员工用工具</b>：<b>SFT 是"师傅带着做示范题"</b>——把标准答案（正确调用）一道道演示给他看，他照着学，上手快，但只能学会题里见过的；<b>RL 是"让他在模拟环境里自己练，做对了给奖励"</b>——他试着拧螺丝，拧对加分、拧错扣分，自己摸索出窍门，能应对没见过的活，但前提是得有一个"对错判断器"（奖励）。修工具调用错误，就是<b>先示范（SFT）打基础，再让他带着奖励试错（RL）精进</b>，而且两者都得多练"什么时候别动工具"这道反例题。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 先诊断：错误分五类，各配一个监控指标</b></p>
+    <table>
+      <tr><th>错误类型</th><th>表现</th><th>对应指标</th></tr>
+      <tr><td><b>选错工具</b></td><td>该查订单却调了物流</td><td>工具选择准确率</td></tr>
+      <tr><td><b>参数错/漏</b></td><td>选对了但传参不对、缺必填</td><td>参数 EM/F1</td></tr>
+      <tr><td><b>该调不调</b></td><td>该查资料却凭记忆瞎编（幻觉）</td><td>漏调用率</td></tr>
+      <tr><td><b>不该调乱调</b></td><td>闲聊也去调工具（工具上瘾）</td><td>负样本拒绝率</td></tr>
+      <tr><td><b>格式错</b></td><td>工具调用 JSON 不合法</td><td>格式通过率</td></tr>
+    </table>
+    <p><b>2. 工程侧快速修正（不用训练，先止血）</b></p>
+    <ul>
+      <li>把工具 description 写清"<b>何时该用/不该用</b>"，参数加枚举和默认值。</li>
+      <li>few-shot 示范正确调用 + 负样本示范"拒绝调用"。</li>
+      <li>校验 + 重试（错误反馈回喂）、降低 temperature、工具裁剪/合并。</li>
+      <li>这些能解决 60~80% 的浅层错误，剩下的"顽固错误"再上训练。</li>
+    </ul>
+    <p><b>3. SFT 方案（监督微调）</b></p>
+    <ul>
+      <li><b>数据来源三路</b>：① 线上 bad case 自动捕获（最值钱）；② 强模型蒸馏生成（含负样本、多工具组合、多轮参数补全）；③ 程序化/模板构造覆盖边角。</li>
+      <li><b>关键配比</b>：<b>负样本（不该调用）占 20~30%</b>，否则模型得"工具上瘾症"；工具调用样本 : 通用对话样本 ≈ <b>7:3</b>，防止微调后只会调工具、不会聊天（能力遗忘）。</li>
+      <li><b>训练</b>：LoRA 省资源，格式转目标模型的 chat template；数据版本化可复现。</li>
+      <li><b>适用与局限</b>：错误模式固定、数据可得时见效快、成本低；但 SFT 只是"模仿正确分布"，<b>逐 token 最大似然没有显式优化"整条轨迹是否成功"</b>，分布外情况仍会错。</li>
+    </ul>
+    <p><b>4. RL 方案（强化学习）</b></p>
+    <ul>
+      <li><b>为什么上 RL</b>：它优化的是<b>轨迹级奖励（整次任务是否成功）</b>，能把"最终成败"回传到"中间某一步选错工具"，学到 SFT 教不出的多步组合与自我纠错策略。</li>
+      <li><b>算法选型</b>：<b>GRPO</b>（组内相对基线、省掉 critic、DeepSeek-R1 同款，训练更稳）；<b>PPO</b>（经典，clip 目标）；<b>DPO / 在线 DPO</b>（有偏好对时更简单）。工具调用领域关键是<b>可验证奖励</b>。</li>
+      <li><b>奖励设计（核心中的核心）</b>：① <b>格式奖励</b>——JSON 合法、schema 匹配；② <b>结果奖励</b>——工具真实执行结果是否符合预期 / 任务是否成功（程序化判定，最可靠）；③ <b>步骤惩罚</b>——冗余调用扣分，防死循环/绕路；④ <b>负样本拒绝奖励</b>——不该调时不调加分。</li>
+      <li><b>坑</b>：<b>奖励 hacking</b>（模型刷格式分、钻规则空子）、训练不稳定、需要可重放环境。对策：格式奖励权重低、结果奖励权重高、用程序化校验而非 LLM 打分做主奖励、定期人工抽检 reward 与真实质量的一致性。</li>
+    </ul>
+    <p><b>5. SFT vs RL 对比与推荐路线</b></p>
+    <table>
+      <tr><th>维度</th><th>SFT</th><th>RL</th></tr>
+      <tr><td><b>数据</b></td><td>监督对（输入 → 正确调用）</td><td>轨迹 + 奖励信号</td></tr>
+      <tr><td><b>优化目标</b></td><td>逐 token 最大似然</td><td>轨迹级奖励</td></tr>
+      <tr><td><b>适用</b></td><td>错误模式固定、有标注数据</td><td>可验证、多步、复杂的任务</td></tr>
+      <tr><td><b>成本</b></td><td>低</td><td>高（环境/算力/调参）</td></tr>
+      <tr><td><b>风险</b></td><td>分布外泛化差</td><td>奖励 hack、训练不稳定</td></tr>
+    </table>
+    <ul>
+      <li><b>推荐路线</b>：先 SFT 打底（快速对齐正确调用分布）→ 再用 GRPO 在可验证任务上精调（提升轨迹级成功率与抗分布外）→ 全程监控<b>负样本拒绝率</b>防工具上瘾，bad case 回流形成数据飞轮。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:SFT 就够了，为什么还要上 RL？</summary><div class="an">因为 SFT 只做"模仿"，不会"从失败中学习"。它逐 token 求最大似然，无法直接告诉模型"这一步选错工具会导致整条任务失败"；而工具调用是多步的，一步错全盘输，这类<b>轨迹级</b>的对错恰恰是 SFT 损失函数盲区。RL 用轨迹级奖励把"最终成败"回传，能学到多步组合和自我纠错。代价是环境和算力，所以只在<b>有可验证奖励</b>的场景上 RL，不是所有错误都要上。</div></details>
+    <details class="qa"><summary class="qu">Q:RL 的奖励函数怎么设计才不被 hack？</summary><div class="an">三条原则：① <b>奖励贴近真实成功且可验证</b>——主奖励用程序化校验（工具真实执行结果、规则判对错），别用 LLM 打分当主奖励（容易被讨好）；② <b>权重分层</b>——格式奖励设低、结果奖励设高，避免模型只刷"格式合法"忽略正确性；③ <b>加约束</b>——步骤惩罚防绕路、负样本拒绝奖励防工具上瘾。最后定期人工抽检 reward 与真实质量的偏差，发现被钻空子就补规则。</div></details>
+    <details class="qa"><summary class="qu">Q:工具调用错误的训练数据从哪来？</summary><div class="an">三路：① <b>线上 bad case 自动捕获</b>——选错工具/参数错/格式错的真实轨迹，回流标注，这是最值钱也最贴分布的数据；② <b>强模型蒸馏</b>——用旗舰模型生成『用户话术 → 正确工具调用』样本，重点覆盖负样本、多工具组合、多轮参数补全；③ <b>程序化/模板构造</b>——枚举边角（日期格式、空值、枚举边界）。三路合并、去重、过质检后进数据飞轮。</div></details>
+    <details class="qa"><summary class="qu">Q:微调后模型"只会调工具不会聊天"怎么办？</summary><div class="an">这是典型的能力遗忘（catastrophic forgetting）。对策：① 数据配比上<b>混入通用对话样本（约 3 成）</b>；② <b>负样本占 20~30%</b>，专门教"什么时候别调工具"；③ 训练后测通用能力（对话质量、常识问答）做回归，掉了就回调配比或加通用数据。本质是"工具能力"和"通用能力"的平衡，不是一刀切只喂工具样本。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>SFT</b>:监督微调，用"输入 → 正确输出"对齐模型。</div>
+      <div class="term-item"><b>LoRA</b>:低秩适配，大幅降低微调显存/成本。</div>
+      <div class="term-item"><b>RLHF</b>:基于人类/奖励反馈的强化学习。</div>
+      <div class="term-item"><b>GRPO</b>:组内相对策略优化，省 critic 的 RL 算法。</div>
+      <div class="term-item"><b>DPO</b>:直接偏好优化，用偏好对训练、免显式奖励模型。</div>
+      <div class="term-item"><b>工具上瘾</b>:模型不分场合乱调工具，靠负样本治。</div>
+      <div class="term-item"><b>奖励 hacking</b>:模型钻奖励规则空子，而非真正变好。</div>
+    </div>
+  </div>
+</article>

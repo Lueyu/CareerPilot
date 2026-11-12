@@ -1,0 +1,102 @@
+<article class="q" id="biz-020" data-topic="biz" data-title="LangChain与LlamaIndex场景适配与选型对比" data-difficulty="2" data-tags="框架对比,场景适配" data-company="字节、阿里（高频）" data-source="P5Q49" data-kw="LangChain LlamaIndex 框架对比 场景适配 选型 编排 检索 RAG Agent LangGraph 组合">
+
+  <div class="q-no">Agent核心 · Q49</div>
+  <h3>了解哪些agent开发框架，例如langchain和LlamaIndex，他们核心应用场景有何不同？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐</span>
+    <span class="tag">#框架对比</span><span class="tag">#场景适配</span>
+    <span class="company">字节、阿里（高频）</span>
+  </div>
+
+  <div class="note">与 Q7 同源，本题聚焦「框架对比 + 具体场景适配」：不重复背两个框架的定位表，重点讲怎么把具体业务场景映射到框架选型、以及两者如何组合落地。</div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"框架没有绝对好坏，只看<b>业务的主矛盾是什么</b>。LangChain 的主战场是<b>编排</b>——对话、工具调用、多步 Agent 流程，典型场景是带工具的客服、多步审批、复杂工作流；LlamaIndex 的主战场是<b>数据/检索</b>——私有知识库、文档问答、结构化数据查询，典型场景是 RAG 产品。落地时按『<b>谁占主导就认谁当主力</b>』：检索主导选 LlamaIndex，编排主导选 LangChain（复杂流程用 LangGraph），两者都重就用『<b>LlamaIndex 管数据 + LangGraph 管流程</b>』的组合——是配合，不是二选一。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>开餐厅选设备</b>：LangChain 是<b>整套后厨流水线</b>——切配、炒锅、传菜一条龙，擅长把一道菜从原料到出餐编排出来（流程主导）；LlamaIndex 是<b>专业的食材仓库系统</b>——进货、分类、冷链、快速取料，擅长把海量食材管好、随用随取（数据主导）。你要"按客人点单现炒"的菜（Agent 对话）用流水线；你要"从大仓库里精准翻出食材"的活（RAG 检索）用仓库系统；既要管仓又要现炒，就"仓库管料 + 流水线炒菜"配合着用。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 场景适配的方法论（先讲"怎么想"，再讲"怎么选"）</b></p>
+    <ul>
+      <li>第一步<b>识别主矛盾</b>：这个产品到底卡在"检索质量"还是"编排/工具调度"？瓶颈在哪，主力框架就选谁。</li>
+      <li>第二步<b>列硬约束</b>：私有化/合规要求、团队技术栈、长期维护成本——这些可能比框架能力更决定性。</li>
+      <li>第三步<b>PoC 实测</b>：拿自家 3~5 个真实场景各跑一遍，比准率、延迟、踩坑数，而不是只看文档。</li>
+      <li>第四步<b>用组件不用全家桶</b>：核心链路（检索 → 拼 Prompt → 调模型）其实很短，能自研就自研，框架只在"确实省事"的组件上引入。</li>
+    </ul>
+    <p><b>2. 具体场景 → 选择映射（本题的核心，按场景倒推框架）</b></p>
+    <table>
+      <tr><th>典型场景</th><th>主矛盾</th><th>推荐</th><th>理由</th></tr>
+      <tr><td><b>企业知识库问答</b>（制度/文档/客服知识）</td><td>检索质量</td><td>LlamaIndex</td><td>数据连接器上百种、索引结构全（向量/关键词/树/知识图谱）、检索策略细</td></tr>
+      <tr><td><b>带工具的多步客服 Agent</b>（查订单 → 退款 → 审批）</td><td>编排/工具调度</td><td>LangChain + LangGraph</td><td>显式图 + checkpoint + 人工审批，可控可回放</td></tr>
+      <tr><td><b>研报助手/智能搜索</b>（先查资料再总结成文）</td><td>检索 + 编排都重</td><td>LlamaIndex 管数据 + LangGraph 管流程</td><td>各用所长，组合而非二选一</td></tr>
+      <tr><td><b>纯单轮问答</b>（无检索无工具）</td><td>都轻</td><td>不用框架 / 裸 SDK</td><td>减少抽象成本和依赖税</td></tr>
+    </table>
+    <p><b>3. 边界在模糊，组合是主流</b></p>
+    <ul>
+      <li>LlamaIndex 现在也有 Agent/Workflow，LangChain 也能做 RAG——"看家本领"不同，但边界在互相渗透。</li>
+      <li>生产里最稳的姿势是<b>分层组合</b>：数据管道交给 LlamaIndex（连接器 + 索引），流程编排交给 LangGraph（状态机 + checkpoint），LLM 调用用各家原生 SDK，而不是把某一家的全家桶从头用到尾。</li>
+    </ul>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 574 356" role="img" aria-label="框架选型决策树">
+  <rect class="sd-box-rose" x="210" y="14" width="160" height="56" rx="10"/>
+  <text class="sd-t" x="290" y="38" text-anchor="middle">业务主矛盾</text>
+  <text class="sd-ts" x="290" y="56" text-anchor="middle">瓶颈在哪</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M290 70 L105 106"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M290 70 L105 166"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M290 70 L105 226"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M290 70 L105 286"/>
+  <rect class="sd-box2" x="40" y="110" width="130" height="54" rx="10"/>
+  <text class="sd-t" x="105" y="133" text-anchor="middle">检索是瓶颈</text>
+  <text class="sd-ts" x="105" y="151" text-anchor="middle">数据/召回</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M170 137 L326 137"/>
+  <rect class="sd-box-teal" x="330" y="110" width="230" height="54" rx="10"/>
+  <text class="sd-t" x="445" y="133" text-anchor="middle">LlamaIndex</text>
+  <text class="sd-ts" x="445" y="151" text-anchor="middle">连接器·索引·Query Engine</text>
+  <rect class="sd-box2" x="40" y="170" width="130" height="54" rx="10"/>
+  <text class="sd-t" x="105" y="193" text-anchor="middle">编排是瓶颈</text>
+  <text class="sd-ts" x="105" y="211" text-anchor="middle">工具调度/流程</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M170 197 L326 197"/>
+  <rect class="sd-box" x="330" y="170" width="230" height="54" rx="10"/>
+  <text class="sd-t" x="445" y="193" text-anchor="middle">LangChain+LangGraph</text>
+  <text class="sd-ts" x="445" y="211" text-anchor="middle">图·checkpoint·工具调度</text>
+  <rect class="sd-box2" x="40" y="230" width="130" height="54" rx="10"/>
+  <text class="sd-t" x="105" y="253" text-anchor="middle">两者都重</text>
+  <text class="sd-ts" x="105" y="271" text-anchor="middle">检索+编排</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M170 257 L326 257"/>
+  <rect class="sd-box" x="330" y="230" width="230" height="54" rx="10"/>
+  <text class="sd-t" x="445" y="253" text-anchor="middle">LlamaIndex+LangGraph</text>
+  <text class="sd-ts" x="445" y="271" text-anchor="middle">数据 + 流程 组合</text>
+  <rect class="sd-box2" x="40" y="290" width="130" height="54" rx="10"/>
+  <text class="sd-t" x="105" y="313" text-anchor="middle">都不重</text>
+  <text class="sd-ts" x="105" y="331" text-anchor="middle">单轮问答</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M170 317 L326 317"/>
+  <rect class="sd-box2" x="330" y="290" width="230" height="54" rx="10"/>
+  <text class="sd-t" x="445" y="313" text-anchor="middle">裸 SDK / 轻量自研</text>
+  <text class="sd-ts" x="445" y="331" text-anchor="middle">别为用而用</text>
+</svg></div>
+    <p><b>4. Trade-off：框架 vs 自研</b></p>
+    <ul>
+      <li>框架收益：生态全、集成快、原型提速明显；成本：<b>依赖树大、抽象泄漏、版本破坏性变更</b>。</li>
+      <li>成熟团队通常"<b>框架打样、自研上产</b>"：先用框架验证思路，再把验证过的核心链路固化成自研轻量实现。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:具体说一个"检索 + 编排都重"的场景，你怎么落地？</summary><div class="an">例：一个"企业研报助手"——先要跨几十个内部文档库检索资料（数据侧重），再按"资料 → 提炼 → 生成 → 质检"多步流程产出报告（编排侧重）。我的落地：数据接入和索引用 LlamaIndex 的连接器 + 向量索引；检索结果的融合、多步推理、质检重试用 LangGraph 的显式图编排；LLM 调用走原生 SDK。两层之间用"检索结果作为图节点输入"衔接，谁擅长谁干，接口保持薄、可替换。</div></details>
+    <details class="qa"><summary class="qu">Q:框架边界在模糊，那选型还有意义吗？</summary><div class="an">有意义，因为"边界模糊"不等于"能力趋同"：两者底层都是同一个 LLM，但<b>抽象视角不同</b>——LangChain 把问题抽象成"节点和边的执行图"，LlamaIndex 抽象成"数据怎么被索引、怎么被查询"。视角决定了整套组件的打磨方向，RAG 场景下 LlamaIndex 的检索器抽象仍然更细，编排场景下 LangGraph 的 checkpoint/人工介入仍然更成熟。选型选的是"谁的抽象更贴你的主矛盾"。</div></details>
+    <details class="qa"><summary class="qu">Q:团队已经用了 LlamaIndex，现在要加 Agent 能力，是引入 LangChain 还是继续用 LlamaIndex 的 Workflow？</summary><div class="an">先看 Agent 需求的复杂度：如果只是"检索 + 简单循环"（查不到就改写 query 重查），LlamaIndex 的 Agent/Workflow 能覆盖，没必要再引入一个框架增加依赖税；如果出现多工具调度、多步审批、断点恢复、人工介入这些工程需求，LlamaIndex 的编排偏弱，这时再引入 LangGraph 做编排层、检索继续复用 LlamaIndex——新增框架的收益要能覆盖它的维护成本，否则就是给系统加债。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>LangChain</b>:通用 LLM 应用框架，主攻编排与生态。</div>
+      <div class="term-item"><b>LlamaIndex</b>:数据/RAG 框架，主攻索引与检索。</div>
+      <div class="term-item"><b>LangGraph</b>:LangChain 家的图编排引擎，做复杂 Agent 流程。</div>
+      <div class="term-item"><b>Data Connector</b>:LlamaIndex 的数据接入组件。</div>
+      <div class="term-item"><b>Query Engine</b>:LlamaIndex 里"检索 + 生成"的封装单元。</div>
+      <div class="term-item"><b>主矛盾</b>:决定框架选型的那一个核心瓶颈。</div>
+    </div>
+  </div>
+</article>

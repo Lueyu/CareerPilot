@@ -1,0 +1,47 @@
+<article class="q" id="biz-009" data-topic="biz" data-title="API框架选型:FastAPI vs Flask vs Django" data-difficulty="3" data-tags="API框架,后端开发" data-company="" data-source="P3Q9" data-kw="API 框架 FastAPI Flask Django 异步 选型 后端">
+
+      <div class="q-no">框架选型 · Q9</div>
+      <h3>API 框架选型:FastAPI vs Flask vs Django</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐</span>
+        <span class="tag">#API框架</span><span class="tag">#后端开发</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"AI/LLM 服务我无脑选 <b>FastAPI</b>:异步原生(长时 LLM 调用/SSE 流式的刚需)、Pydantic 数据校验(Prompt 参数防呆)、自动 OpenAPI 文档;Flask 适合小工具和存量系统,同步模型在 IO 密集下要靠多进程硬扛;Django 是全家桶,适合'后台管理+业务模型'的传统 Web 产品。<b>选型核心依据是 IO 模型</b>:LLM 应用是重 IO+流式场景,async 亲和度决定一切。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>像<b>餐厅运营模式</b>:Flask 是<b>一个服务员盯一桌</b>(同步:一个请求占一个 worker,客人聊一小时天=服务员站一小时);FastAPI 是<b>一个服务员管全场</b>(异步:点完菜就去服务别桌,菜好了再回来上)——客人越多差距越大;Django 则是<b>连锁餐厅整套体系</b>——后厨、收银、会员全带,开小饭馆用它反而束手束脚。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <table>
+          <tr><th>维度</th><th>FastAPI</th><th>Flask</th><th>Django</th></tr>
+          <tr><td><b>IO 模型</b></td><td><b>asyncio 原生</b></td><td>同步为主(异步需 patch)</td><td>同步为主(ASGI 逐步支持)</td></tr>
+          <tr><td><b>数据校验</b></td><td><b>Pydantic 深度集成</b></td><td>手动/扩展</td><td>Form/Serializer</td></tr>
+          <tr><td><b>文档</b></td><td><b>自动 Swagger</b></td><td>扩展生成</td><td>扩展生成</td></tr>
+          <tr><td><b>自带</b></td><td>路由+DI,轻</td><td>路由,极轻</td><td>ORM/Admin/Auth 全家桶</td></tr>
+          <tr><td><b>适合</b></td><td><b>AI API/微服务/流式</b></td><td>小工具、存量维护</td><td>内容型网站、后台系统</td></tr>
+        </table>
+        <p><b>AI 场景的三个硬理由(展开说)</b></p>
+        <ul>
+          <li><b>并发 LLM 调用</b>:一个 Agent 请求扇出 10 个工具/模型调用,asyncio.gather 并行等结果,总耗时=最慢一路;同步框架得开线程池,资源开销大得多。</li>
+          <li><b>SSE 流式</b>:StreamingResponse + 异步生成器天然契合 token 流(见第二部分 Q9);Flask 实现流式是能用,但别扭。</li>
+          <li><b>Pydantic</b>:请求/响应/工具参数的 schema 校验一行注解搞定——Prompt 参数、工具入参的防呆层,还能复用模型生成 JSON Schema 喂给 Function Calling,一份定义两处用(这个细节说出来很加分)。</li>
+        </ul>
+        <p><b>反过来什么时候不用 FastAPI</b>:纯 CPU 密集的推理服务(Python 本来就不合适,走 gRPC/独立服务);需要完整后台管理的运营系统(Django Admin 真香);团队全是 Flask 老手且无性能瓶颈(技术栈连续性 &gt; 纸面先进性)。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:FastAPI 部署有什么讲究?</summary><div class="an">uvicorn/gunicorn+uvicorn worker;容器健康检查/优雅停机( draining 长连接);多实例水平扩展,SSE 长连接数是容量规划的核心参数。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>asyncio</b>:Python 异步 IO 框架。</div>
+          <div class="term-item"><b>Pydantic</b>:数据模型校验库。</div>
+          <div class="term-item"><b>ASGI/uvicorn</b>:异步网关协议/服务器。</div>
+        </div>
+      </div>
+</article>

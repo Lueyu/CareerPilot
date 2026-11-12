@@ -1,0 +1,83 @@
+<article class="q" id="eval-012" data-topic="eval" data-title="设计RAG检索质量的对比实验" data-difficulty="4" data-tags="RAG,实验设计,对比实验" data-company="" data-source="P6Q29" data-kw="RAG 实验设计 对比实验 向量检索 BM25 混合检索 RRF 召回率 nDCG 重排 rerank">
+
+  <div class="q-no">Agent算法 · Q29</div>
+  <h3>设计 RAG 检索质量的对比实验</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#RAG</span><span class="tag">#实验设计</span><span class="tag">#对比实验</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"对比三种检索器,我分<b>检索层</b>和<b>端到端</b>两层评估。检索层看 Recall@k、nDCG@k、MRR,并且<b>按 query 类型分桶</b>——这是灵魂:BM25 擅长精确关键词(专有名词、编号),向量擅长语义改写,所以分开看才能看清各自长短板;端到端看生成答案的忠实度/引用率和正确率。实验设计:固定 chunk 策略与 topk,控制变量只换检索器;混合检索用 RRF 或加权融合,再叠加一层 Cross-Encoder rerank 看增量。结论通常不是"谁绝对赢",而是<b>混合 &gt; 单路,且 rerank 是性价比最高的提升手段</b>。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就像<b>三种找书的方式</b>:BM25 是"按书名/索书号的精确匹配",查编号、专业术语一把准,但你换个说法它就懵;向量检索是"按意思找",你说"怎么报销出差费"它能联想到"差旅报销流程",但精确编号它可能漂移;混合检索是<b>两本目录一起查再合并结果</b>。实验就是要分别考它们,再考"两本一起查 + 请专家(重排模型)把最相关的排前面"到底好多少。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 数据集与标注(地基)</b></p>
+    <ul>
+      <li><b>文档库</b>:可用公开集(BEIR、MS MARCO、Natural Questions)保证可对标,再叠加<b>私有领域语料</b>贴近业务。</li>
+      <li><b>查询集</b>:覆盖多种 query 类型——精确关键词(型号/编号/专名)、语义改写(同义不同词)、多跳问题、长尾稀疏问题、跨语言。</li>
+      <li><b>相关性标注</b>:每条 query 标 relevant 文档(专家标注,或 LLM 初筛 + 人工校验);建议用<b>多档相关度</b>(0/1/2)而非二元,方便算 nDCG。</li>
+    </ul>
+    <p><b>2. 检索层指标(先独立评检索,不混入生成)</b></p>
+    <pre class="code">Recall@k    前 k 个里捞回的相关文档数 / 全部相关文档数   <span class="c"># 衡量"捞得全不全"</span>
+Precision@k 前 k 个里相关占比                          <span class="c"># 衡量"捞得准不准"</span>
+nDCG@k      考虑排序位置的相关度折损                    <span class="c"># 衡量"排得对不对"</span>
+MRR         第一个相关文档的倒数排名均值                <span class="c"># 看"头名命中"</span></pre>
+    <ul>
+      <li>k 分层看:检索召回常看 k=10/20/50;进 LLM 前实际只用 k=3/5,所以<b>小 k 的 Precision 和 MRR 往往比大 k 的 Recall 更贴近真实体验</b>。</li>
+    </ul>
+    <p><b>3. 三路检索器(控制变量)</b></p>
+    <table>
+      <tr><th>检索器</th><th>原理</th><th>强项 / 弱项</th></tr>
+      <tr><td><b>BM25</b></td><td>词频+逆文档频率的稀疏匹配</td><td>精确词/编号强;无语义,换词就漏</td></tr>
+      <tr><td><b>向量(Dense)</b></td><td>embedding 近邻(HNSW)</td><td>语义改写强;精确词可能漂移</td></tr>
+      <tr><td><b>混合</b></td><td>两路召回 + RRF/加权融合</td><td>互补,通常最强;多一路成本</td></tr>
+    </table>
+    <ul>
+      <li>固定不变:chunk 大小、embedding 模型、topk、LLM(生成层)——只让"检索器"这一个变量动。</li>
+    </ul>
+    <p><b>4. 混合与重排的消融(逐级加码看增量)</b></p>
+    <pre class="code">单独 BM25
+单独 向量
+混合(RRF)
+混合 + Cross-Encoder rerank(top50→top5)   <span class="c"># 每加一级,看指标增量</span></pre>
+    <ul>
+      <li><b>RRF</b>:对两路各自的排名取倒数融合 score = Σ 1/(k + rank),不依赖分数尺度、无需调权重,工程上最省事。</li>
+      <li><b>Cross-Encoder rerank</b>:把 query 与候选拼接进编码器打分,精排;通常<b>增量最显著</b>,是 RAG 里性价比最高的优化。</li>
+    </ul>
+    <p><b>5. 端到端指标(检索好≠答案好)</b></p>
+    <ul>
+      <li><b>忠实度 / 引用率</b>:答案是否真的来自检索到的文档(幻觉检测)。</li>
+      <li><b>正确率 / 解决率</b>:LLM-as-judge 按 rubric 打分,或任务可程序化校验。</li>
+      <li><b>成本与延迟</b>:混合+rerank 会加延迟,报 P99 和 token 成本,做"质量-成本"权衡。</li>
+    </ul>
+    <p><b>6. 关键陷阱</b></p>
+    <ul>
+      <li><b>分桶必做</b>:若只看整体平均,BM25 和向量可能分数接近,但"关键词型 query BM25 强、语义型 query 向量强"的真相被平均掩盖——分桶后"混合检索"的价值才显形。</li>
+      <li><b>embedding 不可比</b>:对比不同 embedding 模型时,必须用<b>同一套测试集与同一评测脚本</b>,否则向量相似度阈值都不可比。</li>
+      <li><b>标注模糊</b>:相关性判断本身有噪声,用多档标注 + 双人 Kappa 一致性,别把评测误差当成了算法差距。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:混合检索为什么用 RRF 而不是分数加权?</summary><div class="an">BM25 分数和向量余弦分数<b>尺度完全不同</b>,直接加权要先归一化,归一化又对数据分布敏感、要调超参。RRF 只依赖排名(倒数),天然无量纲、免调参、鲁棒,是实践中最常用的融合方式;若两路分数本身有可信校准,也可用加权并网格搜索权重。</div></details>
+    <details class="qa"><summary class="qu">Q:rerank 成本高,什么时候值得加?</summary><div class="an">当"进 LLM 的 topk 很小(3~5)且答案质量对排序敏感"时,rerank 最值得:粗排捞 50 条,精排压缩到 5 条,几十次编码的成本远低于一次生成出错或多塞长上下文的成本。若下游只做粗检索、或延迟预算极紧,可先不加,用 Recall@50 评估粗排是否够。</div></details>
+    <details class="qa"><summary class="qu">Q:向量检索用哪个 embedding 模型,实验里怎么选?</summary><div class="an">先按领域选:通用用 BGE、E5 这类开源强模型或商用 embedding;领域特殊则用领域语料微调。实验上固定其他变量、只换 embedding 模型跑同一套 Recall@k/nDCG,选得分最高且延迟可接受的;注意不同模型的向量维度与相似度阈值不可通用,评测必须同一套脚本。</div></details>
+    <details class="qa"><summary class="qu">Q:检索质量提升了,但端到端答案没提升,怎么解释?</summary><div class="an">说明瓶颈转移了:要么检索提的指标(如大 k 的 Recall)对生成没用(LLM 只看前几条),要么生成侧(模型/提示/答案组织)成了短板。用"不同 topk 下生成质量"的曲线定位瓶颈:若 topk 增大答案不变,瓶颈在生成;若 topk 增大答案明显变好,瓶颈仍在检索。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>BM25</b>:基于词频的经典稀疏检索算法。</div>
+      <div class="term-item"><b>nDCG</b>:归一化折损累计增益,带排序位置的指标。</div>
+      <div class="term-item"><b>RRF</b>:倒数排名融合,免调参的多路合并。</div>
+      <div class="term-item"><b>Cross-Encoder</b>:query 与文档拼接精排的重排模型。</div>
+      <div class="term-item"><b>MRR</b>:首个相关文档排名倒数的均值。</div>
+      <div class="term-item"><b>忠实度</b>:答案是否真实来自检索到的证据。</div>
+    </div>
+  </div>
+</article>

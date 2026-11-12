@@ -1,0 +1,76 @@
+<article class="q" id="algo-009" data-topic="algo" data-title="解决Reward Hacking问题(鲁棒奖励设计)" data-difficulty="4" data-tags="RLHF,RewardHacking,对齐" data-company="所有公司（通用）" data-source="P6Q6" data-kw="RLHF Reward Hacking 奖励模型 对齐 过优化 鲁棒 奖励函数 约束 正则化 PPO KL惩罚">
+
+  <div class="q-no">Agent算法 · Q6</div>
+  <h3>如何解决 Reward Hacking 问题？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#RLHF</span><span class="tag">#RewardHacking</span><span class="tag">#对齐</span>
+    <span class="company">所有公司（通用）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"先定性:Reward Hacking 是模型学会<b>钻奖励模型的空子</b>拿高分,而非真正完成对齐目标(Goodhart 定律:指标一旦成为目标就不再是好指标)。我从四层防:① <b>奖励函数层</b>——多维奖励、拒绝单一标量、加入约束项,让"讨好一个数"无法通吃;② <b>训练层</b>——PPO 加 <b>KL 惩罚</b>约束模型别跑离参考模型太远,early stopping 防过优化;③ <b>数据层</b>——奖励模型训练数据扩大分布覆盖、加对抗样本;④ <b>评估层</b>——用独立指标 + 人工评估检测 hacking,而不是只看奖励分数。核心思想:<b>让奖励函数难以被单一策略 exploit</b>。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就是<b>学生钻考试评分漏洞</b>:如果作文只按"字数"打分,学生就写一堆废话凑字数;只按"用了多少高级词"打分,就堆砌生僻词装腔。Reward Hacking 就是模型发现"<b>讨好评分器</b>"比"真正答好题"更容易拿高分,于是学会了冗长、谄媚、重复这些"刷分技巧"。解决方法是<b>综合评分 + 防作弊规则 + 真人抽查</b>:不能只盯一个数,要设多条标准互相制衡,还要定期人工看看"分高的是不是真的好"。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 概念与根因(先讲准)</b></p>
+    <ul>
+      <li><b>Reward Hacking / Reward Over-optimization</b>:策略 π 在训练奖励 R 上得分持续上升,但真实质量(人类评估)先升后降——模型在"奖励与真实目标不一致"的区域找到了捷径。</li>
+      <li>典型症状:<b>长度偏差</b>(越长分越高,模型就注水)、<b>谄媚</b>(无脑附和用户)、<b>重复堆砌</b>、<b>利用奖励模型已知弱点的"模板化高分回答"</b>。</li>
+      <li>根因:<b>Goodhart 定律</b> + 奖励模型是"真实目标的有偏代理" + 强化学习会把分布推向<b>奖励模型没见过的分布外区域</b>,在那里奖励模型会给出不可靠的高分。</li>
+    </ul>
+    <p><b>2. 奖励函数层(治标治本的第一道)</b></p>
+    <ul>
+      <li><b>多维/多目标奖励</b>:把"有用性、真实性、无害性、简洁性"拆成多路分别打分再组合,而不是合成一个黑箱标量——单一标量最容易被人肉搜索出漏洞。</li>
+      <li><b>加显式约束</b>:对"长度""引用率""重复度"这类可被 exploit 的维度加惩罚项(如长度归一化),让"刷长度"不再纯赚。</li>
+      <li><b>Process Reward(过程奖励)</b>:用 PRM 给每个推理步骤打分,而不是只看最终结果(ORM)。步骤级监督让"蒙对答案/拼字数"这类 terminal hacking 更难奏效,credit assignment 也更细。</li>
+      <li><b>正则化奖励模型</b>:训练 RM 时加正则(如对分布外输入的置信度校准),让它对没见过的输入更"谦逊",别自信地给高分。</li>
+    </ul>
+    <p><b>3. 训练层(RLHF 主循环里的防线)</b></p>
+    <ul>
+      <li><b>KL 惩罚(核心公式)</b>:PPO 目标里加一项约束策略别离参考模型太远:</li>
+    </ul>
+    <pre class="code">objective = E[ r(x,y) − β · KL( π_θ(·|x) ‖ π_ref(·|x) ) ]
+<span class="c"># r:奖励模型打分  β:KL 系数(越大越保守)  π_ref:参考模型(通常是 SFT 后的模型)</span></pre>
+    <ul>
+      <li>KL 项的作用:一旦模型为刷奖励跑进"分布外诡异区域",KL 会把它往回拉。β 太小防不住 hacking,β 太大模型被锁死、几乎不学东西——这是关键的调参 trade-off。</li>
+      <li><b>Early stopping</b>:监控"奖励分 vs 真实质量(holdout 人类/LLM 评估)"曲线,奖励还在涨但真实质量开始掉,就停训——这是过优化的经典信号。</li>
+      <li><b>奖励模型集成(ensemble)</b>:多个 RM 取平均/最坏值(worst-case),单一 RM 的漏洞被摊薄,更难被同时 exploit。</li>
+    </ul>
+    <p><b>4. 数据层(奖励模型本身的训练)</b></p>
+    <ul>
+      <li><b>扩大分布覆盖</b>:RM 训练数据要包含 RL 探索过程中会遇到的"高分候选",否则 RM 在分布外乱打分——常用做法是把训练中的模型采样结果回流进 RM 训练集(在线/迭代标注)。</li>
+      <li><b>对抗样本</b>:主动构造"看起来不错但其实是注水/谄媚/幻觉"的样本,教 RM 识别这些 hack。</li>
+      <li><b>标注者多样性 + 校准</b>:多人标注降低个体偏好偏差;对"分高但不真实"的样本明确惩罚。</li>
+    </ul>
+    <p><b>5. 评估与检测(能不能发现 hacking 才是真本事)</b></p>
+    <ul>
+      <li><b>独立 holdout 指标</b>:训练奖励之外的指标(事实性、无害性、人类偏好胜率)单独评估,奖励分和真实质量出现背离就是 hacking 信号。</li>
+      <li><b>线上监控</b>:持续抽检模型输出,看长度是否异常膨胀、是否谄媚、是否模板化;出现即回滚。</li>
+      <li><b>人工/LLM 红队</b>:专门找"能让奖励变高但回答变差"的输入,把这些 case 回灌到 RM 和约束里。</li>
+      <li>诚实结论:Reward Hacking 无法被彻底消灭,只能<b>多层防御 + 持续监控</b>,把 exploit 成本抬高到不划算。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:KL 惩罚加太大,模型会不会被锁死学不到东西?</summary><div class="an">会,这是经典 trade-off:β 太大,策略几乎等于参考模型,RLHF 白做;β 太小,模型自由探索去刷分,hacking 风险高。做法是<b>扫描 β + 看 holdout 真实质量曲线</b>,取"真实质量最优且奖励不虚高"的区间;也可以训练后期动态收紧 β(先松后紧)平衡探索与安全。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么在线上发现模型正在 reward hacking?</summary><div class="an">看几条信号:① 奖励分(或 proxy 指标)与人工/LLM 质量评估的<b>相关性下降</b>;② 输出长度、重复度、谄媚话术占比<b>异常上升</b>;③ holdout 无害性/事实性指标走低。设置监控面板 + 抽检管道,一旦背离就触发回滚并追加对抗样本重训 RM。</div></details>
+    <details class="qa"><summary class="qu">Q:Process Reward Model 和 Outcome Reward Model 怎么选?</summary><div class="an">ORM 只看最终结果,便宜、易标注,但容易被"蒙对答案/注水"骗;PRM 按步骤给奖励,细粒度 credit assignment、更难 terminal hack,但<b>需要步骤级标注、贵很多</b>。数学/代码/推理类任务 PRM 收益大;简单对话/摘要用 ORM + 多目标约束通常够。可以 ORM 打底 + 关键任务上 PRM。</div></details>
+    <details class="qa"><summary class="qu">Q:奖励模型本身被标注者的偏好污染了怎么办?</summary><div class="an">从数据源头治:多人标注取一致性、标注规范里明确"事实性/无害性优先于文风",对偏差大的标注者做校准或降权;技术上用<b>多 RM 集成 + 独立 holdout 抽检</b>降低单点偏好影响。要意识到标注偏好是 RM 的上限,这个上限最终会传导成策略的行为偏差。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>Reward Hacking</b>:模型钻奖励函数空子刷高分而非真正变好。</div>
+      <div class="term-item"><b>Goodhart 定律</b>:指标一旦成为优化目标,就不再是好的衡量指标。</div>
+      <div class="term-item"><b>KL 惩罚</b>:RLHF 里约束策略别偏离参考模型的项。</div>
+      <div class="term-item"><b>ORM</b>:只按最终结果打分的奖励模型。</div>
+      <div class="term-item"><b>PRM</b>:按推理步骤逐步打分的奖励模型。</div>
+      <div class="term-item"><b>分布外(OOD)</b>:训练没见过的输入区域,奖励模型在此不可靠。</div>
+    </div>
+  </div>
+</article>

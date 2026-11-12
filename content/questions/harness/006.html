@@ -1,0 +1,88 @@
+<article class="q" id="harness-006" data-topic="harness" data-title="ReAct框架如何结合思维链与行动" data-difficulty="3" data-tags="Agent,ReAct,核心范式" data-company="字节 / 阿里 / 腾讯（高频）" data-source="P5Q2" data-kw="ReAct 思维链 行动 观察 Thought Action Observation 推理 工具调用 核心范式 字节 阿里 腾讯">
+
+  <div class="q-no">Agent核心 · Q2</div>
+  <h3>请详细解释 ReAct 框架。它是如何将思维链和行动结合起来，以完成复杂任务的？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#Agent</span><span class="tag">#ReAct</span><span class="tag">#核心范式</span>
+    <span class="company">字节 / 阿里 / 腾讯（高频）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"ReAct = <b>Reasoning + Acting</b>,核心是把「想」和「做」交织成一个循环:每一步模型先输出一段 <b>Thought(推理)</b>说明打算怎么做,再给一个 <b>Action(行动)</b>调用工具,拿到 <b>Observation(观察)</b>后继续下一轮思考,如此反复直到给出最终答案。它解决两个痛点:纯思维链(CoT)只会推理、知识过时会幻觉;纯行动又缺推理、容易乱试。把推理用外部观察来 <b>grounding</b>,错误能被及时纠正。整个框架就三行模板:Thought / Action / Observation。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>想象一个<b>新手修电脑</b>:他不会一上来就乱拆,而是边想边试——「屏幕黑?先看电源灯亮不亮」(Thought)→「检查电源线」(Action)→「哦灯也不亮,那是电源问题」(Observation)→「那就换根电源线试试」(下一个 Thought/Action)。这种"想一步、做一步、看结果、再想下一步"的节奏就是 ReAct。对比之下,纯推理像一个人<b>只在脑子里盘算不动手</b>(容易想当然),纯行动像一个人<b>不问青红皂白乱试</b>(低效)——ReAct 把两者拧成一股。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 背景:CoT 与 Act-only 各自的缺陷</b></p>
+    <table>
+      <tr><th>范式</th><th>优点</th><th>缺点</th></tr>
+      <tr><td><b>CoT(纯推理)</b></td><td>能拆解复杂问题、逻辑清晰</td><td>知识是过时的记忆,会幻觉,错了不自知</td></tr>
+      <tr><td><b>Act-only(纯行动)</b></td><td>能拿到真实信息</td><td>没有推理规划,行动盲目、不可解释</td></tr>
+      <tr><td><b>ReAct(融合)</b></td><td>推理指导行动,观察反哺推理</td><td>互相纠偏,但 token 成本更高</td></tr>
+    </table>
+    <p><b>2. 循环结构(核心)</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 510 278" role="img" aria-label="ReAct 思维与行动循环">
+  <rect class="sd-box" x="80" y="20" width="200" height="60" rx="10"/>
+  <text class="sd-t" x="180" y="46" text-anchor="middle">Thought 思考</text>
+  <text class="sd-ts" x="180" y="64" text-anchor="middle">推理下一步做什么</text>
+  <rect class="sd-box-amber" x="80" y="110" width="200" height="60" rx="10"/>
+  <text class="sd-t" x="180" y="136" text-anchor="middle">Action 行动</text>
+  <text class="sd-ts" x="180" y="154" text-anchor="middle">调用工具 / 检索</text>
+  <rect class="sd-box-teal" x="80" y="200" width="200" height="60" rx="10"/>
+  <text class="sd-t" x="180" y="226" text-anchor="middle">Observation 观察</text>
+  <text class="sd-ts" x="180" y="244" text-anchor="middle">拿到工具返回结果</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M180 80 L180 106"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M180 170 L180 196"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M80 230 C18 230 18 50 78 50"/>
+  <text class="sd-l" x="14" y="140" text-anchor="middle" transform="rotate(-90 14 140)">循环直到得出答案</text>
+  <rect class="sd-box-rose" x="340" y="20" width="150" height="60" rx="10"/>
+  <text class="sd-t" x="415" y="46" text-anchor="middle">Final Answer</text>
+  <text class="sd-ts" x="415" y="64" text-anchor="middle">终止 · 输出答案</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M280 50 L336 50"/>
+  <text class="sd-ts" x="308" y="42" text-anchor="middle">信息齐</text>
+</svg>
+</div>
+    <p><b>3. Prompt 模板(给模型的 few-shot 示例)</b></p>
+    <pre class="code">Question: 苹果公司现在的 CEO 是谁?
+Thought: 这个问题需要最新信息,我用搜索工具查一下。
+Action: search["苹果 CEO"]
+Observation: 蒂姆·库克(Tim Cook)现任苹果 CEO……
+Thought: 我已经拿到答案。
+<span class="hl">Final Answer: 蒂姆·库克(Tim Cook)。</span></pre>
+    <p><b>4. 为什么有效</b></p>
+    <ul>
+      <li><b>用外部观察 grounding 推理</b>:减少幻觉与过时知识。</li>
+      <li><b>观察提供纠错信号</b>:行动失败或结果不符时,模型能据此调整下一步。</li>
+      <li><b>可解释</b>:思维轨迹可审计、可调试。</li>
+    </ul>
+    <p><b>5. 局限与 trade-off</b></p>
+    <ul>
+      <li><b>token 成本高</b>:每轮把历史 Thought/Action/Observation 都拼进上下文,越长越贵。</li>
+      <li><b>可能不收敛</b>:模型反复调用却拿不到结果 → 死循环,需 <code>max_iterations</code> 兜底。</li>
+      <li><b>依赖工具描述质量</b>:工具写得含糊,模型选错。</li>
+      <li>对简单任务「杀鸡用牛刀」,不如直接生成。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:ReAct 和 CoT 到底差在哪?</summary><div class="an">CoT 只有「推理」一条线,所有中间结论都来自模型内部知识,无法和外部世界交互,错了也不会被纠正;ReAct 在推理之间插入「行动-观察」,用外部结果给推理做 grounding 和纠偏。一句话:CoT 是"自己跟自己推",ReAct 是"边推边查边验证"。</div></details>
+    <details class="qa"><summary class="qu">Q:模型在 ReAct 里卡住,一直输出 Action 停不下来怎么办?</summary><div class="an">三层防护:① 设 <code>max_iterations</code>(如 10 轮)强制终止;② 检测重复动作(连续 N 次调用同一工具且观察结果无变化 → 判定死循环);③ 总 token/时间预算超限即熔断,转降级或要求人工介入。</div></details>
+    <details class="qa"><summary class="qu">Q:有了 Function Calling,ReAct 还有用吗?</summary><div class="an">两者是「通用文本协议 vs 结构化协议」的关系。Function Calling 把 Action 变成带 schema 的 JSON,可校验、可并行多工具、更稳定,现代生产首选;ReAct 是它的思想前身,在"没有原生 FC 支持的模型"或"需要自由文本推理痕迹"的场景仍常用(多跳推理调试、统一抽象各种工具)。能讲清这个演进关系很加分。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>ReAct</b>:Reasoning + Acting,推理与行动交织的提示框架。</div>
+      <div class="term-item"><b>Thought</b>:模型输出的推理步骤。</div>
+      <div class="term-item"><b>Action</b>:模型输出的待执行动作(工具+参数)。</div>
+      <div class="term-item"><b>Observation</b>:工具/环境返回的结果。</div>
+      <div class="term-item"><b>Grounding</b>:用外部事实锚定推理,减少幻觉。</div>
+      <div class="term-item"><b>Max Iterations</b>:循环轮次上限,防死循环。</div>
+    </div>
+  </div>
+</article>

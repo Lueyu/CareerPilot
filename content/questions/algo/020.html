@@ -1,0 +1,65 @@
+<article class="q" id="algo-020" data-topic="algo" data-title="推导KL散度在RLHF中的作用" data-difficulty="4" data-tags="KL散度,RLHF,理论" data-company="无公司" data-source="P6Q19" data-kw="KL散度 RLHF PPO 奖励模型 KL惩罚 β 参考模型 reward hacking 熵">
+
+  <div class="q-no">Agent算法 · Q19</div>
+  <h3>推导 KL 散度在 RLHF 中的作用</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#KL散度</span><span class="tag">#RLHF</span><span class="tag">#理论</span>
+    <span class="company">无公司</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"RLHF 里加 KL 散度,本质是给策略模型套一条<b>安全带</b>。PPO 目标是:最大化奖励的同时,约束新策略 π_θ 不要偏离参考模型 π_ref(通常是 SFT 后的模型)太远,目标函数 = E[r(x,y) − β·KL(π_θ ‖ π_ref)]。为什么要约束?因为奖励模型有漏洞,策略一旦跑偏就会用刷分的怪话骗高分(<b>reward hacking</b>),KL 项把它拉回正常说话。实现上 π_ref 冻结,KL 按 token 近似为 log π_ref − log π_θ,β 控制松紧。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>把 RLHF 想成<b>奖励模型当考官、策略模型当考生</b>。考官只给分数,但它是个草台班子,有些"漏洞答案"能骗到高分——比如无限复读"好的好的"、堆砌溢美之词。没有规则约束,考生就会钻漏洞刷到满分,答案却毫无用处。KL 散度就是那条规则:<b>"你可以自由发挥,但不许离标准答案模板(参考模型)太远"</b>。β 就是这条规则的松紧度,β 越大,考生越老实。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 先讲清 KL 散度是什么</b></p>
+    <ul>
+      <li>定义:KL(P ‖ Q) = Σ P(x)·log(P(x)/Q(x)),衡量"用 Q 去近似 P 时损失的信息量"。它是<b>非负、非对称</b>的,P = Q 时取 0。</li>
+      <li>在 RLHF 里,P = π_θ(训练中的策略),Q = π_ref(冻结的参考模型,通常由 SFT 得到)。</li>
+    </ul>
+    <p><b>2. 为什么要约束 KL(核心动机)</b></p>
+    <ul>
+      <li>奖励模型是"<b>有偏的代理目标</b>",不是真正的目标。策略只讨好奖励模型,就会找到 reward hacking 的后门:输出重复短语、极端谄媚、高置信但空洞的话。</li>
+      <li>KL 项把策略<b>锚定</b>在 SFT 模型的良好行为附近,防止语言能力崩坏、多样性坍塌。</li>
+      <li>本质是<b>正则化</b>:防止策略过拟合到奖励模型这一"噪声标签"上。</li>
+    </ul>
+    <p><b>3. 数学上如何实现(推导)</b></p>
+    <pre class="code"><span class="c"># RLHF-PPO 目标:每 token 加 KL 惩罚</span>
+J(θ) = E_{x~D, y~π_θ(·|x)}[ r(x,y) − β · KL( π_θ(·|x) ‖ π_ref(·|x) ) ]
+
+<span class="c"># KL 散度定义(离散分布)</span>
+KL(P ‖ Q) = Σ_x P(x) · log( P(x) / Q(x) )
+
+<span class="c"># 实际按 token 估计:π_ref 冻结,其熵项对 θ 是常数,不参与梯度</span>
+KL(π_θ ‖ π_ref) ≈ log π_ref(y|x) − log π_θ(y|x)</pre>
+    <p>推导要点:KL(P ‖ Q) = Σ P·log P − Σ P·log Q = −H(P) + Σ P·log(P/Q)。对 θ 求梯度时,−H(π_θ) 这部分由 PPO 的 surrogate objective 间接处理,工程上最常用的做法是直接用 log-ratio:每生成一个 token,把 <code>log π_ref − log π_θ</code> 作为 KL 的蒙特卡洛估计,乘 β 后从奖励里扣掉。</p>
+    <p><b>4. β 的 trade-off</b></p>
+    <ul>
+      <li><b>β 太小</b>:奖励涨但语言质量崩、reward hacking;策略可能学出一堆无意义的 token 组合。</li>
+      <li><b>β 太大</b>:策略几乎不动,学不到人类偏好。</li>
+      <li>经验值 β 通常在 0.01~0.1 量级,需调;进阶做法是<b>自适应 KL</b>:设一个 target KL(如 6 nats),实时监控,超出就自动加大 β、低于就减小。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么用 KL 散度,换成 L2 距离或别的度量不行吗?</summary><div class="an">L2 直接比参数或输出向量,对概率分布不敏感:两个分布可能输出几乎相同的句子,但 logits 尺度差很多。KL 是概率分布间"信息论正确"的度量,且能和梯度自然结合成 log-ratio(只差一个 log 运算,实现极简)。更重要的是 KL 关注低概率区域的对数差距——策略"偷偷给某个 token 极小概率"会被重罚,恰好符合防跑偏的诉求。</div></details>
+    <details class="qa"><summary class="qu">Q:RLHF 里 KL 是对每个 token 加,还是对整句加?</summary><div class="an">工程上通常按 <b>token 级别</b>估计:对生成的每个 token 计算 log π_ref(t|x) − log π_θ(t|x) 再求均值,作为整句 KL 的蒙特卡洛估计,并逐 token 加到对应位置的 reward 上(token-level KL)。整句级 KL 需要归一化分布再算,实现更繁琐。token 级更细粒度、训练更稳定。</div></details>
+    <details class="qa"><summary class="qu">Q:KL 惩罚太大,模型"学不动"了怎么办?</summary><div class="an">三个方向:① 直接调小 β;② 用自适应 KL——设 target KL(经验值约 6 nats),实时监控实际 KL,超出就加大 β、低于就减小 β,让 KL 稳定在一个区间;③ 检查参考模型是否过强/过弱,必要时换更弱的 ref,或改用 DPO 这类<b>不需要显式参考模型和 KL 项</b>的方法(DPO 把 KL 约束解析地融进了目标里)。</div></details>
+    <details class="qa"><summary class="qu">Q:reference model 为什么通常选 SFT 模型,而不是初始的 pretrain 模型?</summary><div class="an">因为 RLHF 的起点就是 SFT 模型(已经会对话、会遵循指令),ref 选它意味着"优化时不偏离已经学会的对话能力"。若选 pretrain 模型,两者距离太远,KL 惩罚会强行阻止策略学到对话格式,优化方向反而错乱。ref 本质是"当前能力的地基",和初始策略保持一致最合理。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>KL 散度</b>:两个概率分布差异的信息论度量,非负、非对称。</div>
+      <div class="term-item"><b>参考模型(π_ref)</b>:RLHF 中冻结的锚点,通常由 SFT 得到。</div>
+      <div class="term-item"><b>Reward hacking</b>:策略钻奖励模型漏洞刷分,而非真正完成任务。</div>
+      <div class="term-item"><b>β(惩罚系数)</b>:KL 项的权重,控制策略偏离参考模型的幅度。</div>
+      <div class="term-item"><b>PPO</b>:RLHF 常用的近端策略优化算法。</div>
+    </div>
+  </div>
+</article>

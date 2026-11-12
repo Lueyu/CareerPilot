@@ -1,0 +1,83 @@
+<article class="q" id="harness-004" data-topic="harness" data-title="如何实现Agent的状态持久化" data-difficulty="4" data-tags="状态管理,持久化,Agent" data-company="" data-source="P2Q11" data-kw="状态 持久化 序列化 Redis MongoDB 断点续传 恢复 checkpoint">
+
+      <div class="q-no">工程实践 · Q11</div>
+      <h3>如何实现 Agent 的状态持久化?</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#状态管理</span><span class="tag">#持久化</span><span class="tag">#Agent</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"状态 = <b>执行位置(跑到图哪个节点)+ 共享 State(对话/中间产物)+ 外部引用(大对象指针)</b>。每个节点执行完做一次<b>序列化快照</b>(JSON/protobuf),热存 Redis(亚毫秒恢复,给断点续传用)、冷存数据库(审计回放);恢复流程:定位最后 checkpoint → 反序列化 → 从该节点继续;两个必聊的深水区:<b>状态 schema 版本化</b>(代码升级后老状态还能恢复)和<b>LLM 的不确定性</b>(重放时生成内容会变,恢复策略要幂等)。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>游戏存档</b>:每过一关自动存档(checkpoint);游戏崩了,读档从最近关卡继续(断点续传),不用从第一关重打;存档文件格式升级了,老存档也得能读(schema 兼容);换台电脑(另一个 Worker 实例)登录,进度照样在(状态外置);只是重新打时,关卡里的敌人随机刷新可能不太一样(LLM 重放的不确定性)。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 存什么:状态的三部分</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 256 358" role="img" aria-label="Agent 状态持久化 checkpoint 结构">
+  <text class="sd-l" x="10" y="22">checkpoint 状态快照</text>
+  <rect class="sd-box-teal" x="10" y="32" width="230" height="54" rx="10"/>
+  <text class="sd-t" x="125" y="53" text-anchor="middle">位置</text>
+  <text class="sd-ts" x="125" y="71" text-anchor="middle">graph_id · node_id · next_step</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M125 86 L125 94"/>
+  <rect class="sd-box" x="10" y="94" width="230" height="54" rx="10"/>
+  <text class="sd-t" x="125" y="115" text-anchor="middle">State</text>
+  <text class="sd-ts" x="125" y="133" text-anchor="middle">输入·对话·中间产物·计数</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M125 148 L125 156"/>
+  <rect class="sd-box2" x="10" y="156" width="230" height="54" rx="10"/>
+  <text class="sd-t" x="125" y="177" text-anchor="middle">引用</text>
+  <text class="sd-ts" x="125" y="195" text-anchor="middle">大对象 → 对象存储 URL</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M125 210 L125 218"/>
+  <rect class="sd-box2" x="10" y="218" width="230" height="54" rx="10"/>
+  <text class="sd-t" x="125" y="239" text-anchor="middle">元数据</text>
+  <text class="sd-ts" x="125" y="257" text-anchor="middle">schema版本 · 时间 · trace_id</text>
+  <path class="sd-a" d="M125 272 L125 282"/>
+  <path class="sd-a" d="M66 282 L184 282"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M66 282 L66 286"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M184 282 L184 286"/>
+  <rect class="sd-box-teal" x="10" y="286" width="112" height="56" rx="10"/>
+  <text class="sd-t" x="66" y="310" text-anchor="middle">Redis(热)</text>
+  <text class="sd-ts" x="66" y="328" text-anchor="middle">亚毫秒·断点续传</text>
+  <rect class="sd-box-teal" x="128" y="286" width="112" height="56" rx="10"/>
+  <text class="sd-t" x="184" y="310" text-anchor="middle">DB(冷)</text>
+  <text class="sd-ts" x="184" y="328" text-anchor="middle">审计·回放·TTL</text>
+</svg></div>
+        <p><b>2. 存储选型</b></p>
+        <table>
+          <tr><th>存储</th><th>存什么</th><th>理由</th></tr>
+          <tr><td><b>Redis</b></td><td>最新 checkpoint(热)</td><td>亚毫秒读写,断点续传秒级;TTL 24h~7天</td></tr>
+          <tr><td><b>PostgreSQL/MongoDB</b></td><td>历史 checkpoint(冷)</td><td>审计、回放、时间旅行调试;按 thread_id 索引</td></tr>
+          <tr><td><b>对象存储</b></td><td>大对象原文</td><td>状态本体保持小,序列化快</td></tr>
+        </table>
+        <p><b>3. 何时存 & 恢复流程</b></p>
+        <ul>
+          <li>写入时机:每个<b>节点执行完、副作用提交前</b>(WAL 思想:先记状态再执行副作用,顺序要对,防"做了事但没记档")。</li>
+          <li>恢复:load 最新 checkpoint → 反序列化 → 校验 schema 版本 → 从记录的 next_step 重新调度。人工审批流:节点挂起 = 存档 + 计时器,批完 invoke 恢复。</li>
+        </ul>
+        <p><b>4. 序列化细节</b></p>
+        <ul>
+          <li>JSON 人类可读易调试,但要注意:datetime/枚举/自定义对象的编码约定;protobuf 性能好但要维护 schema。进阶做法:<b>状态 schema 用 Pydantic 定义</b>,序列化和校验一步到位。</li>
+        </ul>
+        <p><b>5. 两个深水区(拉开差距)</b></p>
+        <ul>
+          <li><b>Schema 演化</b>:checkpoint 带版本号,加载时跑迁移函数(v1→v2 补默认值);反序列化用宽容模式(未知字段忽略不炸,缺字段给默认值)。</li>
+          <li><b>恢复的不确定性</b>:从 checkpoint 重放,LLM 重新生成的内容和之前<b>不会完全一样</b>。策略:① 恢复点选择"最后完成的节点"而非"生成到一半的 token";② 已成功的工具调用(副作用已发生)标记为"跳过重执行"(结果直接引用),只重跑未完成部分——配合幂等,双保险。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:状态很大(几 MB),每个节点存一次开销不小?</summary><div class="an">增量 checkpoint:只存和上次的 diff + 基线指针,恢复时回放合并;高频小状态全量存,低频大状态增量存,按对象大小自适应。</div></details>
+        <details class="qa"><summary class="qu">Q:为什么不用直接把状态塞进对话历史交给模型?</summary><div class="an">① 状态是给程序用的(结构化、确定性),历史是给模型用的(自然语言);② 塞历史费 token 且模型可能不忠实执行;③ 结构化状态才能做校验、迁移和审计。LangGraph 的 State 独立于 messages 的设计正是这个思路。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>Checkpoint</b>:状态快照,恢复依据。</div>
+          <div class="term-item"><b>WAL</b>:先写日志再执行,崩溃可恢复。</div>
+          <div class="term-item"><b>时间旅行调试</b>:回放历史状态重跑。</div>
+        </div>
+      </div>
+</article>

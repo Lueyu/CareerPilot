@@ -1,0 +1,86 @@
+<article class="q" id="ctx-006" data-topic="ctx" data-title="记忆衰退遗忘机制避免旧数据干扰新任务" data-difficulty="3" data-tags="记忆管理,遗忘机制" data-company="字节(真题)" data-source="P5Q21" data-kw="记忆衰退 遗忘机制 时间衰减 重要性 访问频率 冷热分层 冲突消解 旧数据干扰 字节">
+
+  <div class="q-no">Agent核心 · Q21</div>
+  <h3>有没有做记忆衰退，避免旧数据干扰新任务？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#记忆管理</span><span class="tag">#遗忘机制</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"有,而且这是记忆系统的<b>标配而不是可选</b>。我给每条记忆打一个分:score = 近期性(时间衰减)× 访问频率 × 重要性,分数随时间指数下降;低分记忆<b>降级到冷存储</b>(不参与默认检索,但可显式搜索),再低就归档删除。同时防干扰靠<b>检索侧</b>三道闸:只按当前话题检索 top-k、带时间窗过滤、新事实覆盖旧事实(冲突消解)。用户明确说'记住这个'的记忆重要性封顶,几乎不衰减——遗忘是让系统<b>越来越聚焦</b>,而不是把重要东西忘掉。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就像<b>人脑的遗忘</b>:半年前那次"临时改了下收货地址"早就模糊了,而"老板开会强调的价值观"你天天用所以记得滚瓜烂熟。人会自动遗忘琐碎、强化常用、牢记重要的——记忆系统照抄这套逻辑:不重要的旧信息沉底(降级冷存储),当前相关的才翻出来用(按需检索),自相矛盾的以新为准(冲突消解)。这样旧账不会跳出来干扰今天的新任务。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 为什么要做遗忘(旧数据干扰的三种表现)</b></p>
+    <ul>
+      <li><b>事实过时</b>:用户"上周在字节工作"→"这周已离职",旧记忆若还参与检索,会答出错误结论。</li>
+      <li><b>噪音污染</b>:记忆越多,检索越容易命中"语义相近但不相关"的旧信息,把当前任务带偏。</li>
+      <li><b>成本失控</b>:上下文塞的旧记忆越多,token 越贵、响应越慢。</li>
+    </ul>
+    <p><b>2. 打分模型(遗忘的依据)</b></p>
+    <pre class="code">score = recency(t) × frequency(n) × importance(i)
+
+recency(t) = e^(-λ·Δt)        <span class="c"># 时间衰减,Δt 距上次访问/写入的天数,λ 控制半衰期</span>
+frequency(n) = 1 + α·log(1+n)  <span class="c"># 访问越频繁分越高,log 防止无限膨胀</span>
+importance(i)  <span class="c"># LLM 抽取时打的初始重要性 + 用户显式指令加成</span></pre>
+    <ul>
+      <li><b>时间衰减</b>:用指数衰减模拟遗忘曲线(类似艾宾浩斯曲线的简化),半衰期取经验值,如 30 天——这意味着 30 天没被用到的记忆权重掉一半。</li>
+      <li><b>访问频率</b>:每次被检索命中就加分(类 LFU),让"常用"的记忆更抗遗忘。</li>
+      <li><b>重要性</b>:用户说"记住这个"的直接封顶、几乎不衰减;普通事实按 LLM 初判给基础分。</li>
+    </ul>
+    <p><b>3. 分层处置(不是粗暴删除)</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 390 320" role="img" aria-label="记忆打分与分层遗忘">
+  <text class="sd-l" x="14" y="20">记忆打分 → 分层处置</text>
+  <text class="sd-ts" x="140" y="61" text-anchor="end">score 高</text>
+  <text class="sd-ts" x="140" y="131" text-anchor="end">score 中</text>
+  <text class="sd-ts" x="140" y="201" text-anchor="end">score 低</text>
+  <text class="sd-ts" x="140" y="271" text-anchor="end">score 极低/过期</text>
+  <rect class="sd-box-teal" x="150" y="34" width="210" height="54" rx="10"/>
+  <text class="sd-t" x="255" y="57" text-anchor="middle">热记忆</text>
+  <text class="sd-ts" x="255" y="75" text-anchor="middle">参与默认检索</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M255 88 L255 100"/>
+  <rect class="sd-box" x="150" y="104" width="210" height="54" rx="10"/>
+  <text class="sd-t" x="255" y="127" text-anchor="middle">温记忆</text>
+  <text class="sd-ts" x="255" y="145" text-anchor="middle">检索·排序靠后</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M255 158 L255 170"/>
+  <rect class="sd-box2" x="150" y="174" width="210" height="54" rx="10"/>
+  <text class="sd-t" x="255" y="197" text-anchor="middle">冷存储</text>
+  <text class="sd-ts" x="255" y="215" text-anchor="middle">仅显式搜索可见</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M255 228 L255 240"/>
+  <rect class="sd-box-rose" x="150" y="244" width="210" height="54" rx="10"/>
+  <text class="sd-t" x="255" y="267" text-anchor="middle">归档/删除</text>
+  <text class="sd-ts" x="255" y="285" text-anchor="middle">对象存储·物理清理</text>
+</svg>
+</div>
+    <p><b>4. 检索侧防干扰(光靠遗忘不够)</b></p>
+    <ul>
+      <li><b>按需注入</b>:每轮只用当前话题的 embedding 检索 top-k(5~10 条),不是把全部记忆塞进上下文——相关性过滤是第一道闸。</li>
+      <li><b>时间窗过滤</b>:优先检索近期的记忆,旧记忆除非被显式引用否则让位。</li>
+      <li><b>冲突消解</b>:新旧事实矛盾时,以新覆盖旧(保留历史版本),从源头避免"过时答案"。</li>
+    </ul>
+    <p><b>5. 工程细节</b>:遗忘是<b>异步后台任务</b>定期跑(每天/每周),不影响线上读取;衰减参数按业务 A/B 调,配合"用户重复告知率"评估——用户老得重新自我介绍,就说明衰减太快了。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:重要信息也会被遗忘吗?</summary><div class="an">不会。用户显式"记住/别忘了"的记忆重要性置顶,衰减系数接近 0,基本永久保留;重要性由 LLM 抽取时初判,用户可以事后查看并手动置顶或删除——把"哪些不能被忘"的控制权交给用户,而不是全自动拍板。</div></details>
+    <details class="qa"><summary class="qu">Q:衰减率怎么定?会不会忘太快或太慢?</summary><div class="an">没有放之四海皆准的值,先按经验取半衰期(如 30 天),再用指标闭环调:观察"用户重复告知率"和"跨会话问答一致率"——忘太快,用户得反复重申;忘太慢,旧数据开始干扰新任务(错误率上升)。两条曲线交叉点附近就是合理的衰减区间。</div></details>
+    <details class="qa"><summary class="qu">Q:遗忘和知识库更新会不会冲突?</summary><div class="an">不会,作用域不同:知识库是全局静态文档,靠版本号整体更新;记忆是 user 级动态事实,靠逐条打分衰减和冲突消解。两者的更新机制独立,别用一个逻辑硬套。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>时间衰减</b>:记忆分数随时间指数下降,模拟遗忘。</div>
+      <div class="term-item"><b>遗忘曲线</b>:艾宾浩斯曲线,记忆随时间的保持规律。</div>
+      <div class="term-item"><b>冷热分层</b>:按活跃度分存储层级、分级检索。</div>
+      <div class="term-item"><b>冲突消解</b>:新旧事实矛盾时以新覆盖旧。</div>
+      <div class="term-item"><b>LFU</b>:Least Frequently Used,按访问频率淘汰。</div>
+    </div>
+  </div>
+</article>

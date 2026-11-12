@@ -1,0 +1,82 @@
+<article class="q" id="eval-004" data-topic="eval" data-title="如何设计Agent的灰度发布策略" data-difficulty="4" data-tags="灰度发布,上线策略" data-company="" data-source="P4Q2" data-kw="灰度发布 上线 策略 流量 回滚 指标 观察">
+
+      <div class="q-no">业务落地 · Q2</div>
+      <h3>如何设计 Agent 的灰度发布策略?</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#灰度发布</span><span class="tag">#上线策略</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"四个要素:<b>梯度</b>(1%→5%→20%→50%→100% 阶梯放量,每档观察期)<b>、维度</b>(按用户 hash 稳定分流,同一用户体验一致;先内部员工后真实用户)<b>、护栏</b>(每档设自动回滚阈值:解决率下降、投诉率上升、P99 翻倍,触发即秒级回滚)<b>、观测</b>(核心指标看板实时化,客服团队提前知会、随时待命)。Agent 特别点:<b>LLM 输出不确定性高,灰度时长要覆盖足够多的真实场景</b>,不是过 24 小时就放量。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>像<b>新菜试卖</b>:先让员工试吃(内部狗粮)→ 一家店小柜试卖(1%)→ 一个城市试点(20%)→ 全国上新(100%);每一步盯着<b>退货率和差评</b>(护栏指标),发现不对劲立刻下架这个城市的(回滚),货损可控;而不是一上来就全国铺货,炸了就是全国性事件。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 灰度梯度与观察期</b></p>
+        <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 780 178" role="img" aria-label="Agent 灰度发布阶梯放量">
+  <text class="sd-l" x="10" y="22">灰度阶梯放量 · 每档设观察期</text>
+  <rect class="sd-box-rose" x="10" y="40" width="128" height="60" rx="10"/>
+  <text class="sd-t" x="74" y="66" text-anchor="middle">内部试用</text>
+  <text class="sd-ts" x="74" y="84" text-anchor="middle">1~2周 · 零外部风险</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M138 70 L164 70"/>
+  <rect class="sd-box2" x="166" y="40" width="128" height="60" rx="10"/>
+  <text class="sd-t" x="230" y="66" text-anchor="middle">1%~5%</text>
+  <text class="sd-ts" x="230" y="84" text-anchor="middle">2~3天 · 盯错误点踩</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M294 70 L320 70"/>
+  <rect class="sd-box2" x="322" y="40" width="128" height="60" rx="10"/>
+  <text class="sd-t" x="386" y="66" text-anchor="middle">20%</text>
+  <text class="sd-ts" x="386" y="84" text-anchor="middle">3~5天 · 覆盖周末</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M450 70 L476 70"/>
+  <rect class="sd-box" x="478" y="40" width="128" height="60" rx="10"/>
+  <text class="sd-t" x="542" y="66" text-anchor="middle">50%</text>
+  <text class="sd-ts" x="542" y="84" text-anchor="middle">2~3天 · 双版本并存</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M606 70 L632 70"/>
+  <rect class="sd-box" x="634" y="40" width="128" height="60" rx="10"/>
+  <text class="sd-t" x="698" y="66" text-anchor="middle">100%</text>
+  <text class="sd-ts" x="698" y="84" text-anchor="middle">全面放量</text>
+  <rect class="sd-box-teal" x="10" y="118" width="752" height="44" rx="10"/>
+  <text class="sd-t" x="386" y="136" text-anchor="middle">旧版本保持热备 24~48h</text>
+  <text class="sd-ts" x="386" y="154" text-anchor="middle">护栏阈值（解决率↓ / 投诉↑ / P99翻倍）触发 → 秒级回滚</text>
+</svg>
+</div>
+        <p><b>2. 分流维度(比梯度更容易答错的地方)</b></p>
+        <ul>
+          <li><b>用户维度 hash</b>:同一用户永远同版本——A 版答一次 B 版答一次,人设不连贯,体验灾难。</li>
+          <li><b>场景维度</b>:可以先对低风险意图灰度(查订单先行),高风险意图(退款)晚开放——<b>按风险分层放量</b>是 Agent 灰度的特色。</li>
+          <li>白名单:VIP/大客户最后放量,或干脆钉死旧版本直到充分验证。</li>
+        </ul>
+        <p><b>3. 护栏与自动回滚(量化写出来)</b></p>
+        <table>
+          <tr><th>指标</th><th>回滚阈值(示例)</th></tr>
+          <tr><td>解决率/CSAT</td><td>较基线下降 &gt; 5pct</td></tr>
+          <tr><td>投诉/点踩率</td><td>环比上升 &gt; 50%</td></tr>
+          <tr><td>转人工率</td><td>突然飙升(用户被惹毛的先兆)</td></tr>
+          <tr><td>幻觉/引用失败</td><td>抽样 judge 分下降 &gt; 10%</td></tr>
+          <tr><td>技术面(P99/错误率)</td><td>P99 &gt; 2×基线,错误率 &gt; 2%</td></tr>
+        </table>
+        <p>回滚 = 配置开关拨回旧版本(秒级),旧版本<b>保持热备</b>;注意状态兼容:灰度期间产生的会话/数据,回滚后旧版本要能接住。</p>
+        <p><b>4. 组织配套(说出来了=落地过)</b></p>
+        <ul>
+          <li>客服/运营提前培训:用户问"你们机器人怎么变了",一线要有标准话术。</li>
+          <li>值班响应:灰度期 = 半个事故态,群里有专人盯,出问题 10 分钟内决策回滚。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:灰度期间两个版本的数据会互相污染吗?</summary><div class="an">分流按用户隔离,会话内不换版本,数据按版本打标——分析时分开看;注意"转人工后人工接管"的行为要归因到原版本。</div></details>
+        <details class="qa"><summary class="qu">Q:Prompt 级的小改动也要走灰度吗?</summary><div class="an">分级发布流程:改参数/温度=快速通道(1% 抽样回归);改 Prompt 主逻辑=标准灰度;改架构/模型=重灰度。全都要过评估集回归——自动化程度决定发布速度。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>吃狗粮</b>:内部先用自己的产品。</div>
+          <div class="term-item"><b>护栏指标</b>:跌破即自动回滚的阈值。</div>
+          <div class="term-item"><b>热备</b>:随时可切回的旧版本。</div>
+        </div>
+      </div>
+</article>

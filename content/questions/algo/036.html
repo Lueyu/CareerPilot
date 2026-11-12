@@ -1,0 +1,103 @@
+<article class="q" id="algo-036" data-topic="algo" data-title="最近读过的Agent前沿论文(ReAct等)" data-difficulty="3" data-tags="论文解读,Agent,前沿" data-company="" data-source="P6Q45" data-kw="Agent 论文 ReAct Reflexion Toolformer Voyager MetaGPT 前沿 问题 方法 实验 解读">
+
+  <div class="q-no">Agent算法 · Q45</div>
+  <h3>最近读过的 Agent 前沿论文</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#论文解读</span><span class="tag">#Agent</span><span class="tag">#前沿</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我按「问题 → 方法 → 实验 → 局限」四段讲一篇。以 <b>ReAct</b> 为例:问题是传统把<b>推理(CoT)</b>和<b>行动(调工具)</b>割裂——纯推理会幻觉、过时知识;纯行动短视、没规划。方法是让 LLM 生成 <b>Thought → Action → Observation</b> 交替的轨迹,在 few-shot prompt 里就实现,不改参数。实验在 HotpotQA/Fever 上,ReAct 超过纯行动 baseline,与 self-consistency 结合后达到当时最优,且更少幻觉、更可解释。局限是工具单一、长轨迹易发散。一句话:它证明了"推理和行动能互相增益",奠定了后续 Agent 工具调用的范式。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就像<b>考试时答题的三种学生</b>:第一种"只想不查"(纯 CoT)——逻辑头头是道,但知识点记错了还硬编;第二种"只查不想"(纯行动)——翻书翻到哪算哪,漫无目的;ReAct 是第三种"<b>想一步、查一步、看结果、再想一步</b>"——先想"我该查什么",查完看结果再判断下一步。外部事实纠正了瞎编,推理又给翻书指了方向,两者配合才答得又快又对。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 备选论文速览(面试先亮菜单,证明你在跟踪前沿)</b></p>
+    <table>
+      <tr><th>论文</th><th>一句话:解决什么问题 → 怎么做</th></tr>
+      <tr><td><b>ReAct</b>(2023)</td><td>推理与行动割裂 → 让 LLM 生成 Thought/Action/Observation 交织轨迹</td></tr>
+      <tr><td><b>Toolformer</b>(2023)</td><td>模型不会主动用工具 → 自监督学会在文本里插入 API 调用</td></tr>
+      <tr><td><b>Reflexion</b>(2023)</td><td>一次试错就完蛋 → 用「语言化反思」存进记忆,重试时吸取教训</td></tr>
+      <tr><td><b>Voyager</b>(2023)</td><td>开放世界里技能不会积累 → 代码当技能 + 技能库,终身学习</td></tr>
+      <tr><td><b>MetaGPT</b>(2023)</td><td>多 Agent 缺乏组织 → 模拟软件公司 SOP,角色分工流水线协作</td></tr>
+    </table>
+    <p><b>2. 以 ReAct 为例:问题(Problem)</b></p>
+    <ul>
+      <li>CoT 只推理不查外部信息,面对多跳问答、需要最新事实的任务会<b>幻觉、用过时知识硬编</b>。</li>
+      <li>Act-only 只调用工具不推理,<b>缺乏规划</b>,检索/行动像无头苍蝇。</li>
+      <li>核心假设:<b>推理和行动不是二选一,而是互补</b>——推理给行动提供目标与分解,行动给推理提供外部事实、抑制幻觉。</li>
+    </ul>
+    <p><b>3. 方法(Method):交织的 Thought/Action/Observation 轨迹</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 420 400" role="img" aria-label="ReAct 思考-行动-观察循环">
+  <rect class="sd-box-rose" x="130" y="10" width="160" height="52" rx="10"/>
+  <text class="sd-t" x="210" y="32" text-anchor="middle">用户问题</text>
+  <text class="sd-ts" x="210" y="50" text-anchor="middle">Apple 研发投入多少?</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M210 62 L210 84"/>
+  <rect class="sd-box" x="130" y="90" width="160" height="52" rx="10"/>
+  <text class="sd-t" x="210" y="112" text-anchor="middle">Thought 思考</text>
+  <text class="sd-ts" x="210" y="130" text-anchor="middle">先查财报研发支出</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M210 142 L210 164"/>
+  <rect class="sd-box-amber" x="130" y="170" width="160" height="52" rx="10"/>
+  <text class="sd-t" x="210" y="192" text-anchor="middle">Action 行动</text>
+  <text class="sd-ts" x="210" y="210" text-anchor="middle">Search[财报]</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M210 222 L210 244"/>
+  <rect class="sd-box-teal" x="130" y="250" width="160" height="52" rx="10"/>
+  <text class="sd-t" x="210" y="272" text-anchor="middle">Observation 观察</text>
+  <text class="sd-ts" x="210" y="290" text-anchor="middle">工具返回检索片段</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M130 276 C60 276 60 116 128 116"/>
+  <text class="sd-l" x="18" y="200" text-anchor="middle" transform="rotate(-90 18 200)">循环直到得出答案</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M210 302 L210 324"/>
+  <rect class="sd-box-rose" x="130" y="330" width="160" height="52" rx="10"/>
+  <text class="sd-t" x="210" y="352" text-anchor="middle">Answer 答案</text>
+  <text class="sd-ts" x="210" y="370" text-anchor="middle">给出带依据的结论</text>
+</svg>
+</div>
+    <ul>
+      <li>用 <b>few-shot 提示</b>给模型几条标注好的轨迹,模型照格式生成,<b>不更新参数</b>。</li>
+      <li>Thought 负责:分解问题、跟踪进度、处理异常(检索结果不对就换词);Action 调用外部工具(论文里是 Wikipedia Search);Observation 是工具返回,喂回给下一步。</li>
+    </ul>
+    <p><b>4. 实验(Experiment)</b></p>
+    <table>
+      <tr><th>设置</th><th>HotpotQA(EM,多跳问答)</th></tr>
+      <tr><td>仅行动(Act)</td><td>约 25.7</td></tr>
+      <tr><td>仅推理(CoT)</td><td>约 29.4</td></tr>
+      <tr><td><b>ReAct</b></td><td>约 27.4</td></tr>
+      <tr><td><b>ReAct + CoT-SC(自洽采样)</b></td><td>约 35.1(当时最优)</td></tr>
+    </table>
+    <p class="note">数字来自论文的 prompting 设置,不同模型/复现略有出入,精确值以原文为准。结论方向是稳的:ReAct &gt; 纯行动,且与 CoT 自洽结合后反超纯 CoT。</p>
+    <ul>
+      <li>关键结论:① ReAct 显著优于 act-only(证明"推理引导行动"有用);② ReAct+CoT-SC 优于 CoT-SC(证明"行动提供的真实信息反哺推理");③ 在 Fever(事实验证)上同样优于纯行动,且生成内容<b>更少幻觉、更可解释</b>。</li>
+    </ul>
+    <p><b>5. 局限与改进(主动讲,面试官爱听)</b></p>
+    <ul>
+      <li>工具单一(只有 Wikipedia 检索),真实场景要扩展到多工具/代码/API。</li>
+      <li>长轨迹容易发散、重复调用、token 成本高 → 后续用反思(Reflexion)、工具结果缓存、轨迹压缩解决。</li>
+      <li>few-shot 依赖人工标注轨迹 → 可用合成数据/自举减少标注。</li>
+      <li>不更新模型参数,深层规划能力受限 → 可结合微调或强化学习。</li>
+    </ul>
+    <p><b>6. 讲论文的通用框架(方法论,换任何一篇都成立)</b>:① 先点<b>痛点</b>(之前方法为什么不行);② 一句话说清<b>方法核心机制</b>;③ 给<b>实验证据</b>(对比了谁、赢在哪、数字约多少);④ 主动谈<b>局限与可改进</b>。四段齐全,面试官就知道你是"读过"而非"刷过摘要"。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么不选更新的论文(如 Voyager / MetaGPT),而选 ReAct 这种稍早的?</summary><div class="an">ReAct 是"推理+行动"范式的奠基工作,ReWOO、Reflexion、Toolformer 乃至现在的 function calling 都建立在它之上,把它讲透最能体现基本功;同时我会补一两篇新论文说明我在跟踪前沿。反过来讲,选新论文的关键是能说清"它比 baseline 到底新在哪、牺牲了什么"——讲不出增量,再新的论文也白搭。</div></details>
+    <details class="qa"><summary class="qu">Q:ReAct 的贡献不就是 prompt 里多写几个词吗,创新点到底在哪?</summary><div class="an">表面是 prompt 工程,实质是两个洞察:① 从实验上证明"推理和行动互补"——推理提升信息检索与事实一致性,行动给推理提供外部事实、抑制幻觉,单干都不行;② 给出了可复用的 Thought/Action/Observation 轨迹格式,成为后续工具调用、Agent 循环(观察→思考→行动)的通用骨架。范式价值和实验证据一起,才是它被大量引用的原因。</div></details>
+    <details class="qa"><summary class="qu">Q:你会怎么改进 ReAct 的局限?</summary><div class="an">四方向:① 扩展到多工具与代码执行,并加工具选择的纠错;② 引入反思与记忆(Reflexion 思路),把失败经验存下来避免重复犯错;③ 用轨迹压缩/摘要控制长上下文成本,防止发散;④ 从纯提示升级到微调或 RL,让模型内化规划能力,而不是每次都靠 few-shot 示范。</div></details>
+    <details class="qa"><summary class="qu">Q:面试官问你"最近读了什么论文",最在意什么?</summary><div class="an">在意四件事:① 能说清问题痛点和"为什么之前方法不行";② 方法核心机制能一句话讲透,而不是背摘要;③ 实验证据——对比了谁、赢在哪、数量级大概多少;④ 敢讲局限。四段齐全说明真读过;只会背标题和结论,大概率是二手摘要。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>ReAct</b>:Reasoning + Acting,推理与行动交织的提示范式。</div>
+      <div class="term-item"><b>Chain-of-Thought</b>:让模型一步步写出推理过程再给答案。</div>
+      <div class="term-item"><b>Few-shot prompting</b>:给几个示例引导模型按指定格式输出。</div>
+      <div class="term-item"><b>Observation</b>:工具返回的结果,供模型下一步思考。</div>
+      <div class="term-item"><b>Self-Consistency</b>:多次采样投票取多数,提升推理准确性。</div>
+      <div class="term-item"><b>Thought/Action/Observation</b>:Agent 工具调用的通用循环骨架。</div>
+    </div>
+  </div>
+</article>

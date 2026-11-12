@@ -1,0 +1,95 @@
+<article class="q" id="rag-004" data-topic="rag" data-title="设计混合检索系统(向量+BM25+图检索)" data-difficulty="5" data-tags="混合检索,RAG,系统设计" data-company="" data-source="P1Q15" data-kw="混合检索 向量 BM25 图检索 RRF 融合 召回 精度 多跳 rerank">
+
+      <div class="q-no">系统设计 · Q15</div>
+      <h3>设计一个混合检索系统(向量 + BM25 + 图检索)</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐⭐</span>
+        <span class="tag">#混合检索</span><span class="tag">#RAG</span><span class="tag">#系统设计</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"三路<b>并行</b>检索:向量管语义改写、BM25 管精确关键词、图管多跳关系——每一路都有另外两路覆盖不了的失效场景。融合用 <b>RRF(倒数排名融合)</b>,因为它不需要跨引擎归一化分数;融合后可选 cross-encoder 重排。性能上三路并行、各自索引调优、图查询限制跳数;进阶做 <b>query 自适应路由</b>,按查询类型动态调三路权重。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>想象<b>找一个人</b>:向量检索是"按<b>长相气质</b>找"(描述性:"高高瘦瘦戴眼镜的程序猿")——换个说法也能找到,但容易找来一堆相似的;BM25 是"按<b>身份证号</b>找"(精确:"张伟,工号 8867")——一个字都不能差,但你说"那个写代码的张哥"它就懵了;图检索是"按<b>人际关系网</b>找"("他同组同事的 mentor")——多跳关系只有它能顺着链条查。三种合起来,才敢说"找得到"。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 为什么必须混合(先讲清每路的失效场景,本题的灵魂)</b></p>
+        <table>
+          <tr><th>检索路</th><th>强项</th><th>失效场景(必须有实例)</th></tr>
+          <tr><td><b>向量</b></td><td>同义改写("怎么退货"≈"退货政策")</td><td>型号编号("TB-2024-8867")、低频专有名词被 embedding"糊掉";黑话缩写(内行黑话训练语料里没有)</td></tr>
+          <tr><td><b>BM25</b></td><td>精确词匹配、编号、罕见词</td><td>同义改写失效:搜"退款"找不到"我不想买了该怎么办";跨语言查不到</td></tr>
+          <tr><td><b>图</b></td><td>多跳关系("A部门 leader 下属负责的项目文档")</td><td>建图成本高;节点名对不上("老王"≠"王工");孤立文档无关系可走</td></tr>
+        </table>
+        <p><b>2. 架构</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 856 222" role="img" aria-label="向量+BM25+图 三路混合检索架构">
+  <rect class="sd-box2" x="10" y="90" width="110" height="60" rx="10"/>
+  <text class="sd-t" x="65" y="116" text-anchor="middle">query</text>
+  <text class="sd-ts" x="65" y="134" text-anchor="middle">预处理·改写</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M120 120 L178 38"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M120 120 L178 108"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M120 120 L178 178"/>
+  <rect class="sd-box-teal" x="180" y="10" width="160" height="56" rx="10"/>
+  <text class="sd-t" x="260" y="34" text-anchor="middle">向量路</text>
+  <text class="sd-ts" x="260" y="52" text-anchor="middle">embedding→HNSW · 100ms</text>
+  <rect class="sd-box" x="180" y="80" width="160" height="56" rx="10"/>
+  <text class="sd-t" x="260" y="104" text-anchor="middle">BM25 路</text>
+  <text class="sd-ts" x="260" y="122" text-anchor="middle">分词→ES · 150ms</text>
+  <rect class="sd-box2" x="180" y="150" width="160" height="56" rx="10"/>
+  <text class="sd-t" x="260" y="174" text-anchor="middle">图路</text>
+  <text class="sd-ts" x="260" y="192" text-anchor="middle">实体→2跳 · 200ms</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M340 38 L388 108"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M340 108 L388 108"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M340 178 L388 108"/>
+  <rect class="sd-box" x="390" y="80" width="120" height="56" rx="10"/>
+  <text class="sd-t" x="450" y="104" text-anchor="middle">RRF 融合</text>
+  <text class="sd-ts" x="450" y="122" text-anchor="middle">top20</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M510 108 L558 108"/>
+  <rect class="sd-box-amber" x="560" y="80" width="140" height="56" rx="10"/>
+  <text class="sd-t" x="630" y="104" text-anchor="middle">Cross-Encoder</text>
+  <text class="sd-ts" x="630" y="122" text-anchor="middle">重排 top5</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M700 108 L748 108"/>
+  <rect class="sd-box-amber" x="750" y="80" width="90" height="56" rx="10"/>
+  <text class="sd-t" x="795" y="104" text-anchor="middle">生成</text>
+  <text class="sd-ts" x="795" y="122" text-anchor="middle">进 LLM</text>
+</svg></div>
+        <p><b>3. RRF 融合(公式要能写出来)</b></p>
+        <pre class="code">score(d) = Σ<sub>每路检索</sub> 1 / (k + rank<sub>该路</sub>(d))    <span class="c"># k 常取 60</span>
+<span class="c"># 例:文档A 在向量路排第2、BM25路排第10</span>
+<span class="c"># score = 1/(60+2) + 1/(60+10) ≈ 0.0307  → 比只在单路排第1的都高</span></pre>
+        <ul>
+          <li>RRF 的妙处:<b>只用排名不用分数</b>——向量库给相似度 0.83 和 ES 给 BM25 分 12.6 根本不可比,加权融合需要痛苦的归一化,RRF 直接绕开。</li>
+          <li>可扩展加权 RRF(重要的路 rank 减一个偏移),权重可配置。</li>
+        </ul>
+        <p><b>4. 图检索构建</b></p>
+        <ul>
+          <li>离线管道:文档 → 实体抽取(LLM)→ 实体消歧("老王/王工/王明"合并)→ 关系抽取 → 知识图谱( Neo4j );文档和实体双向索引。</li>
+          <li>在线:query 抽实体 → 图上 2 跳扩展 → 拉回关联文档。跳数限制 ≤2(性能+噪音控制)。</li>
+        </ul>
+        <p><b>5. 性能与平衡</b></p>
+        <ul>
+          <li>三路并行,整体延迟 = 最慢一路 → <b>设超时降级</b>(图路 250ms 没回来就先融合另外两路,慢的结果到了再补)。</li>
+          <li>召回率 vs 精度:topk 调大召回高但重排贵;重排只处理融合后 top20,成本可控。</li>
+          <li><b>自适应路由(加分项)</b>:轻量分类器判断 query 类型——含编号/专有名词 → BM25 权重高;语义描述 → 向量权重高;含关系词("谁的/属于哪个部门") → 图路启用。避免每次都跑三路,省延迟省钱。</li>
+        </ul>
+        <p><b>6. 评估</b>:分路评估(每路的 Recall@k)+ 融合后整体评估;用标注好的 query-文档对测试集回归。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:为什么用 RRF 而不是把三路分数加权求和?</summary><div class="an">① 跨引擎分数量纲不可比,归一化脆弱(分布漂移就失效);② 分数对异常值敏感(一个引擎的满分压制其他路);RRF 只用排名,天然免疫这两点。缺点是丢失分数信息,补救:融合后用 cross-encoder 重排找回精度。</div></details>
+        <details class="qa"><summary class="qu">Q:图检索建图成本高,什么时候才值得上?</summary><div class="an">有明确的多跳关系型查询需求且占比 &gt; 10~15%(组织架构、产品 BOM、依赖关系),或需要可解释的关联推理时才上;否则向量+BM25 够用——主动说"不过度设计"很加分。</div></details>
+        <details class="qa"><summary class="qu">Q:三路延迟差很大,怎么不让慢的拖死整体?</summary><div class="an">并行 + 超时截止(hedged request 思想);图路结果异步补发或只用于增强上下文;对延迟敏感场景干脆路由层就决定不用图。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>RRF</b>:倒数排名融合,k 常取 60。</div>
+          <div class="term-item"><b>Recall@k</b>:前 k 条结果包含正确文档的比例。</div>
+          <div class="term-item"><b>Cross-Encoder</b>:query 和文档拼一起打分的重排模型,准但慢。</div>
+          <div class="term-item"><b>实体消歧</b>:合并指向同一实体的不同叫法。</div>
+          <div class="term-item"><b>Hedged request</b>:对冲请求,先到先用。</div>
+        </div>
+      </div>
+</article>

@@ -1,0 +1,113 @@
+<article class="q" id="harness-020" data-topic="harness" data-title="Agent整体流程与模块设计" data-difficulty="2" data-tags="Agent架构,模块设计" data-company="字节 / 阿里" data-source="P5Q35" data-kw="Agent架构 模块设计 规划 记忆 工具 ReAct 感知 规划 行动 观察 状态 字节 阿里">
+
+  <div class="q-no">Agent核心 · Q35</div>
+  <h3>Agent整体流程是怎么做的？包括哪些模块？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐</span>
+    <span class="tag">#Agent架构</span><span class="tag">#模块设计</span>
+    <span class="company">字节 / 阿里</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"标准 Agent 是一个<b>『感知 → 规划 → 行动 → 观察』的循环</b>(即 ReAct 范式),由五个模块组成:① <b>LLM 推理核心</b>——大脑,负责理解和决策;② <b>规划模块</b>——拆解任务、生成计划;③ <b>工具调用模块</b>——把模型意图转成真实 API 调用并拿回结果;④ <b>记忆模块</b>——短期(上下文)+ 长期(向量库);⑤ <b>状态/编排模块</b>——维护会话状态、控制循环与重试。整体流程:用户输入 → 理解意图 → 规划 → 调用工具 → 拿到观察结果 → 反思是否完成 → 未完成继续循环、完成则输出。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>Agent 就是<b>一个带工具、会做计划的实习生</b>:老板(用户)布置任务 → 实习生先想"这事要分几步、需要什么资料"(<b>规划</b>)→ 打开电脑查数据库、调系统(<b>工具</b>)→ 看一眼查回来的结果对不对(<b>观察</b>)→ 不够就再查一轮,够了就交报告(<b>输出</b>)。他桌上贴着便签记当前进度(<b>短期记忆</b>),笔记本里存着长期经验(<b>长期记忆</b>)。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 核心循环(ReAct:Reasoning + Acting)</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 478 550" role="img" aria-label="Agent核心ReAct循环与五模块流程">
+  <rect class="sd-layer" x="4" y="8" width="470" height="534"/>
+  <text class="sd-l" x="16" y="26">Agent 核心循环 · 感知 → 规划 → 行动 → 观察</text>
+  <rect class="sd-box-rose" x="100" y="40" width="200" height="48" rx="10"/>
+  <text class="sd-t" x="200" y="68" text-anchor="middle">用户输入</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M200 88 L200 108"/>
+  <rect class="sd-box2" x="100" y="112" width="200" height="52" rx="10"/>
+  <text class="sd-t" x="200" y="134" text-anchor="middle">理解意图</text>
+  <text class="sd-ts" x="200" y="152" text-anchor="middle">意图 · 槽位识别</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M200 164 L200 184"/>
+  <rect class="sd-box" x="100" y="188" width="200" height="52" rx="10"/>
+  <text class="sd-t" x="200" y="210" text-anchor="middle">规划</text>
+  <text class="sd-ts" x="200" y="228" text-anchor="middle">拆解子任务</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M200 240 L200 260"/>
+  <rect class="sd-box-amber" x="100" y="264" width="200" height="52" rx="10"/>
+  <text class="sd-t" x="200" y="286" text-anchor="middle">行动</text>
+  <text class="sd-ts" x="200" y="304" text-anchor="middle">调用工具 / LLM 生成</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M200 316 L200 336"/>
+  <rect class="sd-box-teal" x="100" y="340" width="200" height="52" rx="10"/>
+  <text class="sd-t" x="200" y="362" text-anchor="middle">观察</text>
+  <text class="sd-ts" x="200" y="380" text-anchor="middle">拿回工具结果</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M200 392 L200 412"/>
+  <rect class="sd-box2" x="100" y="416" width="200" height="48" rx="10"/>
+  <text class="sd-t" x="200" y="444" text-anchor="middle">任务完成?</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M300 440 L338 440"/>
+  <text class="sd-ts" x="316" y="434" text-anchor="middle">是</text>
+  <rect class="sd-box" x="340" y="416" width="120" height="48" rx="10"/>
+  <text class="sd-t" x="400" y="440" text-anchor="middle">反思校验</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M400 464 L400 484"/>
+  <rect class="sd-box-teal" x="340" y="488" width="120" height="48" rx="10"/>
+  <text class="sd-t" x="400" y="516" text-anchor="middle">输出最终答案</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M100 440 L40 440 L40 214 L98 214"/>
+  <text class="sd-l" x="26" y="327" text-anchor="middle" transform="rotate(-90 26 327)">否 · 回到规划 / 行动</text>
+</svg></div>
+    <p>每一轮模型都看到"历史 + 最新观察",据此决定下一个动作(Thought→Action→Observation 循环),这是 LangChain/LangGraph 等框架的通用范式。</p>
+    <p><b>2. 五大模块逐一拆</b></p>
+    <ul>
+      <li><b>LLM 推理核心</b>:一切决策的起点。负责理解意图、决定调用哪个工具、组织最终答案。能力上限基本由它决定。</li>
+      <li><b>规划模块</b>:复杂任务先拆子任务(可静态拆解,也可每步动态规划);输出"下一步做什么"。</li>
+      <li><b>工具调用模块</b>:把模型输出转成 <b>function call</b>,做参数校验、执行、超时控制、错误归一化;工具描述(schema)要喂给模型。</li>
+      <li><b>记忆模块</b>:<b>短期</b>=当前对话/中间结果(上下文窗口,有限);<b>长期</b>=向量库/知识库/用户画像(检索增强);还有<b>工作记忆</b>=当前任务状态。</li>
+      <li><b>状态与编排模块</b>:维护 State、控制循环次数、重试、超时、断点恢复——工程上的"骨架"。</li>
+    </ul>
+    <p><b>3. 一个完整的链路举例(电商客服查订单)</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 366 494" role="img" aria-label="电商客服查订单ReAct执行链路">
+  <rect class="sd-layer" x="4" y="8" width="358" height="478"/>
+  <text class="sd-l" x="16" y="26">电商客服查订单 · ReAct 执行链路</text>
+  <rect class="sd-box-rose" x="50" y="40" width="300" height="48" rx="10"/>
+  <text class="sd-t" x="200" y="60" text-anchor="middle">用户输入</text>
+  <text class="sd-ts" x="200" y="78" text-anchor="middle">「帮我查订单到哪了」</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M200 88 L200 108"/>
+  <rect class="sd-box2" x="50" y="112" width="300" height="52" rx="10"/>
+  <text class="sd-t" x="200" y="134" text-anchor="middle">理解意图</text>
+  <text class="sd-ts" x="200" y="152" text-anchor="middle">意图=查物流 · 缺订单号</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M200 164 L200 184"/>
+  <rect class="sd-box" x="50" y="188" width="300" height="52" rx="10"/>
+  <text class="sd-t" x="200" y="210" text-anchor="middle">规划</text>
+  <text class="sd-ts" x="200" y="228" text-anchor="middle">①问单号 ②调物流API ③组织答复</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M200 240 L200 260"/>
+  <rect class="sd-box-amber" x="50" y="264" width="300" height="56" rx="10"/>
+  <text class="sd-t" x="200" y="284" text-anchor="middle">行动1 · 反问单号</text>
+  <text class="sd-ts" x="200" y="302" text-anchor="middle">Observation：用户给 TB-123</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M200 320 L200 340"/>
+  <rect class="sd-box-amber" x="50" y="344" width="300" height="56" rx="10"/>
+  <text class="sd-t" x="200" y="364" text-anchor="middle">行动2 · 调物流API</text>
+  <text class="sd-ts" x="200" y="382" text-anchor="middle">Obs：已到 XX 中转</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M200 400 L200 420"/>
+  <rect class="sd-box-teal" x="50" y="424" width="300" height="56" rx="10"/>
+  <text class="sd-t" x="200" y="444" text-anchor="middle">判断 · 输出</text>
+  <text class="sd-ts" x="200" y="462" text-anchor="middle">任务完成 → 组织答复送达</text>
+</svg></div>
+    <p><b>4. 单 Agent 到多 Agent 的扩展</b></p>
+    <ul>
+      <li>流程变复杂、工具变多后,可把"规划/执行/验证"拆成不同 Agent(Supervisor、Executor、Critic),各自是上面这套循环的实例,共享状态协作。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:ReAct 和单纯的"让模型直接回答"差在哪?</summary><div class="an">直接回答只能靠模型内部知识,遇到需要实时数据、精确计算、调用系统的事就会瞎编;ReAct 让模型<b>把"我需要什么信息"变成真实的工具调用</b>,拿到真实结果再推理,把幻觉和不准确压下去。代价是多轮调用、更慢更贵,所以简单问答仍走直答。</div></details>
+    <details class="qa"><summary class="qu">Q:记忆模块短期和长期怎么分工?</summary><div class="an">短期记忆塞进上下文,快但有长度上限、跨会话丢失;长期记忆放向量库/结构化库,跨会话持久、需检索。实践:<b>短期放"本次对话最关键的状态",长期放"可复用的知识/用户画像",需要时检索回来注入上下文</b>。</div></details>
+    <details class="qa"><summary class="qu">Q:Agent 循环怎么防止一直转下去?</summary><div class="an">设<b>最大迭代次数</b>(如 8~10 轮)+ <b>总 token/时间预算</b>,超限强制收敛:取当前最佳结果输出,或转人工/降级直答。再加"连续 N 轮无实质进展则熔断"的检测。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>ReAct</b>:Reasoning+Acting,边想边调用工具的循环范式。</div>
+      <div class="term-item"><b>Function calling</b>:模型按 schema 输出结构化工具调用。</div>
+      <div class="term-item"><b>短期/长期记忆</b>:上下文内 vs 外置可检索的记忆。</div>
+      <div class="term-item"><b>State</b>:Agent 在节点间流转的共享状态对象。</div>
+      <div class="term-item"><b>Observation</b>:工具/环境返回的观察结果,喂回模型。</div>
+    </div>
+  </div>
+</article>

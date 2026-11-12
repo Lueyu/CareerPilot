@@ -1,0 +1,79 @@
+<article class="q" id="harness-007" data-topic="harness" data-title="LLM规划能力主流方法CoT ToT GoT" data-difficulty="3" data-tags="Agent,规划,思维链" data-company="字节 / 阿里（高频）" data-source="P5Q3" data-kw="规划 CoT ToT GoT 思维链 自我一致性 Reflexion PlanAndExecute 任务分解 字节 阿里">
+
+  <div class="q-no">Agent核心 · Q3</div>
+  <h3>在 Agent 的设计中，"规划能力"至关重要。请谈谈目前有哪些主流方法可以赋予 LLM 规划能力？（例如 CoT, ToT, GoT等）</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#Agent</span><span class="tag">#规划</span><span class="tag">#思维链</span>
+    <span class="company">字节 / 阿里（高频）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我按三条主线讲:<b>① 推理路径增强</b>——CoT 让模型逐步推理、Self-Consistency 采样多条投票、ToT 把推理变成树做搜索、GoT 进一步升级成图支持合并汇聚;<b>② 反思修正</b>——Reflexion 让模型自我批评、失败后重试;<b>③ 任务分解执行</b>——Plan-and-Execute 先列步骤再逐步执行、ReWOO 把「计划」和「观察」解耦省 token。选型原则:简单任务 CoT 就够,需要回溯探索的复杂问题才上 ToT/GoT,长流程执行用 Plan-and-Execute。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>把规划想成<b>做一道数学大题的不同打法</b>:CoT 是"一步一步写过程"(线性);Self-Consistency 是"同一题做好几遍,哪个答案出现得多选哪个"(投票);ToT 是"每一步先想出好几个分支,哪个有希望走哪条,死路赶紧回头"(像下棋的搜索树);GoT 更进一步,允许"把两条路的结果合并成一条新思路"(图);Reflexion 是"做错了看一眼错在哪、记下来下次不犯"(复盘);Plan-and-Execute 是"先写个解题步骤大纲,再一步步执行"。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 为什么需要规划</b></p>
+    <ul>
+      <li>复杂任务(多步推理、多工具协作、长流程)无法一步到位,LLM 一次性生成容易遗漏、跑偏、幻觉。</li>
+      <li>规划 = 把任务<b>分解</b> + 选择<b>执行路径</b> + 依据<b>反馈调整</b>。</li>
+    </ul>
+    <p><b>2. CoT 与 Self-Consistency</b></p>
+    <ul>
+      <li><b>CoT(Chain-of-Thought)</b>:在 prompt 里给 few-shot 的"逐步推理"示例,或直接说 "Let's think step by step",把中间推理显式化(零样本版来自 Kojima 等)。</li>
+      <li><b>Self-Consistency</b>:同一问题采样 k 条推理路径,对最终答案多数投票。用"多路径"对抗单条路径的偶然错误,代价是调用次数 ×k。</li>
+    </ul>
+    <p><b>3. ToT(树状思维)</b></p>
+    <ul>
+      <li>把推理建模成<b>树</b>:每个节点 = 一个"思考状态",从当前状态生成 k 个候选下一步;用一个评估器(LLM 打分/启发式)给节点打分;用 BFS/DFS 搜索 + 剪枝,沿高分分支深入、回溯低分分支。</li>
+      <li>适合:需要探索多方案、可回溯的任务(24 点游戏、创意写作、解谜)。</li>
+      <li>代价:调用次数随深度指数级增长,贵且慢。</li>
+    </ul>
+    <p><b>4. GoT(图状思维)</b></p>
+    <ul>
+      <li>把树进一步泛化成<b>图</b>:多个想法可以<b>汇聚(combine/merge)</b>成一个新想法,支持聚合、循环、引用。</li>
+      <li>比 ToT 更灵活,适合需要"综合多个线索"的推理;但编排复杂度更高。</li>
+    </ul>
+    <p><b>5. 反思修正类</b></p>
+    <ul>
+      <li><b>Reflexion</b>:执行失败 → 模型生成"语言化反思"(我哪里错了、为什么)→ 存进记忆 → 带反思重试,类似"口头强化学习"。</li>
+      <li>配套还有 Self-Refine(自我纠错)、CRITIC(用外部工具校验)等。</li>
+    </ul>
+    <p><b>6. 任务分解执行类</b></p>
+    <ul>
+      <li><b>Plan-and-Execute</b>:先让模型输出一份"计划步骤列表",再逐步执行,执行中可 Replan。好处:长任务不丢目标、上下文更聚焦。</li>
+      <li><b>ReWOO</b>:把"规划"与"观察"解耦——先一次性生成完整计划(含工具调用占位),再批量执行、最后汇总,减少与环境反复交互的轮次,省 token、更可并行。</li>
+    </ul>
+    <p><b>7. 方法对比</b></p>
+    <table>
+      <tr><th>方法</th><th>结构</th><th>核心机制</th><th>代价 / 适用</th></tr>
+      <tr><td>CoT</td><td>线性链</td><td>逐步推理</td><td>便宜,通用</td></tr>
+      <tr><td>Self-Consistency</td><td>多条链</td><td>采样 + 投票</td><td>×k 调用,提升稳定性</td></tr>
+      <tr><td>ToT</td><td>树</td><td>分支 + 评估 + 回溯搜索</td><td>指数级,探索型任务</td></tr>
+      <tr><td>GoT</td><td>图</td><td>分支 + 汇聚 + 循环</td><td>更灵活,编排复杂</td></tr>
+      <tr><td>Reflexion</td><td>循环 + 记忆</td><td>失败反思重试</td><td>迭代提升,需评估器</td></tr>
+      <tr><td>Plan-and-Execute</td><td>计划 + 步骤</td><td>先规划后执行</td><td>长流程,可重规划</td></tr>
+    </table>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:CoT 为什么有效?有共识的解释吗?</summary><div class="an">学界还没有完全统一的理论,较主流的解释是:① 中间推理步骤给模型"更多计算空间"(把一步出答案拆成多步,逐 token 自回归过程中错误更易被修正);② 训练语料里含大量带步骤的解题/推导文本,CoT 更贴合这种分布;③ 对多跳推理问题,显式中间结论减少信息丢失。诚实的说法是"经验上有效 + 机制仍在研究",别硬编一个错误理论。</div></details>
+    <details class="qa"><summary class="qu">Q:ToT 调用成本这么高,什么时候才值得用?</summary><div class="an">当任务「有明确的中间状态和可评估的候选方案」,且「单条路径容易卡死、需要回溯」时才值得,比如解谜、数学搜索、创意/规划类。日常问答、摘要、翻译这些线性任务用 ToT 纯属浪费——讲出"按任务结构选方法"的判断力比背方法名更重要。</div></details>
+    <details class="qa"><summary class="qu">Q:规划能力靠 prompt 就够了,还是需要微调?</summary><div class="an">短平快用 prompt(CoT/ToT/ReAct)零成本、可迭代;但当模型(尤其小模型)规划格式不稳定、工具选择错率高、需要高并发低延迟时,要用规划/FC 数据做 SFT,把"规划+工具调用"内化成能力。两者不互斥,通常先 prompt 验证可行性,再蒸馏微调降本。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>CoT</b>:Chain-of-Thought,逐步推理提示。</div>
+      <div class="term-item"><b>Self-Consistency</b>:采样多条推理路径并投票。</div>
+      <div class="term-item"><b>ToT</b>:Tree of Thoughts,树状搜索推理。</div>
+      <div class="term-item"><b>GoT</b>:Graph of Thoughts,图结构推理(支持汇聚)。</div>
+      <div class="term-item"><b>Reflexion</b>:语言化反思 + 重试的自我改进。</div>
+      <div class="term-item"><b>Plan-and-Execute</b>:先规划步骤再逐步执行。</div>
+    </div>
+  </div>
+</article>

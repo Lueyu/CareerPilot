@@ -1,0 +1,71 @@
+<article class="q" id="algo-027" data-topic="algo" data-title="推导ContrastiveLoss(CLIP)的梯度" data-difficulty="4" data-tags="ContrastiveLoss,CLIP,梯度推导" data-company="" data-source="P6Q26" data-kw="ContrastiveLoss CLIP InfoNCE 梯度推导 对比学习 softmax 温度 图像 文本 归一化">
+
+  <div class="q-no">Agent算法 · Q26</div>
+  <h3>推导 Contrastive Loss(CLIP)的梯度</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#ContrastiveLoss</span><span class="tag">#CLIP</span><span class="tag">#梯度推导</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"CLIP 用的是<b>对称 InfoNCE 损失</b>:一个 batch 里 N 对图文,图像当 query、文本当候选做 softmax 分类,反过来再算一遍,两方向取平均。梯度推导的关键一步是<b>softmax 的经典结论:∂L/∂logit = p − y</b>——正确对(p 对角线上)的梯度是 (p_ii − 1),是负的、把正确相似度往上拉;其余负样本的梯度是 p_ij,正的、把负样本往下推,且<b>权重等于它当前被选中的概率</b>——越"难"的负样本被压得越狠。回传到 embedding 上,梯度方向 = 拉近匹配文本、推开"所有文本的 softmax 加权平均"。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>想象<b>老师教学生配对</b>:N 张照片配 N 句描述,老师(损失函数)要求每张照片只认领自己那一句描述。训练时,照片会对每句描述打一个"是我的可能性"(softmax 概率)。错认成别人的描述(负样本),就要被推开,而且<b>你越可能认错的那句,推得越用力</b>——就像考试里你最接近选错的那个迷惑选项,恰恰是最需要重点纠正的。这就是对比学习里"难负样本(hard negative)贡献更大梯度"的直觉。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 符号设定</b></p>
+    <ul>
+      <li>batch 含 N 对 (图像 xᵢ, 文本 yᵢ),i = 1…N。</li>
+      <li>编码器输出先做 <b>L2 归一化</b>到单位球:uᵢ = f_img(xᵢ)/‖f_img(xᵢ)‖,vⱼ = f_txt(yⱼ)/‖f_txt(yⱼ)‖。</li>
+      <li>相似度矩阵(含温度):L_ij = uᵢᵀvⱼ / τ,τ 为可学习温度(CLIP 初始化约 0.07)。</li>
+    </ul>
+    <p><b>2. 对称 InfoNCE 损失</b></p>
+    <pre class="code">L_img = −(1/N) Σᵢ log [ exp(L_ii) / Σⱼ exp(L_ij) ]   <span class="c"># 图像→文本方向:每行一个 softmax,正确标签是 i</span>
+L_txt = −(1/N) Σⱼ log [ exp(L_jj) / Σᵢ exp(L_ij) ]   <span class="c"># 文本→图像方向:每列一个 softmax</span>
+L     = ½ (L_img + L_txt)                            <span class="c"># 对称取平均</span></pre>
+    <p><b>3. 核心步骤:softmax 对 logit 的梯度</b></p>
+    <p>固定第 i 行,定义该行的 softmax 概率 p_ij = exp(L_ij) / Σₖ exp(L_ik),行损失 L_img⁽ⁱ⁾ = −log p_ii = −L_ii + log Σₖ exp(L_ik)。对任意 logit L_ij 求偏导:</p>
+    <pre class="code">∂L_img⁽ⁱ⁾ / ∂L_ij = −δ_ij + exp(L_ij)/Σₖ exp(L_ik)
+                  = p_ij − δ_ij          <span class="c"># δ_ij:j=i 时为 1,否则 0</span></pre>
+    <ul>
+      <li><b>正样本对(i,i)</b>:梯度 = p_ii − 1 ≤ 0,即"把正确相似度往上拉",且当前置信度越低(p_ii 越小),拉力越大。</li>
+      <li><b>负样本对(i,j≠i)</b>:梯度 = p_ij ≥ 0,即"把负样本往下推",推力正比于它当前被误选的软概率——<b>hard negative 梯度更大</b>。</li>
+      <li>写成矩阵就是 L_img 对 logit 矩阵 L 的梯度 = (P − I)/N,P 为逐行 softmax 后的概率矩阵。</li>
+    </ul>
+    <p><b>4. 回传到 embedding(链式法则)</b></p>
+    <pre class="code">∂L_ij/∂uᵢ = vⱼ/τ ,  ∂L_ij/∂vⱼ = uᵢ/τ</pre>
+    <pre class="code">∂L_img/∂uᵢ = (1/τ) Σⱼ (p_ij − δ_ij) vⱼ
+            = (1/τ)( Σⱼ p_ij vⱼ − vᵢ )     <span class="c"># 推开的是"所有文本的 softmax 加权平均"</span></pre>
+    <ul>
+      <li>直观:把图像 uᵢ 往它的配对文本 vᵢ 拉近,同时往"软化的文本质心 Σⱼ p_ij vⱼ"推远。文本方向对称同理。</li>
+      <li>温度 τ 出现在 1/τ 系数里:<b>τ 越小,softmax 越陡、梯度越大</b>,对比越"硬";τ 越大越"软"、越平滑。这是 τ 也参与学习的原因。</li>
+    </ul>
+    <p><b>5. 进阶细节:归一化层的 Jacobian</b></p>
+    <ul>
+      <li>若继续反传到归一化前的特征 a(令 u = a/‖a‖),则 ∂u/∂a = (I − uuᵀ)/‖a‖。</li>
+      <li>这一项把梯度投影到单位球的切平面,保证更新后仍"贴近"球面,梯度不会沿径向白白浪费。</li>
+    </ul>
+    <p><b>6. 理论意义(一句话)</b></p>
+    <p>InfoNCE 是互信息的下界:I(u;v) ≥ log N − L_InfoNCE。因此最小化该损失,等价于<b>最大化图像与文本表示互信息的下界</b>——这也是 CLIP 能让图文语义对齐到同一空间的理论依据。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么 CLIP 要对称地算两个方向,单方向不行吗?</summary><div class="an">单方向只把"图像做 query"的难度用上了,文本侧的"一文本对一图"的区分难度没被显式建模;对称损失让两边的表示都被等强度地拉齐,训练更稳定、对齐更对称。实践中也有只用单向的变体(如 SimCLR),但图文双塔场景通常对称更好。</div></details>
+    <details class="qa"><summary class="qu">Q:温度 τ 在这里起什么作用?为什么它也参与训练?</summary><div class="an">τ 控制 softmax 的"锐度"和梯度尺度(1/τ)。τ 太小→分布接近 one-hot、只学极难样本、数值不稳定;τ 太大→梯度太平、学不动。让 τ 可学习,模型就能自适应地找最优的对比强度,免去人工调参。</div></details>
+    <details class="qa"><summary class="qu">Q:batch size 对对比学习为什么这么关键?</summary><div class="an">InfoNCE 里负样本来自同一个 batch(N−1 个),batch 越大负样本越多样、互信息下界越紧、学到的表示越好,但显存压力也越大。所以才有 memory bank、MoCo 的动量队列、SimCLR 的大 batch 这些工程手段来"扩大负样本池"。</div></details>
+    <details class="qa"><summary class="qu">Q:L2 归一化 + 内积,和直接用点积比有什么好处?</summary><div class="an">归一化后相似度变成余弦相似度,数值被约束在 [−1,1],训练对特征尺度不敏感、更稳定;同时把"模长"这个无关自由度去掉,让模型专注学"方向",这对跨模态对齐(图与文特征天然不同尺度)尤其重要。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>InfoNCE</b>:基于 softmax 的对比损失,互信息下界。</div>
+      <div class="term-item"><b>Hard negative</b>:与正样本易混淆的负样本,梯度贡献大。</div>
+      <div class="term-item"><b>双塔结构</b>:图像、文本两个独立编码器,末尾对齐。</div>
+      <div class="term-item"><b>温度 τ</b>:缩放 logit 的超参/参数,控制对比锐度。</div>
+      <div class="term-item"><b>MoCo</b>:用动量队列扩大负样本池的对比学习框架。</div>
+    </div>
+  </div>
+</article>

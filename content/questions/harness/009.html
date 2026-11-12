@@ -1,0 +1,86 @@
+<article class="q" id="harness-009" data-topic="harness" data-title="多智能体系统优势与引入的复杂性" data-difficulty="4" data-tags="MultiAgent,协作,系统设计" data-company="字节、阿里（高频）" data-source="P5Q9" data-kw="MultiAgent 多智能体 协作 编排 Supervisor 状态 通信 成本 误差级联 单Agent 对比">
+
+  <div class="q-no">Agent核心 · Q9</div>
+  <h3>什么是多智能体系统？让多个 LLM Agent 协同工作相比于单个 Agent 有什么优势？又会引入哪些新的复杂性？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#MultiAgent</span><span class="tag">#协作</span><span class="tag">#系统设计</span>
+    <span class="company">字节、阿里（高频）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"多智能体系统(MAS)是<b>让多个各司其职的 LLM Agent 通过消息或共享状态协作完成任务</b>的架构,典型是 Supervisor 调度多个专家 Agent。相对单 Agent 有四个优势:<b>任务专注</b>(每个 Agent 上下文小、工具少,准确率更高)、<b>并行执行</b>、<b>独立迭代</b>(模块化)、<b>故障隔离</b>。但代价也很明确:<b>协作开销、状态一致性、误差级联、调试与成本</b>都更复杂。结论:任务可拆、各子任务工具差异大才值得上多 Agent,简单线性任务单 Agent 更稳——能说出这个 trade-off 才是加分项。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就是<b>医院分诊台</b> vs <b>全科医生</b>:分诊台(Supervisor)把病人派给各科专家,专家设备更精(工具更专)、看得更准(上下文更聚焦)、还能同时看几位病人(并行);但代价是<b>挂号、转科、会诊</b>这些协调成本,以及信息在科室间传递时<b>可能传错、传丢</b>。小毛病找全科医生反而又快又便宜——<b>不是越拆越好</b>。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 是什么:多 Agent 的典型结构</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 560 290" role="img" aria-label="Supervisor 多智能体架构">
+  <rect class="sd-box-amber" x="160" y="16" width="240" height="64" rx="10"/>
+  <text class="sd-t" x="280" y="44" text-anchor="middle">Supervisor Agent</text>
+  <text class="sd-ts" x="280" y="62" text-anchor="middle">意图理解 · 任务拆解 · 结果汇总</text>
+  <path class="sd-a" d="M280 80 L280 106"/>
+  <path class="sd-a" d="M110 106 L450 106"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M110 106 L110 136"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M280 106 L280 136"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M450 106 L450 136"/>
+  <rect class="sd-box" x="35" y="140" width="150" height="64" rx="10"/>
+  <text class="sd-t" x="110" y="168" text-anchor="middle">Agent A</text>
+  <text class="sd-ts" x="110" y="186" text-anchor="middle">工具集 Ta</text>
+  <rect class="sd-box" x="205" y="140" width="150" height="64" rx="10"/>
+  <text class="sd-t" x="280" y="168" text-anchor="middle">Agent B</text>
+  <text class="sd-ts" x="280" y="186" text-anchor="middle">工具集 Tb</text>
+  <rect class="sd-box" x="375" y="140" width="150" height="64" rx="10"/>
+  <text class="sd-t" x="450" y="168" text-anchor="middle">Agent C</text>
+  <text class="sd-ts" x="450" y="186" text-anchor="middle">工具集 Tc</text>
+  <path class="sd-an" marker-end="url(#sd-arr)" d="M110 224 L110 208"/>
+  <path class="sd-an" marker-end="url(#sd-arr)" d="M280 224 L280 208"/>
+  <path class="sd-an" marker-end="url(#sd-arr)" d="M450 224 L450 208"/>
+  <rect class="sd-layer" x="90" y="228" width="380" height="44" rx="10"/>
+  <text class="sd-l" x="280" y="253" text-anchor="middle">通信：共享状态 State 中转 或 消息 Message 传递</text>
+</svg>
+</div>
+    <p><b>2. 相比单 Agent 的优势(为什么值得拆)</b></p>
+    <ul>
+      <li><b>上下文专注</b>:单 Agent 要把所有工具说明、全部职责塞进一个 system prompt,工具一多(30+)选错率明显上升;拆开后每个 Agent 提示词更精、工具更少,单点准确率更高。</li>
+      <li><b>并行执行</b>:多个独立子任务同时跑,总延迟从"串行累加"变"取最长的一条"。</li>
+      <li><b>独立迭代</b>:各 Agent 独立开发、评估、回滚,团队也好分工。</li>
+      <li><b>故障与权限隔离</b>:某个 Agent 挂掉或被注入攻击,影响被限制在自己的职责和工具范围内。</li>
+    </ul>
+    <p><b>3. 引入的新复杂性(必须主动讲,这是本题的"第二半")</b></p>
+    <ul>
+      <li><b>协作开销</b>:多一次"调度→执行→汇总"就多几次 LLM 调用,token 成本和延迟都会上升。</li>
+      <li><b>状态一致性</b>:共享状态谁来改、怎么合并、并发时会不会互相覆盖——需要 reducer/锁/版本控制。</li>
+      <li><b>误差级联</b>:上游 Agent 输出错,下游基于错误输入继续,错误会<b>逐级放大</b>,比单 Agent 更难定位。</li>
+      <li><b>通信协议设计</b>:Agent 之间自由对话难以收敛(踢皮球、跑题),一般要靠 Supervisor 中转或强约束收敛。</li>
+      <li><b>调试与可观测</b>:链路变长,出问题要跨多个 Agent 追踪,单步埋点和 trace 是刚需。</li>
+      <li><b>评估更复杂</b>:除了端到端,还要拆到每个 Agent 单独评估,否则不知道是哪个环节掉链子。</li>
+    </ul>
+    <p><b>4. 什么时候该用(决策标准)</b></p>
+    <ul>
+      <li>任务能<b>自然切分成职责边界清晰的子任务</b>,且各子任务需要的工具/知识差异大 → 适合多 Agent。</li>
+      <li>任务线性、工具 &lt; 10 个、流程简单 → 单 Agent 更简单可靠,别为了"看起来高级"硬拆。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:多个 Agent 之间怎么通信?是自由对话吗?</summary><div class="an">生产里不推荐自由对话式(易跑题、难收敛),更常用两种:① <b>共享状态 + Supervisor 中转</b>——子 Agent 写结果到 State,Supervisor 决定下一步(可控、好调试);② <b>消息/任务协议</b>——结构化消息(如 A2A 协议)显式传递任务。自由对话(AutoGen 风格)适合原型探索。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么防止多 Agent 互相踢皮球或死循环?</summary><div class="an">路由职责集中在 Supervisor,子 Agent 只执行不转发;设最大调度轮次和 token 预算;Supervisor 路由置信度低时主动反问用户或转人工;状态无变化则判定死循环熔断。</div></details>
+    <details class="qa"><summary class="qu">Q:多 Agent 一定会比单 Agent 效果好吗?</summary><div class="an">不一定。多 Agent 的收益来自"职责切分",代价是协作开销和误差级联。如果任务本身是单一路径,拆开反而引入额外的调度误差和成本。正确做法是<b>用任务特性决定架构</b>,并用端到端指标做 AB 对照,而不是默认"越多越好"。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么评估一个多 Agent 系统?</summary><div class="an">两层:端到端(任务成功率、延迟、成本、转人工率)+ 单 Agent(各自的任务成功率、工具调用准确率)。配合全链路 trace,把"整体失败"定位到"具体某个 Agent 的某一步",再针对性优化。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>MAS</b>:Multi-Agent System,多智能体系统。</div>
+      <div class="term-item"><b>Supervisor 模式</b>:主管 Agent 统一调度子 Agent 的星型架构。</div>
+      <div class="term-item"><b>误差级联</b>:上游错误沿链路逐级放大。</div>
+      <div class="term-item"><b>共享状态</b>:多个 Agent 通过同一 State 对象交换信息。</div>
+      <div class="term-item"><b>上下文隔离</b>:各 Agent 只拿自己需要的上下文,更小更准。</div>
+    </div>
+  </div>
+</article>

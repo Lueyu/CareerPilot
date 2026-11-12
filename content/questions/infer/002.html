@@ -1,0 +1,70 @@
+<article class="q" id="infer-002" data-topic="infer" data-title="如何优化LLM的推理吞吐量" data-difficulty="4" data-tags="推理优化,吞吐量,LLM" data-company="" data-source="P2Q5" data-kw="推理 吞吐量 优化 vLLM PagedAttention KV Cache 量化 batch 并行 投机解码">
+
+      <div class="q-no">工程实践 · Q5</div>
+      <h3>如何优化 LLM 的推理吞吐量?</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#推理优化</span><span class="tag">#吞吐量</span><span class="tag">#LLM</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"私有化部署场景下,首选直接上 <b>vLLM</b>:PagedAttention 解决 KV Cache 内存碎片 + <b>continuous batching</b> 迭代级调度,两者合计吞吐提升一个数量级;然后按序:<b>前缀缓存</b>复用共享 Prompt 的 KV、<b>量化</b>(INT8/FP8/AWQ)省显存多塞并发、多卡 <b>tensor parallel</b>、激进一点上<b>投机解码</b>。同时要提醒:吞吐和延迟是 trade-off,离线批量场景重吞吐,在线对话重 TTFT,优化目标先讲清楚。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>像<b>出租车 vs 公交</b>:传统推理是出租车,一个乘客跑一趟,就算拼车也要等满一车才发车(静态 batch);<b>continuous batching 是地铁</b>——到站就上人、到站就下人,车厢永远满载在跑。KV Cache 优化则是"探过的路修成近道"(已算过的部分不用重算);量化是"车厢改双层"(同样显存塞更多请求)。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. Continuous Batching(吞吐之王,先讲这个)</b></p>
+        <ul>
+          <li>传统静态 batch:凑一批一起进、一起出——短答案的请求干等长答案的, GPU 大量空转。</li>
+          <li>Continuous batching:<b>迭代级调度</b>,每生成一个 token 检查一次,完成的立刻退出、新请求立刻插入,GPU 永远满载。实测吞吐 3~10 倍。</li>
+        </ul>
+        <p><b>2. PagedAttention(vLLM 的核心创新)</b></p>
+        <ul>
+          <li>KV Cache(每个请求的中间计算缓存)传统按最大长度预留连续显存,<b>碎片率 60%~80%</b>。</li>
+          <li>PagedAttention 借操作系统分页思想:KV Cache 切成固定 block 按需分配,碎片 &lt; 4%——同样一张卡并发容量翻几倍。</li>
+        </ul>
+        <p><b>3. KV Cache 相关的其他优化</b></p>
+        <ul>
+          <li><b>前缀缓存(prefix caching)</b>:系统提示词相同的请求共享同一份 KV——Agent 场景每轮都带同一大段系统提示词,命中后<b>输入计算几乎免单</b>,TTFT 大幅下降。vLLM 开 enable_prefix_caching 即用。</li>
+          <li>MQA/GQA:模型架构层面减少 KV 头数(选型时留意,新模型基本都支持)。</li>
+        </ul>
+        <p><b>4. 量化</b></p>
+        <ul>
+          <li>INT8/FP8(W8A8)权重量化:显存减半、吞吐 +30~50%,精度损失 &lt; 1%,<b>工程上基本白赚</b>;AWQ/GPTQ 4bit 更省但速度看情况;优先试 FP8(新卡原生支持)。</li>
+        </ul>
+        <p><b>5. 并行与调度</b></p>
+        <ul>
+          <li><b>Tensor parallel</b>:单请求大模型拆多卡(显存不够时的选择,通信开销换容量)。</li>
+          <li>请求级并行:多实例 + 负载均衡,最朴素最有效。</li>
+        </ul>
+        <p><b>6. 投机解码(激进选项)</b></p>
+        <ul>
+          <li>小模型先草拟 k 个 token,大模型一次并行验证,对了一起收下——<b>数学上结果无损</b>(还是大模型分布),速度 2~3 倍。适合容易"猜中"的任务(格式化输出、代码)。</li>
+        </ul>
+        <p><b>7. 别忘目标声明(体现工程判断)</b></p>
+        <table>
+          <tr><th>场景</th><th>优化目标</th><th>侧重</th></tr>
+          <tr><td>在线对话</td><td>TTFT 低</td><td>前缀缓存、小模型、限制并发保延迟</td></tr>
+          <tr><td>离线批量(评估/摘要)</td><td>吞吐高、成本低</td><td>满血 continuous batching、Batch API、大 batch</td></tr>
+        </table>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:为什么不用更高 batch 就完了?</summary><div class="an">batch 提升吞吐但推高单请求延迟(排队+计算分片);在线场景有 SLO(如 TTFT&lt;500ms),要在 SLO 约束下求最大吞吐——vLLM 的调度就是在做这个平衡。</div></details>
+        <details class="qa"><summary class="qu">Q:量化掉精度怎么发现?</summary><div class="an">量化前后跑同一套评估集(困惑度+任务指标),差异在阈值内才上线;灰度切流量观察质量指标。</div></details>
+        <details class="qa"><summary class="qu">Q:了解 SGLang/TensorRT-LLM 吗?</summary><div class="an">SGLang:RadixAttention 把前缀缓存做到极致+结构化输出快;TensorRT-LLM:NVIDIA 官方,深度_kernel 优化,极致性能但部署门槛高;vLLM 生态最通用——按团队运维能力选。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>KV Cache</b>:生成过程的中间缓存,避免重复计算。</div>
+          <div class="term-item"><b>Continuous batching</b>:迭代级动态拼车。</div>
+          <div class="term-item"><b>PagedAttention</b>:KV Cache 分页管理,消灭碎片。</div>
+          <div class="term-item"><b>投机解码</b>:小模型打草稿大模型批改。</div>
+          <div class="term-item"><b>TP</b>:张量并行,模型拆卡。</div>
+        </div>
+      </div>
+</article>

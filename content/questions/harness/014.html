@@ -1,0 +1,90 @@
+<article class="q" id="harness-014" data-topic="harness" data-title="Agent误判导致策略冲突如何处理" data-difficulty="3" data-tags="错误处理,容错机制" data-company="字节(真题)" data-source="P5Q19" data-kw="策略冲突 误判 仲裁 回滚 补偿 置信度 转人工 HITL 容错 错误处理 字节">
+
+  <div class="q-no">Agent核心 · Q19</div>
+  <h3>如果一个agent误判导致策略冲突，如何处理？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#错误处理</span><span class="tag">#容错机制</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我把它拆成<b>事前预防、事中拦截、事后闭环</b>三步。事前:给动作设置信度阈值,低置信度或高风险动作先草拟不落地;事中:用一个<b>冲突检测器</b>在执行前拦截矛盾动作——规则校验先行(毫秒级),拿不准再上 LLM 做一致性判断,冲突时按『安全 &gt; 业务 &gt; 体验』的优先级仲裁,实在定不了转人工;事后:把动作设计成<b>可逆/可补偿</b>的,已经产生副作用的走补偿或人工修复,并把这次 bad case 记下来回流优化判断器。核心思想是<b>让冲突在执行前就被拦住,而不是执行后收拾烂摊子</b>。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像一家公司里<b>两个部门同时下互相打架的指令</b>:销售说要"给客户破例放行",风控说"必须拦截"。解决办法是设一个<b>总调度台</b>:重要决策先过一遍规则看有没有冲突(事前预演),真有矛盾就按"安全第一"拍板(仲裁),拿不准的报给老板(转人工);万一指令已经发出去造成损失,启动<b>善后流程</b>把钱退回来(补偿)。最重要的是——下次同类指令,调度台记住了这个坑,不再犯(闭环回流)。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 先定义清楚:什么叫"策略冲突"</b></p>
+    <ul>
+      <li>两个(或多个)策略/模块针对<b>同一个状态</b>输出<b>矛盾的动作</b>。典型例子:风控策略要求"拦截这笔转账",而客服 Agent 为了满足用户要求输出"放行";或者路由层把请求发往 A 流程、而规划层认为应该走 B 流程。</li>
+      <li>冲突有两种来源:① <b>真冲突</b>——两条策略本身目标就对立(安全 vs 体验);② <b>误判冲突</b>——模型看错了输入(把"不发货"理解成"发货"),导致动作本不该冲突却冲突了。面试时先区分这两类,是加分项。</li>
+    </ul>
+    <p><b>2. 事前预防(让误判少发生)</b></p>
+    <ul>
+      <li><b>置信度阈值</b>:判断器输出带概率,低于阈值(如 &lt; 0.7)不自动执行,改为反问澄清或转人工。</li>
+      <li><b>动作白名单 + 分级授权</b>:读操作可以自动,写操作/敏感操作(退款、改单、外呼)必须二次确认或人工审批,把"可能犯错"的动作限制在最小圈。</li>
+      <li><b>两段式工具</b>:先"预览"出将要执行的动作让上层校验,校验通过才"执行"。</li>
+    </ul>
+    <p><b>3. 事中检测与仲裁(核心)</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 820 200" role="img" aria-label="Agent 误判冲突检测与仲裁">
+  <rect class="sd-box-rose" x="200" y="14" width="100" height="52" rx="10"/>
+  <text class="sd-t" x="250" y="36" text-anchor="middle">拦截</text>
+  <text class="sd-ts" x="250" y="54" text-anchor="middle">命中冲突</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M250 110 L250 68"/>
+  <rect class="sd-box-amber" x="14" y="110" width="132" height="60" rx="10"/>
+  <text class="sd-t" x="80" y="136" text-anchor="middle">Agent 决策输出</text>
+  <text class="sd-ts" x="80" y="154" text-anchor="middle">动作·置信度·理由</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M146 140 L176 140"/>
+  <rect class="sd-box" x="180" y="110" width="140" height="60" rx="10"/>
+  <text class="sd-t" x="250" y="136" text-anchor="middle">规则冲突检测</text>
+  <text class="sd-ts" x="250" y="154" text-anchor="middle">硬性约束·状态机</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M320 140 L348 140"/>
+  <rect class="sd-box-amber" x="352" y="110" width="140" height="60" rx="10"/>
+  <text class="sd-t" x="422" y="136" text-anchor="middle">LLM 一致性检查</text>
+  <text class="sd-ts" x="422" y="154" text-anchor="middle">语义层·多策略投票</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M492 140 L520 140"/>
+  <rect class="sd-box" x="524" y="110" width="120" height="60" rx="10"/>
+  <text class="sd-t" x="584" y="136" text-anchor="middle">仲裁器</text>
+  <text class="sd-ts" x="584" y="154" text-anchor="middle">优先级·置信度·规则</text>
+  <path class="sd-an" marker-end="url(#sd-arr)" d="M644 140 L660 140"/>
+  <rect class="sd-box-rose" x="664" y="110" width="122" height="60" rx="10"/>
+  <text class="sd-t" x="725" y="136" text-anchor="middle">转人工 HITL</text>
+  <text class="sd-ts" x="725" y="154" text-anchor="middle">无法判定·人工兜底</text>
+  <text class="sd-ts" x="335" y="183" text-anchor="middle">未命中·有风险 → 进入语义层</text>
+</svg>
+</div>
+    <ul>
+      <li><b>仲裁优先级</b>:安全策略 &gt; 业务策略 &gt; 体验优化;确定性规则 &gt; 模型判断;高置信度 &gt; 低置信度。</li>
+      <li><b>规则先行</b>:把"绝对不允许"的约束写成确定性规则(白名单/黑名单/状态机),这些不该交给 LLM 判断——规则是兜底的最后一道墙。</li>
+      <li><b>失败降级</b>:检测到冲突但无法仲裁时,绝不硬着头皮选一个,而是回退到安全默认值(如"拦截")或转人工,保证<b>宁可慢,不可错</b>。</li>
+    </ul>
+    <p><b>4. 事后回滚与补偿</b></p>
+    <ul>
+      <li><b>可逆设计</b>:动作尽量设计成可撤销(带 undo 能力),状态变更走事务/状态机落库,支持回放。</li>
+      <li><b>补偿(Saga 思想)</b>:副作用已发生时(如已扣款),触发补偿动作(退款/恢复),而不是指望模型自己"认错"。</li>
+      <li><b>审计留痕</b>:决策理由、置信度、仲裁结果全程记录,既能归因,也能作为后续优化数据。</li>
+    </ul>
+    <p><b>5. 事后闭环</b>:把每次冲突存成 bad case → 定期复盘是"真冲突"还是"误判" → 误判类回流到判断器(补数据/调阈值/加规则),让系统越用越稳。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:你怎么判断这次是"误判"而不是"两个策略真的矛盾"?</summary><div class="an">回溯整条决策链:看输入是否歧义、判断器置信度多少、换强模型重判结果是否一致。如果强模型也左右摇摆,说明是输入歧义导致的误判,该修输入或加澄清;如果多策略在正确输入下仍天然对立,就是真冲突,该在策略层定优先级而不是怪模型。</div></details>
+    <details class="qa"><summary class="qu">Q:加一层冲突检测会不会拖慢响应?</summary><div class="an">分两档:规则检测是内存判断,微秒~毫秒级,对全量请求跑;语义层(LLM)只对"高风险动作 + 规则未拦截"的少数请求跑,占比很低。整体多出的延迟通常在几十毫秒,且只在敏感操作路径上,可接受。</div></details>
+    <details class="qa"><summary class="qu">Q:动作已经执行、副作用无法回滚怎么办?</summary><div class="an">三层兜底:① 能补偿的走补偿(退款/恢复原状);② 不能补偿的立即告警 + 人工介入修复,并对用户道歉话术;③ 用幂等键保证不会因为重试把错误放大。最后把这次事故回写进规则,同类动作今后默认走人工审批。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>策略冲突</b>:多个策略对同一状态给出矛盾动作。</div>
+      <div class="term-item"><b>仲裁</b>:按优先级/置信度从冲突动作中拍板。</div>
+      <div class="term-item"><b>补偿(Saga)</b>:长事务拆小步,失败逐步抵消副作用。</div>
+      <div class="term-item"><b>HITL</b>:Human-in-the-loop,关键环节人工介入。</div>
+      <div class="term-item"><b>置信度阈值</b>:低于阈值不自动执行,转澄清或人工。</div>
+      <div class="term-item"><b>两段式工具</b>:先预览再执行,防误操作。</div>
+    </div>
+  </div>
+</article>

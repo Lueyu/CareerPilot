@@ -1,0 +1,66 @@
+<article class="q" id="biz-010" data-topic="biz" data-title="监控方案选型:Prometheus+Grafana vs LangSmith vs LangFuse" data-difficulty="4" data-tags="监控,可观测性" data-company="" data-source="P3Q10" data-kw="监控 可观测 Prometheus Grafana LangSmith LangFuse 选型 trace">
+
+      <div class="q-no">框架选型 · Q10</div>
+      <h3>监控方案选型:Prometheus + Grafana vs LangSmith vs LangFuse</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#监控</span><span class="tag">#可观测性</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"这不是三选一,是<b>两个层次</b>:Prometheus+Grafana 管<b>基础设施层</b>(QPS/延迟/错误率/资源,啥系统都要);LangSmith/LangFuse 管<b>LLM 语义层</b>(trace、Prompt 版本、评估、token 成本)。两者选其一的问题在于:P+G 看不懂'这次回答为什么错',Lang 系看不到'机器是不是要炸了'。LLM 语义层二者怎么选:<b>要开源自部署、模型中立选 LangFuse;深度用 LangChain 生态、不介意 SaaS 选 LangSmith</b>。我的典型组合:P+G + 自部署 LangFuse。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>像<b>医院的监测体系</b>:Prometheus+Grafana 是<b>生命体征监护仪</b>(心率血压血氧——不管你得什么病,先把命保住);LangSmith/LangFuse 是<b>病历系统</b>(这次诊疗做了什么检查、开了什么药、效果如何——能复盘具体病例)。光有监护仪,病人为什么头疼查不出来;光有病历系统,病人心跳停了都没人知道——<b>医院两套都要</b>。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <table>
+          <tr><th>维度</th><th>Prometheus+Grafana</th><th>LangSmith</th><th>LangFuse</th></tr>
+          <tr><td><b>层次</b></td><td>通用指标监控(时序)</td><td>LLM 应用观测</td><td>LLM 应用观测</td></tr>
+          <tr><td><b>核心能力</b></td><td>指标采集/告警/看板</td><td>Trace、数据集管理、<b>评估闭环</b>、Prompt 实验</td><td>Trace、Prompt 版本、成本分析、评估</td></tr>
+          <tr><td><b>形态</b></td><td>开源自部署(行业标准)</td><td><b>SaaS 为主</b>(闭源)</td><td><b>开源可自部署</b>+云版</td></tr>
+          <tr><td><b>生态</b></td><th>与 LLM 无关,通用</td><td>LangChain 深度集成</td><td>模型/框架中立(OpenAI SDK 一行接入)</td></tr>
+          <tr><td><b>数据隐私</b></td><td>自己机房</td><td>数据出境(SaaS)</td><td>自部署则全在境内</td></tr>
+        </table>
+        <p><b>我的标准架构(组合拳)</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 590 290" role="img" aria-label="监控方案两层组合架构">
+  <rect class="sd-layer" x="10" y="16" width="560" height="104"/>
+  <text class="sd-l" x="24" y="34">基础设施层 · 通用指标监控</text>
+  <rect class="sd-box" x="28" y="46" width="210" height="54" rx="10"/>
+  <text class="sd-t" x="133" y="70" text-anchor="middle">Prometheus+Grafana</text>
+  <text class="sd-ts" x="133" y="88" text-anchor="middle">指标采集·告警·看板</text>
+  <text class="sd-ts" x="262" y="70">QPS · P99 · 错误率</text>
+  <text class="sd-ts" x="262" y="88">GPU · 队列深度 · 告警</text>
+  <rect class="sd-layer" x="10" y="148" width="560" height="116"/>
+  <text class="sd-l" x="24" y="166">LLM 语义层 · 应用观测</text>
+  <rect class="sd-box-amber" x="28" y="178" width="210" height="54" rx="10"/>
+  <text class="sd-t" x="133" y="202" text-anchor="middle">LangFuse(自部署)</text>
+  <text class="sd-ts" x="133" y="220" text-anchor="middle">Trace·Prompt·成本·评估</text>
+  <text class="sd-ts" x="262" y="202">每次 LLM / 工具调用 trace(可回放)</text>
+  <text class="sd-ts" x="262" y="220">Prompt 版本 · token 成本 · 评估数据集</text>
+  <path class="sd-an" d="M544 120 L544 148"/>
+  <text class="sd-l" x="24" y="136">↑ 两个体系用业务 trace_id 串联打通</text>
+</svg></div>
+        <p><b>LangSmith vs LangFuse 的具体取舍</b></p>
+        <ul>
+          <li>选 <b>LangSmith</b>:团队重度使用 LangChain/LangGraph,要它的数据集-评估-回放闭环和 Playground 调试;接受 SaaS 和出境合规评估。</li>
+          <li>选 <b>LangFuse</b>:要开源自部署(国内企业常态)、多框架混用(模型中立)、成本可控;它的 Prompt 管理和成本看板开箱即用。</li>
+          <li>共同底线:两者都支持 OpenTelemetry 语义约定——<b>选谁都要留好数据导出路径,别把观测数据变成新的供应商锁定</b>。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:两个体系的告警怎么不打架?</summary><div class="an">按层次分工:可用性/延迟告警走 P+G(P0 电话);质量/成本异常(点踩率、token 环比)走 Lang 系(P2 工单);告警都带 trace 链接跳转,值班同学一套工作流。</div></details>
+        <details class="qa"><summary class="qu">Q:自部署 LangFuse 的运维负担?</summary><div class="an">Docker Compose 即起(Postgres+ClickHouse),中小规模单机够;海量 trace 做采样和 TTL;比自建一套 trace 系统省一个数量级的人力——这钱花得值。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>时序数据库</b>:按时间存指标的库(Prometheus)。</div>
+          <div class="term-item"><b>Playground</b>:在线调试 Prompt 的交互界面。</div>
+          <div class="term-item"><b>OTel 语义约定</b>:trace 字段的标准命名。</div>
+        </div>
+      </div>
+</article>

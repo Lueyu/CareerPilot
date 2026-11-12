@@ -1,0 +1,68 @@
+<article class="q" id="algo-021" data-topic="algo" data-title="推导LoRA参数量减少比例" data-difficulty="3" data-tags="LoRA,参数计算,优化" data-company="无公司" data-source="P6Q20" data-kw="LoRA 低秩 参数计算 rank 8 4096 参数量 微调 低秩分解 合并">
+
+  <div class="q-no">Agent算法 · Q20</div>
+  <h3>推导 LoRA 的参数量减少比例</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#LoRA</span><span class="tag">#参数计算</span><span class="tag">#优化</span>
+    <span class="company">无公司</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"LoRA 把全量微调的增量 ΔW 分解成两个低秩矩阵的乘积 ΔW = B·A,A 是 r×d、B 是 d×r,参数量从 d² 降到 2dr。给定 rank=8、d=4096:原始 4096² = 1677 万,LoRA 只训 2×8×4096 = 65536 个参数,是原来的 1/256,约 0.39%,即<b>减少约 99.6%</b>。关键是比例公式 2r/d,和维度成反比、和 rank 成正比。推理时把 BA 乘进 W 里,零额外延迟。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>原始微调像"<b>把整栋楼的每一块砖都换一遍</b>"(改 d² 个参数)。LoRA 发现模型的更新往往集中在低维子空间,就像一栋楼其实只有少数几根承重柱在受力。所以它只训练两根"细柱子"A 和 B(共 2dr 个参数),把它们的乘积当作对原楼的小修小补。原来要动 1600 多万块砖,现在只动 6.5 万块——<b>省了 99.6% 的料</b>。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 原理(是什么)</b></p>
+    <ul>
+      <li>冻结预训练权重 W,只学增量 ΔW = B·A。前向:h = Wx + BAx = (W + BA)x。</li>
+      <li>A ∈ R^{r×d} 是下投影矩阵,B ∈ R^{d×r} 是上投影矩阵,r ≪ d。</li>
+      <li>初始化:A 用高斯、B 置 0,保证训练起点严格等价于原始模型(ΔW 初始为 0)。</li>
+    </ul>
+    <p><b>2. 参数计算(核心推导)</b></p>
+    <pre class="code"><span class="c"># 以一个 d×d 的权重矩阵为例(d = 4096)</span>
+W ∈ R^{d×d}
+全量微调参数量: d² = 4096² = 16,777,216 ≈ 1677 万
+
+<span class="c"># LoRA: ΔW = B·A, rank r = 8</span>
+A ∈ R^{r×d},  B ∈ R^{d×r}
+LoRA 参数量: d·r + r·d = 2dr = 2 × 4096 × 8 = 65,536
+
+<span class="c"># 占比与减少比例</span>
+占比   = 2dr / d² = 2r / d = 16 / 4096 = 1 / 256 ≈ 0.39%
+减少   = 1 − 1/256 ≈ 99.6%</pre>
+    <p><b>3. 为什么能省这么多(为什么)</b></p>
+    <ul>
+      <li>关键式子 <b>2r/d</b>:参数量与 rank r 成正比、与维度 d 成反比。d 越大、r 越小,省得越多。</li>
+      <li>背后的假设是<b>低秩假设</b>:大模型微调时,"任务相关的更新"rank 很低,低秩矩阵足以承载大部分有效信息。</li>
+    </ul>
+    <p><b>4. trade-off(怎么做 + 取舍)</b></p>
+    <ul>
+      <li><b>r 太小</b>:容量不足、拟合能力下降;<b>r 太大</b>:逼近全量,失去省参意义。经验值 r ∈ [4, 64]。</li>
+      <li>实际增量常用缩放 (α/r)·BA,α 与 r 一起控制更新幅度。</li>
+      <li>最常见只给 attention 的 Wq、Wv(有时加 Wo)挂 LoRA,效果最好;也可扩展到 FFN。</li>
+      <li>推理合并:W' = W + BA 预计算后,计算量与原始模型<b>完全相同</b>,无推理开销——这是 LoRA 相比 Adapter 的一大优势。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么是给 Wq、Wv 加 LoRA,而不是所有矩阵都加?</summary><div class="an">论文实验表明 attention 的 Q、V 收益最大,Wq+Wv 组合用少量参数就能接近全量微调效果;全层都加会显著增加参数量、收益边际递减。实践中常从 Wq/Wv 起步,资源允许再加 Wo 和 FFN。</div></details>
+    <details class="qa"><summary class="qu">Q:rank 到底怎么选?</summary><div class="an">一般从 8 开始,任务复杂(领域知识密集、指令多样)可升到 16/32/64。做法:固定 α/r 的缩放比,扫描 r,看验证集曲线,r 增大不再涨点就停——用最小的 r 换取足够的效果。</div></details>
+    <details class="qa"><summary class="qu">Q:LoRA 和全量微调比,效果会差吗?</summary><div class="an">在多数 NLP 微调任务上,r 合适的 LoRA 效果可与全量微调持平甚至更好(还自带正则、缓解灾难性遗忘);但在需要学大量新知识、新分布的领域,LoRA 容量不足会落后。这是"参数效率 vs 表达容量"的权衡,能说出这句话是加分项。</div></details>
+    <details class="qa"><summary class="qu">Q:多个 LoRA 能共存吗?</summary><div class="an">能。不同任务各训一套 BA,共享同一个基础模型,推理时按需加载对应 adapter 拼进 W(可并行或串联)。这是 LoRA 在多租户服务里的杀手级优势:一个底座 + N 个廉价插件。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>低秩(Low-Rank)</b>:矩阵可近似为两个小矩阵乘积,rank 远小于维度。</div>
+      <div class="term-item"><b>Adapter</b>:附加在冻结模型上的可训练小模块。</div>
+      <div class="term-item"><b>全量微调</b>:更新全部 d² 个参数。</div>
+      <div class="term-item"><b>rank r</b>:低秩分解的秩,决定可训参数规模。</div>
+      <div class="term-item"><b>α(缩放)</b>:LoRA 的缩放超参,与 r 一起控制更新幅度。</div>
+    </div>
+  </div>
+</article>

@@ -1,0 +1,66 @@
+<article class="q" id="eval-023" data-topic="eval" data-title="LLM-as-a-Judge用大模型评估大模型的优点与偏见" data-difficulty="3" data-tags="LLM评估,自动评估" data-company="字节 / 阿里 / OpenAI（前沿）" data-source="P7Q3" data-kw="LLM评估 自动评估 LLM-as-judge 位置偏见 长度偏见 自我偏好 pairwise pointwise 裁判 一致性">
+
+  <div class="q-no">评估讨论 · Q3</div>
+  <h3>什么是"LLM-as-a-Judge"？使用 LLM 来评估另一个 LLM 的输出，有哪些优点和潜在的偏见？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#LLM评估</span><span class="tag">#自动评估</span>
+    <span class="company">字节 / 阿里 / OpenAI（前沿）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"LLM-as-a-Judge 就是<b>用一个(更强的)大模型,按照评分标准(rubric)去给另一个模型的输出打分或做两两对比</b>,用来替代昂贵的人工评估。优点:可扩展、快、便宜、能评主观维度(相关性、连贯、有帮助性)、和人类判断在不少任务上高度相关。但有一堆已知偏见:<b>位置偏见</b>(偏爱先出现的)、<b>长度偏见</b>(偏爱长答案)、<b>自我偏好</b>(偏爱自己家族模型)、<b>顺序/模板敏感</b>。对策:随机交换顺序、写死 rubric、换不同家族裁判、人工抽检校准一致性。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就像<b>让资深老师给一堆学生作文打分</b>:不用每篇都靠人工批,又快又能规模化。但老师也有"偏心":两篇作文一起看时<b>更容易记住先看的那篇</b>(位置偏见);<b>下意识觉得写得多就是写得好</b>(长度偏见);<b>看到自己教过的学生就多给两分</b>(自我偏好)。所以要随机打乱顺序、明确定好评分标准、再让别的老师交叉复核。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 它是什么(两种主流形式)</b></p>
+    <ul>
+      <li><b>Pointwise(单点打分)</b>:给一个输出,按 rubric 逐维度打分(如相关性 1~5 分)。适合监控单模型质量。</li>
+      <li><b>Pairwise(两两对比)</b>:给两个输出,判断 A 好、B 好还是平局。适合模型选型、RLHF 偏好数据。业内常用 <b>Elo/胜率</b> 汇总。</li>
+      <li>实现上把"评分标准 + 问题 + 参考答案 + 待评输出"一起喂给裁判模型,输出结构化 JSON 分数 + 理由。</li>
+    </ul>
+    <p><b>2. 优点</b></p>
+    <ul>
+      <li><b>可扩展、成本低</b>:人工评估贵且慢,LLM 裁判几分钟跑完几千条,单条成本极低。</li>
+      <li><b>能评主观维度</b>:相关性、连贯性、有帮助性、安全性这些"没有标准答案"的维度,传统指标完全测不了,LLM 裁判可以按 rubric 打分。</li>
+      <li><b>一致性与可复现</b>:同一个 rubric 反复用,结果可比、可回放;配合固定 temperature=0 更稳定。</li>
+      <li><b>接近人类</b>:在不少任务上与人类偏好的一致性(如 MT-Bench 里 GPT-4 裁判与人类一致率)已被证明相当高。</li>
+    </ul>
+    <p><b>3. 潜在的偏见(面试重点,必须能列全)</b></p>
+    <table>
+      <tr><th>偏见</th><th>表现</th><th>缓解</th></tr>
+      <tr><td><b>位置偏见</b></td><td>pairwise 里系统性地偏爱第一个/第二个位置</td><td>答案位置随机交换,双向各评一次再合并</td></tr>
+      <tr><td><b>长度偏见</b></td><td>倾向更长的回答,哪怕内容是废话</td><td>rubric 里写明"长度不加分",控制长度</td></tr>
+      <tr><td><b>自我偏好</b></td><td>偏爱与自己同家族/同风格的输出</td><td>换不同家族模型当裁判,或用多裁判投票</td></tr>
+      <tr><td><b>模板/顺序敏感</b></td><td>prompt 措辞、选项顺序微调就改变结论</td><td>固定模板、多 prompt 平均、few-shot 校准</td></tr>
+      <tr><td><b>能力边界</b></td><td>复杂推理/事实题裁判自己也会判错</td><td>难判的题人工介入,裁判只用于简单维度</td></tr>
+    </table>
+    <p><b>4. 工程化落地的三个保障</b></p>
+    <ul>
+      <li><b>rubric 越细越稳</b>:把"好不好"拆成可判定的子维度 + 打分锚点示例,减少裁判自由发挥。</li>
+      <li><b>人工校准</b>:抽 5%~10% 样本让人和裁判同判,算一致率(如 Cohen's kappa / 一致率 &gt; 85% 才敢上线)。</li>
+      <li><b>多裁判 + 投票</b>:关键决策用多个不同家族模型投票,抵消单点偏见。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:什么场景不适合用 LLM-as-judge？</summary><div class="an">① 需要<b>精确对错</b>的场景(数学、代码、事实核查)——用执行式校验/外部知识库,别让裁判"猜";② <b>裁判能力不如被测模型</b>的复杂推理题,弱裁判会误判;③ 高风险/合规场景,LLM 裁判不能作为唯一依据,必须有人工兜底。总之:能程序化验证的绝不用裁判,裁判只负责"程序化做不了的主观维度"。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么量化"裁判到底靠不靠谱"？</summary><div class="an">和人工做<b>一致性对齐</b>:抽一批样本,让裁判和多位标注员分别打分,算<b>一致率 / Cohen's kappa / 相关系数</b>;pairwise 场景还能看裁判和人工偏好的一致比例。通常要求裁判-人工一致率接近"人工-人工"的一致率(标注员之间本来也有分歧),才认为裁判可用。</div></details>
+    <details class="qa"><summary class="qu">Q:自我偏好具体怎么测、怎么防？</summary><div class="an"><b>测</b>:构造内容质量相同、但分别由"A 家族"和"B 家族"模型生成的答案对,看裁判是否系统性偏向自己家族。业内观察到裁判常偏爱自己训练来源的模型。<b>防</b>:① 用<b>不同家族</b>的裁判做交叉验证;② 匿名化、随机位置;③ 关键结论多裁判投票。单裁判 + 同家族组合是最容易翻车的。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>LLM-as-judge</b>:用大模型按 rubric 给输出打分或对比。</div>
+      <div class="term-item"><b>Pairwise</b>:两两对比输出,汇总成胜率/Elo。</div>
+      <div class="term-item"><b>位置偏见</b>:pairwise 中偏爱某个固定位置的答案。</div>
+      <div class="term-item"><b>长度偏见</b>:无根据偏爱更长答案。</div>
+      <div class="term-item"><b>Rubric</b>:评分细则(维度+锚点+分值)。</div>
+      <div class="term-item"><b>Kappa</b>:衡量两位评分者一致性(扣除偶然一致)。</div>
+    </div>
+  </div>
+</article>

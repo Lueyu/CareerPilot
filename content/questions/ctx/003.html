@@ -1,0 +1,79 @@
+<article class="q" id="ctx-003" data-topic="ctx" data-title="如何设计Agent的个性化能力" data-difficulty="4" data-tags="个性化,Memory,Agent" data-company="" data-source="P4Q7" data-kw="个性化 用户画像 偏好学习 动态Prompt Memory 推荐">
+
+      <div class="q-no">业务落地 · Q7</div>
+      <h3>如何设计 Agent 的个性化能力?</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#个性化</span><span class="tag">#Memory</span><span class="tag">#Agent</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"个性化 = <b>画像(静态属性+动态偏好)+ 动态注入(检索内容、Prompt、记忆三层个性化)+ 反馈学习闭环(显性点踩修正 + 隐性行为信号)</b>。落地三步:先做'低风险显性偏好'(称呼、语言、格式),再做'行为隐学'(根据反馈调整风格),最后做'预测式个性化'。两条红线主动讲:<b>隐私合规</b>(个性化=在处理用户数据,要同意和可关)和<b>过滤气泡/谄媚</b>(只顺着用户说,是产品事故不是个性)。</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>像<b>一个相处久了的贴身助理</b>:知道你姓李、习惯早上回消息(静态画像);记得你喜欢简洁回复、讨厌废话(显性偏好——你说过的);发现你每次都跳过长表格,就主动改成要点列表(<b>隐性行为学习</b>);但他不会因为你想听好话就把坏消息说成好消息(<b>谄媚红线</b>),你的资料他也绝不会未经允许给别人看(<b>隐私红线</b>)。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 画像:个性化的原材料</b></p>
+        <table>
+          <tr><th>类型</th><th>内容</th><th>来源</th></tr>
+          <tr><td><b>静态属性</b></td><td>称呼、语言、时区、岗位、行业</td><td>注册信息、设置</td></tr>
+          <tr><td><b>动态偏好</b></td><td>回答风格(简洁/详细)、专业度水平、常用格式</td><td>显性:用户设置/对话中说"以后简短点";隐性:行为统计</td></tr>
+          <tr><td><b>领域记忆</b></td><td>用户的项目、过去的问题、常用工具</td><td>Memory 系统(第一部分 Q7)</td></tr>
+        </table>
+        <p><b>2. 三层注入(个性化作用在哪)</b></p>
+        <ul>
+          <li><b>Prompt 层</b>:系统提示动态拼装——"该用户偏好简洁中文回答,是产品经理,专业术语可用"——便宜立见效,第一版就做这个。</li>
+          <li><b>检索层</b>:相同 query 按用户身份检索不同范围/排序(销售问"渠道政策"和消费者问,检索内容不同)。</li>
+          <li><b>记忆层</b>:从 Memory 捞用户相关的历史事实注入上下文(与 Memory 题联动)。</li>
+        </ul>
+        <p><b>3. 反馈学习闭环</b></p>
+        <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 462 324" role="img" aria-label="Agent 个性化反馈学习闭环">
+  <text class="sd-l" x="10" y="22">个性化 · 反馈学习闭环</text>
+  <rect class="sd-box-rose" x="10" y="30" width="210" height="60" rx="10"/>
+  <text class="sd-t" x="115" y="56" text-anchor="middle">显性信号</text>
+  <text class="sd-ts" x="115" y="74" text-anchor="middle">用户设置 / 点踩原因</text>
+  <rect class="sd-box2" x="10" y="120" width="210" height="60" rx="10"/>
+  <text class="sd-t" x="115" y="146" text-anchor="middle">隐性信号</text>
+  <text class="sd-ts" x="115" y="164" text-anchor="middle">重问率·复制率·中断率</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M220 60 L278 105"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M220 150 L278 105"/>
+  <rect class="sd-box" x="280" y="75" width="150" height="60" rx="10"/>
+  <text class="sd-t" x="355" y="101" text-anchor="middle">偏好更新器</text>
+  <text class="sd-ts" x="355" y="119" text-anchor="middle">聚合显性 + 隐性信号</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M355 135 L355 163"/>
+  <rect class="sd-box-teal" x="265" y="165" width="180" height="56" rx="10"/>
+  <text class="sd-t" x="355" y="189" text-anchor="middle">更新画像</text>
+  <text class="sd-ts" x="355" y="207" text-anchor="middle">带置信度 + 时间戳</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M355 221 L355 249"/>
+  <rect class="sd-box-amber" x="265" y="251" width="180" height="56" rx="10"/>
+  <text class="sd-t" x="355" y="275" text-anchor="middle">下次组装 Prompt</text>
+  <text class="sd-ts" x="355" y="293" text-anchor="middle">偏好注入后生效</text>
+</svg>
+</div>
+        <ul>
+          <li>工程要点:偏好更新要<b>防单次噪声</b>(一次点踩不代表永久偏好,置信度累积);用户可<b>查看和重置</b>自己的画像(合规+体验双保险)。</li>
+        </ul>
+        <p><b>4. 两条红线(主动讲,面试官眼前一亮)</b></p>
+        <ul>
+          <li><b>隐私</b>:个性化=在处理个人数据,先过同意和开关(用户可以一键"关闭个性化",退化为通用 Agent);画像数据遵守上一题的全套治理。</li>
+          <li><b>谄媚(sycophancy)</b>:模型被个性化调成"顺着用户说",用户错了也附和——质量红线。对策:偏好只影响<b>形式</b>(风格、详略、格式),不允许影响<b>事实立场</b>;评估集里放"用户前提错误"的测试题,模型必须纠正。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:个性化怎么评估有没有效果?</summary><div class="an">AB 实验:开/关个性化对比——重问率、满意度、会话深度;主观:抽样看个性化答案是否真的"更对味";警惕虚荣指标(用户没说不好≠个性化有价值)。</div></details>
+        <details class="qa"><summary class="qu">Q:多人共用一个 Agent(团队 Agent),画像冲突吗?</summary><div class="an">画像按"用户+空间"双维度存:个人空间用个人画像,共享空间用团队画像(称呼、术语约定)——冲突时以当前交互身份为准;这也是 B 端产品的真实需求点。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>画像(Profile)</b>:用户属性的集合。</div>
+          <div class="term-item"><b>谄媚</b>:模型一味迎合用户。</div>
+          <div class="term-item"><b>过滤气泡</b>:只接触同质信息导致视野变窄。</div>
+        </div>
+      </div>
+</article>

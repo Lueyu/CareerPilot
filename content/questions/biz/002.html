@@ -1,0 +1,84 @@
+<article class="q" id="biz-002" data-topic="biz" data-title="如何将Agent系统的API成本降低70%" data-difficulty="4" data-tags="成本优化,Agent,API" data-company="" data-source="P2Q2" data-kw="成本 优化 API 70% 语义缓存 prompt压缩 模型降级 批处理 batch">
+
+      <div class="q-no">工程实践 · Q2</div>
+      <h3>如何将 Agent 系统的 API 成本降低 70%?</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#成本优化</span><span class="tag">#Agent</span><span class="tag">#API</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"先<b>建立每请求成本账单</b>(按环节归因 token),然后组合拳:<b>语义缓存</b>省 30%、<b>模型分级</b>把 70% 简单流量切到便宜 10 倍的小模型、<b>Prompt 压缩</b>(LLMLingua + 检索内容精简 + 历史摘要)再省 20%、离线任务走 <b>Batch API</b> 半价、输出限长防废话。数学上:0.7 × 0.4 × 0.8 ≈ 0.22,降幅 78%,超额完成。关键是每招都配质量护栏,省钱不能省出事故。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>像<b>家庭省钱</b>:常做的菜周末做好冻起来,吃的时候微波炉一热(<b>缓存</b>);日常采购去平价超市,只有宴客才去高档超市(<b>模型分级</b>);按菜谱精确买菜不囤积(<b>Prompt 压缩</b>);大件集中采购等折扣(<b>Batch API</b>);先记账才知道钱花哪了(<b>成本归因</b>)——不记账就省钱,省的都不是大头。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>第 0 步:成本归因(和延迟优化同理,先测量)</b></p>
+        <p>网关给每次调用记流水:系统提示词 1.2K + 检索注入 2.5K + 历史 1K + 输出 0.8K,按单价折算。典型发现:<b>60% 成本在输入侧,其中检索注入占大头</b>——这就指明了优化方向。</p>
+        <p><b>招式一:语义缓存(-30%)</b></p>
+        <ul>
+          <li>问题 embedding 相似度 &gt; 0.95 直接返回缓存答案;企业场景命中率 30%+ 很常见。</li>
+          <li>进阶:FAQ 预生成(Top 1000 高频问题离线生成好)。</li>
+          <li>护栏:缓存 key 绑定知识库版本(内容更新缓存失效);抽样监控缓存答案质量。</li>
+        </ul>
+        <p><b>招式二:模型分级(-40%)</b></p>
+        <ul>
+          <li>轻量分类器(或规则)判断难度:简单事实问答/格式转换 → 小模型;复杂推理/多工具编排 → 旗舰模型。</li>
+          <li>成本差 10~50 倍,70% 流量是小模型后:整体成本 × (0.7×0.1 + 0.3×1) ≈ ×0.4。</li>
+          <li>护栏:分级错误率监控;小模型回答置信度低时自动升级重答(escalation)。</li>
+        </ul>
+        <p><b>招式三:Prompt 压缩(-20%)</b></p>
+        <ul>
+          <li>系统提示词减肥:删掉装饰性文字,指令合并(实测能砍 30~50%)。</li>
+          <li>LLMLingua 类工具:算法压缩提示词,语义基本不损。</li>
+          <li>检索注入精简:top3 而不是 top5;文档段落做"相关句抽取"而不是整段塞。</li>
+          <li>历史对话摘要化(见 Q4)。</li>
+        </ul>
+        <p><b>招式四:输出与调度</b></p>
+        <ul>
+          <li>max_tokens 限制 + Prompt 要求"直接给结论";输出 token 通常比输入贵 3~5 倍,<b>少废话是最便宜的优化</b>。</li>
+          <li>离线任务(文档摘要、评估)走 Batch API(半价,24h 内返回)。</li>
+          <li>网关比价路由:同一档位的模型按当前单价/延迟动态选。</li>
+        </ul>
+        <p><b>算总账(面试时主动展示数学)</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 690 96" role="img" aria-label="API 成本降低账目流水">
+  <rect class="sd-box-rose" x="10" y="16" width="120" height="64" rx="10"/>
+  <text class="sd-t" x="70" y="42" text-anchor="middle">原成本</text>
+  <text class="sd-ts" x="70" y="60" text-anchor="middle">100%</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M130 48 L144 48"/>
+  <rect class="sd-box2" x="146" y="16" width="120" height="64" rx="10"/>
+  <text class="sd-t" x="206" y="42" text-anchor="middle">语义缓存</text>
+  <text class="sd-ts" x="206" y="60" text-anchor="middle">×0.70 → 70%</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M266 48 L280 48"/>
+  <rect class="sd-box2" x="282" y="16" width="120" height="64" rx="10"/>
+  <text class="sd-t" x="342" y="42" text-anchor="middle">模型分级</text>
+  <text class="sd-ts" x="342" y="60" text-anchor="middle">×0.40 → 28%</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M402 48 L416 48"/>
+  <rect class="sd-box2" x="418" y="16" width="120" height="64" rx="10"/>
+  <text class="sd-t" x="478" y="42" text-anchor="middle">Prompt压缩</text>
+  <text class="sd-ts" x="478" y="60" text-anchor="middle">×0.80 → 22.4%</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M538 48 L552 48"/>
+  <rect class="sd-box-teal" x="554" y="16" width="120" height="64" rx="10"/>
+  <text class="sd-t" x="614" y="42" text-anchor="middle">总降幅</text>
+  <text class="sd-ts" x="614" y="60" text-anchor="middle">≈78% 达标</text>
+</svg></div>
+        <p><b>防劣化</b>:每招上线跑黄金集;线上监控点踩率/解决率,省钱但质量掉了要立刻回滚——<b>成本优化是"在质量约束下的优化问题"</b>,这句话说出来很加分。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:语义缓存返回了过时/错误的答案怎么办?</summary><div class="an">三个防线:① TTL(24~48h);② 知识库版本绑定强制失效;③ 缓存答案带"生成于 X 时"和反馈入口,点踩率超阈值自动下架该缓存。</div></details>
+        <details class="qa"><summary class="qu">Q:模型分级怎么判断"简单/复杂"?</summary><div class="an">冷启动用规则(query 长度、是否命中 FAQ、历史同类问题准确率);积累数据后训练小分类器;运行时用"小模型置信度/自检"动态升级。</div></details>
+        <details class="qa"><summary class="qu">Q:为什么不直接全换便宜模型?</summary><div class="an">可以更便宜但质量崩——Agent 的多步任务对模型能力敏感,一步错步步错。分级策略保住了复杂任务的质量下限。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>LLMLingua</b>:微软的提示词压缩工具。</div>
+          <div class="term-item"><b>Batch API</b>:批量异步接口,约半价。</div>
+          <div class="term-item"><b>Escalation</b>:小模型不行自动升级大模型。</div>
+        </div>
+      </div>
+</article>

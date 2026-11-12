@@ -1,0 +1,64 @@
+<article class="q" id="eval-020" data-topic="eval" data-title="设计Few-shot学习的样本数量实验(0/1/5/10-shot性能曲线)" data-difficulty="3" data-tags="FewShot,实验设计,性能分析" data-company="" data-source="P6Q37" data-kw="Few-shot 样本数量 实验设计 性能曲线 0-shot 1-shot 5-shot 10-shot 上下文学习 方差 置信区间">
+
+  <div class="q-no">Agent算法 · Q37</div>
+  <h3>设计 Few-shot 学习的样本数量实验</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#FewShot</span><span class="tag">#实验设计</span><span class="tag">#性能分析</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>我把实验拆成四步:<b>① 控变量</b>——模型、任务、评估集、prompt 模板全部固定,只让"样例数 k"这一个变量动;<b>② 样例怎么选</b>——按标签均衡 + 多样性采样,并对样例顺序做多次打乱(顺序对 few-shot 影响很大);<b>③ 报方差</b>——few-shot 对样例高度敏感,每组 k 要跑多组随机样例,报"均值 ± 方差",不报单次点估计;<b>④ 读曲线</b>——典型结论是 0→1 收益最大、之后边际递减、10-shot 可能饱和甚至因样例风格偏置而掉点。最终交一条 0/1/5/10-shot 性能曲线 + 方差带 + 上下文成本分析。</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>教新手炒菜</b>:0-shot 是"凭说明书自己发挥"(没示例);1-shot 是"给你看一道成品菜";5-shot 是"给你看五道不同做法";10-shot 是"整本菜谱摆你面前"。实验要回答的是——多给几个例子他炒得更好吗?答案是:给一个例子提升最大,再多给提升越来越小,给太多他反而只照着例子模仿、不会举一反三了。所以我们要测"每多给一个例子水平涨多少",找到性价比最高的那个数。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 实验目标与变量控制(先说清要回答什么)</b></p>
+    <ul>
+      <li>研究问题:<b>样本数量 k 与性能的关系</b>,k ∈ {0, 1, 5, 10}——即 In-Context Learning 的边际收益到底怎么衰减。</li>
+      <li>控制变量:同一模型、同一任务(数据集)、同一评估集、同一 prompt 模板、同一采样设置(测性能时尽量用 greedy 或固定种子)。只有样例数在变。</li>
+    </ul>
+    <p><b>2. 样例怎么选(本题最容易丢分的地方)</b></p>
+    <ul>
+      <li><b>标签均衡</b>:分类任务里正负例按比例取,别让 5 个样例全是同一类。</li>
+      <li><b>多样性 + 代表性</b>:从训练集里挑"最接近测试分布"的样例,而不是随手抓;可选基于 embedding 的聚类中心采样。</li>
+      <li><b>顺序敏感</b>:few-shot 对样例排列顺序敏感,同一组样例要多次打乱(shuffle)后取均值。</li>
+      <li>进阶:区分"<b>标签正确性</b>"与"<b>标签格式</b>"两个变量——是标签对错影响大,还是"只给 label"和"label + 解释"这种格式影响大。</li>
+    </ul>
+    <p><b>3. 指标与方差控制</b></p>
+    <ul>
+      <li>分类用 Accuracy/F1,生成任务用 EM/ROUGE,推理用 pass@k;同一指标贯穿所有 k 值。</li>
+      <li>每组 k 用<b>多组随机样例(如 10 组)+ 多次打乱</b>,报均值 ± 方差,画<b>置信区间带</b>。few-shot 单次结果方差很大,只报一个数没有说服力。</li>
+    </ul>
+    <p><b>4. 读曲线的方法论(要能说出"典型形状")</b></p>
+    <table>
+      <tr><th>区间</th><th>典型现象</th><th>解释</th></tr>
+      <tr><td>0-shot → 1-shot</td><td><b>收益最大</b></td><td>从"没有样例指引"到"有示例",模型突然知道该按什么格式、什么思路答了</td></tr>
+      <tr><td>1-shot → 5-shot</td><td>仍上升,边际递减</td><td>更多样例覆盖更多模式,但已进入递减区</td></tr>
+      <tr><td>5-shot → 10-shot</td><td>可能饱和甚至微降</td><td>样例带来的风格/标签偏置开始反噬,且上下文变长</td></tr>
+    </table>
+    <p><b>5. 成本与上下文上限(把实验落到决策)</b></p>
+    <ul>
+      <li>k 越大,输入 token 越多 → 延迟、成本上升,还有上下文窗口上限。</li>
+      <li>结论往往不是"越大越好",而是给出<b>性价比拐点</b>:"本任务 4~5-shot 即达平台期,再往上边际收益 ≈ 0"——这样实验才从"跑分"变成"工程决策"。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么 few-shot 结果方差那么大,还值得信吗?</summary><div class="an">方差大恰恰说明"样例选择"是变量而非误差。对策:① 多组随机样例 + 多次打乱,报置信区间而不是单点;② 用"最好组/最差组"展示样例敏感度;③ 若要稳定上线,把"找到一组稳定好样例"本身当优化目标(用样例检索/选择策略),而不是只调 k。</div></details>
+    <details class="qa"><summary class="qu">Q:0-shot 到 1-shot 为什么提升最大?</summary><div class="an">因为 0-shot 时模型缺的不是知识,而是"任务格式与输出规范"——1 个样例就补上了"该怎么读题、怎么组织答案、答案长什么样";之后再多的样例主要是补"少数难例的模式覆盖",属于长尾收益,所以边际递减。</div></details>
+    <details class="qa"><summary class="qu">Q:如果 10-shot 掉点了,你怎么办?</summary><div class="an">先查样例质量:是否混入错误标签、是否和测试分布偏差大、是否过拟合到样例的措辞风格。常见修法:加一个样例检索/去噪模块、减小 k、或换"示例选择"策略(按与 query 的相似度动态挑样例),而不是无脑加数量。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>In-Context Learning</b>:不更新权重、靠上下文示例让模型学会任务。</div>
+      <div class="term-item"><b>边际收益递减</b>:每多一个样例带来的提升越来越小。</div>
+      <div class="term-item"><b>样例敏感</b>:few-shot 结果随样例选择/顺序大幅波动。</div>
+      <div class="term-item"><b>置信区间</b>:衡量多次采样结果波动范围的统计量。</div>
+    </div>
+  </div>
+</article>

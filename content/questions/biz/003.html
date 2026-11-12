@@ -1,0 +1,54 @@
+<article class="q" id="biz-003" data-topic="biz" data-title="LangChain vs LlamaIndex vs AutoGen如何选择" data-difficulty="4" data-tags="框架选型,对比分析" data-company="所有公司(通用题)" data-source="P3Q1" data-kw="LangChain LlamaIndex AutoGen 框架 选型 对比 RAG">
+
+      <div class="q-no">框架选型 · Q1</div>
+      <h3>LangChain vs LlamaIndex vs AutoGen,如何选择?</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#框架选型</span><span class="tag">#对比分析</span>
+        <span class="company">所有公司(通用题)</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"三个框架<b>定位根本不同</b>:LangChain 是 LLM 应用<b>全家桶</b>(工具、链、生态最全,但重、抽象多);LlamaIndex 是<b>数据/RAG 专精</b>(文档接入、索引、检索器设计最细);AutoGen 是<b>多 Agent 对话编排</b>(微软出品,偏研究风格)。我的原则:<b>原型期用框架快速验证,生产期自研轻量核心、只复用框架里经过考验的组件抽象</b>——因为框架的抽象泄漏和版本不稳定在生产里都是成本。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>像<b>买车</b>:LangChain 是 SUV——啥路况都能跑,配置全,但油耗高;LlamaIndex 是房车——专门为"带一堆行李出门"(数据管道)设计;AutoGen 是多人巴士——专为"一群人协作"(多 Agent 对话)设计。而很多团队最后发现:<b>真正上赛道(生产),自己攒一台轻量化赛车</b>反而最快——零件(检索、LLM 调用)单买就行。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <table>
+          <tr><th>维度</th><th>LangChain</th><th>LlamaIndex</th><th>AutoGen</th></tr>
+          <tr><td><b>定位</b></td><td>通用 LLM 应用框架</td><td>数据框架/RAG 专精</td><td>多 Agent 对话编排</td></tr>
+          <tr><td><b>强项</b></td><td>生态最大:工具/集成/模板最多,LangSmith 配套</td><td>数据连接器、索引结构、检索器抽象最丰富;RAG 天花板高</td><td>多 Agent 会话模式灵活,研究原型快</td></tr>
+          <tr><td><b>弱项</b></td><td>抽象层多,Debug 像剥洋葱;版本迭代破坏性变更多</td><td>非 RAG 场景能力弱(通用编排一般)</td><td>对话式控制流难调试;生产工程化偏弱</td></tr>
+          <tr><td><b>适合</b></td><td>快速原型、全栈小团队</td><td>以 RAG 为核心的产品</td><td>多 Agent 策略探索、研究实验</td></tr>
+        </table>
+        <p><b>我的选法(要有立场)</b></p>
+        <ul>
+          <li>做 <b>RAG 产品</b>:LlamaIndex 的检索抽象(或直接拿它的数据连接器)+ 自研编排。</li>
+          <li>做 <b>复杂 Agent 工作流</b>:其实首选是 LangGraph(LangChain 家的图编排,见 Q6),而不是裸 LangChain。</li>
+          <li>做<b>多 Agent 协作原型</b>:AutoGen/ CrewAI 起步,验证交互模式后把稳定的模式固化到自研编排里。</li>
+        </ul>
+        <p><b>"生产为什么不直接全家桶"(必被追问,提前备好)</b></p>
+        <ul>
+          <li><b>依赖树大</b>:一个简单功能引入上百个传递依赖,安全审计和升级成本高。</li>
+          <li><b>抽象泄漏</b>:出问题时得翻框架源码,排障路径变长;LLM 应用的核心链路其实很短(检索→拼 Prompt→调用),自研 500 行就能覆盖且完全可控。</li>
+          <li><b>版本不稳</b>:框架 API 频繁破坏性变更,生产系统升级是持续税。</li>
+          <li>平衡点:<b>用它的"组件"(数据连接器、向量库封装),不用它的"编排"</b>——这话面试说出来非常加分。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:你实际用过哪个?踩过什么坑?</summary><div class="an">(准备一个真实小故事)例:原型用 LangChain 的 RetrievalQA 一天上线 demo;生产遇到:中间步骤不可观测(埋点是黑盒)、版本升级 break 两处。最终方案:保留其 VectorStore 封装,链路自研,trace 接 LangFuse。</div></details>
+        <details class="qa"><summary class="qu">Q:不用框架,自研不是重复造轮子吗?</summary><div class="an">LLM 应用的核心轮子(检索、调用、工具执行)各大厂 SDK 已经提供;框架真正增值在"胶水",而胶水恰恰是业务最该自己掌控的部分。造的是薄胶水,不是轮子。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>抽象泄漏</b>:底层细节穿透抽象层暴露出来。</div>
+          <div class="term-item"><b>Data Connector</b>:LlamaIndex 的文档接入组件。</div>
+          <div class="term-item"><b>编排</b>:把各步骤串起来的控制流层。</div>
+        </div>
+      </div>
+</article>

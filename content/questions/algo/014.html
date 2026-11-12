@@ -1,0 +1,93 @@
+<article class="q" id="algo-014" data-topic="algo" data-title="70B蒸馏到7B保留90%能力的策略设计" data-difficulty="4" data-tags="蒸馏,模型压缩,优化" data-company="" data-source="P6Q13" data-kw="蒸馏 知识蒸馏 模型压缩 SFT 白盒蒸馏 黑盒蒸馏 软标签 温度 KL散度 教师 学生 70B 7B">
+
+  <div class="q-no">Agent算法 · Q13</div>
+  <h3>小模型蒸馏策略设计</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#蒸馏</span><span class="tag">#模型压缩</span><span class="tag">#优化</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我的总纲是<b>黑盒蒸馏打底、白盒蒸馏提上限</b>:① 数据是灵魂——不是随便拿一堆 prompt,而是<b>围绕目标能力的分布采样</b>(通用能力 + 领域能力 + 推理链数据);② 用 70B 教师离线生成高质量输出,黑盒做 SFT;③ 有条件时白盒蒸馏,用<b>温度缩放的软标签 + KL 散度</b>让学生学教师的『概率分布』而非只学硬答案;④ 训练上配多任务数据、课程学习防灾难性遗忘;⑤ 用权威 benchmark 量化『90%』并留兜底。要诚实地说:90% 是目标,现实通常在 80~90% 之间,取决于数据质量。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就是<b>老师傅(70B)带徒弟(7B)</b>:老师傅把每一类活都<b>亲手做一遍</b>,徒弟照着成品练(黑盒蒸馏);更高级的是老师傅不光给成品,还给<b>『这道题我 60% 觉得是 A、25% 觉得是 B』</b>这种把握度(软标签),徒弟学到的是"判断的尺度"而不是死记答案(白盒蒸馏)。要让徒弟达到老师 90% 的水平,关键在于<b>练的题要全、要像真实考场</b>,而不是刷一堆同质题。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 先讲清"90% 能力"怎么定义(面试第一句就显严谨)</b></p>
+    <ul>
+      <li>"能力"必须落到可测指标上:MMLU / C-Eval(通用知识)、GSM8K / MATH(数学)、HumanEval(代码)、指令遵循(MT-Bench / AlpacaEval)、垂域任务集。没指标,90% 就是空话。</li>
+      <li>经验现实:<b>单靠 SFT 蒸馏,7B 通常达到同数据下 70B 的 75%~88%</b>;加白盒蒸馏、偏好对齐(DPO)、更高质量数据能再逼近。要诚实报区间,不吹"一定 90%"。</li>
+    </ul>
+    <p><b>2. 黑盒蒸馏 vs 白盒蒸馏(方法论主线)</b></p>
+    <table>
+      <tr><th>维度</th><th>黑盒蒸馏(响应蒸馏)</th><th>白盒蒸馏(概率/特征蒸馏)</th></tr>
+      <tr><td><b>要什么</b></td><td>教师的最终输出文本</td><td>教师的 logits / 隐层特征 / 注意力分布</td></tr>
+      <tr><td><b>对教师要求</b></td><td>只有 API 即可(闭源也能做)</td><td>需要权重或 logits 接口(通常开源)</td></tr>
+      <tr><td><b>学生学到</b></td><td>"答什么"</td><td>还学到"为什么这么有把握"、中间表示</td></tr>
+      <tr><td><b>效果上限</b></td><td>中(受数据质量限制)</td><td>高(信息更丰富,通常再涨几个点)</td></tr>
+      <tr><td><b>成本/门槛</b></td><td>低,最常用</td><td>高,需要工程配合</td></tr>
+    </table>
+    <p><b>3. 完整落地流程(讲成管道)</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 716 118" role="img" aria-label="70B 到 7B 蒸馏五段管道">
+  <rect class="sd-box" x="10" y="20" width="120" height="64" rx="10"/>
+  <text class="sd-t" x="70" y="46" text-anchor="middle">① 数据工程</text>
+  <text class="sd-ts" x="70" y="64" text-anchor="middle">能力分布采样</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M130 52 L146 52"/>
+  <rect class="sd-box-amber" x="150" y="20" width="120" height="64" rx="10"/>
+  <text class="sd-t" x="210" y="46" text-anchor="middle">② 教师生成</text>
+  <text class="sd-ts" x="210" y="64" text-anchor="middle">70B 多样采样</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M270 52 L286 52"/>
+  <rect class="sd-box2" x="290" y="20" width="120" height="64" rx="10"/>
+  <text class="sd-t" x="350" y="46" text-anchor="middle">③ 清洗去重</text>
+  <text class="sd-ts" x="350" y="64" text-anchor="middle">格式/去重/打分</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M410 52 L426 52"/>
+  <rect class="sd-box" x="430" y="20" width="130" height="64" rx="10"/>
+  <text class="sd-t" x="495" y="46" text-anchor="middle">④ 学生训练</text>
+  <text class="sd-ts" x="495" y="64" text-anchor="middle">7B SFT+KD+DPO</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M560 52 L576 52"/>
+  <rect class="sd-box-teal" x="580" y="20" width="120" height="64" rx="10"/>
+  <text class="sd-t" x="640" y="46" text-anchor="middle">⑤ 评估</text>
+  <text class="sd-ts" x="640" y="64" text-anchor="middle">保留率·回炉</text>
+  <text class="sd-ts" x="10" y="104">目标:7B 保留 70B 的 90% 能力 · 数据配比 5:3:2 · 温度 T∈[2,10]</text>
+</svg></div>
+    <p><b>4. 损失函数(白盒蒸馏的核心公式)</b></p>
+    <pre class="code"><span class="c"># 软标签:教师/学生的 logits 除以温度 T 再 softmax</span>
+q_i = softmax(z_teacher / T)_i        <span class="c"># 教师软分布</span>
+p_i = softmax(z_student / T)_i        <span class="c"># 学生软分布</span>
+<span class="c"># 蒸馏损失 = 学生软分布 逼近 教师软分布(KL 散度)</span>
+L_KD = T² · KL(q || p)                <span class="c"># T² 修正温度缩放带来的梯度量级</span>
+<span class="c"># 总损失 = 蒸馏损失 + 硬标签 SFT 损失(交叉熵)</span>
+L = α · L_KD + (1-α) · L_CE(y, softmax(z_student))</pre>
+    <p>关键点:<b>温度 T 放大"教师不确定的那部分信息"</b>——T 越大,分布越平滑,"A 和 B 都接近"这种隐式知识越能传给学生;T 太小就退化成硬标签。经验值 T ∈ [2, 10],α ∈ [0.5, 0.9]。</p>
+    <p><b>5. 保留 90% 能力的实战 trick</b></p>
+    <ul>
+      <li><b>数据配比(最关键)</b>:纯垂域数据会让通用能力崩;通常通用 : 领域 : 推理链 ≈ 5:3:2,并用<b>指令多样性</b>撑开覆盖面。</li>
+      <li><b>思维链(CoT)数据</b>:让教师先想再答,学生继承推理能力——数学/代码题效果尤其显著。</li>
+      <li><b>课程学习</b>:先易后难,或先用全量粗训再难样本精训,防止一开始被难题带崩。</li>
+      <li><b>防灾难性遗忘</b>:混入通用数据 + 回放(留一点原始 SFT 数据),或对教师 logits 做 EMA 平滑。</li>
+      <li><b>教师集成</b>:多个教师(或同一教师多次采样)取最高置信答案,提升伪标签质量。</li>
+    </ul>
+    <p><b>6. 兜底与工程</b>:7B 天然快、便宜(推理成本约 1/10);蒸馏不达标时,退而求其次用 7B + RAG / 工具增强补能力,或上 LoRA 微调多个垂域小模型分而治之。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:"90% 能力"你具体怎么量化给面试官看?</summary><div class="an">选一组覆盖你业务目标能力的 benchmark,分别对 70B 教师和 7B 学生打分,算<b>保留率 = 学生分 / 教师分</b>(逐题对拍比只看总分更细)。例如教师 MMLU 70 分、学生 63 分,保留率 90%。再加一个人工抽检的指令遵循集,因为通用 benchmark 未必反映真实业务。</div></details>
+    <details class="qa"><summary class="qu">Q:黑盒和白盒怎么选?什么时候必须上白盒?</summary><div class="an">能用教师 API 先跑黑盒 SFT 拿基线;发现<b>答案对但『判断尺度』差</b>(尤其分类、排序、拒答这类需要"把握度"的任务)时上白盒。教师是闭源(拿不到 logits)就只能黑盒,这时可以用"教师打分 + 多次采样软标签"近似替代。</div></details>
+    <details class="qa"><summary class="qu">Q:蒸馏后学生某类能力崩了(比如数学),怎么定位修复?</summary><div class="an">先按能力维度做<b>分项评估</b>定位是哪一类崩;再看训练数据里该类占比是否过低、教师在该类的输出质量是否本来就差;修复手段:补充该类高质量 CoT 数据、提高其在配比中的权重、针对性精训,并设回归集防再次退化。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么不直接用 70B 做量化压缩,而要蒸馏到 7B?</summary><div class="an">量化和蒸馏是两条路,常叠加使用:量化是把 70B 压到 4-bit 省显存,但<b>模型参数量没变、推理仍然重</b>,7B 这种"结构上就小"的模型端侧/高并发场景才能跑。实战常见组合是:70B 教师 → 7B 学生 → 再对 7B 量化,层层减负。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>知识蒸馏</b>:大模型(教师)把知识迁移给小模型(学生)。</div>
+      <div class="term-item"><b>软标签</b>:教师输出的完整概率分布,而非单一答案。</div>
+      <div class="term-item"><b>温度 T</b>:softmax 的平滑系数,越高分布越"软"。</div>
+      <div class="term-item"><b>KL 散度</b>:衡量两个概率分布差异的指标,KD 用它对软标签。</div>
+      <div class="term-item"><b>灾难性遗忘</b>:微调后模型丢掉原有通用能力。</div>
+      <div class="term-item"><b>课程学习</b>:按由易到难的顺序喂训练数据。</div>
+    </div>
+  </div>
+</article>

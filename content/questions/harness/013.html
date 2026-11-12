@@ -1,0 +1,97 @@
+<article class="q" id="harness-013" data-topic="harness" data-title="多个Agent如何协同工作及具体机制例子" data-difficulty="3" data-tags="Multi-Agent,协作机制" data-company="字节 / 阿里(高频)" data-source="P5Q18" data-kw="Multi-Agent 多智能体 协同 协作机制 Supervisor 编排 流水线 黑板 群聊 共享状态 字节 阿里">
+
+  <div class="q-no">Agent核心 · Q18</div>
+  <h3>如何让多个 agent 协同工作的？举个具体的协同机制例子。</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#Multi-Agent</span><span class="tag">#协作机制</span>
+    <span class="company">字节 / 阿里(高频)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"多 Agent 协同的本质是<b>任务分解 + 结构化通信 + 状态共享 + 编排控制</b>。常见四种机制:① <b>Supervisor 编排</b>——主管拆任务、分派、汇总;② <b>流水线</b>——检索→分析→生成串行接力;③ <b>黑板/共享状态</b>——大家读写同一个共享工作区;④ <b>群聊协商</b>——AutoGen 式自由对话。我最常用 Supervisor:主管做意图理解和任务拆解,把"任务卡片"发给专业 Agent,子 Agent 各带最小工具集执行,结果写回共享状态,主管汇总。选型关键:<b>流程可预测用编排,探索型任务才用自由协商</b>。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>项目组做方案</b>:项目经理(Supervisor)接需求后拆成调研、设计、开发三块,发给对应同事(专业 Agent);大家把成果放进共享文件夹(共享状态);项目经理定期汇总、必要时开会对齐。另一种像<b>流水线工厂</b>:上一个工位做完传给下一个。自由群聊则像<b>头脑风暴会</b>:大家七嘴八舌讨论出结果——灵活但难控制、容易跑偏。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 协同要解决的三个问题</b></p>
+    <ul>
+      <li><b>分工</b>:谁做什么——任务如何切分、路由给哪个 Agent。</li>
+      <li><b>通信</b>:怎么交流——直接对话还是共享状态,消息格式是什么。</li>
+      <li><b>收敛</b>:怎么结束——谁拍板、冲突怎么解决、如何防止无限循环。</li>
+    </ul>
+    <p><b>2. 四种机制对比</b></p>
+    <table>
+      <tr><th>机制</th><th>控制点</th><th>可控性</th><th>适用场景</th></tr>
+      <tr><td><b>Supervisor 编排</b></td><td>中心主管</td><td>高</td><td>流程清晰、需审计</td></tr>
+      <tr><td><b>流水线</b></td><td>固定顺序</td><td>最高</td><td>步骤确定的批处理</td></tr>
+      <tr><td><b>黑板/共享状态</b></td><td>共享工作区</td><td>中</td><td>多专家并行贡献</td></tr>
+      <tr><td><b>群聊协商</b></td><td>无中心</td><td>低</td><td>探索、开放式问题</td></tr>
+    </table>
+    <p><b>3. 具体例子:Supervisor 模式(电商智能客服)</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 700 372" role="img" aria-label="Supervisor 模式多 Agent 协同">
+  <rect class="sd-box-rose" x="280" y="10" width="160" height="50" rx="10"/>
+  <text class="sd-t" x="360" y="31" text-anchor="middle">用户提问</text>
+  <text class="sd-ts" x="360" y="49" text-anchor="middle">自然语言任务</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M360 60 L360 76"/>
+  <rect class="sd-box-amber" x="250" y="80" width="220" height="60" rx="10"/>
+  <text class="sd-t" x="360" y="106" text-anchor="middle">Supervisor Agent</text>
+  <text class="sd-ts" x="360" y="124" text-anchor="middle">意图理解·任务拆解·结果汇总</text>
+  <rect class="sd-box-rose" x="500" y="80" width="130" height="60" rx="10"/>
+  <text class="sd-t" x="565" y="106" text-anchor="middle">转人工</text>
+  <text class="sd-ts" x="565" y="124" text-anchor="middle">拿不准·兜底</text>
+  <path class="sd-an" marker-end="url(#sd-arr)" d="M470 110 L496 110"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M360 140 L130 186"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M360 140 L350 186"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M360 140 L570 186"/>
+  <rect class="sd-box" x="40" y="190" width="180" height="60" rx="10"/>
+  <text class="sd-t" x="130" y="216" text-anchor="middle">订单 Agent</text>
+  <text class="sd-ts" x="130" y="234" text-anchor="middle">查单·改地址 · 订单API</text>
+  <rect class="sd-box" x="260" y="190" width="180" height="60" rx="10"/>
+  <text class="sd-t" x="350" y="216" text-anchor="middle">物流 Agent</text>
+  <text class="sd-ts" x="350" y="234" text-anchor="middle">查轨迹·催件 · 物流API</text>
+  <rect class="sd-box" x="480" y="190" width="180" height="60" rx="10"/>
+  <text class="sd-t" x="570" y="216" text-anchor="middle">售后 Agent</text>
+  <text class="sd-ts" x="570" y="234" text-anchor="middle">退款·换货 · 工单API</text>
+  <path class="sd-an" marker-end="url(#sd-arr)" d="M130 250 L320 296"/>
+  <path class="sd-an" marker-end="url(#sd-arr)" d="M350 250 L350 296"/>
+  <path class="sd-an" marker-end="url(#sd-arr)" d="M570 250 L400 296"/>
+  <rect class="sd-box-teal" x="270" y="300" width="180" height="54" rx="10"/>
+  <text class="sd-t" x="360" y="323" text-anchor="middle">共享状态 · Redis</text>
+  <text class="sd-ts" x="360" y="341" text-anchor="middle">单一事实源</text>
+</svg>
+</div>
+    <p><b>4. 通信与状态(协同的"协议层")</b></p>
+    <ul>
+      <li><b>结构化消息</b>:不用自然语言互聊(易歧义、难解析),而是传"任务卡片"这种结构化对象(角色、目标、已知字段、结果槽位),可靠且好调试。</li>
+      <li><b>共享状态</b>:会话状态放 Redis/内存,Agent 无状态,读写共享工作区完成交接——避免"两个 Agent 各记一份、数据打架"。</li>
+      <li><b>上下文按需传递</b>:每个子 Agent 只拿自己需要的字段,不塞整段历史,token 省、也少幻觉。</li>
+    </ul>
+    <p><b>5. 收敛与冲突解决</b></p>
+    <ul>
+      <li>限定最大调度轮次和 token 预算,超了强制收敛(输出当前最优 + 转人工)。</li>
+      <li>冲突由 Supervisor 仲裁(投票、置信度加权、规则兜底),而不是让 Agent 自己争。</li>
+      <li>路由职责在 Supervisor,子 Agent 只执行不转发——从机制上杜绝互相踢皮球。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:什么时候用编排,什么时候用自由对话协商?</summary><div class="an">看任务的结构化程度和可逆性:流程可预测、有明确步骤、需要审计的(客服、工单、合规),用编排——可控、可测、可回放;探索型、开放式、路径事先未知的(头脑风暴、研究、代码架构讨论),用自由协商——灵活但代价是成本高、结果不稳定。实践铁律:<b>能编排就不自由对话</b>,自由对话先当"最后手段"。能主动说出这个取舍是加分点。</div></details>
+    <details class="qa"><summary class="qu">Q:多个 Agent 怎么避免互相踢皮球?</summary><div class="an">三点:① 路由权收在 Supervisor,子 Agent 无权说"这不归我管"再转手,只执行分配给它的任务;② 每个 Agent 职责边界清晰、不重叠,重叠区由 Supervisor 显式仲裁;③ 设兜底——Supervisor 连续 N 轮没进展、置信度低,就反问用户或转人工,不让 Agent 之间空转。核心是<b>收敛责任落实到某一个节点</b>。</div></details>
+    <details class="qa"><summary class="qu">Q:协同里共享状态的一致性怎么保证?</summary><div class="an">把状态做成"单一事实源"(single source of truth):统一放 Redis/DB,Agent 只读写它、不各自缓存;写操作加版本号或锁避免并发覆盖;关键状态(如退款单)走状态机,每次变更落库可审计。多 Agent 同时写同一字段时,用 reducer(合并策略,如追加、覆盖、投票)显式定义冲突如何收敛,而不是让写入顺序随机决定结果。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>Supervisor 模式</b>:中心主管统一调度子 Agent。</div>
+      <div class="term-item"><b>黑板模式</b>:多 Agent 读写共享工作区协作。</div>
+      <div class="term-item"><b>流水线</b>:任务按固定顺序在 Agent 间接力。</div>
+      <div class="term-item"><b>结构化消息</b>:用对象而非自然语言在 Agent 间传参。</div>
+      <div class="term-item"><b>共享状态</b>:协作各方共用的单一事实源。</div>
+    </div>
+  </div>
+</article>

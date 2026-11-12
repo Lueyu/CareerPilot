@@ -1,0 +1,56 @@
+<article class="q" id="eval-003" data-topic="eval" data-title="如何证明Agent比人工客服更好:评估方案" data-difficulty="4" data-tags="评估,ROI,业务价值" data-company="字节 / 阿里(真题)" data-source="P4Q1" data-kw="评估 ROI 业务价值 客服 对比 人工 满意度 解决率 转人工 成本">
+
+      <div class="q-no">业务落地 · Q1</div>
+      <h3>如何证明 Agent 比人工客服更好?设计评估方案</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#评估</span><span class="tag">#ROI</span><span class="tag">#业务价值</span>
+        <span class="company">字节 / 阿里(真题)</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"分三步:第一,<b>先定义'更好'是什么</b>——五维指标:解决率、首次响应时间、单次服务成本、满意度(CSAT)、转人工率;第二,<b>设计公平对照</b>——同期同流量随机 AB(和历史数据比会被问题分布、季节性污染),跑够样本量看统计显著性;第三,<b>合成 ROI 结论并划清能力边界</b>——Agent 在标准问题上成本降 90%、响应快 100 倍,但复杂情绪场景仍是人工强,<b>诚实划边界反而更可信</b>。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>像<b>新员工试用期答辩</b>:不能拍脑袋说"我觉得他干得不错",要拿<b>考评表</b>(指标体系)、和<b>同组老员工同题同卷比</b>(同期 AB 公平对照)、复盘<b>他处理不了转给别人的案例</b>(转人工率=该求助时求助)。最忌两件事:老员工答过的旧题给新人再答一遍(不公平),和"他从不麻烦别人"(可能硬扛坏事)。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 指标体系(先立靶子)</b></p>
+        <table>
+          <tr><th>维度</th><th>指标</th><th>说明/目标示例</th></tr>
+          <tr><td><b>准确性</b></td><td>问题解决率(用户不再追问/复购行为)</td><td>核心指标,人工基线 75%,Agent 目标 ≥70% 才算及格</td></tr>
+          <tr><td><b>效率</b></td><td>首次响应时间、单问题处理时长</td><td>Agent 秒级 vs 人工分钟级,基本完胜</td></tr>
+          <tr><td><b>成本</b></td><td>单会话成本(Agent:推理+转人工均摊)</td><td>人工 5~15 元/单 vs Agent 0.1~0.5 元/单</td></tr>
+          <tr><td><b>满意度</b></td><td>CSAT 评分、投诉率</td><td>主观但要测,注意问卷回收偏差</td></tr>
+          <tr><td><b>兜底健康度</b></td><td>转人工率、转人工及时性</td><td>转人工率 30% 但"该转就转"好于 5% 但"硬扛答错"</td></tr>
+        </table>
+        <p><b>2. 公平对照设计(这是"证明"的含金量所在)</b></p>
+        <ul>
+          <li><b>同期 AB 随机分流</b>:按用户 hash 分流,两组同时段、同问题分布——<b>拒绝用"Agent 上线后的数据 vs 去年人工数据"这种伪对照</b>(大促和淡季的问题构成完全不同)。</li>
+          <li><b>样本量</b>:按指标差异(如解决率 75% vs 70%)反推,通常每组至少几千会话;跑满固定周期(至少两周,覆盖工作日/周末)。</li>
+          <li><b>显著性</b>:解决率差异做卡方/z 检验,p &lt; 0.05 才敢下结论——防止把随机波动说成提升。</li>
+        </ul>
+        <p><b>3. 定性补充(数字之外的真相)</b></p>
+        <ul>
+          <li>bad case 复盘:每周抽 50 条转人工会话,归因(Agent 哪里不行);差评聚类。</li>
+          <li>人工客服反馈:一线客服对"接管 Agent 会话"的体感(上下文给全了吗、用户被惹毛了吗)。</li>
+        </ul>
+        <p><b>4. 汇报口径(面试官就是老板,练表达)</b></p>
+        <p>"Agent 承接 65% 的咨询量,解决率 71%(人工 75%),单成本降 92%,满意率持平;剩余 35% 复杂场景及时转人工,整体满意度反升 5%——<b>结论:人机协同最优,而非全面替代</b>。"——这种带边界、带数字、不吹牛的结论,老板最爱。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:满意度这种主观指标噪声大,怎么处理?</summary><div class="an">① 客观代理指标兜底(复购/不再进线/退款率);② 样本量大到噪声平均掉;③ 问题分支随机化(问"你满意吗" vs "你还有什么不满"),降低问卷诱导偏差。</div></details>
+        <details class="qa"><summary class="qu">Q:老板要求"完全替代人工",数据不支持怎么办?</summary><div class="an">用数据反推:100% 替代的满意度/解决率预测 + 风险成本(投诉、舆情);给出 80% 替代+20% 人工兜底的方案,把决策权和风险讲清楚——工程师的职责是提供诚实决策依据,不是迎合。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>CSAT</b>:客户满意度评分。</div>
+          <div class="term-item"><b>转人工率</b>:被移交人工的会话占比。</div>
+          <div class="term-item"><b>统计显著性</b>:差异非随机波动的置信程度。</div>
+        </div>
+      </div>
+</article>

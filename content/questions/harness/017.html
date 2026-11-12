@@ -1,0 +1,96 @@
+<article class="q" id="harness-017" data-topic="harness" data-title="Agent工具调用链路的容错与超时" data-difficulty="3" data-tags="工具调用,容错设计,超时" data-company="字节(真题)" data-source="P5Q28" data-kw="工具调用 外部工具 容错 超时 重试 熔断 降级 幂等 deadline 字节">
+
+  <div class="q-no">Agent核心 · Q28</div>
+  <h3>你做的 Agent 使用了多少个外部工具，在调用链条上如何保障故障容错和超时机制？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#工具调用</span><span class="tag">#容错设计</span><span class="tag">#超时</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"工具数量我坚持<b>少而精</b>——核心 8~15 个,按领域分组,多了模型选错率上升。容错我按<b>五层防线</b>设计:① <b>超时</b>——每个工具设 deadline(如 3~5s),全链路还有总预算;② <b>重试</b>——只对幂等操作重试,指数退避+抖动,上限 2~3 次;③ <b>熔断</b>——某工具连续失败就短路,不再无效调用;④ <b>降级</b>——换备用工具/缓存结果/兜底话术;⑤ <b>超时预算</b>——把剩余时间写进上下文,让 LLM 知道"该收敛了"。关键:失败信息要<b>结构化回灌</b>给 LLM 让它重新决策,而不是静默吞掉。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就像<b>项目经理带一群外包供应商</b>:手上只留 10 家靠谱供应商(工具少而精),多了管不过来、还容易派错活。每次派活都签个"交付截止时间"(超时);供应商失联,再催一次、催的间隔越来越长(重试退避);某家连续三次放鸽子,先拉黑不再派活(熔断);工期不够就换备用供应商或先给客户一个"部分结果"(降级);整个项目还有一个总截止日期,快到点必须收尾(总预算)。供应商交回来的坏消息要如实转达,让经理重新安排(失败回灌),而不是装没发生。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 工具数量怎么定</b></p>
+    <ul>
+      <li><b>少而精</b>:核心 8~15 个,按领域分组(订单/物流/售后/搜索),每个工具职责单一、描述清晰。</li>
+      <li>数量与可靠性的关系:工具越多,模型选错/参数乱填概率越高;功能重叠的工具要先合并。</li>
+      <li>命名与描述:工具名动词化、描述写明"何时用/入参/出参/错误",这本身就是容错的一部分(少选错)。</li>
+    </ul>
+    <p><b>2. 五层容错防线(重点)</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 448 458" role="img" aria-label="工具调用五层容错防线">
+  <rect class="sd-layer" x="4" y="8" width="440" height="442"/>
+  <text class="sd-l" x="16" y="26">工具调用 · 五层容错防线</text>
+  <rect class="sd-box" x="160" y="40" width="200" height="48" rx="10"/>
+  <text class="sd-t" x="260" y="68" text-anchor="middle">调用工具</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M260 88 L260 112"/>
+  <rect class="sd-box2" x="90" y="116" width="340" height="56" rx="10"/>
+  <text class="sd-t" x="260" y="140" text-anchor="middle">L1 · 超时</text>
+  <text class="sd-ts" x="260" y="158" text-anchor="middle">每工具 deadline 3~5s</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M260 172 L260 180"/>
+  <rect class="sd-box2" x="90" y="184" width="340" height="56" rx="10"/>
+  <text class="sd-t" x="260" y="208" text-anchor="middle">L2 · 重试</text>
+  <text class="sd-ts" x="260" y="226" text-anchor="middle">幂等才重试 · 指数退避+抖动 · ≤3 次</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M260 240 L260 248"/>
+  <rect class="sd-box2" x="90" y="252" width="340" height="56" rx="10"/>
+  <text class="sd-t" x="260" y="276" text-anchor="middle">L3 · 熔断</text>
+  <text class="sd-ts" x="260" y="294" text-anchor="middle">连续失败 → 短路 · 冷却后试探放行</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M260 308 L260 316"/>
+  <rect class="sd-box2" x="90" y="320" width="340" height="56" rx="10"/>
+  <text class="sd-t" x="260" y="344" text-anchor="middle">L4 · 降级</text>
+  <text class="sd-ts" x="260" y="362" text-anchor="middle">备用工具 → 缓存 → 兜底话术</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M260 376 L260 384"/>
+  <rect class="sd-box2" x="90" y="388" width="340" height="56" rx="10"/>
+  <text class="sd-t" x="260" y="412" text-anchor="middle">L5 · 总预算</text>
+  <text class="sd-ts" x="260" y="430" text-anchor="middle">全链路 deadline · token/轮次预算 · 超时收敛</text>
+</svg></div>
+    <p><b>3. 超时机制细节</b></p>
+    <ul>
+      <li><b>分层超时</b>:单工具 3~5s;整条链路 20~30s;LLM 调用单独超时。</li>
+      <li><b>deadline 传播</b>:把剩余时间预算写进上下文("你还有 8 秒,请给出当前最优答案"),让模型主动收敛而不是被硬掐。</li>
+      <li>超时不是失败:区分"慢但会成功"与"真失败"——能异步就异步(先回执,后台继续),交互场景则降级返回部分结果。</li>
+    </ul>
+    <p><b>4. 重试与幂等(成败关键)</b></p>
+    <ul>
+      <li>只重试幂等操作:GET/查询可重试;下单/扣款/发消息必须带幂等键,否则重试造成重复副作用。</li>
+      <li>指数退避+抖动防重试风暴;区分可重试错误(超时/429/5xx)与不可重试(参数错/权限/审核拒绝)。</li>
+      <li>工具调用重试前,判断"这一步是否可能已执行"(先查后写)。</li>
+    </ul>
+    <p><b>5. 熔断与降级</b></p>
+    <ul>
+      <li>熔断器三态:关闭 → 打开(连续失败 N 次/错误率超阈值)→ 半开(冷却后放一个试探)。</li>
+      <li>降级链:主工具 → 备用工具 → 缓存/规则结果 → 兜底话术+转人工,逐级降。</li>
+    </ul>
+    <p><b>6. 失败回灌 LLM(Agent 特有)</b></p>
+    <ul>
+      <li>把工具错误转成结构化描述(错误码+原因+建议下一步)塞回对话,让模型自我纠错(换参数/换工具/澄清用户)。</li>
+      <li>限制纠错轮次(如 3 轮),防"失败-重试-再失败"死循环,超限走降级。</li>
+    </ul>
+    <p><b>7. 可观测</b></p>
+    <ul>
+      <li>每个工具调用记录:耗时、成功率、重试次数、熔断状态;工具级 dashboard,哪个工具常超时一目了然。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:工具多了选错怎么办?</summary><div class="an">三层:① 从源头减——合并重叠工具、功能分组,控制在 15 个以内;② 描述质量——工具 description 写清"何时用/参数/返回/错误",很多选错是描述含糊导致;③ 选择辅助——用 function calling 的原生工具选择能力,必要时先过一层轻量路由(意图→工具组),让模型在组内选,缩小候选集。</div></details>
+    <details class="qa"><summary class="qu">Q:超时和熔断会不会把正常请求也误杀?</summary><div class="an">会,所以参数要调:超时按 P99 延迟的 2~3 倍设,别贴平均值;熔断阈值看"错误率"而非单次失败,半开状态放试探请求逐步恢复。误杀的本质是阈值太紧,用指标(熔断误伤率、超时占比)持续校准。</div></details>
+    <details class="qa"><summary class="qu">Q:工具返回超大结果怎么办?</summary><div class="an">工具侧先裁剪/分页(只返回 top N 或摘要),不要在 Agent 层硬塞;超大结果既拖慢又费 token,还容易让模型迷失重点。必要时工具返回"命中 M 条,已取前 N 条",把进一步筛选交给后续步骤。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>幂等(Idempotency)</b>:同一操作执行多次,效果与一次相同。</div>
+      <div class="term-item"><b>熔断器(Circuit Breaker)</b>:连续失败后短路,防止无效调用。</div>
+      <div class="term-item"><b>指数退避</b>:重试等待时间按 1s→2s→4s 递增。</div>
+      <div class="term-item"><b>deadline 传播</b>:把剩余时间预算传给下游,让其主动收敛。</div>
+      <div class="term-item"><b>function calling</b>:模型输出结构化工具调用而非自由文本。</div>
+    </div>
+  </div>
+</article>

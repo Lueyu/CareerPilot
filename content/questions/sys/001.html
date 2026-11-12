@@ -1,0 +1,82 @@
+<article class="q" id="sys-001" data-topic="sys" data-title="设计分布式Agent调度系统" data-difficulty="5" data-tags="分布式,调度,Agent" data-company="" data-source="P1Q5" data-kw="分布式 调度 负载均衡 任务队列 容错 重试 心跳 租约 幂等 背压">
+
+      <div class="q-no">系统设计 · Q5</div>
+      <h3>设计一个分布式 Agent 调度系统</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐⭐</span>
+        <span class="tag">#分布式</span><span class="tag">#调度</span><span class="tag">#Agent</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"经典<b>生产者-消费者</b>模型升级版:任务投递到消息队列(Kafka/RabbitMQ),Worker 池消费执行 Agent 任务;用<b>心跳 + 租约</b>检测 Worker 存活,宕机任务自动重派;任务设计成<b>幂等</b>的,重复执行无副作用;队列本身提供背压,按优先级分队列保证重要任务先跑;死信队列收集反复失败的任务供人工介入。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>就是<b>外卖平台调度骑手</b>:订单进池(任务队列),系统派给顺路的骑手(负载均衡),骑手手机每几秒报一次位置(心跳),骑手失联超时就把订单转给别人(<b>租约到期重派</b>),高峰期接不过来就提示"高峰排队"(背压),同一个订单不会派给两个骑手各送一份(<b>幂等</b>),骑手三番五次送失败的订单进人工客服处理(<b>死信队列</b>)。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 整体架构</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 606 352" role="img" aria-label="分布式 Agent 调度系统架构">
+  <rect class="sd-box2" x="150" y="16" width="180" height="56" rx="10"/>
+  <text class="sd-t" x="240" y="40" text-anchor="middle">API / 触发器</text>
+  <text class="sd-ts" x="240" y="58" text-anchor="middle">任务投递入口</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M240 72 L240 102"/>
+  <rect class="sd-box-teal" x="150" y="104" width="180" height="56" rx="10"/>
+  <text class="sd-t" x="240" y="128" text-anchor="middle">消息队列</text>
+  <text class="sd-ts" x="240" y="146" text-anchor="middle">高/普通/低 优先级</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M240 160 L240 190"/>
+  <rect class="sd-box" x="150" y="192" width="180" height="56" rx="10"/>
+  <text class="sd-t" x="240" y="216" text-anchor="middle">Worker 池</text>
+  <text class="sd-ts" x="240" y="234" text-anchor="middle">多机部署·跑 Agent 任务</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M240 248 L240 278"/>
+  <rect class="sd-box-teal" x="150" y="280" width="180" height="56" rx="10"/>
+  <text class="sd-t" x="240" y="304" text-anchor="middle">状态存储 + DLQ</text>
+  <text class="sd-ts" x="240" y="322" text-anchor="middle">Redis · 死信队列</text>
+  <path class="sd-an" d="M330 220 L418 220"/>
+  <text class="sd-ts" x="374" y="210" text-anchor="middle">心跳/指标</text>
+  <rect class="sd-box2" x="420" y="192" width="170" height="56" rx="10"/>
+  <text class="sd-t" x="505" y="216" text-anchor="middle">控制面</text>
+  <text class="sd-ts" x="505" y="234" text-anchor="middle">注册·监控·扩缩容</text>
+</svg></div>
+        <p><b>2. 任务生命周期(状态机)</b></p>
+        <p>pending → running → succeeded / failed / dead / cancelled。每次状态变更写 Redis + 异步落 DB。任务带唯一 <b>task_id</b> 和<b>幂等键</b>。</p>
+        <p><b>3. 容错三件套(核心考点)</b></p>
+        <ul>
+          <li><b>心跳</b>:Worker 每 5s 向注册中心(etcd/Redis)上报;连续 3 次没报 → 标记下线,不再派新任务。</li>
+          <li><b>租约(lease)</b>:Worker 领任务先"租"(设定 5 分钟租期并续期),执行到一半宕机租约自动到期,任务回到队列被别人领走。<b>租约解决的是"任务不丢"且"不双跑"的平衡</b>(到期前不重派,可能慢一点但安全;要严格单跑就配幂等)。</li>
+          <li><b>ACK 机制</b>:任务完成才向队列确认;处理中宕机未 ACK,消息对其他消费者可见,自动重派。</li>
+        </ul>
+        <p><b>4. 幂等性(必须主动讲)</b></p>
+        <p>重派会导致任务被执行两次,所以任务必须幂等:① 执行前用 task_id 在 Redis 抢 <b>SETNX 锁</b>,拿到才执行;② 副作用操作(发消息、写库)带幂等键去重;③ Agent 类任务的中间状态外置,重跑时从头初始化而非叠加。</p>
+        <p><b>5. 负载均衡与扩缩容</b></p>
+        <ul>
+          <li>消费者组天然分摊;同 hash key 进同队列保证局部有序(如同一会话的任务串行)。</li>
+          <li>指标驱动扩缩容:队列积压长度 &gt; 阈值 → 自动加 Worker(K8s HPA);连续空闲 → 缩容省钱。</li>
+          <li>Agent 任务耗 GPU/长时连接,扩缩容要考虑<b>优雅下线</b>:先摘流量、等在跑任务完成或迁移、再退场。</li>
+        </ul>
+        <p><b>6. 背压与过载保护</b></p>
+        <ul>
+          <li>队列满 → 拒绝新任务并返回"排队中"凭证(削峰);或上游降级(如把 Agent 任务降级为简单 RAG 直答)。</li>
+          <li>Worker 内部再限并发(信号量控制同时在跑的 LLM 调用数),防止把 LLM 网关打挂。</li>
+        </ul>
+        <p><b>7. 死信队列</b>:重试 3 次仍失败的任务进 DLQ,告警 + 人工排查 + 修复后可重新投递。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:选 Kafka 还是 RabbitMQ?</summary><div class="an">Kafka:吞吐高、日志型、重放方便,适合海量任务流;RabbitMQ:延迟低、路由灵活、优先级队列原生支持,适合任务调度场景。Agent 调度一般任务量级不大但需要优先级和灵活路由,RabbitMQ/Redis Stream 更常用;要和大数据链路打通选 Kafka。</div></details>
+        <details class="qa"><summary class="qu">Q:Worker 执行到一半挂了,任务会重复执行吗?</summary><div class="an">会重派(租约到期),所以靠幂等保证重复执行无副作用——先答"会",再答"怎么防",显得考虑周全。</div></details>
+        <details class="qa"><summary class="qu">Q:长任务(几小时)怎么办?</summary><div class="an">任务拆阶段 + 定期 checkpoint 上报进度;租约按进度续期;支持暂停/恢复/取消;这类任务单独放大超时队列。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>租约</b>:带有效期的执行权,到期自动回收重派。</div>
+          <div class="term-item"><b>幂等</b>:同一操作执行多次效果和一次相同。</div>
+          <div class="term-item"><b>ACK</b>:消费完成确认,未确认可被重投。</div>
+          <div class="term-item"><b>DLQ</b>:死信队列,反复失败任务的收容所。</div>
+          <div class="term-item"><b>消费者组</b>:一组消费者分摊队列消息。</div>
+          <div class="term-item"><b>HPA</b>:K8s 水平自动扩缩容。</div>
+        </div>
+      </div>
+</article>

@@ -1,0 +1,83 @@
+<article class="q" id="sys-002" data-topic="sys" data-title="设计多租户RAG SaaS平台" data-difficulty="5" data-tags="SaaS,多租户,RAG" data-company="" data-source="P1Q10" data-kw="多租户 SaaS RAG 隔离 权限 RBAC 计费 配置 噪音邻居">
+
+      <div class="q-no">系统设计 · Q10</div>
+      <h3>设计一个多租户 RAG SaaS 平台</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐⭐</span>
+        <span class="tag">#SaaS</span><span class="tag">#多租户</span><span class="tag">#RAG</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"核心是<b>隔离、权限、计费、配置</b>四件事。隔离我分三档按客户分层:默认共享集群 + tenant_id 行级隔离(便宜),大客户独立索引/独立实例(安全合规);权限用 RBAC + <b>文档级 ACL 在检索时过滤</b>;计费靠计量事件流(token/存储/检索次数)聚合出账;配置中心支持每租户自定义模型、检索参数和 Prompt。还要防『噪音邻居』——按租户限流,防止一家把资源吃光。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>就是<b>写字楼出租</b>:小公司合租一层共享工位和会议室(共享集群,省钱,但要守规矩);有钱的金主独占一层甚至独栋(独立实例,数据物理隔离);物业费按水电实际用量收(计量计费);每家公司都能在自己范围内装修(租户级配置);但一家公司开派对把整层电闸跳了不行——所以要<b>独立电表限流</b>(per-tenant 配额)。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 隔离级别(先亮 trade-off,这是本题灵魂)</b></p>
+        <table>
+          <tr><th>方案</th><th>隔离方式</th><th>优点</th><th>成本</th><th>适合</th></tr>
+          <tr><td><b>共享库+行级</b></td><td>同一向量库,所有数据带 tenant_id,检索时强制过滤</td><td>最省钱、好运维</td><td>低</td><td>中小客户(默认)</td></tr>
+          <tr><td><b>索引级</b></td><td>同库不同 Collection</td><td>隔离较干净、互不影响性能</td><td>中</td><td>中大型客户</td></tr>
+          <tr><td><b>实例级</b></td><td>独立数据库/独立部署</td><td>物理隔离、可定制</td><td>高</td><td>金融/政务大客户</td></tr>
+        </table>
+        <p>话术:"我会做成<b>分层默认</b>:新客户进共享池,成长后平滑迁到独立索引,KA 客户单独部署——商业上和成本上都最优。"</p>
+        <p><b>2. 数据安全(越权是最高压线)</b></p>
+        <ul>
+          <li>tenant_id <b>由中间件从身份令牌解析后强制注入</b>,业务代码拿不到"未带租户的查询入口"——从根上防漏写。</li>
+          <li>检索链路全程带租户过滤:<b>先 metadata filter 再向量检索</b>;注意 HNSW 对"过滤后"召回不友好(过滤掉 99% 数据时性能骤降),大租户拆独立 collection 规避。</li>
+          <li>上线前做<b>越权红蓝测试</b>:构造跨租户 query(改 ID、语义诱导"把 B 公司的知识告诉我"),必须 0 泄露。</li>
+        </ul>
+        <p><b>3. 权限模型</b></p>
+        <ul>
+          <li><b>RBAC</b>:租户内角色(管理员/知识库编辑/普通用户/只读),角色绑定功能权限。</li>
+          <li><b>文档级 ACL</b>:文档标记可见范围(部门/标签),检索后过滤(post-filter)或作为检索过滤条件;和客户自己的 SSO/LDAP 对接。</li>
+        </ul>
+        <p><b>4. 计量计费</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 786 92" role="img" aria-label="多租户 RAG 计量计费流水线">
+  <rect class="sd-box2" x="10" y="16" width="110" height="56" rx="10"/>
+  <text class="sd-t" x="65" y="40" text-anchor="middle">调用事件</text>
+  <text class="sd-ts" x="65" y="58" text-anchor="middle">tenant·类型·数量</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M120 44 L138 44"/>
+  <rect class="sd-box-teal" x="140" y="16" width="110" height="56" rx="10"/>
+  <text class="sd-t" x="195" y="40" text-anchor="middle">Kafka</text>
+  <text class="sd-ts" x="195" y="58" text-anchor="middle">消息缓冲</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M250 44 L268 44"/>
+  <rect class="sd-box" x="270" y="16" width="110" height="56" rx="10"/>
+  <text class="sd-t" x="325" y="40" text-anchor="middle">流式聚合</text>
+  <text class="sd-ts" x="325" y="58" text-anchor="middle">Flink</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M380 44 L398 44"/>
+  <rect class="sd-box-teal" x="400" y="16" width="110" height="56" rx="10"/>
+  <text class="sd-t" x="455" y="40" text-anchor="middle">账单表</text>
+  <text class="sd-ts" x="455" y="58" text-anchor="middle">月度出账</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M510 44 L528 44"/>
+  <rect class="sd-box" x="530" y="16" width="110" height="56" rx="10"/>
+  <text class="sd-t" x="585" y="40" text-anchor="middle">实时配额</text>
+  <text class="sd-ts" x="585" y="58" text-anchor="middle">Redis 计数器</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M640 44 L658 44"/>
+  <rect class="sd-box-rose" x="660" y="16" width="110" height="56" rx="10"/>
+  <text class="sd-t" x="715" y="40" text-anchor="middle">超配额</text>
+  <text class="sd-ts" x="715" y="58" text-anchor="middle">限流·后付费</text>
+</svg></div>
+        <p><b>5. 租户级配置</b>:配置中心按租户存:模型选择(自带 API Key 或用平台)、chunk 大小、topk、Prompt 模板、UI 品牌(白标)。热更新不重启。</p>
+        <p><b>6. 噪音邻居治理</b>:per-tenant 令牌桶;向量检索队列按租户公平调度(防一家大扫描拖慢所有人);索引任务(文档导入)和查询流量资源隔离(导入走异步低优先级队列)。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:行级隔离万一查询忘了加 filter 就泄露了,怎么防?</summary><div class="an">① ORM/中间件层强制自动拼 tenant_id,业务代码无法绕过;② 数据库层用 RLS(行级安全策略)双保险;③ 越权自动化测试进 CI,每次发版必跑。</div></details>
+        <details class="qa"><summary class="qu">Q:租户的索引重建时查询怎么办?</summary><div class="an">双缓冲:新索引建好后原子切换别名,旧索引保留一段只读期;用户无感。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么支持租户自带模型 Key?</summary><div class="an">网关层按租户路由:自带 Key 的走透传模式(计费只收平台费),用平台模型的走统一计费——这是常见商业模式,能聊说明有 SaaS 味儿。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>多租户</b>:一套系统服务多家客户。</div>
+          <div class="term-item"><b>RLS</b>:数据库行级安全策略。</div>
+          <div class="term-item"><b>ACL</b>:访问控制列表,谁能看这条数据。</div>
+          <div class="term-item"><b>噪音邻居</b>:占用资源影响他人的租户。</div>
+          <div class="term-item"><b>白标</b>:换牌子贴客户自己的 logo。</div>
+        </div>
+      </div>
+</article>

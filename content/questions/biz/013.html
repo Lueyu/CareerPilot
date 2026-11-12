@@ -1,0 +1,103 @@
+<article class="q" id="biz-013" data-topic="biz" data-title="如何处理用户数据隐私" data-difficulty="4" data-tags="隐私,安全,合规" data-company="" data-source="P4Q6" data-kw="隐私 安全 合规 脱敏 加密 个保法 GDPR PII 数据出境">
+
+      <div class="q-no">业务落地 · Q6</div>
+      <h3>如何处理用户数据隐私?</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#隐私</span><span class="tag">#安全</span><span class="tag">#合规</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"按<b>数据生命周期</b>设防:采集端<b>数据最小化</b>(能不收就不收);处理端<b>PII 实时脱敏</b>(NER 识别后替换/掩码再进 LLM);存储端<b>传输 TLS + 落盘加密 + 分级访问控制</b>;共享端选<b>不用于训练的企业 API 条款</b>或私有化模型;治理端<b>合规映射(个保法/GDPR)+ 用户权利实现(查询/更正/删除)+ 审计</b>。LLM 特有的一点:除了传统脱敏,<b>对话日志和 Memory 里的 PII 也要治理</b>——这是新系统最容易漏的口子。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>像<b>医院的病历管理</b>:挂号只收必要信息(<b>最小化</b>);病历本上身份证号印成 330**********(<b>脱敏</b>);病历柜上锁、只有主治医生能开(<b>分级访问</b>);外包检验科时签"样本不得留存他用"(<b>API 不训练条款</b>);病人有权复印、修改、要求销毁病历(<b>用户权利</b>);所有查阅留痕(<b>审计</b>)。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 按生命周期设防(框架)</b></p>
+        <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 792 206" role="img" aria-label="数据隐私按生命周期设防">
+  <text class="sd-l" x="10" y="22">数据生命周期 · 分阶段设防</text>
+  <rect class="sd-box-rose" x="10" y="40" width="126" height="44" rx="10"/>
+  <text class="sd-t" x="73" y="66" text-anchor="middle">采集</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M136 62 L168 62"/>
+  <rect class="sd-box" x="170" y="40" width="126" height="44" rx="10"/>
+  <text class="sd-t" x="233" y="66" text-anchor="middle">处理</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M296 62 L328 62"/>
+  <rect class="sd-box-teal" x="330" y="40" width="126" height="44" rx="10"/>
+  <text class="sd-t" x="393" y="66" text-anchor="middle">存储</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M456 62 L488 62"/>
+  <rect class="sd-box-amber" x="490" y="40" width="126" height="44" rx="10"/>
+  <text class="sd-t" x="553" y="66" text-anchor="middle">共享/委托</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M616 62 L648 62"/>
+  <rect class="sd-box2" x="650" y="40" width="126" height="44" rx="10"/>
+  <text class="sd-t" x="713" y="66" text-anchor="middle">销毁</text>
+  <rect class="sd-box2" x="10" y="96" width="126" height="26" rx="10"/>
+  <text class="sd-ts" x="73" y="113" text-anchor="middle">最小化</text>
+  <rect class="sd-box2" x="10" y="130" width="126" height="26" rx="10"/>
+  <text class="sd-ts" x="73" y="147" text-anchor="middle">匿名化选项</text>
+  <rect class="sd-box2" x="170" y="96" width="126" height="26" rx="10"/>
+  <text class="sd-ts" x="233" y="113" text-anchor="middle">实时脱敏</text>
+  <rect class="sd-box2" x="170" y="130" width="126" height="26" rx="10"/>
+  <text class="sd-ts" x="233" y="147" text-anchor="middle">PII识别</text>
+  <rect class="sd-box2" x="170" y="164" width="126" height="26" rx="10"/>
+  <text class="sd-ts" x="233" y="181" text-anchor="middle">注入前过滤</text>
+  <rect class="sd-box2" x="330" y="96" width="126" height="26" rx="10"/>
+  <text class="sd-ts" x="393" y="113" text-anchor="middle">加密+分级</text>
+  <rect class="sd-box2" x="330" y="130" width="126" height="26" rx="10"/>
+  <text class="sd-ts" x="393" y="147" text-anchor="middle">TLS+落盘</text>
+  <rect class="sd-box2" x="330" y="164" width="126" height="26" rx="10"/>
+  <text class="sd-ts" x="393" y="181" text-anchor="middle">行级权限</text>
+  <rect class="sd-box2" x="490" y="96" width="126" height="26" rx="10"/>
+  <text class="sd-ts" x="553" y="113" text-anchor="middle">合同约束</text>
+  <rect class="sd-box2" x="490" y="130" width="126" height="26" rx="10"/>
+  <text class="sd-ts" x="553" y="147" text-anchor="middle">不训练条款</text>
+  <rect class="sd-box2" x="490" y="164" width="126" height="26" rx="10"/>
+  <text class="sd-ts" x="553" y="181" text-anchor="middle">数据不出境</text>
+  <rect class="sd-box2" x="650" y="96" width="126" height="26" rx="10"/>
+  <text class="sd-ts" x="713" y="113" text-anchor="middle">删除权</text>
+  <rect class="sd-box2" x="650" y="130" width="126" height="26" rx="10"/>
+  <text class="sd-ts" x="713" y="147" text-anchor="middle">日志TTL</text>
+  <rect class="sd-box2" x="650" y="164" width="126" height="26" rx="10"/>
+  <text class="sd-ts" x="713" y="181" text-anchor="middle">Memory清除</text>
+</svg>
+</div>
+        <p><b>2. PII 脱敏(LLM 场景的核心手段)</b></p>
+        <ul>
+          <li><b>识别</b>:NER 模型/正则识别姓名、手机号、身份证、银行卡、住址;识别后按用途处理:<b>替换</b>("用户A")、<b>掩码</b>(138****5678)、<b>令牌化</b>(双向映射表单独加密保存,需要时可反查)。</li>
+          <li><b>过滤位置</b>:入口处(进 LLM 前最关键)——prompt 里的 PII 不脱敏就等于把数据发给了第三方;<b>出口也要脱敏</b>(模型输出回带的敏感内容)。</li>
+          <li>和效果的平衡:有些场景 PII 是任务必需(给用户查自己的订单)——<b>按数据流向区分</b>:进自家私有化模型=可;出去到第三方 API=脱敏或签 DPA。</li>
+        </ul>
+        <p><b>3. 存储与访问</b></p>
+        <ul>
+          <li>传输 TLS、落盘加密(KMS 管密钥)、密钥轮换;<b>对话日志是隐私重灾区</b>(用户会聊一切),日志里 PII 自动识别打标,超期自动删除(TTL),查询走审批。</li>
+          <li>分级:公开/内部/机密三级 + 行级权限(谁能看哪个用户的记忆)。</li>
+        </ul>
+        <p><b>4. 第三方模型的合规(必聊)</b></p>
+        <ul>
+          <li>选<b>企业 API 且合同明确"不用于训练"</b>;敏感行业干脆<b>私有化部署模型</b>(金融/医疗常态)。</li>
+          <li>跨境注意:调用境外模型 = 数据出境,需过安全评估(个保法框架下);"模型在哪、日志在哪、备份在哪"三个都要答上。</li>
+        </ul>
+        <p><b>5. 用户权利与治理</b></p>
+        <ul>
+          <li>实现"查询/导出/更正/<b>删除(被遗忘权)</b>"的工单化通道;删除是<b>级联</b>的:对话、Memory、向量库(该用户的所有 chunk)、缓存、备份策略都要覆盖。</li>
+          <li>隐私政策里如实披露"AI 如何处理你的数据";上线前过法务评审,日常做审计留痕。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:用户要求删除 Memory 里的数据,向量库怎么删?</summary><div class="an">记忆写入时带 user_id 元数据,删除时按 metadata filter 批量物理删除+重建索引碎片回收;同时清缓存(语义缓存可能残留答案);提供删除回执。这就是为什么 Memory 设计一开始就要带租户/用户标签——删除才能执行得下去。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么平衡"模型效果好(需要更多数据)"和隐私?</summary><div class="an">分级数据策略:脱敏后用于改进(统计/评估)、原始数据最小授权;用"差分隐私/聚合"思路做分析;采集时征得<b>明确同意</b>(opt-in 而非默认勾选)。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>PII</b>:个人可识别信息。</div>
+          <div class="term-item"><b>令牌化</b>:敏感值替换为可逆的假名。</div>
+          <div class="term-item"><b>KMS</b>:密钥管理系统。</div>
+          <div class="term-item"><b>被遗忘权</b>:用户要求删除其数据的权利。</div>
+        </div>
+      </div>
+</article>

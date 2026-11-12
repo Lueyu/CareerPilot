@@ -1,0 +1,96 @@
+<article class="q" id="rag-001" data-topic="rag" data-title="设计日均100万查询的企业级RAG系统" data-difficulty="5" data-tags="系统设计,高并发,RAG" data-company="字节 / 阿里 / 腾讯(高频)" data-source="P1Q1" data-kw="RAG 高并发 缓存 检索 生成 QPS P99 架构 容量估算 字节 阿里 腾讯">
+
+      <div class="q-no">系统设计 · Q1</div>
+      <h3>设计一个支持日均 100 万查询的企业级 RAG 系统</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐⭐</span>
+        <span class="tag">#系统设计</span><span class="tag">#高并发</span><span class="tag">#RAG</span>
+        <span class="company">字节 / 阿里 / 腾讯(高频)</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"我会分五步:第一,<b>先算容量账</b>——日均 100 万、峰值 3000 QPS,按峰值而不是均值设计;第二,<b>分层架构</b>——网关、查询理解、检索、重排、生成五层;第三,<b>检索侧</b>用混合检索 + HNSW 索引 + 语义缓存,把延迟压到 200ms;第四,<b>生成侧</b>用模型分级 + 流式输出控制成本和体验;第五,多可用区部署 + 降级预案保 99.9%,网关统一做 token 成本监控。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>把它想象成一个<b>超大型图书馆 + 快速应答团队</b>:前台(网关)先看你要的书是不是别人刚问过(<b>缓存</b>,直接把现成答案给你);没问过,图书管理员去书架上找相关资料(<b>检索</b>),可能同时在电脑目录和书架上各找一批再合并(<b>混合检索</b>);找回来的资料先按相关度排个序(<b>重排</b>),把最相关的交给写手(<b>LLM</b>)组织成答案。100 万次/天平均下来每秒才 12 个人,但早高峰可能瞬间挤进 3000 人——所以要<b>按高峰备人手</b>,并且让常见问题根本不进馆(缓存挡掉)。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>第一步:容量估算(面试第一句先算账,立刻和 80% 的候选人拉开差距)</b></p>
+        <ul>
+          <li>100 万次/天 ÷ 86400 秒 ≈ <b>平均 12 QPS</b>;峰值 3000 QPS,峰值是均值的 250 倍(企业内部使用高度集中在工作时间)。</li>
+          <li>按 3000 QPS 设计:检索 200ms/次 → 需要 600 并发的检索能力 → 向量库<b>分片 + 副本</b>水平扩展。</li>
+          <li>成本账:平均每次请求消耗 2~3K token,100 万次/天 = <b>20~30 亿 token/天</b>。这个量级如果全走 GPT-4 级 API 会远超 10 万/月 —— 所以<b>必须靠缓存 + 模型分级 + 私有化/国产模型</b>把大头砍掉。主动把这笔账算给面试官听,是这道题最大的加分点。</li>
+        </ul>
+        <p><b>第二步:整体架构(画出来)</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 900 176" role="img" aria-label="企业级 RAG 系统分层架构">
+  <rect class="sd-layer" x="128" y="16" width="760" height="146"/>
+  <text class="sd-l" x="140" y="32">企业级 RAG · 分层架构</text>
+  <rect class="sd-box-rose" x="10" y="76" width="90" height="60" rx="10"/>
+  <text class="sd-t" x="55" y="102" text-anchor="middle">用户</text>
+  <text class="sd-ts" x="55" y="120" text-anchor="middle">提问 / 追问</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M100 106 L124 106"/>
+  <rect class="sd-box2" x="134" y="76" width="106" height="60" rx="10"/>
+  <text class="sd-t" x="187" y="102" text-anchor="middle">网关层</text>
+  <text class="sd-ts" x="187" y="120" text-anchor="middle">鉴权·限流·路由</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M240 106 L264 106"/>
+  <rect class="sd-box2" x="274" y="76" width="110" height="60" rx="10"/>
+  <text class="sd-t" x="329" y="102" text-anchor="middle">查询理解</text>
+  <text class="sd-ts" x="329" y="120" text-anchor="middle">改写·意图·语言</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M384 106 L408 106"/>
+  <rect class="sd-box-teal" x="418" y="76" width="116" height="60" rx="10"/>
+  <text class="sd-t" x="476" y="102" text-anchor="middle">检索层</text>
+  <text class="sd-ts" x="476" y="120" text-anchor="middle">缓存·向量+BM25·RRF</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M534 106 L558 106"/>
+  <rect class="sd-box" x="568" y="76" width="108" height="60" rx="10"/>
+  <text class="sd-t" x="622" y="102" text-anchor="middle">重排层</text>
+  <text class="sd-ts" x="622" y="120" text-anchor="middle">精排 top50→5</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M676 106 L700 106"/>
+  <rect class="sd-box-amber" x="710" y="76" width="108" height="60" rx="10"/>
+  <text class="sd-t" x="764" y="102" text-anchor="middle">生成层</text>
+  <text class="sd-ts" x="764" y="120" text-anchor="middle">LLM·流式·引用</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M818 96 L872 60"/>
+  <rect class="sd-box-rose" x="806" y="40" width="86" height="40" rx="10"/>
+  <text class="sd-t" x="849" y="64" text-anchor="middle">返回用户</text>
+</svg></div>
+        <p><b>第三步:检索层优化(P99 目标 200ms)</b></p>
+        <ul>
+          <li><b>语义缓存</b>:把问题的 embedding 和答案一起缓存,新问题来了先算相似度,超过 0.95 直接返回。企业知识问答重复率极高(规章制度、报销流程天天有人问),<b>命中率 30%~60%</b> 很常见,这是整个系统的第一省钱开关。</li>
+          <li><b>索引</b>:HNSW(查询快、吃内存)+ 向量量化(PQ/SQ 压缩内存 4~8 倍)。</li>
+          <li><b>混合检索</b>:向量管语义("怎么报销"),BM25 管精确关键词("发票号 TB-2024"),RRF 融合。</li>
+          <li><b>控制 topk</b>:召回 50 条 → 精排后只留 5 条进生成,LLM 的上下文越短越快越便宜。</li>
+        </ul>
+        <p><b>第四步:生成层优化</b></p>
+        <ul>
+          <li><b>模型分级</b>:网关先用小模型判断问题难度,简单题走便宜模型(成本差 10~50 倍),难题才上旗舰模型。</li>
+          <li><b>流式输出</b>:用户感知的是"首字时间"(TTFT),不是总时长。首字 300ms 出来,后面慢慢吐,体验就"快"了。</li>
+          <li><b>Prompt 精简</b>:系统提示词砍掉废话、历史对话做摘要,token 就是钱。</li>
+          <li><b>预生成 FAQ</b>:统计 Top 1000 高频问题,离线生成答案缓存,在线直接命中。</li>
+        </ul>
+        <p><b>第五步:可用性 99.9% 与监控</b></p>
+        <ul>
+          <li>99.9% = 全年停机不超过 8.76 小时 → <b>多可用区部署</b>、检索/生成服务无状态可扩容。</li>
+          <li><b>降级预案</b>:向量库挂了 → 降级 BM25 检索;LLM 挂了 → 直接返回 Top5 原文段落 + "生成服务恢复中"。</li>
+          <li><b>监控</b>:QPS、P50/P95/P99 延迟、错误率、缓存命中率、每请求 token 成本、答案引用率(答案是否真的来自文档)。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:语义缓存命中率你怎么估?</summary><div class="an">用历史日志做离线回放:把过去 N 天的问题聚类,统计"重复/高度相似问题占比"。企业内部场景一般 30% 起步;再配合 FAQ 预生成可到 50%+。</div></details>
+        <details class="qa"><summary class="qu">Q:缓存和知识库更新冲突怎么办(答案过期)?</summary><div class="an">缓存 key 里带知识库版本号,更新索引时旧版本缓存整体失效;TTL 兜底(如 24 小时)。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么保证答案不是模型瞎编的?</summary><div class="an">强制引用来源:Prompt 要求每个结论标注文档来源,后处理校验"答案中的引用是否真实存在于检索结果里",并对无依据句子打标/过滤。</div></details>
+        <details class="qa"><summary class="qu">Q:10 万/月的成本预算你怎么分配?</summary><div class="an">先私有化部署 Embedding 和 Rerank 模型(GPU 固定成本),LLM 分级:70% 流量由缓存+小模型承接,旗舰模型只处理 10~20% 的复杂问题,再留 20% 余量应对峰值。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>P99</b>:99% 的请求比这个值快。看长尾,不看平均。</div>
+          <div class="term-item"><b>HNSW</b>:跳表思想的多层图索引,查得快、吃内存。</div>
+          <div class="term-item"><b>RRF</b>:倒数排名融合,把多路检索结果合成一个榜单。</div>
+          <div class="term-item"><b>语义缓存</b>:按"意思像不像"缓存答案,而非一字不差。</div>
+          <div class="term-item"><b>TTFT</b>:首 token 时间,流式体验的核心指标。</div>
+          <div class="term-item"><b>多可用区(AZ)</b>:同地域多个机房,一个炸了另一个顶上。</div>
+        </div>
+      </div>
+</article>

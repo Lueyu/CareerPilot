@@ -1,0 +1,103 @@
+<article class="q" id="algo-012" data-topic="algo" data-title="MoE负载均衡算法改进" data-difficulty="5" data-tags="MoE,负载均衡,架构优化" data-company="" data-source="P6Q11" data-kw="MoE 混合专家 负载均衡 路由 门控 辅助损失 专家容量 ExpertChoice 噪声门控 z-loss DeepSeekMoE GShard SwitchTransformer">
+
+  <div class="q-no">Agent算法 · Q11</div>
+  <h3>MoE 负载均衡算法改进</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐⭐</span>
+    <span class="tag">#MoE</span><span class="tag">#负载均衡</span><span class="tag">#架构优化</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"专家过载的根子是<b>路由的赢家通吃</b>:softmax top-k 会让少数专家马太效应地越来越热。标准解法三层:① <b>辅助负载均衡损失</b>(Switch Transformer)——惩罚'专家被选频率 × 平均路由概率'的乘积,让负载趋于均匀;② <b>专家容量因子</b>——限制每个专家每步最多处理的 token 数,超出的丢弃或走残差;③ 更彻底的是 <b>Expert Choice 路由</b>——反过来让每个专家自己选 top-k token,从机制上保证每个专家恰好等量。再加工程细节:噪声门控促进探索、z-loss 稳数值。但要记住:<b>均衡和专业分工是矛盾的,过度均衡会伤害模型质量</b>。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>一家银行开了 8 个窗口,客户却全挤在 1 号(门控偏爱少数专家),空窗口干瞪眼、1 号排长队。解法:给空窗口发<b>引流补贴</b>(辅助损失,把客户往冷门窗口赶一点);给每个窗口设<b>排队上限</b>(容量因子,排满就换窗口);或者干脆<b>让窗口反过来挑客户</b>(Expert Choice,每个窗口主动领走固定人数,天然不闲不挤)。但注意别矫枉过正——不能逼一个贷款专员去办存取款(过度均衡会破坏专家的专业分工)。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. MoE 结构与路由(先摆清楚问题在哪)</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 616 372" role="img" aria-label="MoE 路由与专家加权输出">
+  <rect class="sd-box-rose" x="290" y="16" width="90" height="50" rx="10"/>
+  <text class="sd-t" x="335" y="45" text-anchor="middle">token x</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M335 66 L335 92"/>
+  <rect class="sd-box" x="250" y="96" width="170" height="56" rx="10"/>
+  <text class="sd-t" x="335" y="118" text-anchor="middle">Router / Gate</text>
+  <text class="sd-ts" x="335" y="136" text-anchor="middle">g(x)=softmax(W·x)</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M322 152 L140 180"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M335 152 L335 180"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M348 152 L530 180"/>
+  <rect class="sd-box-teal" x="70" y="184" width="130" height="56" rx="10"/>
+  <text class="sd-t" x="135" y="206" text-anchor="middle">专家 E1</text>
+  <text class="sd-ts" x="135" y="224" text-anchor="middle">g₁·E₁(x)</text>
+  <rect class="sd-box-teal" x="270" y="184" width="130" height="56" rx="10"/>
+  <text class="sd-t" x="335" y="206" text-anchor="middle">专家 E2</text>
+  <text class="sd-ts" x="335" y="224" text-anchor="middle">g₂·E₂(x)</text>
+  <rect class="sd-box-teal" x="470" y="184" width="130" height="56" rx="10"/>
+  <text class="sd-t" x="535" y="206" text-anchor="middle">专家 E3</text>
+  <text class="sd-ts" x="535" y="224" text-anchor="middle">g₃·E₃(x)</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M135 240 L300 270"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M335 240 L335 268"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M535 240 L370 270"/>
+  <rect class="sd-box" x="230" y="272" width="210" height="56" rx="10"/>
+  <text class="sd-t" x="335" y="294" text-anchor="middle">专家加权输出</text>
+  <text class="sd-ts" x="335" y="312" text-anchor="middle">y = Σ gᵢ(x)·Eᵢ(x)</text>
+  <text class="sd-ts" x="335" y="352" text-anchor="middle">top-k 选 k 个专家 · k=1 Switch / k=2 GShard</text>
+</svg></div>
+    <ul>
+      <li><b>为什么失衡</b>:路由概率 <code>g_i</code> 本身是学出来的,一旦某专家初期被选得多、梯度回传更多、它就更强、下次更被选——<b>正反馈的马太效应</b>,最后少数专家过载、多数闲置甚至"死掉"(路由梯度几乎为 0)。</li>
+      <li><b>失衡的代价</b>:① 专家并行下热门专家的卡算力被打爆、冷门卡空转,吞吐塌方;② 超出容量的 token 被丢弃,直接丢信息;③ 训练不稳定。</li>
+    </ul>
+    <p><b>2. 辅助负载均衡损失(最常用,要能写公式)</b></p>
+    <pre class="code">L_aux = α · N · Σ_{i=1..N} f_i · P_i
+f_i = (1/T)·Σ_{x∈B} 1{ argmax g(x) = i }     <span class="c"># 分给专家 i 的 token 占比(实际负载)</span>
+P_i = (1/T)·Σ_{x∈B} g_i(x)                    <span class="c"># 专家 i 的平均路由概率(理想负载)</span></pre>
+    <ul>
+      <li>当负载完全均匀时 <code>f_i = P_i = 1/N</code>,乘积和最小;失衡越重乘积越大,损失越大——所以它<b>软性引导</b>路由均匀,而不是硬性截断。</li>
+      <li>α 是权重(经验值通常较小,如 1e-2 量级),N 是专家数。总损失 = 主任务损失 + L_aux。</li>
+    </ul>
+    <p><b>3. 专家容量因子(capacity factor,硬约束)</b></p>
+    <ul>
+      <li>每个专家每步最多处理 <code>C = (T/N)·capacity_factor</code> 个 token。超过的部分要么丢弃(token dropping,信息损失)、要么通过残差连接直接跳过专家(common 做法)。</li>
+      <li>容量因子 &gt; 1 给突发留余量但浪费算力,&lt; 1 会丢 token 但更省——是<b>吞吐和质量的权衡旋钮</b>。</li>
+    </ul>
+    <p><b>4. Expert Choice 路由(从机制上根治)</b></p>
+    <ul>
+      <li>反客为主:不是"token 选专家",而是<b>每个专家从所有 token 里选 top-k</b>。这样每个专家恰好收到 k 个 token,<b>完美均衡、零辅助损失、零丢弃</b>。</li>
+      <li><b>代价</b>:① 一个 token 可能被多个专家同时选中(要加权/归一),也可能一个都不被选(被丢);② 专家选 token 需要看到全局,<b>自回归解码不友好</b>(未来 token 未知),要分块(chunking)近似,可能损失一点因果性。</li>
+    </ul>
+    <p><b>5. 其他工程手段 + 业界实践</b></p>
+    <ul>
+      <li><b>噪声门控(noisy top-k,Shazeer 2017)</b>:在路由 logit 上加可学习的高斯噪声再 top-k,鼓励探索、防止过早锁死少数专家。</li>
+      <li><b>z-loss</b>:给路由 logit 加一项惩罚让其量级适中,改善数值稳定、减少溢出——很多大模型 MoE 实现都会带上。</li>
+      <li><b>GShard</b>:top-2 门控 + 辅助损失 + 容量因子 + 第二专家用随机路由,工业规模落地的标杆。</li>
+      <li><b>DeepSeekMoE</b>:把专家<b>切得更细(细粒度专家)+ 设若干"共享专家"</b>(所有 token 都会经过)。细粒度让负载更易摊平、专家更专;共享专家沉淀"通用知识",减少每个路由专家里的重复冗余。</li>
+    </ul>
+    <p><b>6. Trade-off(必答的辩证)</b></p>
+    <table>
+      <tr><th>手段</th><th>均衡效果</th><th>主要代价</th></tr>
+      <tr><td><b>辅助损失</b></td><td>软性、渐进</td><td>α 大则逼专家"啥都学",伤专业化与质量</td></tr>
+      <tr><td><b>容量因子</b></td><td>硬性上限</td><td>丢 token / 浪费算力</td></tr>
+      <tr><td><b>Expert Choice</b></td><td>完美均衡</td><td>全局信息依赖,自回归解码要分块</td></tr>
+      <tr><td><b>细粒度+共享专家</b></td><td>结构上摊平 + 去冗余</td><td>通信/调度复杂度上升</td></tr>
+    </table>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:辅助损失的权重 α 设多大?太大会怎样?</summary><div class="an">没有普适常数,经验上在 1e-3 ~ 1e-2 量级,要靠实验调。判据:α 要小到"不影响主任务收敛",又大到"让各专家负载方差降下来"。太大会有副作用——强制所有专家接收等量且多样化的 token,专家就学不到差异化专长,退化成"几个一样的模型",反而丢失 MoE 的容量优势。所以 α 通常从小开始,看"负载均衡度"和"下游精度"两条曲线取交点。</div></details>
+    <details class="qa"><summary class="qu">Q:Expert Choice 为什么能保证完美均衡?代价是什么?</summary><div class="an">因为每个专家固定选 top-k 个 token,那么每个专家收到的 token 数恒等于 k,<b>负载天然相等</b>,不需要辅助损失、也不会有容量溢出。代价:① 选择要在一个 batch/块内做全局 top-k,<b>自回归解码时未来 token 还没来</b>,只能按已生成的块近似,可能牺牲因果性;② 一个 token 可能被多个专家选中(需归一),也可能落选(被丢弃)——落选率要用容量 k 来调;③ 实现和通信复杂度更高。</div></details>
+    <details class="qa"><summary class="qu">Q:DeepSeekMoE 为什么要加"共享专家"?</summary><div class="an">因为路由专家里存在大量<b>冗余</b>——很多通用知识(基础语法、常识)每个专家都要各学一份,浪费参数。把这类"人人都用"的知识抽到一个<b>永远激活的共享专家</b>里,路由专家就能更专注自己的细分领域,整体参数利用率更高、也更省。同时"细粒度专家"把大专家切成多个小专家,一是更容易摊平负载,二是激活时颗粒度更细、组合更灵活,在同样算力预算下能激活更多专家、表达力更强。</div></details>
+    <details class="qa"><summary class="qu">Q:负载均衡损失会不会反过来损害模型质量?</summary><div class="an">会,这是本题最关键的辩证。均衡损失本质是"逼每个专家被均等地用",但真实数据是长尾、有聚类结构的——有些能力高频、有些低频。强制均衡等于<b>牺牲专家的自然分工去换取硬件利用率</b>。所以做法是:均衡目标是"别让个别专家过载到丢弃 token、别让大多数专家闲置",而不是"严格等分";用容量因子兜住极端,辅助损失只做温和引导,并以<b>下游任务精度为最终裁判</b>——均衡度只是手段,质量才是目的。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>MoE</b>:混合专家,每次只激活部分专家以解耦参数量与算力。</div>
+      <div class="term-item"><b>Gating/Router</b>:决定每个 token 路由到哪些专家的门控网络。</div>
+      <div class="term-item"><b>辅助损失</b>:负载均衡正则项,引导专家被均匀使用。</div>
+      <div class="term-item"><b>容量因子</b>:专家单步可处理 token 数的上限倍数。</div>
+      <div class="term-item"><b>Expert Choice</b>:专家反向选 token,机制上保证完美均衡。</div>
+      <div class="term-item"><b>共享专家</b>:对所有 token 恒激活的专家,承载通用知识。</div>
+    </div>
+  </div>
+</article>

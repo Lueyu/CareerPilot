@@ -1,0 +1,98 @@
+<article class="q" id="harness-029" data-topic="harness" data-title="Agent自我修正算法优化(Reflexion优化)" data-difficulty="4" data-tags="Agent,Reflection,优化" data-company="" data-source="P6Q10" data-kw="Agent Reflection Reflexion 自我修正 反思 成本优化 记忆 蒸馏 预算 早停 best-of-N Self-Refine">
+
+  <div class="q-no">Agent算法 · Q10</div>
+  <h3>Agent 自我修正算法优化</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#Agent</span><span class="tag">#Reflection</span><span class="tag">#优化</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"Reflexion 贵在<b>每个回合都要多一次评估/反思调用,还要把整段轨迹塞进上下文</b>。优化从三路下手:第一<b>少反思</b>——只对失败回合触发反思,成功就不浪费;第二<b>精反思</b>——把长篇自省压成一条可复用的 lesson(教训),存进记忆,不存整段轨迹;第三<b>沉淀反思</b>——把高频 lesson 蒸馏进系统提示或直接 SFT 进模型,把'运行时反思'变成'事前已内化'。再配三件套:早停(提升低于阈值就停)、预算上限(超了走直答/转人工)、以及用并行采样 + best-of-N 用宽度换深度。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>Reflexion 像<b>学生每次做错都写一篇八百字检讨再整本重做</b>——反思充分但成本爆表。优化后变成:只有错题才写检讨(选择性反思)、检讨只写一句"这题我错在忽略了边界条件"(压缩成 lesson)、考前把错题本上的教训背进脑子、以后不再现场翻本子(蒸馏进 prompt/模型)。再加一条:想不通就先平行做三道、挑最好的一份交卷(best-of-N 用宽度换深度)。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. Reflexion 为什么贵(先量化成本来源)</b></p>
+    <ul>
+      <li>标准 Reflexion(Shinn et al. 2023)每轮 = <b>生成(1 次 LLM)+ 评估/反思(1~2 次 LLM)</b>,重试 3 轮就是 6~9 次调用;且反思内容 + 历史轨迹都压进下轮 prompt,<b>上下文越来越长</b>,token 成本线性累积。</li>
+      <li>自省里还经常是"正确的废话"(如"下次要更仔细"),对下一步无信息量,纯烧钱。</li>
+    </ul>
+    <p><b>2. 优化策略全景(按"少/精/沉淀"三路展开)</b></p>
+    <table>
+      <tr><th>方向</th><th>手段</th><th>收益</th></tr>
+      <tr><td><b>少反思</b></td><td>只对失败/低分回合触发;成功即止</td><td>砍掉无谓的评估调用</td></tr>
+      <tr><td><b>少反思</b></td><td>早停:连续两轮提升 &lt; 阈值就停止</td><td>避免为 0.5% 的提升烧 3 轮钱</td></tr>
+      <tr><td><b>精反思</b></td><td>反思压缩成 1 条结构化 lesson(错误类型 → 修正策略),不存整段轨迹</td><td>上下文短、检索快、可复用</td></tr>
+      <tr><td><b>精反思</b></td><td>Self-Refine:生成与反思用同一模型,一轮反馈一轮改写</td><td>少一个独立 critic,省一半调用</td></tr>
+      <tr><td><b>沉淀</b></td><td>高频 lesson 蒸馏进 system prompt 或 SFT 进模型</td><td>把"运行时反思"变成"零成本内化"</td></tr>
+      <tr><td><b>架构</b></td><td>并行采样 + best-of-N:多个候选,挑最优</td><td>用宽度换深度,规避串行反思长尾</td></tr>
+    </table>
+    <p><b>3. 关键:反思要"可复用 + 可检索"(记忆化)</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 540 296" role="img" aria-label="Reflexion 自我修正优化：少反思精反思与沉淀蒸馏">
+  <rect class="sd-box-rose" x="10" y="16" width="96" height="56" rx="10"/>
+  <text class="sd-t" x="58" y="38" text-anchor="middle">失败回合</text>
+  <text class="sd-ts" x="58" y="56" text-anchor="middle">评估分低</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M106 44 L126 44"/>
+  <rect class="sd-box" x="130" y="16" width="124" height="56" rx="10"/>
+  <text class="sd-t" x="192" y="38" text-anchor="middle">抽取 lesson</text>
+  <text class="sd-ts" x="192" y="56" text-anchor="middle">场景·错误·动作</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M254 44 L274 44"/>
+  <rect class="sd-box-teal" x="278" y="16" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="353" y="38" text-anchor="middle">episodic memory</text>
+  <text class="sd-ts" x="353" y="56" text-anchor="middle">经验库·可检索</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M353 72 L353 98 L192 98 L192 116"/>
+  <rect class="sd-box-rose" x="10" y="120" width="96" height="56" rx="10"/>
+  <text class="sd-t" x="58" y="142" text-anchor="middle">新任务</text>
+  <text class="sd-ts" x="58" y="160" text-anchor="middle">新 query</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M106 148 L126 148"/>
+  <rect class="sd-box" x="130" y="120" width="124" height="56" rx="10"/>
+  <text class="sd-t" x="192" y="142" text-anchor="middle">检索 lesson</text>
+  <text class="sd-ts" x="192" y="160" text-anchor="middle">k≤3 · 相关</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M254 148 L274 148"/>
+  <rect class="sd-box" x="278" y="120" width="124" height="56" rx="10"/>
+  <text class="sd-t" x="340" y="142" text-anchor="middle">注入 prompt</text>
+  <text class="sd-ts" x="340" y="160" text-anchor="middle">规避同类错</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M428 44 L452 44 L452 252 L432 252"/>
+  <text class="sd-ts" x="460" y="160">命中N次</text>
+  <rect class="sd-box-amber" x="278" y="224" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="353" y="246" text-anchor="middle">蒸馏内化</text>
+  <text class="sd-ts" x="353" y="264" text-anchor="middle">prompt / SFT</text>
+</svg></div>
+    <ul>
+      <li>反思的 ROI 来自<b>跨任务复用</b>:如果每次反思只服务当前这一题,成本永远摊不掉;只有沉淀成"这类题我老犯 X 错"的元认知,才能越用越省。</li>
+      <li>lesson 要结构化(错误模式 + 触发条件 + 修正动作),否则检索时语义漂移、注入后也是噪音。</li>
+    </ul>
+    <p><b>4. 蒸馏:把反思从"运行时"搬到"事前"</b></p>
+    <ul>
+      <li><b>System prompt 层</b>:把高频教训写成几条"先检查边界条件""先复述需求再动手"的固定规则——零额外推理成本。</li>
+      <li><b>SFT 层</b>:把"带反思的成功轨迹"作为训练数据微调模型,让它直接产出"反思后的正确行为",推理时根本不再需要显式反思环。这是把 Reflexion 的收益固化进权重,彻底消掉多轮成本。</li>
+    </ul>
+    <p><b>5. Trade-off(必答)</b></p>
+    <ul>
+      <li>反思轮数 ↑ → 精度通常 ↑(先升后平),但成本线性 ↑、延迟 ↑。</li>
+      <li>反思也可能<b>负优化</b>:模型过度自信地"改坏"本来对的答案,或陷入反复横跳。所以要配"改进才接受、否则保留原答案"的接受准则 + 早停。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:Reflexion 和 Self-Refine 的区别?</summary><div class="an">Self-Refine(单任务内、一轮反馈一轮改写、无跨任务记忆)更轻;Reflexion 的核心增量是 <b>episodic memory</b>——把这次反思存起来、跨回合跨任务复用,所以更适合需要"多次重试同类任务"的场景(代码、决策)。可以这样讲:Self-Refine 是"当场改",Reflexion 是"当场改 + 记进错题本"。优化方向里"蒸馏进 prompt/模型"其实是把 Reflexion 的记忆能力再往前推一层。</div></details>
+    <details class="qa"><summary class="qu">Q:反思会不会让模型越改越错?</summary><div class="an">会,这是"自我修正的悖论":critic 和 generator 如果是同一能力水平,它可能分不清哪个版本更好,反而把对的改错。缓解:① <b>接受准则</b>——只有评估分/验证器确认更优才替换,否则保留原答案;② 引入<b>外部强信号</b>(代码跑测试、结果对拍)而不是只靠自评;③ 给反思定结构(先列"我哪步可能错"再改),减少盲目重写。</div></details>
+    <details class="qa"><summary class="qu">Q:lesson 蒸馏进 system prompt 会不会越积越多?</summary><div class="an">会,所以要做"记忆治理":① <b>去重 + 泛化</b>——同模式合并成一条通用规则;② <b>设上限</b>——system prompt 里的教训控制在 N 条以内,按命中频率保留 top-k;③ <b>分层</b>——冷 lesson 存检索库、热 lesson 进 prompt、最热且稳定的进 SFT,形成"检索 → 注入 → 内化"的漏斗,避免无限膨胀。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么评估反思到底有没有用(而不是自我感动)?</summary><div class="an">做<b>消融对照</b>:同一批任务跑"直答 / +1 轮反思 / +3 轮反思 / +反思且蒸馏"四组,比三样——任务成功率(真分)、平均 token/延迟(成本)、成功率随轮数的曲线(增益是否递减)。若 +3 轮相比 +1 轮成功率提升 &lt; 2% 而成本翻倍,就砍到 1 轮。结论必须用"成功率/成本"比说话,而不是"模型反思得很认真"。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>Reflexion</b>:生成-评估-反思-重试,反思存入情节记忆复用。</div>
+      <div class="term-item"><b>Self-Refine</b>:同一模型自反馈自改写,单轮、无记忆。</div>
+      <div class="term-item"><b>episodic memory</b>:按回合存储的经验/教训库。</div>
+      <div class="term-item"><b>best-of-N</b>:并行生成 N 个候选取最优,用宽度换深度。</div>
+      <div class="term-item"><b>蒸馏</b>:把反思收益固化进 prompt 或模型权重。</div>
+      <div class="term-item"><b>早停</b>:增益低于阈值即停止迭代,控制成本。</div>
+    </div>
+  </div>
+</article>

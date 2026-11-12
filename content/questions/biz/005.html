@@ -1,0 +1,49 @@
+<article class="q" id="biz-005" data-topic="biz" data-title="Memory框架选型:Mem0 vs Zep vs LangChain Memory" data-difficulty="4" data-tags="Memory,框架选型" data-company="" data-source="P3Q3" data-kw="Memory 框架 Mem0 Zep LangChain 记忆 选型 长期记忆">
+
+      <div class="q-no">框架选型 · Q3</div>
+      <h3>Memory 框架选型:Mem0 vs Zep vs LangChain Memory</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#Memory</span><span class="tag">#框架选型</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"按记忆复杂度递增选:<b>LangChain Memory</b> 只适合原型(窗口/摘要这些基础实现,现在更常用其新实验接口);<b>Mem0</b> 是生产级轻量选择——抽取-冲突消解-检索的完整管道,开源活跃,接入成本低;<b>Zep(Graphiti)</b> 是重度记忆场景的选项——<b>时间感知知识图谱</b>,实体关系带生效时间,能回答'用户上个月还是素食者'这种时序问题,但复杂度高。我的默认答案:Mem0 起步,记忆成为产品核心卖点时再评估 Zep。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>像<b>记笔记的工具</b>:LangChain Memory 是<b>便签纸</b>(撕一张记一条,够用但很快乱);Mem0 是<b>智能笔记本</b>(自动整理、去重、旧笔记自动更新,"已离职"自动划掉"在职");Zep 是<b>带时间线的活页档案柜</b>(不仅记事实,还记"这件事什么时候开始什么时候结束",能查历史状态)。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <table>
+          <tr><th>维度</th><th>LangChain Memory</th><th>Mem0</th><th>Zep (Graphiti)</th></tr>
+          <tr><td><b>定位</b></td><td>记忆接口+基础实现</td><td>生产级记忆层</td><td>时序知识图谱记忆</td></tr>
+          <tr><td><b>机制</b></td><td>窗口/摘要/向量存储历史</td><td>LLM 抽取事实 → 冲突消解 → 向量+图存储 → 按需检索</td><td>实体/关系/事件构建时间感知图谱,支持时序查询</td></tr>
+          <tr><td><b>部署</b></td><td>随框架</td><td>开源可自部署/托管云</td><td>开源+云服务</td></tr>
+          <tr><td><b>复杂度/成本</b></td><td>低</td><td>中(抽取调用 LLM 有 token 成本)</td><td>高(图谱构建维护成本)</td></tr>
+          <tr><td><b>适合</b></td><td>原型、demo</td><td>大多数产品的长期记忆</td><td>记忆即核心的陪伴/CRM 类产品</td></tr>
+        </table>
+        <p><b>选型时真正要评估的四件事(框架只是实现载体)</b></p>
+        <ul>
+          <li><b>抽取质量</b>:用你自己的对话样本试,看抽出来的事实准不准、噪音多不多。</li>
+          <li><b>检索注入效果</b>:记忆加进 Prompt 后,回答改善多少(多会话一致性测试)。</li>
+          <li><b>成本</b>:每轮对话的抽取/检索要花多少 token(异步抽取才不拖慢响应)。</li>
+          <li><b>可控性</b>:记忆能不能导出、删除(合规)、能不能人工修正——生产系统必须能。</li>
+        </ul>
+        <p><b>诚实的备选答案(加分)</b>:记忆系统核心逻辑(抽取-消解-检索-注入)自己实现并不复杂(几百行+一次 LLM 调用),<b>自研的收益是完全可控</b>;用框架的收益是省前两周。两者我都做过,按团队节奏选。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:Mem0 的记忆抽取每轮都要跑,成本高吗?</summary><div class="an">用便宜模型异步跑(不阻塞回复),增量只抽新信息;实测每轮几百 token,可接受;再配合"仅会话结束/每 N 轮抽取"的降频策略进一步省。</div></details>
+        <details class="qa"><summary class="qu">Q:什么信号说明该从 Mem0 升级到 Zep?</summary><div class="an">业务开始问时序问题("他之前是做什么的""这周偏好变了吗")且占比可观;实体关系网络复杂(多方当事人、组织关系);简单事实检索已不能满足产品差异化。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>Graphiti</b>:Zep 的时间感知知识图谱引擎。</div>
+          <div class="term-item"><b>事实抽取</b>:从对话中提取结构化事实。</div>
+          <div class="term-item"><b>时间感知</b>:记忆带生效/失效区间。</div>
+        </div>
+      </div>
+</article>

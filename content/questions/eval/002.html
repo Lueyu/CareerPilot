@@ -1,0 +1,92 @@
+<article class="q" id="eval-002" data-topic="eval" data-title="设计Agent调试与可观测性系统" data-difficulty="4" data-tags="调试,监控,可观测性" data-company="" data-source="P1Q11" data-kw="可观测性 调试 监控 trace 链路追踪 日志 指标 告警 LangFuse LangSmith OpenTelemetry">
+
+      <div class="q-no">系统设计 · Q11</div>
+      <h3>设计一个 Agent 调试与可观测性系统</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#调试</span><span class="tag">#监控</span><span class="tag">#可观测性</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"标准三支柱:<b>Trace</b>(每次请求的全链路树,LLM 特有的要记录 prompt/输出/token/成本)<b>+ Metrics</b>(延迟、错误率、token 成本、缓存命中)+ <b>Logs</b>(结构化聚合)。Agent 场景的独有需求是<b>把"答错了"归因到具体环节</b>——是检索没召回、还是 Prompt 不好、还是工具返回错了,所以 trace 里每个 span 要能回放。方案上 OpenTelemetry 做标准,LangFuse 做展示分析,告警分级带 trace 直达链接。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>给 Agent 装一套<b>行车记录仪 + 仪表盘 + 保养手册</b>:仪表盘(Metrics)让你开车时随时看车速、水温、油量——系统健康不健康一眼便知;行车记录仪(Trace)出了事故能<b>逐秒回放</b>——这个回答为什么错,把每一步调出来看;保养手册(Logs)记录所有历史细节备查。没有这三样,出了问题就只能"我觉得可能是模型不行"。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. Trace:Agent 排障的灵魂</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 576 282" role="img" aria-label="Agent 一次请求的 Trace 链路树">
+  <rect class="sd-box-rose" x="10" y="112" width="120" height="56" rx="10"/>
+  <text class="sd-t" x="70" y="136" text-anchor="middle">trace</text>
+  <text class="sd-ts" x="70" y="154" text-anchor="middle">7f3a… 一次请求</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M130 140 L208 37"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M130 140 L208 89"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M130 140 L208 141"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M130 140 L208 193"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M130 140 L208 245"/>
+  <rect class="sd-box-amber" x="210" y="16" width="160" height="42" rx="10"/>
+  <text class="sd-t" x="226" y="34">query_rewrite</text>
+  <text class="sd-ts" x="226" y="50">120ms·LLM#1·412tok</text>
+  <rect class="sd-box" x="210" y="68" width="160" height="42" rx="10"/>
+  <text class="sd-t" x="226" y="86">retrieve</text>
+  <text class="sd-ts" x="226" y="102">180ms·向量+BM25</text>
+  <rect class="sd-box" x="210" y="120" width="160" height="42" rx="10"/>
+  <text class="sd-t" x="226" y="138">rerank</text>
+  <text class="sd-ts" x="226" y="154">210ms·top50→5</text>
+  <rect class="sd-box-amber" x="210" y="172" width="160" height="42" rx="10"/>
+  <text class="sd-t" x="226" y="190">generate</text>
+  <text class="sd-ts" x="226" y="206">2.3s·LLM#2·TTFT300ms</text>
+  <rect class="sd-box-teal" x="210" y="224" width="160" height="42" rx="10"/>
+  <text class="sd-t" x="226" y="242">tool:order_query</text>
+  <text class="sd-ts" x="226" y="258">480ms·status脱敏</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M370 89 L438 80"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M370 89 L438 122"/>
+  <rect class="sd-box2" x="440" y="62" width="120" height="36" rx="10"/>
+  <text class="sd-t" x="456" y="80">vector_search</text>
+  <text class="sd-ts" x="456" y="94">95ms·top50</text>
+  <rect class="sd-box2" x="440" y="104" width="120" height="36" rx="10"/>
+  <text class="sd-t" x="456" y="122">bm25_search</text>
+  <text class="sd-ts" x="456" y="136">150ms·top50</text>
+</svg></div>
+        <ul>
+          <li>每个 span 记录:入参出参(<b>敏感字段脱敏</b>)、耗时、重试次数、token 数、折算成本、模型名。<b>出错标记</b>:哪个 span 抛了异常一目了然。</li>
+          <li>跨服务传播:trace_id 放请求头,网关/检索/生成各微服务全链路透传(OpenTelemetry 标准,别自己造轮子)。</li>
+          <li>采样策略:LLM 调用<b>全量采集</b>(贵且重要),健康高频请求按 1~10% 采样;出错请求自动提升为全采。</li>
+        </ul>
+        <p><b>2. Metrics:四层看板</b></p>
+        <table>
+          <tr><th>层级</th><th>关键指标</th></tr>
+          <tr><td><b>业务层</b></td><td>问题解决率、用户点踩率、转人工率</td></tr>
+          <tr><td><b>应用层</b></td><td>QPS、P50/P95/P99、错误率、缓存命中率</td></tr>
+          <tr><td><b>模型层</b></td><td>TTFT、吞吐(token/s)、每请求成本、各模型调用量分布</td></tr>
+          <tr><td><b>资源层</b></td><td>GPU 利用率、队列深度、Worker 饱和度</td></tr>
+        </table>
+        <p><b>3. 告警分级(带一键现场)</b></p>
+        <ul>
+          <li>P0:服务不可用 / 错误率 &gt; 20% → 电话叫醒。</li>
+          <li>P1:错误率 &gt; 5% 持续 5 分钟、P99 翻倍 → 群消息。</li>
+          <li>P2:token 成本环比 +50%、缓存命中率跌破 20% → 工单。</li>
+          <li>每条告警附 trace 样本链接,点进去就是案发现场,不用再捞日志。</li>
+        </ul>
+        <p><b>4. 排障工作流(讲这个=有实战经验)</b></p>
+        <p>用户反馈"答错了" → 按 trace_id 拉全轨迹 → 依次检查:① 检索召回里有没有正确文档(没有=检索问题,看 chunk/索引);② 有但没排进 top5(重排问题);③ Prompt 渲染是否异常(模板变量错了?);④ 工具返回值对不对 → 十分钟内定位环节,而不是玄学调模型。</p>
+        <p><b>5. 选型</b>:LangFuse(开源、LLM trace 专精、可自部署、 prompt 版本管理)/ LangSmith(LangChain 官方 SaaS)/ OTel + Prometheus + Grafana(通用底座)。典型组合:<b>Prometheus+Grafana 管机器和接口,LangFuse 管 LLM 语义层</b>。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:Trace 数据量很大,存得起吗?</summary><div class="an">分级存储:全量 trace 放对象存储(便宜),最近 7 天热数据进 ClickHouse/ES;prompt 全文只存摘要+可回放原文(压缩);采样 + TTL 自动过期。</div></details>
+        <details class="qa"><summary class="qu">Q:每次调用的成本怎么精确算?</summary><div class="an">网关层统一计量:输入/输出 token 分开计数 × 该模型单价,写进 span;聚合到租户/天级成本表。注意供应商批量折扣和缓存命中的价格差异。</div></details>
+        <details class="qa"><summary class="qu">Q:幻觉率能监控吗?</summary><div class="an">在线近似指标:引用存在率(答案引用是否真实)、用户点踩聚类、judge 抽样跑分;真正的幻觉率靠定期离线评估集。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>Trace/Span</b>:一次请求的链路/链路中的一个步骤。</div>
+          <div class="term-item"><b>OTel</b>:OpenTelemetry,可观测性数据标准协议。</div>
+          <div class="term-item"><b>采样</b>:只采部分 trace 省存储。</div>
+          <div class="term-item"><b>P0/P1/P2</b>:告警严重级别。</div>
+        </div>
+      </div>
+</article>

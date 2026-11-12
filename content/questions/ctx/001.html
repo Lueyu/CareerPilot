@@ -1,0 +1,78 @@
+<article class="q" id="ctx-001" data-topic="ctx" data-title="设计Memory管理系统(长期记忆)" data-difficulty="4" data-tags="Memory,存储,检索" data-company="" data-source="P1Q7" data-kw="Memory 记忆 长期 对话历史 向量 遗忘 个性化 Mem0 Zep 短期 摘要">
+
+      <div class="q-no">系统设计 · Q7</div>
+      <h3>设计一个 Memory 管理系统(长期记忆)</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#Memory</span><span class="tag">#存储</span><span class="tag">#检索</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"我按人的记忆分三层:<b>工作记忆</b>(当前对话,滑动窗口)<b>→ 会话摘要</b>(压缩过的历史)<b>→ 长期记忆</b>(从对话中抽取的事实和偏好,向量化+结构化存储)。写入走『抽取 → 冲突消解 → 更新』管道,读取按当前话题检索 top-k 注入上下文;<b>遗忘</b>用时间衰减 + 访问频率;个性化就是 user 级隔离的长期记忆。业内参考 Mem0(抽取+检索)和 Zep(时间感知知识图谱)。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>想想<b>你自己的脑子</b>:工作记忆是"手头正在聊的事"(聊到哪了,得记清);今天发生的事过几天就模糊成摘要("上周聊过报销的事");而"我同事小王不吃香菜"这种<b>沉淀下来的事实</b>才是长期记忆,下次点菜自动想起来。人还会遗忘不重要的琐碎(时间衰减),重要的事常想起就记得牢(访问频率加成)——Memory 系统完全照抄这套认知逻辑。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 三层存储模型</b></p>
+        <table>
+          <tr><th>层级</th><th>存什么</th><th>怎么存</th><th>生命周期</th></tr>
+          <tr><td><b>工作记忆</b></td><td>当前对话最近 N 轮原文</td><td>Redis 列表</td><td>会话期间</td></tr>
+          <tr><td><b>会话摘要</b></td><td>超窗口的历史压缩成摘要</td><td>Redis + DB</td><td>数天~数周</td></tr>
+          <tr><td><b>长期记忆</b></td><td>事实("用户base在上海")、偏好("回答要简洁")、事件</td><td>向量库 + 结构化属性表</td><td>永久(可衰减)</td></tr>
+        </table>
+        <p><b>2. 写入管道(核心亮点)</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 626 88" role="img" aria-label="长期记忆写入管道">
+  <rect class="sd-box2" x="10" y="16" width="120" height="56" rx="10"/>
+  <text class="sd-t" x="70" y="40" text-anchor="middle">对话结束</text>
+  <text class="sd-ts" x="70" y="58" text-anchor="middle">异步·不阻塞回复</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M130 44 L158 44"/>
+  <rect class="sd-box-amber" x="160" y="16" width="120" height="56" rx="10"/>
+  <text class="sd-t" x="220" y="40" text-anchor="middle">抽取</text>
+  <text class="sd-ts" x="220" y="58" text-anchor="middle">LLM 抽三元组</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M280 44 L308 44"/>
+  <rect class="sd-box" x="310" y="16" width="130" height="56" rx="10"/>
+  <text class="sd-t" x="375" y="40" text-anchor="middle">冲突消解</text>
+  <text class="sd-ts" x="375" y="58" text-anchor="middle">去重·覆盖·合并</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M440 44 L468 44"/>
+  <rect class="sd-box-teal" x="470" y="16" width="140" height="56" rx="10"/>
+  <text class="sd-t" x="540" y="40" text-anchor="middle">入库</text>
+  <text class="sd-ts" x="540" y="58" text-anchor="middle">embedding + 元数据</text>
+</svg></div>
+        <p><b>3. 读取:按需检索注入</b></p>
+        <ul>
+          <li>每轮生成前,用当前话题的 embedding 去 Memory 库检索 top-k(5~10 条)相关记忆,拼进 system prompt。<b>不是全量塞</b>——记忆越多 token 越贵、噪音越大,相关性排序是关键。</li>
+          <li>结构化高频字段(称呼、语言偏好)直接走属性表,不走向量检索。</li>
+        </ul>
+        <p><b>4. 遗忘机制</b></p>
+        <ul>
+          <li>记忆打分 = 近期性(时间衰减,如半衰期 30 天)× 访问频率(每次被检索加分,类 LFU)× 重要性(LLM 初始标注)。</li>
+          <li>低分记忆降级到冷存储(不参与默认检索,但可显式搜索);用户明确说的("记住这个")重要性封顶,几乎不衰减。</li>
+          <li><b>用户可查看、可删除</b>——这是合规硬要求(个保法),面试提一句很加分。</li>
+        </ul>
+        <p><b>5. 个性化</b>:user_id 强隔离;画像 = 静态属性(注册信息)+ 动态偏好(从行为和反馈学习,如"用户总追问细节 → 回答风格调详细")。效果上等价于"系统提示词动态生成"。</p>
+        <p><b>6. 参考产品(展示知识面)</b></p>
+        <ul>
+          <li><b>Mem0</b>:轻量,抽取-更新管道 + 向量/图存储,易集成,社区活跃。</li>
+          <li><b>Zep / Graphiti</b>:把记忆组织成<b>时间感知知识图谱</b>(实体+关系+生效时间区间),能回答"用户上个月还是素食者,现在呢"这种时序问题,适合重度记忆场景。</li>
+          <li>LangChain Memory:接口规范,但内置实现偏基础,生产一般自己写或用上面两个。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:记忆越存越多,检索会不会变慢、变吵?</summary><div class="an">分层:高频热记忆单独小索引;检索时先属性过滤再向量;定期做记忆"GC"(合并、归档低分记忆);控制注入条数(k≤10)。</div></details>
+        <details class="qa"><summary class="qu">Q:抽取出的记忆是错的(模型幻觉)怎么办?</summary><div class="an">抽取时带置信度和来源对话 ID;低置信度标记待确认;用户纠正时反向删除/覆盖;重要决策不单靠记忆。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么评估记忆系统的好坏?</summary><div class="an">构造"多会话延续性"测试:跨会话问之前提过的事,看回答是否一致;用 LOCOMO 这类长对话记忆基准;线上看"用户重复告知率"(用户老得重新自我介绍就是记忆差)。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>工作记忆</b>:当前上下文窗口内的对话。</div>
+          <div class="term-item"><b>冲突消解</b>:新旧事实矛盾时的覆盖/合并策略。</div>
+          <div class="term-item"><b>时间衰减</b>:记忆分数随时间指数下降。</div>
+          <div class="term-item"><b>知识图谱记忆</b>:实体+关系+时间的记忆组织方式。</div>
+        </div>
+      </div>
+</article>

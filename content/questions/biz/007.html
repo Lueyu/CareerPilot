@@ -1,0 +1,82 @@
+<article class="q" id="biz-007" data-topic="biz" data-title="文档解析框架选型:LlamaParse vs Unstructured vs PyMuPDF" data-difficulty="3" data-tags="文档解析,RAG" data-company="" data-source="P3Q7" data-kw="文档解析 LlamaParse Unstructured PyMuPDF PDF 表格 OCR 选型">
+
+      <div class="q-no">框架选型 · Q7</div>
+      <h3>文档解析框架选型:LlamaParse vs Unstructured vs PyMuPDF</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐</span>
+        <span class="tag">#文档解析</span><span class="tag">#RAG</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"看<b>文档复杂度</b>分路:简单文 PDF 用 <b>PyMuPDF</b>(快、免费、本地);格式多样要开源自部署选 <b>Unstructured</b>(格式全家桶);复杂表格/双栏/扫描件用 <b>LlamaParse</b>(LlamaIndex 的云端解析,质量天花板,按页收费)。<b>工程上我会做解析路由</b>:先判断文档类型和复杂度再选引擎,90% 走便宜通道,10% 硬骨头交给贵的——比一把梭全用 LlamaParse 省一大半。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>像<b>洗衣服务</b>:普通 T 恤自己洗衣机搞定(PyMuPDF,快且免费);各种面料混着的送社区洗衣店(Unstructured,啥都接,效果中规中矩);高级西装定制干洗(LlamaParse,贵但处理得了最讲究的)。<b>聪明的管家按衣服分拣</b>(解析路由),而不是把袜子也送定制干洗。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <table>
+          <tr><th>维度</th><th>PyMuPDF</th><th>Unstructured</th><th>LlamaParse</th></tr>
+          <tr><td><b>形态</b></td><td>本地库(C++,飞快)</td><td>开源自部署 + API</td><td>云端 API</td></tr>
+          <tr><td><b>格式</b></td><td>仅 PDF</td><td>PDF/Word/PPT/HTML/邮件…几十种</td><td>PDF 为主,复杂版式专精</td></tr>
+          <tr><td><b>质量</b></td><td>文本层好的 PDF 很可靠;复杂版式弱</td><td>中规中矩,表格一般</td><td><b>表格/双栏/图文混排最强</b></td></tr>
+          <tr><td><b>成本</b></td><td>免费</td><td>免费(自部署费机器)</td><td>按页付费</td></tr>
+          <tr><td><b>数据隐私</b></td><td><b>全本地</b></td><td>可全本地</td><td>要传云端(合规敏感注意)</td></tr>
+        </table>
+        <p><b>解析路由设计(把选型做成系统)</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 586 380" role="img" aria-label="文档解析路由架构">
+  <rect class="sd-box-rose" x="200" y="16" width="140" height="52" rx="10"/>
+  <text class="sd-t" x="270" y="36" text-anchor="middle">文档进入</text>
+  <text class="sd-ts" x="270" y="54" text-anchor="middle">各类文档</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M270 68 L270 92"/>
+  <rect class="sd-box" x="180" y="96" width="180" height="56" rx="10"/>
+  <text class="sd-t" x="270" y="118" text-anchor="middle">探测路由</text>
+  <text class="sd-ts" x="270" y="136" text-anchor="middle">格式·文本层·表格密度</text>
+  <rect class="sd-box2" x="400" y="96" width="170" height="56" rx="10"/>
+  <text class="sd-t" x="485" y="118" text-anchor="middle">OCR 前置</text>
+  <text class="sd-ts" x="485" y="136" text-anchor="middle">纯扫描件·PaddleOCR</text>
+  <path class="sd-an" d="M400 124 L362 124"/>
+  <text class="sd-l" x="380" y="116" text-anchor="middle">扫描件先OCR</text>
+  <path class="sd-a" d="M270 152 L270 178"/>
+  <path class="sd-a" d="M95 178 L485 178"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M95 178 L95 200"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M290 178 L290 200"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M485 178 L485 200"/>
+  <rect class="sd-box-teal" x="10" y="200" width="170" height="64" rx="10"/>
+  <text class="sd-t" x="95" y="226" text-anchor="middle">PyMuPDF</text>
+  <text class="sd-ts" x="95" y="244" text-anchor="middle">简单PDF·免费·毫秒</text>
+  <rect class="sd-box-teal" x="205" y="200" width="170" height="64" rx="10"/>
+  <text class="sd-t" x="290" y="226" text-anchor="middle">Unstructured</text>
+  <text class="sd-ts" x="290" y="244" text-anchor="middle">Office/HTML/邮件·覆盖广</text>
+  <rect class="sd-box-teal" x="400" y="200" width="170" height="64" rx="10"/>
+  <text class="sd-t" x="485" y="226" text-anchor="middle">LlamaParse</text>
+  <text class="sd-ts" x="485" y="244" text-anchor="middle">复杂版式·质量优先</text>
+  <path class="sd-a" d="M95 264 L95 290"/>
+  <path class="sd-a" d="M290 264 L290 290"/>
+  <path class="sd-a" d="M485 264 L485 290"/>
+  <path class="sd-a" d="M95 290 L485 290"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M290 290 L290 304"/>
+  <rect class="sd-box-teal" x="170" y="304" width="240" height="60" rx="10"/>
+  <text class="sd-t" x="290" y="328" text-anchor="middle">统一输出 Markdown</text>
+  <text class="sd-ts" x="290" y="346" text-anchor="middle">表格保留 + 质量分抽检</text>
+</svg></div>
+        <p><b>两个实战要点</b></p>
+        <ul>
+          <li><b>输出统一成 Markdown</b>:表格用 HTML/MD 表格保留结构,下游 chunk 按标题层级切——解析质量直接决定 RAG 上限,"garbage in, garbage out" 在这题最应景。</li>
+          <li><b>建立解析质量抽检</b>:抽样人工看解析结果,低分文档类型进"待优化清单",驱动路由规则迭代——解析是 RAG 里最容易被低估的脏活累活。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:表格解析总是烂,有什么系统性解法?</summary><div class="an">分层:规整表格 LlamaParse/表格专用模型可保;不规则表格(合并单元格多)→ 转图片用多模态模型理解;极端情况人工模板;并反问业务"这个表格必须整表入检索吗"——很多时候按行展开+表头冗余更利于检索。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>文本层</b>:PDF 里可复制的文字(非扫描图)。</div>
+          <div class="term-item"><b>解析路由</b>:按文档特征选择解析引擎。</div>
+          <div class="term-item"><b>Chunk</b>:切分后的检索单元。</div>
+        </div>
+      </div>
+</article>

@@ -1,0 +1,74 @@
+<article class="q" id="ctx-007" data-topic="ctx" data-title="Agent记忆机制:向量数据库与embedding检索策略" data-difficulty="3" data-tags="记忆系统,向量数据库" data-company="字节 / 阿里(高频)" data-source="P5Q41" data-kw="记忆 向量数据库 embedding 检索 语义相似度 长期记忆 召回 HNSW 时间衰减 混合检索 字节 阿里">
+
+  <div class="q-no">Agent核心 · Q41</div>
+  <h3>在Agent中引入"记忆"机制时，为什么常用向量数据库？如何设计embedding和检索策略？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#记忆系统</span><span class="tag">#向量数据库</span>
+    <span class="company">字节 / 阿里(高频)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"核心原因是<b>记忆的读取是'按语义找',不是精确匹配</b>:用户问'上次聊的那个方案',没法用关键词精确查到,只能按意思召回——向量库天然干这个。设计上分四块:① <b>embedding</b>——把记忆文本映射成向量,语义相近=向量距离近,归一化后用内积/余弦算相似度;② <b>索引</b>——用 HNSW/IVF 做 ANN 近邻,毫秒级召回;③ <b>检索策略</b>——粗召回 top-k 再精排,叠加<b>时间衰减(recency)</b>和<b>重要度权重</b>,用元数据过滤(按人/主题);④ <b>记忆分层</b>——短期留在上下文、长期落向量库、结构化事实走 KV/图,别什么都塞向量库。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>人的记忆</b>:你记不住每句话原文,记的是"大意";别人问"我们之前聊的那个打折方案",你是<b>按意思</b>在大脑里翻出相关内容,而不是按某个关键词去查原文——这就是"语义检索",向量库就是给 Agent 装的"按意思找东西的笔记本"。而账号、密码这种<b>死数据</b>直接查表(KV)就行,不需要向量。把每条记忆变成坐标,问什么就找坐标最近的几条。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 为什么是向量数据库(而不是关系库/全文检索)</b></p>
+    <ul>
+      <li>记忆召回要的是<b>语义相似</b>而非字面相同:"上次那个方案" 和 已存的 "A 客户续约方案" 字面没重叠,但意思相关,只有向量能抓住。</li>
+      <li>向量库内置 <b>ANN 近邻索引</b>(HNSW/IVF),百万级向量毫秒级召回,天然支持模糊/相似查询。</li>
+      <li>对比:关系库只能等值/范围查,全文检索只抓关键词,都表达不了"意思像不像"。</li>
+    </ul>
+    <p><b>2. Embedding 设计</b></p>
+    <ul>
+      <li>选模型:通用模型(text-embedding-3、BGE、m3e 等)通常够用;领域很强(医疗/法律)才考虑微调或换领域模型。</li>
+      <li>做法:文本归一化(去空白/统一大小写)→ 编码 → 向量<b>归一化到单位长度</b>,之后用内积/余弦距离都等价。</li>
+      <li>进阶:<b>拼接元数据</b>——把时间戳、说话人、主题拼进被编码文本或作为过滤字段,让"谁说的、什么时候说的"参与召回。</li>
+      <li>维度与模型绑定,别中途换 embedding 模型(换则需全量重算或做双写迁移)。</li>
+    </ul>
+    <p><b>3. 检索策略(决定记忆质量的关键)</b></p>
+    <ul>
+      <li><b>粗召回</b>:向量 top-k(如 top50)取候选,同时可加一路关键词(BM25)做混合检索,弥补向量对专名/编号不敏感。</li>
+      <li><b>精排</b>:cross-encoder 或加权重排到 top5,减少无关记忆进上下文。</li>
+      <li><b>时间衰减(recency)</b>:越新的记忆越容易被召回,分数乘一个随时间的衰减因子——对话里"最近说的"通常更重要。</li>
+      <li><b>重要度(salience)</b>:写入时给记忆打重要度分(用户偏好、明确结论 &gt; 寒暄),检索时加权。</li>
+      <li><b>元数据过滤</b>:按 user_id、主题、会话等字段预过滤,缩小检索范围、提高准确率。</li>
+    </ul>
+    <p><b>4. 记忆分层(别什么都进向量库)</b></p>
+    <table>
+      <tr><th>类型</th><th>存哪</th><th>例子</th></tr>
+      <tr><td><b>短期记忆</b></td><td>上下文窗口/会话缓存</td><td>本轮对话、刚做的操作</td></tr>
+      <tr><td><b>长期语义记忆</b></td><td>向量数据库</td><td>用户偏好、历史结论、经验</td></tr>
+      <tr><td><b>结构化事实</b></td><td>关系库/KV/知识图谱</td><td>账号、地址、订单状态</td></tr>
+    </table>
+    <p><b>5. 写入策略(记忆的"养生")</b></p>
+    <ul>
+      <li><b>只记值得记的</b>:重要事件、用户偏好、任务结论才落库,寒暄不记。</li>
+      <li><b>压缩/摘要</b>:长对话先摘要成结论再存,省空间、提高召回信噪比。</li>
+      <li><b>去重/合并</b>:新记忆与旧记忆相似度 &gt; 阈值就合并更新,避免同一条记十遍。</li>
+      <li><b>遗忘</b>:TTL 或按重要度衰减,过期/长期未用且低重要度的记忆淘汰。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么不用关键词全文检索,而要向量?</summary><div class="an">全文检索只能抓"字面命中",用户说"上次那个方案"和库里的"续约计划"字面零重叠,全文查不到;向量按语义召回能命中。工程上常用<b>混合检索</b>:向量管语义,关键词管专名/编号(订单号、型号),两者融合效果最好——所以不是"替代"而是"互补"。</div></details>
+    <details class="qa"><summary class="qu">Q:记忆太多,会不会召回到无关内容污染上下文?</summary><div class="an">会,所以三招:① 精排只取 top 少数(3~5 条);② 设<b>相似度下限</b>,低于阈值就不注入(宁缺毋滥);③ 元数据过滤先缩小范围。记忆注入是"少而准"优于"多而全"。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么防止记了错误信息还被反复复用?</summary><div class="an">记忆带<b>来源和置信度</b>;被纠正时更新而非追加;对记忆内容本身也做校验(重要结论需用户确认才固化);检索注入时标"来自记忆,可能过时",并给用户纠错入口。</div></details>
+    <details class="qa"><summary class="qu">Q:embedding 模型怎么选?需要自己微调吗?</summary><div class="an">先用通用模型跑基线,拿真实查询-记忆对做召回评测(命中率/MRR);如果领域词很多、通用模型明显不够再考虑微调或换领域模型。多数场景通用模型 + 混合检索 + 元数据过滤就够了,不必一上来就微调。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>Embedding</b>:把文本映射成向量,语义相近=距离近。</div>
+      <div class="term-item"><b>ANN</b>:近似最近邻,HNSW/IVF 等快速召回算法。</div>
+      <div class="term-item"><b>HNSW</b>:跳表思想的多层图索引,查得快吃内存。</div>
+      <div class="term-item"><b>Recency</b>:时间衰减,越新的记忆越容易召回。</div>
+      <div class="term-item"><b>混合检索</b>:向量 + 关键词多路召回再融合。</div>
+      <div class="term-item"><b>Salience</b>:记忆重要度,决定写入和召回权重。</div>
+    </div>
+  </div>
+</article>

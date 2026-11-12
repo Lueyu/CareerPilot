@@ -1,0 +1,66 @@
+<article class="q" id="algo-018" data-topic="algo" data-title="推导Attention计算复杂度与FlashAttention" data-difficulty="4" data-tags="Attention,复杂度分析" data-company="" data-source="P6Q17" data-kw="Attention 复杂度 时间复杂度 空间复杂度 QKV 自注意力 O(n2d) FlashAttention IO tiling 内核融合 HBM SRAM">
+
+  <div class="q-no">Agent算法 · Q17</div>
+  <h3>推导 Attention 机制的计算复杂度</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#Attention</span><span class="tag">#复杂度分析</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"设序列长 n、每个头维度 d:标准 self-attention 的<b>时间 O(n²·d)、空间 O(n²)</b>。瓶颈在 QK^T 产生的 n×n 注意力矩阵——时间上要算 n² 个点积(每个 d 维),空间上要存 n² 个标量。Flash Attention <b>不降低理论复杂度</b>,而是用 tiling + 内核融合减少 HBM 读写,把显存从 O(n²) 降到 O(n) 级、实际快数倍。长序列要真正降复杂度得靠稀疏/线性注意力。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>n 个 token 两两算相关性,就像<b>开一场 n 人的圆桌会议、每两个人都要单独对一次话</b>——组合数 n²,所以人越多工作量平方级暴涨。标准实现是"每算一对就去档案柜取一次材料"(反复读写慢内存);Flash Attention 是把人分成小组,<b>每组在办公桌上(快内存)先把内部算完</b>,少跑档案柜——结果一样,但省了大量"跑腿"时间。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 定义与符号(先把假设说清)</b></p>
+    <ul>
+      <li>输入 X ∈ ℝ^{n×d},经三个线性投影得 <b>Q, K, V ∈ ℝ^{n×d}</b>(d 是每个头的维度)。</li>
+      <li>注意力输出:O = softmax(QK^T / √d) · V。逐行看:每个 query 和所有 n 个 key 算相似度,加权求和所有 value。</li>
+    </ul>
+    <p><b>2. 三步复杂度推导(白板写出来)</b></p>
+    <pre class="code"><span class="c"># 步骤1:相似度矩阵 S = Q·K^T</span>
+(n×d) · (d×n) → n×n           <span class="c"># 每格一个 d 维点积 → O(n²·d)</span>
+<span class="c"># 步骤2:行 softmax(除以 √d 再归一化)</span>
+P = softmax(S / √d)           <span class="c"># n×n 个元素 → O(n²)</span>
+<span class="c"># 步骤3:加权求和 O = P·V</span>
+(n×n) · (n×d) → n×d           <span class="c"># → O(n²·d)</span>
+<span class="c"># 结论:总时间 O(n²·d) = O(n²d);总空间 O(n²)(存 S 和 P)</span></pre>
+    <ul>
+      <li>n² 项来自"每个 query 对每个 key 都算一次";d 项来自"每次点积是 d 维向量内积"。</li>
+      <li>当 n ≫ d 时(长序列),复杂度由 <b>n²</b> 主导;当 n 小、d 大时 d 的贡献也显著,所以公式要写成 O(n²·d) 而非笼统 O(n²)。</li>
+    </ul>
+    <p><b>3. 空间复杂度</b>:QK^T 的 n×n 注意力矩阵要整体驻留显存,softmax 前还要存完整 S——所以标准实现 <b>空间 O(n²)</b>,长序列直接显存爆炸(如 n=32k 时 n²≈10 亿个浮点)。</p>
+    <p><b>4. 多头的复杂度</b>:设总维度 d_model = h·d(h 个头)。多头各自算一遍 O(n²·d),加起来 <b>h·O(n²·d) = O(n²·d_model)</b>——和"一个头维度 d_model"总量相同,即多头不改变复杂度量级,只是切分并行。</p>
+    <p><b>5. Flash Attention:不降理论复杂度,降的是 IO</b></p>
+    <ul>
+      <li><b>问题本质</b>:标准实现反复在 HBM(显存,大但慢)读写 n×n 矩阵,而真正计算发生在 SRAM(片上,小但快)。GPU 的瓶颈是<b>访存带宽</b>而非算力,于是 IO 成为墙。</li>
+      <li><b>tiling(分块)</b>:把 Q、K、V 切成小块,每块在 SRAM 里<b>完整算完 softmax 的局部再合并</b>(在线 softmax 技巧保证分块结果与全局一致),n×n 矩阵<b>从不在 HBM 里整体落盘</b>。</li>
+      <li><b>内核融合</b>:把 QK^T、softmax、×V 融合进一个 CUDA kernel,中间结果不写回 HBM。</li>
+      <li><b>重计算</b>:反向传播时按需重算注意力矩阵,而不是存着它——省显存换一点算力。</li>
+      <li>结果:显存 <b>O(n)</b>(只存分块 + 输出),速度快 2~4 倍(随序列变长更明显),<b>数学结果与标准 attention 完全一致</b>——这点很重要,它不是近似。</li>
+    </ul>
+    <p><b>6. 真正降低 n² 的路(延伸,展示广度)</b>:稀疏注意力(局部窗口 + 全局 token,如 Longformer/BigBird)、线性注意力(核函数近似,如 Performer)、状态空间模型(Mamba 用 O(n) 的序列模型绕开 attention)。<b>面试核心是先讲透 O(n²·d),再说 FlashAttention 怎么省 IO,最后点一句"要真正降阶另有路线"</b>。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:Flash Attention 复杂度还是 O(n²d),为什么能快?</summary><div class="an">因为 GPU 上真正的瓶颈往往是<b>访存而非算力</b>。标准实现反复把 n×n 中间矩阵写回 HBM 再读出来,IO 开销巨大;Flash Attention 用 tiling 让分块在 SRAM 内一次算完、用内核融合省掉中间写回、反向再重计算省显存。<b>FLOPs 没变,但实际墙上时间大幅下降</b>——降的是"常数因子"里的 IO,不是理论阶数。</div></details>
+    <details class="qa"><summary class="qu">Q:空间复杂度从 O(n²) 怎么降到 O(n) 的?</summary><div class="an">关键是不再把完整 n×n 注意力矩阵存进 HBM。分块计算时,每个块算出局部 softmax 后立即用掉,只保留每块必要的统计量(在线 softmax 的 running max / running sum),最终只输出 O(n×d) 的结果矩阵——所以显存峰值降为 O(n) 级别。</div></details>
+    <details class="qa"><summary class="qu">Q:n 变大到什么程度,attention 会成为不可接受的瓶颈?</summary><div class="an">空间 O(n²) 先爆:以 FP16 举例,n=8k 时注意力矩阵约 128MB(可接受),n=32k 时约 2GB(单卡吃力),n=100k 时约 20GB(基本不可行,哪怕用 FlashAttention 也要权衡分块)。所以长文档(几十万 token)必须靠稀疏/线性注意力或 Mamba 这类 O(n) 结构。</div></details>
+    <details class="qa"><summary class="qu">Q:因果注意力(decoder)的复杂度一样吗?</summary><div class="an">一样是 O(n²d),但因为 mask 了未来,只算下三角部分,<b>实际计算量约减半</b>(约 n²/2 个点积),量级不变。FlashAttention 实现里会利用因果 mask 进一步少算一半 block。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>Self-Attention</b>:序列内部每个 token 与所有 token 算相关性的机制。</div>
+      <div class="term-item"><b>O(n²·d)</b>:attention 的时间复杂度,n 为序列长、d 为头维度。</div>
+      <div class="term-item"><b>HBM/SRAM</b>:显存(大而慢)/片上缓存(小而快)。</div>
+      <div class="term-item"><b>Tiling</b>:把大矩阵切块,逐块在快内存里计算。</div>
+      <div class="term-item"><b>内核融合</b>:多个算子合成一个 kernel,省中间读写。</div>
+      <div class="term-item"><b>线性注意力</b>:用核技巧把 O(n²) 降为 O(n) 的近似方案。</div>
+    </div>
+  </div>
+</article>

@@ -1,0 +1,82 @@
+<article class="q" id="eval-009" data-topic="eval" data-title="Agent回溯决策链给出可解释理由" data-difficulty="3" data-tags="可解释性,决策追溯" data-company="字节(真题)" data-source="P5Q47" data-kw="可解释性 决策链 追溯 决策轨迹 反事实 解释 酒店推荐 字节">
+
+  <div class="q-no">Agent核心 · Q47</div>
+  <h3>如果用户连续追问"为什么选这家酒店？"，Agent如何回溯决策链并给出可解释理由？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#可解释性</span><span class="tag">#决策追溯</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>核心是把决策过程<b>全程留痕</b>：Agent 每做一次选择，就把"选了谁、依据什么、排除了哪些、权重是多少"写进一条<b>决策链（trace）</b>，随会话保存。用户追问时，先<b>定位</b>到"选酒店"这个决策节点，再把结构化依据<b>翻译成自然语言</b>：正面给"因为它离你要去的景点近、在预算内、评分高"，反面给"排除项和原因"（A 超预算、B 太远）。关键点：<b>解释来自真实记录，而不是模型现编理由</b>——这是可解释性和"事后找借口"的分水岭。</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>医生给诊断结论 + 侦探写结案报告</b>：好医生不只说"你得了 X"，还会讲"因为化验单 A 项偏高、B 项正常，所以我排除 Y、判断是 X"；侦探结案要写清楚"为什么锁定这个人，排除了哪些嫌疑人"。如果只会给结论不给依据，你会怀疑他是瞎蒙的。Agent 的解释同理——<b>把"凭什么"说清楚，用户才敢信</b>。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 决策链的数据结构（先设计"留痕"）</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 590 266" role="img" aria-label="决策链数据结构">
+  <rect class="sd-layer" x="16" y="14" width="560" height="240"/>
+  <text class="sd-l" x="32" y="36">决策节点 · 结构化留痕</text>
+  <text class="sd-t" x="34" y="66">节点ID</text>
+  <text class="sd-ts" x="130" y="66">选酒店 · 时间戳</text>
+  <text class="sd-t" x="34" y="94">输入</text>
+  <text class="sd-ts" x="130" y="94">预算≤600/晚 · 近西湖 · 评分≥4.5</text>
+  <text class="sd-t" x="34" y="122">候选</text>
+  <text class="sd-ts" x="130" y="122">酒店A/B/C · 价格·距离·评分</text>
+  <text class="sd-t" x="34" y="150">打分</text>
+  <text class="sd-ts" x="130" y="150">距离40% + 价格30% + 评分30%</text>
+  <text class="sd-t" x="34" y="178">结果</text>
+  <text class="sd-ts" x="130" y="178">选中C · 排除(A超预算/B>5km)</text>
+  <text class="sd-t" x="34" y="206">置信度</text>
+  <text class="sd-ts" x="130" y="206">可回滚标记</text>
+</svg></div>
+    <ul>
+      <li>记录要<b>结构化、可查询</b>：不是存一段自由文本，而是存字段，追问时可按维度精确检索。</li>
+      <li>留痕粒度：关键决策（选酒店、排行程）细记录；琐碎步骤（单次查询）粗记录，平衡存储与解释需求。</li>
+    </ul>
+    <p><b>2. 回溯定位（用户问"为什么"时）</b></p>
+    <ul>
+      <li>把追问解析成"针对哪个决策、哪个维度"：连续追问"为什么选这家"→ 定位"选酒店"节点；"为什么不是 A"→ 定位到"排除项"。</li>
+      <li>用<b>指代消解 + 上下文</b>："这家""它""那个"要回指到上一轮提到的实体。</li>
+      <li>找不到决策记录（如历史会话丢失）时诚实降级："我记不清当时的完整依据了，能帮你重新评估一次"——<b>不编理由</b>。</li>
+    </ul>
+    <p><b>3. 生成自然语言解释（分层回答）</b></p>
+    <table>
+      <tr><th>追问类型</th><th>回答策略</th><th>示例</th></tr>
+      <tr><td><b>为什么选 X</b></td><td>正面依据(打分)</td><td>"因为它距西湖 800m、600/晚在预算内、评分 4.7"</td></tr>
+      <tr><td><b>为什么不选 Y</b></td><td>排除项 + 反事实</td><td>"A 价格 1200 超预算，B 距景点 6km 超出你 3km 的要求"</td></tr>
+      <tr><td><b>X 和 Y 比呢</b></td><td>并排对比表</td><td>按价格/距离/评分三列对比</td></tr>
+      <tr><td><b>凭什么信这个数据</b></td><td>数据来源 + 时效</td><td>"评分来自 OTA 平台、价格是今天实时查询"</td></tr>
+    </table>
+    <ul>
+      <li>解释要<b>贴合用户当时的约束</b>（预算、位置、偏好），而不是泛泛说"综合最优"。</li>
+      <li>必要时给<b>反事实解释</b>："如果你把预算放宽到 800，A 会更合适"——让用户理解并自行调整。</li>
+    </ul>
+    <p><b>4. 难点与边界（面试加分点）</b></p>
+    <ul>
+      <li><b>真实依据 vs 模型脑补</b>：LLM 天然会"合理补全"理由，必须强制"解释只能引用 trace 里的字段"，缺失就承认缺失。</li>
+      <li><b>多步决策的因果链</b>：选酒店受前面"选了哪个景点"影响，要能沿链回溯："因为你坚持去 X 景点，所以选了离它最近的 C"。</li>
+      <li><b>权重本身可质疑</b>：把权重明示给用户（"距离权重 40% 是你之前设置的"），用户可改权重 → 重新排序 → 这就是可交互的可解释系统。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:如果 Agent 其实是 LLM 直接"拍脑袋"推荐的，没有结构化打分怎么办？</summary><div class="an">那就要<b>改造决策流程</b>：把"让 LLM 直接出结果"改成"LLM 生成候选 → 结构化打分函数排序 → LLM 只负责把排序依据说人话"。即<b>决策用确定性逻辑（可解释），表达用 LLM（可读）</b>。对无法结构化的主观判断，至少记录"模型当时的判断摘要 + 置信度"，并在解释时标注"这是模型判断，非规则打分"。</div></details>
+    <details class="qa"><summary class="qu">Q:决策链很长，用户追问很多轮会不会上下文爆炸？</summary><div class="an">解释用<b>决策链摘要（结构化精简版）</b>而非全量日志：只在上下文里放当前追问相关的节点 + 相邻因果节点，其余按需从存储里拉取。日志本体外置（DB/向量库），不进模型上下文。</div></details>
+    <details class="qa"><summary class="qu">Q:用户质疑权重不合理，系统怎么回应？</summary><div class="an">把权重的<b>来源和可调整性</b>暴露出来："当前距离 40%/价格 30%/评分 30% 是默认设置，您可以在偏好里改"，改完即时重排并展示前后变化。这样把"可解释"升级为"可干预"，是最有说服力的回答。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>决策链(Trace)</b>:记录每步决策的输入、候选、打分、结果。</div>
+      <div class="term-item"><b>反事实解释</b>:说明"改了什么条件，结果会怎样变"。</div>
+      <div class="term-item"><b>指代消解</b>:搞清"这家/那个"指的是哪个实体。</div>
+      <div class="term-item"><b>可解释性</b>:让决策依据可被人类理解的能力。</div>
+      <div class="term-item"><b>事后合理化</b>:模型编理由而非还原真实依据，需避免。</div>
+    </div>
+  </div>
+</article>

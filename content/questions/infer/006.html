@@ -1,0 +1,97 @@
+<article class="q" id="infer-006" data-topic="infer" data-title="响应速度与推理精度的tradeoff召回精排" data-difficulty="3" data-tags="性能优化,权衡" data-company="字节(真题)" data-source="P5Q24" data-kw="性能优化 响应速度 推理精度 召回 精排 两阶段 单次生成 路由 缓存 TTFT 字节">
+
+  <div class="q-no">Agent核心 · Q24</div>
+  <h3>你怎么处理响应速度与推理精度之间的tradeoff？是先召回再精排，还是单次生成？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#性能优化</span><span class="tag">#权衡</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"核心不是二选一,而是<b>分级路由</b>:简单问题走'单次生成',复杂问题走'先召回再精排'的漏斗。检索链路上,召回要宽(保证查全)、精排要准(保证查准),用<b>粗筛精排</b>把昂贵的精排只压在少量候选项上;响应速度再叠加<b>语义缓存、流式输出(TTFT)、模型分级、并行</b>四招。所有提速都带<b>质量护栏</b>——每次调参数跑黄金集回归,拿 Recall/答案质量说话,防止把精度优化没了。一句话:<b>用最便宜的一步先砍掉 90% 的候选,再用最贵的一步精挑最后的 10%</b>。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>图书馆找资料写论文</b>:简单问题("厕所在哪")你直接答,根本不用查(单次生成);复杂问题先到目录系统里快速锁定几十本相关的书(<b>召回</b>,快但粗),再翻开目录页精挑出最相关的几本(<b>精排</b>,慢但准),最后只读这几本写答案。你不会把整层楼的书都精读一遍——那就是"用最贵的一步干最粗的活",又慢又没必要。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 先讲清 trade-off 的本质</b></p>
+    <ul>
+      <li><b>响应速度</b>:用户感知的是 TTFT(首字时间)和总时长;多一跳检索、多一步精排,都会加延迟。</li>
+      <li><b>推理精度</b>:检索越充分、生成模型越强、上下文越完整,答案越准,但越慢越贵。</li>
+      <li>正确姿势是<b>按难度把请求分流</b>,而不是给所有请求套同一套最重/最轻的链路。</li>
+    </ul>
+    <p><b>2. 先召回再精排 vs 单次生成(怎么选)</b></p>
+    <table>
+      <tr><th>维度</th><th>先召回再精排(两阶段)</th><th>单次生成(无检索)</th></tr>
+      <tr><td><b>适用</b></td><td>需要外部知识/多步推理的复杂问题</td><td>简单问答、闲聊、通用常识</td></tr>
+      <tr><td><b>精度</b></td><td>高(有事实支撑,幻觉低)</td><td>一般(纯靠模型记忆,易幻觉)</td></tr>
+      <tr><td><b>延迟</b></td><td>多一跳检索 + 重排,略慢</td><td>最快,直接生成</td></tr>
+      <tr><td><b>成本</b></td><td>检索便宜,但上下文可能更长</td><td>无检索开销</td></tr>
+      <tr><td><b>可控性</b></td><td>可追溯来源、可审计</td><td>黑盒,难引用</td></tr>
+    </table>
+    <p>结论:不该全链路都检索,也不该全都不检索——用<b>难度分类器/规则</b>路由,拿不准时走完整链路(<b>宁可慢一点,不可翻车</b>)。</p>
+    <p><b>3. 漏斗式检索(速度和精度的平衡点)</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 1000 190" role="img" aria-label="召回精排漏斗式检索">
+  <rect class="sd-layer" x="140" y="92" width="530" height="90"/>
+  <text class="sd-l" x="152" y="108">漏斗式检索 · 粗筛精排</text>
+  <rect class="sd-box-rose" x="14" y="112" width="100" height="58" rx="10"/>
+  <text class="sd-t" x="64" y="137" text-anchor="middle">查询</text>
+  <text class="sd-ts" x="64" y="155" text-anchor="middle">query</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M114 141 L146 141"/>
+  <rect class="sd-box-teal" x="150" y="112" width="150" height="58" rx="10"/>
+  <text class="sd-t" x="225" y="137" text-anchor="middle">召回</text>
+  <text class="sd-ts" x="225" y="155" text-anchor="middle">向量+BM25·top50~100</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M300 141 L332 141"/>
+  <rect class="sd-box" x="336" y="112" width="140" height="58" rx="10"/>
+  <text class="sd-t" x="406" y="137" text-anchor="middle">粗排</text>
+  <text class="sd-ts" x="406" y="155" text-anchor="middle">轻量打分·top20~50</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M476 141 L508 141"/>
+  <rect class="sd-box-amber" x="512" y="112" width="150" height="58" rx="10"/>
+  <text class="sd-t" x="587" y="137" text-anchor="middle">精排</text>
+  <text class="sd-ts" x="587" y="155" text-anchor="middle">Cross-Encoder·top5~10</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M662 141 L694 141"/>
+  <rect class="sd-box-amber" x="698" y="112" width="120" height="58" rx="10"/>
+  <text class="sd-t" x="758" y="137" text-anchor="middle">注入生成</text>
+  <text class="sd-ts" x="758" y="155" text-anchor="middle">拼接上下文</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M818 141 L850 141"/>
+  <rect class="sd-box-teal" x="854" y="112" width="120" height="58" rx="10"/>
+  <text class="sd-t" x="914" y="137" text-anchor="middle">流式输出</text>
+  <text class="sd-ts" x="914" y="155" text-anchor="middle">TTFT 达标</text>
+</svg>
+</div>
+    <ul>
+      <li>召回要<b>查全</b>(宁多勿漏),精排要<b>查准</b>(宁精勿多)——两者的优化目标不同,所以要分开调。</li>
+      <li>精排模型最贵,所以要把它<b>压在最少候选项上</b>:召回 100 条里只精排 10 条,延迟和精度都能顾住。</li>
+    </ul>
+    <p><b>4. 响应速度的四招(叠加在路由之上)</b></p>
+    <ul>
+      <li><b>语义缓存</b>:相似问题直接返回缓存答案,命中时整体 50ms 内——单点 ROI 最高。</li>
+      <li><b>流式输出</b>:用户感知的是首字时间,流式让 TTFT 300ms 达标,后面慢慢吐,感知就"快"了。</li>
+      <li><b>模型分级</b>:简单流量路由到小模型,复杂流量才上大模型,延迟和成本一起降。</li>
+      <li><b>并行</b>:向量/BM25 多路并行、检索与 Prompt 准备并行,白捡的延迟。</li>
+    </ul>
+    <p><b>5. 质量护栏(提速的底线)</b></p>
+    <p>每次调参(降 ef_search、砍重排、缩 topk)都跑<b>黄金集回归</b>(Recall@k + 答案质量),质量掉超阈值就回退;线上 A/B 实验看最终指标。性能优化<b>必须带着精度护栏做</b>,否则就是用精度换速度的假优化。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:单次生成不是更快更简单吗,为什么还要检索?</summary><div class="an">对简单问题确实该单次生成,所以答案是"分流"而非二选一。但对需要时效知识、专有知识、精确事实的问题,单次生成有三个致命伤:幻觉高、知识过时、无法引用来源。所以复杂/知识密集型问题必须走检索,哪怕慢几十毫秒——用精度换回来的是正确性。</div></details>
+    <details class="qa"><summary class="qu">Q:召回和精排的延迟怎么压?</summary><div class="an">召回侧:HNSW 调参(降 ef_search)、向量量化、缩小 topk、多路并行;精排侧:只重排 top 10 而非 top 50、用轻量 rerank 模型、或两阶段(量化粗排→精排小模型)。原则是"最贵的精排只服务最少候选"。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么判断一个 query 该走哪条链路?</summary><div class="an">难度分类器 + 规则:规则先兜底(明确闲聊/问候直接单次生成;明确需要资料/时效的强制检索),拿不准的交给小模型分类,且默认走完整检索链路(保守优先)。分类置信度低时不贪快,宁可慢一点也要保证不翻车。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>召回</b>:从大池子里快速捞候选,求全。</div>
+      <div class="term-item"><b>精排</b>:对少量候选精算排序,求准。</div>
+      <div class="term-item"><b>两阶段检索</b>:先粗筛后精排,平衡速度与精度。</div>
+      <div class="term-item"><b>路由</b>:按难度把请求分到不同链路。</div>
+      <div class="term-item"><b>TTFT</b>:首 token 时间,流式体验核心指标。</div>
+      <div class="term-item"><b>Recall@k</b>:前 k 结果的查全率,质量护栏。</div>
+    </div>
+  </div>
+</article>

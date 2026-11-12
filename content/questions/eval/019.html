@@ -1,0 +1,73 @@
+<article class="q" id="eval-019" data-topic="eval" data-title="设计模型蒸馏效果评估对比三种蒸馏策略" data-difficulty="3" data-tags="蒸馏,实验设计,对比实验" data-company="" data-source="P6Q36" data-kw="蒸馏 KD 特征匹配 响应式 实验设计 对比 消融 温度 教师模型 软标签">
+
+  <div class="q-no">Agent算法 · Q36</div>
+  <h3>设计模型蒸馏效果的评估实验</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#蒸馏</span><span class="tag">#实验设计</span><span class="tag">#对比实验</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我会做<b>四组对照 + 双维度评估</b>:① 同一学生模型分别用三种策略训练——<b>KD(软标签/温度蒸馏)</b>、<b>Feature Matching(中间特征对齐)</b>、<b>Response-based(教师生成文本当监督)</b>,外加 hard-label 基线;② <b>指标</b>看效果(学生 vs 教师性能差、校准度、OOD 泛化)+ 效率(参数量/延迟/显存);③ 控制变量:同学生架构、同训练数据、同训练步数;④ <b>消融</b>:温度 τ、软损失权重 α、对齐哪一层;⑤ 报告每种策略的『性能-成本』画像,而不是只吹一个数字。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就像<b>老师教学生三种学法</b>:第一种抄老师给的"解题概率分布"(KD——连"哪题多难"都学);第二种抄老师"演算过程的中途草稿"(特征匹配);第三种直接背老师写好的"标准答案"(Response-based)。评估就是考同一个人,看哪种学法练出来的分数最高、还没把学生喂成和老师一样胖。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 先把三种策略讲准(别把黑话混为一谈)</b></p>
+    <ul>
+      <li><b>KD(Knowledge Distillation)</b>:Hinton 式,用教师 logits 经温度 τ 软化的软标签,学生最小化与教师的 KL 散度——学的是"输出的概率分布"。</li>
+      <li><b>Feature Matching</b>:让学生中间层特征回归到教师对应层特征(FitNets 的 L2 对齐,或注意力图对齐)——学的是"中间表征"。</li>
+      <li><b>Response-based</b>:用教师<b>生成的文本/轨迹</b>作为监督,学生做 SFT——学的是"教师怎么答",LLM 时代主流(无需教师 logits)。</li>
+    </ul>
+    <pre class="code"><span class="c"># 温度软化 softmax</span>
+p^τ_i = exp(z_i / τ) / Σ_j exp(z_j / τ)      <span class="c">τ 越大分布越"软"</span>
+
+<span class="c"># KD 总损失:硬标签 CE + 软标签 KL</span>
+L = (1−α)·L_CE(y, p_s) + α·τ²·KL(p_t^τ ‖ p_s^τ)   <span class="c">α 为软损失权重</span></pre>
+    <p><b>2. 实验设置:只变"监督信号",其余全锁死</b></p>
+    <ul>
+      <li>学生(同一小模型)、教师(同一大模型)、训练数据、优化器、训练步数全部一致——唯一变量是"从教师那里拿什么信号"。</li>
+      <li>KD / Feature Matching 用任务硬标签 + 教师软信号;Response-based 需要教师生成的样本(SFT 数据)。</li>
+    </ul>
+    <p><b>3. 指标:效果 + 效率双维度</b></p>
+    <table>
+      <tr><th>维度</th><th>指标</th><th>说明</th></tr>
+      <tr><td><b>效果</b></td><td>测试集准确率、相对教师的性能差</td><td>多 benchmark 平均 + 方差</td></tr>
+      <tr><td><b>可靠性</b></td><td>校准度 ECE、OOD 泛化、幻觉率</td><td>蒸馏可能牺牲校准</td></tr>
+      <tr><td><b>效率</b></td><td>参数量、推理延迟、显存、吞吐</td><td>蒸馏的初衷就是降本</td></tr>
+    </table>
+    <p><b>4. 对照组与消融</b></p>
+    <ul>
+      <li><b>对照</b>:教师(上界)、学生从零训练 / 纯 hard-label(下界)、随机基线。</li>
+      <li><b>消融</b>:温度 τ ∈ {2,4,8,16}、软损失权重 α、特征对齐的层(浅/中/深)、蒸馏数据量。</li>
+    </ul>
+    <p><b>5. 高频坑</b></p>
+    <ul>
+      <li>只报一个 benchmark 会过拟合:多集平均 + 多 seed 方差。</li>
+      <li>τ 太小 ≈ 硬标签,蒸馏退化;τ 太大信息太稀,都要扫。</li>
+      <li>Response-based 高度依赖教师生成质量,要控制教师采样(温度、是否 CoT),否则垃圾进垃圾出。</li>
+      <li>蒸馏后 <b>校准度(ECE)</b> 常变差,要单独看,不能只看准确率。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:KD 和 Response-based 的本质区别是什么,什么时候选哪个?</summary><div class="an">KD 要教师输出 logits(软标签),学生学分布,信息更密集、但要求能拿到教师内部输出(白盒);Response-based 只要教师生成的文本(黑盒也行),适合只能调 API 的大模型蒸馏,但信息有损、依赖生成质量。能拿 logits 且任务有明确标签选 KD;只有 API 时选 Response-based。</div></details>
+    <details class="qa"><summary class="qu">Q:温度 τ 怎么调?</summary><div class="an">没有固定值,要扫(常见 2~16)。τ 小分布接近硬标签、丢失"类间相似性"信息;τ 大分布过软、噪声放大。做法是在验证集上扫 τ 和 α,报告曲线,而不是拍脑袋用一个值。</div></details>
+    <details class="qa"><summary class="qu">Q:学生超越了老师怎么办,正常吗?</summary><div class="an">可能发生,尤其老师本身有噪声或标签本身比老师更"正确"时,软标签能起到正则化作用。出现这种情况要检查指标口径和数据泄漏,确认无误就正常,说明老师也有犯错被纠正的空间。</div></details>
+    <details class="qa"><summary class="qu">Q:三种策略能叠加吗?</summary><div class="an">能,而且常见:KD 软标签 + Feature Matching 一起用、或 Response-based 数据 + KD 软标签联合训练。叠加要作为额外的实验组,配合消融证明"1+1 &gt; 1",别默认叠加一定更好。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>KD</b>:用教师软标签(logits)训练学生。</div>
+      <div class="term-item"><b>软标签</b>:经温度 τ 软化后的概率分布,含类间相似信息。</div>
+      <div class="term-item"><b>特征匹配</b>:对齐学生与教师的中间层表征。</div>
+      <div class="term-item"><b>Response-based 蒸馏</b>:用教师生成文本做监督信号。</div>
+      <div class="term-item"><b>ECE</b>:Expected Calibration Error,衡量置信度校准。</div>
+      <div class="term-item"><b>教师/学生模型</b>:大模型输出知识,小模型学习它。</div>
+    </div>
+  </div>
+</article>

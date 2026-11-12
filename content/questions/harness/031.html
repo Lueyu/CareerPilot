@@ -1,0 +1,72 @@
+<article class="q" id="harness-031" data-topic="harness" data-title="近半年印象最深的Agent论文或开源项目及原因" data-difficulty="2" data-tags="论文阅读,开源项目" data-company="所有公司" data-source="P7Q12" data-kw="论文阅读 开源项目 MCP Claude Code DeepSeek-R1 工具调用 编程Agent 基准 技术判断 长上下文 持久记忆">
+
+  <div class="q-no">评估讨论 · Q12</div>
+  <h3>在过去半年里，哪一篇关于 Agent 的论文或哪一个开源项目让你印象最深刻？为什么？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐</span>
+    <span class="tag">#论文阅读</span><span class="tag">#开源项目</span>
+    <span class="company">所有公司</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我会讲一个具体的、并且能说清『它解决了什么问题、用了什么思路、我从中借鉴了什么』。以我为例，印象最深的是 <b>MCP（Model Context Protocol）</b> 及其带火的工具生态：它把『模型如何连接外部工具和数据』这件事<b>标准化</b>了，相当于给 Agent 定义了 USB-C 接口，把集成成本从『每个工具单独写适配器』降到『按协议即插即用』。它让我意识到：Agent 落地的真正瓶颈不在模型，而在<b>工具生态的碎片化</b>。这道题的关键不是背论文名，而是展示你有自己的技术判断和消化能力。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>这道题就像面试官问你"最近读过什么书、讲讲收获"。他不是要你报书名，而是看你能不能<b>讲出这本书到底讲了什么、你为什么有共鸣、读完改变了你什么做法</b>。只会报书名说不出所以然的，一眼就被看穿——所以宁可选一个你真读过、真用得上的，讲深讲透，也别背一堆热门标题。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 这题在考什么（先读懂题，再给答案）</b></p>
+    <ul>
+      <li><b>技术品味</b>：你关注的东西是否代表当前前沿，是否有自己的判断标准。</li>
+      <li><b>是否真读过/真用过</b>：能讲出核心思路、细节、局限，而不是只会说"很火"。</li>
+      <li><b>消化与迁移能力</b>：能不能把别人的工作转成自己的工程实践或方法论。</li>
+    </ul>
+    <p><b>2. 回答框架（三句话模板，可套用到任何选择）</b></p>
+    <ul>
+      <li><b>第一句——它是什么、解决了什么问题</b>：一句话概括这个论文/项目的核心主张。</li>
+      <li><b>第二句——亮点/创新在哪</b>：讲清楚它和之前方案的本质区别（对比才有深度）。</li>
+      <li><b>第三句——对你的启发/你会怎么用</b>：落到自己的实践，这是"消化能力"的体现，也是和"背题党"拉开差距的地方。</li>
+    </ul>
+    <p><b>3. 示范答案（以 MCP 为例，展开讲）</b></p>
+    <ul>
+      <li><b>它是什么</b>：Anthropic 提出的开放协议，标准化了 LLM 应用连接外部工具、数据源的标准接口——类似"工具调用的 USB-C"，让任何模型、任何客户端、任何工具通过同一套协议互联。</li>
+      <li><b>解决了什么问题</b>：此前每个 Agent 框架接入每个工具都要写一次性适配器（N×M 的集成问题）；MCP 把它变成"写一次、到处用"（N+M），大幅降低工具生态的碎片化成本。</li>
+      <li><b>亮点</b>：把"工具连接"从工程胶水代码提升为<b>协议标准</b>，并且有 Server/Client 双向能力，支持资源、工具、Prompt 等多种能力原语，生态发展极快。</li>
+      <li><b>我的启发</b>：我在自己的 Agent 项目里开始用"标准化工具接口 + 统一注册中心"的思路重构工具层，让新工具接入从"写一堆胶水"变成"实现一个协议接口"，可维护性和可扩展性明显提升。</li>
+    </ul>
+    <p><b>4. 备选清单（供替换，每个都能讲出所以然）</b></p>
+    <table>
+      <tr><th>论文/项目</th><th>一句话亮点</th><th>适合谈的切入点</th></tr>
+      <tr><td><b>Claude Code / 编程 Agent</b></td><td>长上下文 + 工具编排 + 持久工作区</td><td>Agent 从"单次问答"到"持续工作"的形态演进</td></tr>
+      <tr><td><b>DeepSeek-R1</b></td><td>纯强化学习激发推理能力</td><td>推理能力与成本的大幅下降，推理时 compute 的复现</td></tr>
+      <tr><td><b>smolagents</b></td><td>极简、代码即行动（code-as-action）</td><td>让 Agent 写代码来调用工具，减少 JSON 结构化局限</td></tr>
+      <tr><td><b>OpenHands / SWE-agent</b></td><td>软件工程任务的 Agent 范式</td><td>复杂多步任务的评估与执行范式</td></tr>
+      <tr><td><b>Agentic RAG</b></td><td>检索由 Agent 动态规划而非一次性</td><td>把"检索"从被动召回升级为主动决策</td></tr>
+    </table>
+    <p><b>5. 加分点与雷区</b></p>
+    <ul>
+      <li><b>加分</b>：能给出自己的<b>对比和取舍</b>（"我为什么觉得它比 X 更好/更落地"）；能指出<b>局限</b>（任何工作都有边界）；能落到<b>自己的实践</b>。</li>
+      <li><b>雷区</b>：只报名字讲不出细节；说"它很火/很厉害"但给不出理由；选一个和自己岗位完全无关又没理解的东西硬讲；<b>编造不存在的论文或数据</b>（技术准确性是红线）。</li>
+    </ul>
+    <div class="note">如果你最近确实没系统读论文，最稳妥的选择是挑一个<b>你真在项目中用过</b>的开源项目（框架、协议、模型都行），讲"我用了它解决什么问题、踩了什么坑、收获是什么"——真实的实践细节永远比背来的评价更有说服力。</div>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:这个论文/项目的核心创新到底是什么？用一句话概括。</summary><div class="an">练好"一句话概括"：MCP = 把模型连接工具这件事标准化成开放协议，让集成从"每个工具写适配器"变成"按协议即插即用"；DeepSeek-R1 = 证明不靠大量监督数据、仅靠强化学习也能让模型涌现出可解释的推理链，并把推理成本大幅打下来。这一句话要能脱口而出，说明你真正抓住了它的本质，而不是记住了它的名气。</div></details>
+    <details class="qa"><summary class="qu">Q:它有什么局限？你会在生产里直接用它吗？</summary><div class="an">任何工作都有边界，能说局限才是真理解。以 MCP 为例：协议还在快速演进、生态碎片化尚存（各家实现质量参差）、安全边界（工具权限、数据外发）需要自己把关，且多了一层协议开销。所以我的结论是"<b>用它的思想 + 谨慎选型</b>"：采纳标准化接口的思路，但具体 Server 要评估成熟度和安全，不会盲目接入所有第三方 Server。</div></details>
+    <details class="qa"><summary class="qu">Q:能不能把它和另一个相关工作做个对比？</summary><div class="an">能对比说明你有"坐标系"。例如对比 MCP 与传统的 Function Calling：Function Calling 是<b>模型内置的、schema 驱动的单次工具调用</b>，MCP 是<b>应用层协议，管的是"发现、连接、生命周期"</b>，两者其实是互补而非替代——MCP 之上具体执行还是要落到 Function Calling 或代码执行。再如 Claude Code 对比早期 AutoGPT：前者靠"长上下文 + 明确工具 + 人在环"做得可靠可用，后者靠"全自主规划"但失控率高——这条对比线正好呼应"可靠性 vs 自主性"的瓶颈判断。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>MCP</b>:Model Context Protocol,标准化模型连接工具的开放协议。</div>
+      <div class="term-item"><b>Function Calling</b>:模型按 schema 调用单个工具的内置能力。</div>
+      <div class="term-item"><b>Code-as-Action</b>:让 Agent 写代码来执行动作,替代受限的 JSON 调用。</div>
+      <div class="term-item"><b>编程 Agent</b>:以写代码、改代码为核心任务的 Agent(如 Claude Code)。</div>
+      <div class="term-item"><b>长上下文</b>:模型单次能处理的大规模上下文,支撑持续工作。</div>
+      <div class="term-item"><b>推理时计算 Test-time Compute</b>:推理阶段多算几步换更好结果的范式。</div>
+    </div>
+  </div>
+</article>

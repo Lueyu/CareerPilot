@@ -1,0 +1,88 @@
+<article class="q" id="eval-024" data-topic="eval" data-title="设计评估方案衡量事实性幻觉推理安全能力" data-difficulty="3" data-tags="评估设计,能力评估" data-company="字节 / 阿里 / 腾讯（重要）" data-source="P7Q4" data-kw="评估设计 能力评估 幻觉 事实性 FactScore TruthfulQA 推理 GSM8K PRM 安全性 红队 越狱 拒答">
+
+  <div class="q-no">评估讨论 · Q4</div>
+  <h3>如何设计一个评估方案来衡量 LLM 的特定能力，比如"事实性/幻觉水平"、"推理能力"或"安全性"？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#评估设计</span><span class="tag">#能力评估</span>
+    <span class="company">字节 / 阿里 / 腾讯（重要）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"评估特定能力我套一个四步框架:<b>定义能力 → 造数据集 → 定指标 → 人工校准</b>。以三个为例:<b>事实性/幻觉</b>用 TruthfulQA 测抗诱答、用 <b>FactScore</b> 把答案拆成原子事实逐条对照权威来源核查;<b>推理能力</b>用 GSM8K/MATH 做多步数学,再看<b>过程监督</b>(中间步骤对不对,而不只看最终答案);<b>安全性</b>用<b>红队数据集</b>(越狱、诱导、有害内容)+ 拒答合理率 + 有害输出分类器,人机双评。关键原则:能程序化验证的绝不靠模型主观打分,且每个指标都要和人工打分做一致性锚定。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>评估三种能力就像给 AI 做三类体检:<b>测幻觉</b>是"测谎"——让它回答一堆有诱导陷阱的问题,再把它说的每句话拆成最小事实,逐条查证对不对;<b>测推理</b>是"看解题过程"——不只对最后答案,还要看中间步骤是不是真的会推,防止蒙对;<b>测安全</b>是"压力测试 + 故意挑逗"——找一群"红队"变着法子诱导它越界,看它会不会拒绝、会不会说错话。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>0. 通用设计框架(先讲方法论)</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 610 122" role="img" aria-label="评估能力四步框架">
+  <rect class="sd-layer" x="6" y="16" width="598" height="90"/>
+  <text class="sd-l" x="18" y="33">四步评估框架：定义 → 造数据 → 选评估器 → 校准</text>
+  <rect class="sd-box" x="16" y="44" width="132" height="60" rx="10"/>
+  <text class="sd-t" x="82" y="70" text-anchor="middle">定义能力</text>
+  <text class="sd-ts" x="82" y="88" text-anchor="middle">能力 → 可判定指标</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M152 74 L158 74"/>
+  <rect class="sd-box" x="162" y="44" width="132" height="60" rx="10"/>
+  <text class="sd-t" x="228" y="70" text-anchor="middle">构造数据集</text>
+  <text class="sd-ts" x="228" y="88" text-anchor="middle">正负样本 · 分层防污染</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M298 74 L304 74"/>
+  <rect class="sd-box" x="308" y="44" width="132" height="60" rx="10"/>
+  <text class="sd-t" x="374" y="70" text-anchor="middle">选评估器</text>
+  <text class="sd-ts" x="374" y="88" text-anchor="middle">规则 → 程序化 → judge</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M444 74 L450 74"/>
+  <rect class="sd-box" x="454" y="44" width="132" height="60" rx="10"/>
+  <text class="sd-t" x="520" y="70" text-anchor="middle">校准上线</text>
+  <text class="sd-ts" x="520" y="88" text-anchor="middle">人机一致 · 基线阈值</text>
+</svg></div>
+    <p><b>1. 事实性 / 幻觉水平</b></p>
+    <ul>
+      <li><b>数据集</b>:<b>TruthfulQA</b>(817 道带"人类易错陷阱"的问题,专门诱发模型说错);<b>HaluEval</b> 等幻觉评测集;也可以从业务知识库自建"已知答案"的问答对。</li>
+      <li><b>指标</b>:<b>FactScore</b>——把生成答案用 NER + 关系抽取拆成多条"原子事实"(atomic facts),逐条拿来源文本/维基百科做蕴含判断,算"支持的事实占比"。这是目前衡量幻觉最严谨的自动方法之一。</li>
+      <li><b>辅助</b>:RAG 场景再加"引用忠实度"(答案里的引用是否真实存在于检索结果),用 NLI(自然语言推理)模型判"支持/矛盾/无关"。</li>
+    </ul>
+    <p><b>2. 推理能力</b></p>
+    <ul>
+      <li><b>数据集</b>:<b>GSM8K</b>(小学应用题,多步算术)、<b>MATH</b>(竞赛级,分 5 档难度)、ARC(科学常识推理)、BBH(综合多步)。</li>
+      <li><b>指标</b>:最终答案匹配率(EM),但更要看<b>过程正确率</b>——用<b>过程监督(Process Reward Model, PRM)</b>给每一步推理打分,区分"蒙对答案"和"真会推"。</li>
+      <li><b>加分点</b>:按"答案对 & 过程对 / 答案对 & 过程错 / 都错"三维统计,而不是一个数糊过去。</li>
+    </ul>
+    <p><b>3. 安全性</b></p>
+    <ul>
+      <li><b>数据集</b>:红队构造的<b>越狱提示集</b>(角色扮演、编码绕过、多语言诱导)、有害请求集(暴力/仇恨/隐私/危险操作)。</li>
+      <li><b>指标</b>:① <b>拒答合理率</b>——该拒的拒了、不该拒的(正常问题)别误伤;② <b>有害输出率</b>——用内容安全分类器 + 人工抽检;③ <b>越狱成功率</b>(攻防对抗)。</li>
+      <li><b>动态红队</b>:用另一个 LLM 自动生成攻击 prompt,或人工专家持续补充新绕过手法,防止"打一次就免疫"。</li>
+    </ul>
+    <table>
+      <tr><th>能力</th><th>代表数据集</th><th>核心指标</th><th>评估器</th></tr>
+      <tr><td><b>事实性/幻觉</b></td><td>TruthfulQA、HaluEval</td><td>FactScore、忠实度</td><td>外部知识 + NLI</td></tr>
+      <tr><td><b>推理</b></td><td>GSM8K、MATH、ARC</td><td>答案 EM + 过程正确率</td><td>程序化验算 + PRM</td></tr>
+      <tr><td><b>安全</b></td><td>红队集、越狱集</td><td>拒答合理率、有害率</td><td>分类器 + 人工</td></tr>
+    </table>
+    <p><b>4. 三条通用纪律</b></p>
+    <ul>
+      <li><b>指标要和人工锚定</b>:任何自动指标,先抽样本看它和人类判断的一致率,不过关就调。</li>
+      <li><b>防数据污染</b>:测试集不进训练、定期换新、做去污染检查。</li>
+      <li><b>分层 + 版本化</b>:核心集每次发版必跑,分数可复现、可回归。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:FactScore 具体怎么算,为什么比整体打分好？</summary><div class="an">流程:① 把答案拆成若干<b>原子事实</b>(每个都是可独立判断真假的短句);② 对每条原子事实,用检索到的权威来源做<b>蕴含判断</b>(支持/矛盾/无关);③ 得分 = 被"支持"的原子事实占比。它比整体打分好在<b>细粒度、可定位</b>:能告诉你答案里哪一句话是编的,而不是笼统一个"幻觉率",还便于回归到具体 bad case 去修。</div></details>
+    <details class="qa"><summary class="qu">Q:推理题"答案对但过程错"要不要扣分,怎么判？</summary><div class="an">要区分统计,不能一个 EM 掩盖问题。判法:用<b>过程监督模型(PRM)</b>给每一步打分,或人工核对关键步骤。<b>答案对过程错</b>说明模型可能蒙的或推理不稳健,在需要可信推理的场景(金融、医疗)必须当错处理;在只看结果的应用里可单独放宽。面试说"我分开统计两类错误"就很专业。</div></details>
+    <details class="qa"><summary class="qu">Q:安全评估的"越狱样本"从哪来,怎么持续更新？</summary><div class="an">三个来源:① 公开红队数据集(如已有的越狱库);② <b>自动化红队</b>——用另一个 LLM 按策略批量生成攻击 prompt;③ 线上真实攻击日志 + 人工专家补充。<b>持续更新</b>的关键是闭环:每次模型更新后重新跑红队,把"新成功的绕过"回流进测试集,形成攻防共同进化。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>FactScore</b>:拆原子事实逐条核对的幻觉量化方法。</div>
+      <div class="term-item"><b>TruthfulQA</b>:带人类易错陷阱、专门诱发错误的事实性基准。</div>
+      <div class="term-item"><b>PRM</b>:过程奖励模型,给推理每一步打分。</div>
+      <div class="term-item"><b>Red team</b>:以攻击者视角诱导模型出错的测试。</div>
+      <div class="term-item"><b>越狱</b>:绕过安全对齐让模型输出有害内容。</div>
+      <div class="term-item"><b>NLI</b>:自然语言推理,判断两句话支持/矛盾/无关。</div>
+    </div>
+  </div>
+</article>

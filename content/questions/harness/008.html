@@ -1,0 +1,90 @@
+<article class="q" id="harness-008" data-topic="harness" data-title="LLM如何通过FunctionCalling调用工具" data-difficulty="3" data-tags="Agent,ToolUse,FunctionCalling" data-company="所有公司（高频）" data-source="P5Q5" data-kw="ToolUse 工具调用 FunctionCalling 函数调用 JSONSchema tool_call 指令微调 执行循环 并行">
+
+  <div class="q-no">Agent核心 · Q5</div>
+  <h3>Tool Use 是扩展 Agent 能力的有效途径。请解释 LLM 是如何学会调用外部 API 或工具的？（可以从 Function Calling 的角度解释）</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#Agent</span><span class="tag">#ToolUse</span><span class="tag">#FunctionCalling</span>
+    <span class="company">所有公司（高频）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"关键认知:模型<b>并不真正「执行」工具,它只「生成调用意图」</b>。Function Calling 的流程:把每个工具用 JSON Schema 描述(名称、作用、参数类型)传给模型 → 模型判断「要不要调、调哪个、参数填什么」,输出一个结构化的 <b>tool_call</b> → 由<b>程序</b>去执行并把结果回填 → 模型基于结果继续生成最终回答。能力来自训练阶段的 instruction tuning(教它何时调用、格式如何),推理阶段靠 schema + 执行循环保证稳定。相比 ReAct 的纯文本,FC 结构化、可校验、支持并行多工具,是生产首选。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像<b>餐厅点菜</b>:菜单(工具 Schema)写清楚每道菜的名字、配料、辣度(参数);顾客(模型)说"我要宫保鸡丁,微辣"(生成 tool_call,而不是自己去后厨炒);服务员(程序)下单、后厨(真实 API)做菜,再把菜端回来(结果回填);顾客尝一口决定要不要加菜(继续生成)。模型从头到尾只是"点单",真正动手的是后厨——这就是"模型学会了调用工具"的真相。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 本质澄清</b></p>
+    <ul>
+      <li>LLM 无法直接执行任何东西,它只会预测 token。所谓"调用工具",实际是模型生成一段符合约定的调用指令(JSON),由应用层解析后去执行真实函数/API,再把执行结果作为新消息回填。</li>
+      <li>所以"学会调用工具" = 学会两件事:① 什么时候该调、调哪个(<b>意图判断</b>);② 参数怎么填、格式对不对(<b>结构化生成</b>)。</li>
+    </ul>
+    <p><b>2. 三步循环</b></p>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 850 124" role="img" aria-label="Function Calling 工具调用流程">
+  <rect class="sd-box-rose" x="10" y="44" width="140" height="64" rx="10"/>
+  <text class="sd-t" x="80" y="72" text-anchor="middle">用户提问</text>
+  <text class="sd-ts" x="80" y="90" text-anchor="middle">自然语言指令</text>
+  <rect class="sd-box-amber" x="180" y="44" width="140" height="64" rx="10"/>
+  <text class="sd-t" x="250" y="72" text-anchor="middle">LLM 判断</text>
+  <text class="sd-ts" x="250" y="90" text-anchor="middle">生成 tool_call</text>
+  <rect class="sd-box" x="350" y="44" width="140" height="64" rx="10"/>
+  <text class="sd-t" x="420" y="72" text-anchor="middle">程序执行</text>
+  <text class="sd-ts" x="420" y="90" text-anchor="middle">解析·校验·调 API</text>
+  <rect class="sd-box-teal" x="520" y="44" width="140" height="64" rx="10"/>
+  <text class="sd-t" x="590" y="72" text-anchor="middle">结果回填</text>
+  <text class="sd-ts" x="590" y="90" text-anchor="middle">tool 消息返回</text>
+  <rect class="sd-box" x="690" y="44" width="140" height="64" rx="10"/>
+  <text class="sd-t" x="760" y="72" text-anchor="middle">生成回答</text>
+  <text class="sd-ts" x="760" y="90" text-anchor="middle">流式输出</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M150 76 L176 76"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M320 76 L346 76"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M490 76 L516 76"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M660 76 L686 76"/>
+  <path class="sd-an" marker-end="url(#sd-arr)" d="M590 44 C590 8 250 8 250 40"/>
+  <text class="sd-ts" x="420" y="20" text-anchor="middle">可能需第二轮 tool_call</text>
+</svg>
+</div>
+    <p><b>3. 能力从哪来(训练)</b></p>
+    <ul>
+      <li><b>闭源 API</b>(OpenAI/Claude/国产):厂商在 instruction tuning 阶段用大量 <code>(query → tool_call → tool_result → answer)</code> 数据训练,推理时用 <code>tools</code> 字段传入 schema。</li>
+      <li><b>开源模型</b>(Qwen / Hermes / Llama 3.1 等):用各自 chat template 里约定的 FC 格式,内置 FC 能力;能力弱的可用 FC 数据 SFT 增强。</li>
+      <li>推理侧零成本的关键是 <b>schema 写得好</b>:描述里写清"何时该用/何时不该用",直接决定选工具的准确率。</li>
+    </ul>
+    <p><b>4. Schema 设计要点</b></p>
+    <ul>
+      <li>名称 + 描述(含正反例)、参数 JSON Schema(类型/必填/枚举/默认值)。</li>
+      <li>允许模型返回多个 tool_call 实现<b>并行</b>(如同时查天气 + 查订单)。</li>
+      <li>权限最小化:只给任务需要的工具,减少选错面。</li>
+    </ul>
+    <p><b>5. 工程细节</b></p>
+    <ul>
+      <li><b>JSON 解析容错</b>:模型偶发非法 JSON → 重试、带纠错提示重问、或宽松解析。</li>
+      <li><b>超时/限流</b>:工具是外部依赖,防慢调用拖垮链路。</li>
+      <li><b>结果截断</b>:工具返回超长要截断/摘要,否则挤爆上下文。</li>
+      <li><b>流式 + FC</b>:先等 tool_call 完整、执行完再继续流式生成,处理好衔接。</li>
+    </ul>
+    <p><b>6. 为什么优于文本 ReAct</b>:结构化(天然可解析校验)、稳定(格式由 schema 约束)、可并行(一次声明多个调用)。但 FC 也"更刚性",需要模型支持;ReAct 文本协议更通用。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:模型真的"理解"工具吗?还是只背了格式?</summary><div class="an">严格说它没有语义理解,是学到了"语言-调用格式"的统计映射。它判断"该不该调、填什么参数"来自训练数据里学到的模式,所以对没见过的专有工具、模糊的 schema 会出错。工程上我们靠 schema 写清楚、few-shot、以及微调把它约束在正确行为上——别把 FC 当魔法。</div></details>
+    <details class="qa"><summary class="qu">Q:模型返回的 JSON 不合法怎么办?</summary><div class="an">分层兜底:① 重试(同请求再生成一次);② 带纠错提示重问("你上一条不是合法 JSON,请重新输出");③ 宽松解析(修引号/尾逗号/截断);④ 仍失败则降级为不调工具、直接回答或转人工。若某模型非法率持续高,说明它 FC 能力不足,该换模型或微调。</div></details>
+    <details class="qa"><summary class="qu">Q:需要并行调多个工具时怎么处理?</summary><div class="an">让模型一次性输出多个 tool_call;应用层并发执行(线程池/异步),等全部(或按依赖顺序)返回后一起回填。注意依赖关系:如果工具 B 依赖工具 A 的输出,必须串行,不能盲目并行。</div></details>
+    <details class="qa"><summary class="qu">Q:工具太多(几十上百个)模型会选错吗?</summary><div class="an">会,这是真实痛点。对策:① 按场景/路由拆 Agent,每个 Agent 只带少量相关工具;② schema 里写清"何时用/何时不用";③ 用检索式工具选择(先按意图检索出 top-k 工具再给模型);④ 需要时用 FC 数据微调提升选工具准确率。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>Function Calling</b>:模型输出结构化调用指令、由程序执行的能力。</div>
+      <div class="term-item"><b>JSON Schema</b>:描述工具名称、用途、参数的结构。</div>
+      <div class="term-item"><b>tool_call</b>:模型生成的"工具名 + 参数"结构化调用。</div>
+      <div class="term-item"><b>Instruction Tuning</b>:用指令/工具数据微调,让模型学会遵循约定格式。</div>
+      <div class="term-item"><b>Parallel Tool Call</b>:一次生成多个可并行执行的工具调用。</div>
+      <div class="term-item"><b>执行循环</b>:生成→执行→结果回填→再生成的闭环。</div>
+    </div>
+  </div>
+</article>

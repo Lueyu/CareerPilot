@@ -1,0 +1,80 @@
+<article class="q" id="biz-015" data-topic="biz" data-title="LangChain与LlamaIndex核心应用场景对比" data-difficulty="2" data-tags="Agent,框架,选型" data-company="所有公司（通用）" data-source="P5Q7" data-kw="LangChain LlamaIndex Agent 框架 选型 RAG 编排 索引 检索 应用场景">
+
+  <div class="q-no">Agent核心 · Q7</div>
+  <h3>请比较一下两个流行的 Agent 开发框架，如 LangChain 和 LlamaIndex。它们的核心应用场景有何不同？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐</span>
+    <span class="tag">#Agent</span><span class="tag">#框架</span><span class="tag">#选型</span>
+    <span class="company">所有公司（通用）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"这两个<b>不是二选一的竞品,而是定位不同</b>:LangChain 是<b>通用 LLM 应用框架</b>——链条、工具调用、多步编排的"全家桶";LlamaIndex 是<b>数据/RAG 专精框架</b>——文档接入、索引、检索最细。一句话结论:要做<b>带工具调用、多步推理的对话/Agent 应用</b>选 LangChain(复杂编排直接用它的内核 LangGraph);要围绕<b>私有知识库做检索问答</b>、把检索做到极致选 LlamaIndex。生产里常见的是组合:用 LlamaIndex 搭数据管道,用 LangGraph 做编排。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>LangChain 像<b>瑞士军刀</b>——刀、剪、锯一应俱全,啥都能干一点;LlamaIndex 像<b>专业图书馆管理系统</b>——只专注一件事:把海量书分类、编目、快速查到。你要野营带军刀,你要经营图书馆就上专业系统;真要开大型图书馆,往往是"军刀开路、专业系统管书"——两者配合用,不是二选一。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <table>
+      <tr><th>维度</th><th>LangChain</th><th>LlamaIndex</th></tr>
+      <tr><td><b>定位</b></td><td>通用 LLM 应用开发框架</td><td>数据框架 / RAG 专精</td></tr>
+      <tr><td><b>核心强项</b></td><td>Chain/Agent/Tool/Memory 抽象全、集成最多、生态最大;配套 LangSmith 观测、LangGraph 图编排</td><td>数据连接器(上百种)、索引结构(向量/关键词/树/知识图谱)、检索器抽象最丰富,RAG 天花板高</td></tr>
+      <tr><td><b>典型场景</b></td><td>带工具调用的对话机器人、多步推理 Agent、复杂工作流编排</td><td>文档问答、企业知识库检索、结构化数据查询、复杂检索策略(路由/子问题/混合)</td></tr>
+      <tr><td><b>弱项</b></td><td>抽象层多、Debug 像剥洋葱;版本破坏性变更多</td><td>非 RAG 的通用编排能力弱;Agent 能力是后来补的</td></tr>
+      <tr><td><b>一句话选型</b></td><td>以"对话/工具/流程"为中心</td><td>以"数据/检索"为中心</td></tr>
+    </table>
+    <p><b>核心场景差异(面试要讲到点子上)</b></p>
+    <ul>
+      <li>LangChain 的回答单元是<b>"链/Agent"</b>:LLM 决策 + 工具调用 + 步骤编排,关键词是 orchestration。</li>
+      <li>LlamaIndex 的回答单元是<b>"索引 + 查询引擎"</b>:先把数据建索引,再对索引做检索与合成,关键词是 retrieval。</li>
+      <li>两者其实<b>有交集且会互相渗透</b>:LlamaIndex 现在也有 Agent/Workflow,LangChain 也能做 RAG,只是"看家本领"不同——能说出"框架边界在模糊"比背表格更显水平。</li>
+    </ul>
+    <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 680 370" role="img" aria-label="LangChain 与 LlamaIndex 选型决策">
+  <rect class="sd-box2" x="250" y="14" width="200" height="56" rx="10"/>
+  <text class="sd-t" x="350" y="46" text-anchor="middle">你的产品核心是什么？</text>
+  <path class="sd-a" d="M350 70 L350 86"/>
+  <path class="sd-a" d="M175 86 L525 86"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M175 86 L175 100"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M525 86 L525 100"/>
+  <rect class="sd-box2" x="50" y="104" width="250" height="56" rx="10"/>
+  <text class="sd-t" x="175" y="128" text-anchor="middle">围绕对话/工具/多步流程</text>
+  <text class="sd-ts" x="175" y="146" text-anchor="middle">以编排为中心</text>
+  <rect class="sd-box2" x="400" y="104" width="250" height="56" rx="10"/>
+  <text class="sd-t" x="525" y="128" text-anchor="middle">围绕文档/知识库检索</text>
+  <text class="sd-ts" x="525" y="146" text-anchor="middle">以检索为中心</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M175 160 L175 188"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M525 160 L525 188"/>
+  <rect class="sd-box" x="50" y="192" width="250" height="64" rx="10"/>
+  <text class="sd-t" x="175" y="220" text-anchor="middle">LangChain</text>
+  <text class="sd-ts" x="175" y="238" text-anchor="middle">编排复杂用 LangGraph</text>
+  <rect class="sd-box-teal" x="400" y="192" width="250" height="64" rx="10"/>
+  <text class="sd-t" x="525" y="220" text-anchor="middle">LlamaIndex</text>
+  <text class="sd-ts" x="525" y="238" text-anchor="middle">检索做到极致</text>
+  <rect class="sd-box" x="210" y="290" width="280" height="64" rx="10"/>
+  <text class="sd-t" x="350" y="318" text-anchor="middle">组合方案</text>
+  <text class="sd-ts" x="350" y="336" text-anchor="middle">LlamaIndex 管数据 + LangGraph 管流程</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M525 256 L525 276 L350 276 L350 286"/>
+  <text class="sd-ts" x="437" y="270" text-anchor="middle">两者都重</text>
+</svg>
+</div>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:两个都用过吗?实际项目里你选哪个、为什么?</summary><div class="an">给一个具体场景佐证立场。例:做一个"企业制度问答"产品,核心是私有文档检索,我先用 LlamaIndex 的 Data Connector + 索引快速出效果;后来加了"多步审批/查多系统"的 Agent 需求,编排层就换到 LangGraph,检索仍复用 LlamaIndex 的组件。结论:按"链路里谁占主导"来定主力框架,而不是认死一家。</div></details>
+    <details class="qa"><summary class="qu">Q:它们底层有本质区别吗,还是只是 API 风格不同?</summary><div class="an">底层调用的是同一个 LLM,真正的差异在<b>抽象视角</b>:LangChain 把问题抽象成"节点和边组成的执行图",LlamaIndex 把问题抽象成"数据怎么被索引、怎么被查询"。视角决定了一整套组件设计方向,所以不是换个 API 那么简单。</div></details>
+    <details class="qa"><summary class="qu">Q:能直接说"我们生产不用框架"吗?</summary><div class="an">可以说,但要补上理由和平衡点:核心链路(检索→拼 Prompt→调模型)其实很短,自研可控;但完全不用框架也会重复造轮子。更稳的说法是"<b>用它的组件(数据连接器、向量库封装),不用它的编排</b>",并准备一个真实踩坑故事支撑。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>LangChain</b>:通用 LLM 应用框架,重编排与生态。</div>
+      <div class="term-item"><b>LlamaIndex</b>:数据/RAG 框架,重索引与检索。</div>
+      <div class="term-item"><b>LangGraph</b>:LangChain 家的图编排引擎,做复杂 Agent 流程。</div>
+      <div class="term-item"><b>Data Connector</b>:LlamaIndex 的数据接入组件。</div>
+      <div class="term-item"><b>Query Engine</b>:LlamaIndex 里"检索+生成"的封装单元。</div>
+    </div>
+  </div>
+</article>

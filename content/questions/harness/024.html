@@ -1,0 +1,95 @@
+<article class="q" id="harness-024" data-topic="harness" data-title="设计行程规划旅行Agent的任务拆解与子Agent职责" data-difficulty="3" data-tags="场景设计,任务分解" data-company="字节(真题)" data-source="P5Q44" data-kw="旅行Agent 场景设计 任务分解 MultiAgent 行程规划 交通 住宿 约束 预算 字节">
+
+  <div class="q-no">Agent核心 · Q44</div>
+  <h3>如果让你设计一个能行程规划的旅行Agent，你会如何拆解任务？各子Agent职责怎么划分？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#场景设计</span><span class="tag">#任务分解</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>我会用<b>"总控规划 + 专业子 Agent + 约束求解"</b>三层拆解：总控 Agent 负责需求澄清（去哪儿、几天、几人、预算、偏好）并生成整体框架；下面挂<b>交通、住宿、景点、餐饮</b>四个专业子 Agent 各管一摊、各自带最小工具集；再有一个<b>约束/编排层</b>负责把时间窗、预算、地理距离这些硬约束做传播和冲突检测，最后汇总出可执行行程。核心原则：<b>子 Agent 按"数据源/工具"边界切，不按"步骤"切</b>，这样职责清晰、可独立替换。</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就像<b>一家定制旅行社的后台团队</b>：先有一个<b>行程顾问</b>（总控）反复问清你的预算和喜好；然后他安排<b>机票组、酒店组、景点组、餐饮组</b>分别去查各自资源；中间有一个<b>调度员</b>（约束层）盯着"你中午 12 点落地，酒店 14 点才能入住、景点离酒店 40 分钟"这类冲突；最后顾问把所有方案拼成一张时间表交给你，你哪里不满意，他回到对应的组去改。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 为什么不做一个大 Agent 全干？（先讲拆分的理由）</b></p>
+    <ul>
+      <li>工具太多（航班、酒店、地图、点评、天气…）会让模型<b>选错工具</b>的概率上升；</li>
+      <li>各子领域上下文差异大，拆开后系统提示词更聚焦、可独立评估与迭代；</li>
+      <li>行程规划是多目标约束问题，天然需要<b>并行收集 + 集中求解</b>的结构。</li>
+    </ul>
+    <p><b>2. 拓扑：总控 + 专业子 Agent + 约束层</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 566 336" role="img" aria-label="旅行 Agent 总控与子 Agent 拓扑">
+  <rect class="sd-box" x="180" y="14" width="180" height="60" rx="10"/>
+  <text class="sd-t" x="270" y="40" text-anchor="middle">规划总控 Agent</text>
+  <text class="sd-ts" x="270" y="58" text-anchor="middle">澄清需求·定框架·汇总</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M270 74 L70 136"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M270 74 L210 136"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M270 74 L350 136"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M270 74 L490 136"/>
+  <rect class="sd-box2" x="10" y="140" width="120" height="54" rx="10"/>
+  <text class="sd-t" x="70" y="163" text-anchor="middle">交通 Agent</text>
+  <text class="sd-ts" x="70" y="181" text-anchor="middle">航班·高铁·时刻</text>
+  <rect class="sd-box2" x="150" y="140" width="120" height="54" rx="10"/>
+  <text class="sd-t" x="210" y="163" text-anchor="middle">住宿 Agent</text>
+  <text class="sd-ts" x="210" y="181" text-anchor="middle">酒店·评分·房态</text>
+  <rect class="sd-box2" x="290" y="140" width="120" height="54" rx="10"/>
+  <text class="sd-t" x="350" y="163" text-anchor="middle">景点 Agent</text>
+  <text class="sd-ts" x="350" y="181" text-anchor="middle">POI·门票·点评</text>
+  <rect class="sd-box2" x="430" y="140" width="120" height="54" rx="10"/>
+  <text class="sd-t" x="490" y="163" text-anchor="middle">餐饮 Agent</text>
+  <text class="sd-ts" x="490" y="181" text-anchor="middle">餐厅·口味·人均</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M70 194 L250 256"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M210 194 L262 256"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M350 194 L278 256"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M490 194 L290 256"/>
+  <rect class="sd-box" x="130" y="260" width="280" height="64" rx="10"/>
+  <text class="sd-t" x="270" y="288" text-anchor="middle">约束求解层</text>
+  <text class="sd-ts" x="270" y="306" text-anchor="middle">时间窗·距离·预算 → 冲突检测+择优</text>
+</svg></div>
+    <p><b>3. 各子 Agent 职责与工具边界（表格画清楚）</b></p>
+    <table>
+      <tr><th>子 Agent</th><th>职责</th><th>读/写</th><th>典型工具</th></tr>
+      <tr><td><b>总控</b></td><td>澄清需求、拆任务、拼行程、处理用户调整</td><td>只读为主</td><td>意图理解、需求抽取</td></tr>
+      <tr><td><b>交通</b></td><td>给出时刻、价格、换乘方案</td><td>只读 + 预订(两段式)</td><td>航班/高铁查询 API</td></tr>
+      <tr><td><b>住宿</b></td><td>给出位置、评分、价位的酒店候选</td><td>只读 + 预订(两段式)</td><td>酒店/OTA API</td></tr>
+      <tr><td><b>景点</b></td><td>推荐景点、串出游览顺序</td><td>只读</td><td>POI、门票、点评 API</td></tr>
+      <tr><td><b>餐饮</b></td><td>按口味/位置/人均推荐餐厅</td><td>只读</td><td>点评/餐厅 API</td></tr>
+      <tr><td><b>约束层</b></td><td>时间窗、预算、距离约束的冲突检测与择优</td><td>无副作用</td><td>地图距离矩阵、规划求解器</td></tr>
+    </table>
+    <p><b>4. 关键设计：约束怎么传播与求解（这道题的加分点）</b></p>
+    <ul>
+      <li><b>约束分类</b>：硬约束（航班时间、酒店入住/退房、景点闭馆日、预算上限）必须满足；软约束（顺路、口味、评分）作为打分项参与择优。</li>
+      <li><b>两阶段求解</b>：先让子 Agent 各自生成<b>候选集</b>（广度），约束层再用"时间窗 + 距离矩阵 + 预算"做组合搜索/打分，输出 top-k 行程（深度）。</li>
+      <li><b>冲突检测</b>：如"景点 A 和酒店相距 2 小时但当天时间窗只剩 1 小时"→ 触发调整（换酒店/删景点/改顺序），并回写原因。</li>
+      <li>复杂组合问题可退化为"贪心 + 局部搜索"，不必硬上精确求解；<b>把"可解释的次优解"优先于"不可解释的最优解"</b>。</li>
+    </ul>
+    <p><b>5. 交互与兜底</b></p>
+    <ul>
+      <li><b>迭代式生成</b>：先出框架让用户确认，再逐段细化，避免一次性生成 7 天行程全部返工。</li>
+      <li>预订类写操作一律<b>两段式</b>（Agent 只出方案，用户确认才下单）；查询失败降级为"给建议 + 让用户自查"。</li>
+      <li>所有推荐<b>留依据</b>（价格、评分、距离），支撑"为什么选这家"的追问（见 Q47）。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么按"数据源"切子 Agent，而不是按"步骤"（查→排→出）切？</summary><div class="an">按步骤切会把"查航班""查酒店"都挤进一个"查询 Agent"，工具又杂又多；按<b>领域切</b>让每个 Agent 的上下文和工具高度内聚、系统提示更专业，也方便并行收集和独立升级。折中做法是"领域切 Agent，内部仍按查 → 排 → 出的流程组织"。</div></details>
+    <details class="qa"><summary class="qu">Q:预算约束是全局的，分散在各子 Agent 怎么保证不超？</summary><div class="an">子 Agent 只负责产出候选和单项成本，<b>预算在约束层统一计算</b>：约束层拿到各候选成本后做组合校验，超预算则触发剪枝或提示用户"加预算/降档"。不要让每个 Agent 各自揣摩预算，否则各算各的、总和失控。</div></details>
+    <details class="qa"><summary class="qu">Q:两个子 Agent 给出矛盾信息（如酒店满房但交通按它排）怎么办？</summary><div class="an">这是<b>数据新鲜度 + 依赖顺序</b>问题：先定"锚点"（如必去景点/固定航班），再围绕锚点查住宿；关键结果（满房/售罄）要实时校验并<b>带时间戳</b>；发现冲突时约束层按依赖图回滚相关部分重排，而不是全局重来。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>总控 Agent</b>:负责澄清、编排、汇总的调度者。</div>
+      <div class="term-item"><b>约束求解</b>:在硬/软约束下找可行且较优的方案。</div>
+      <div class="term-item"><b>候选集</b>:各子 Agent 生成的备选结果集合。</div>
+      <div class="term-item"><b>两段式执行</b>:先出方案、确认后再真正下单。</div>
+      <div class="term-item"><b>依赖回滚</b>:上游结论失效时只重排受影响的环节。</div>
+    </div>
+  </div>
+</article>

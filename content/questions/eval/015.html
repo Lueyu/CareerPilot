@@ -1,0 +1,70 @@
+<article class="q" id="eval-015" data-topic="eval" data-title="设计Memory压缩算法评估实验量化压缩率与信息保留率" data-difficulty="4" data-tags="Memory,压缩,实验设计" data-company="" data-source="P6Q32" data-kw="Memory 记忆 压缩 实验设计 压缩率 信息保留率 权衡 摘要 检索 槽位 Pareto">
+
+  <div class="q-no">Agent算法 · Q32</div>
+  <h3>设计 Memory 压缩算法的评估实验</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#Memory</span><span class="tag">#压缩</span><span class="tag">#实验设计</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"我会画一条<b>『压缩率—保留率』权衡曲线</b>:① 数据集用长对话/长文档 + 问答对,让压缩后的记忆仍要能回答原问题;② <b>压缩率</b>=1−压缩后 token/原始 token,<b>保留率</b>=压缩后答对率/用全量记忆答对率;③ 对照组:全量记忆(上界)、滑动窗口只留最近几轮(下界);④ 横向对比摘要、关键事实抽取、语义检索等压缩法;⑤ 在曲线上找『花最少 token 保住最多信息』的拐点,并同时报压缩耗时与查询延迟。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就像<b>出差前收拾行李箱</b>:把一柜子衣服(全量记忆)压成一个小箱子(压缩记忆)。压得越狠(压缩率越高),到了地方发现少带了要用的东西的概率越大(保留率越低)。实验就是量出:压到多小,还能保证出差任务(下游问答)不翻车,以及哪种"叠衣服法"(压缩算法)最划算。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 先把两个核心量定义死(否则没法比)</b></p>
+    <ul>
+      <li><b>压缩率 CR</b>= 1 − token(压缩后) / token(原始),范围 [0,1],越大越狠。</li>
+      <li><b>保留率(保真度)</b>= 用压缩后记忆的下游任务成绩 / 用全量记忆的成绩,<b>相对化</b>后才能跨任务比较;绝对分受模型本身能力影响太大。</li>
+      <li>二者天然打架:压得越狠,保留率越低——实验就是要精确量化这条 trade-off 曲线。</li>
+    </ul>
+    <p><b>2. 数据集:让"信息是否被压丢"可判定</b></p>
+    <ul>
+      <li>长对话史(几十到上百轮)+ 针对<b>早期信息</b>的问答(如"我第 3 轮说过的名字是什么")。</li>
+      <li>长文档 + 跨段落事实问答(答案要综合前后多段才能答对)。</li>
+      <li><b>关键信息分层埋点</b>:在 head/middle/tail 各埋若干关键事实,专门测"靠前的重要信息有没有被压丢"(滑动窗口最容易丢头部)。</li>
+    </ul>
+    <p><b>3. 指标三层</b></p>
+    <table>
+      <tr><th>维度</th><th>指标</th><th>说明</th></tr>
+      <tr><td><b>压缩效果</b></td><td>压缩率 CR</td><td>越小越好,但要看保留率配比</td></tr>
+      <tr><td><b>信息保留</b></td><td>下游问答准确率、事实召回率、关键槽位准确率</td><td>核心,相对化报告</td></tr>
+      <tr><td><b>效率</b></td><td>压缩耗时、单次检索/注入延迟、token 成本</td><td>在线系统最敏感</td></tr>
+    </table>
+    <p><b>4. 对照组与待比方法</b></p>
+    <ul>
+      <li><b>上界</b>:全量记忆,不做压缩直接塞上下文(信息零损失)。</li>
+      <li><b>下界</b>:滑动窗口只留最近 N 轮(经典"丢早期信息"基线)。</li>
+      <li><b>待比方法</b>:分层摘要(LLM 逐段压缩)、关键事实抽取(槽位表)、向量化+按需检索、LLM 整段摘要。</li>
+      <li><b>消融</b>:压缩粒度(整段 vs 逐轮)、目标压缩长度档位、是否强制保留"人物/数字/日期"等关键槽位。</li>
+    </ul>
+    <p><b>5. 权衡如何呈现与下结论</b></p>
+    <ul>
+      <li>每个方法在 (CR, 保留率) 坐标系画一个点,连出<b>Pareto 前沿</b>,只讨论前沿上的方法。</li>
+      <li>找 <b>knee point(拐点)</b>:过了它再压 token 收益变小、保留率却陡降——工程上就停在这。</li>
+      <li>常见最优解是<b>摘要+检索混合</b>:常态用强压缩降 token,涉及高价值事实时用向量检索"按需回源",而不是把所有记忆都硬压。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:信息保留率怎么定义才不会被"猜对"污染?</summary><div class="an">两个办法:① 用相对保留率(压缩后/全量),把模型本身会猜对的题在分子分母里同时抵消掉;② 构造必须依赖被压缩信息才能答对的题,答对一定是"记得",而不是蒙的。</div></details>
+    <details class="qa"><summary class="qu">Q:压缩后答错,怎么区分是"压缩丢信息"还是"模型本来就不会"?</summary><div class="an">做消融对照:同一批题,先让模型用<b>全量记忆</b>答,答错的题从压缩实验里剔除(模型能力问题);只统计"全量能答对、压缩后答错"的题,这些才是压缩损失的净代价。</div></details>
+    <details class="qa"><summary class="qu">Q:压缩率是唯一的成本吗?</summary><div class="an">不是。还有压缩本身的耗时/调用成本(LLM 摘要要花钱)和注入后的检索延迟。真实系统常是"压缩省了生成 token,却多花了摘要 token"——要算总账,所以效率层指标必须一起报。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么保证测试集没被模型"背过"?</summary><div class="an">用私有/新构造的数据(人工改写、领域专属长文档),避免公开 benchmark 泄漏;必要时做数据污染检测(看模型是否能"凭空"答出被压掉的信息)。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>压缩率</b>:1−压缩后大小/原始大小,越大压得越狠。</div>
+      <div class="term-item"><b>信息保留率</b>:压缩后成绩/全量成绩,衡量信息损失。</div>
+      <div class="term-item"><b>Pareto 前沿</b>:没有哪个点在两个指标上都更优的解集。</div>
+      <div class="term-item"><b>Knee point</b>:权衡曲线拐点,过了它边际收益骤降。</div>
+      <div class="term-item"><b>滑动窗口</b>:只留最近 N 轮记忆,易丢早期信息。</div>
+      <div class="term-item"><b>槽位</b>:结构化关键字段(人名/日期/数字),需重点保留。</div>
+    </div>
+  </div>
+</article>

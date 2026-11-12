@@ -1,0 +1,62 @@
+<article class="q" id="algo-022" data-topic="algo" data-title="推导Softmax的梯度" data-difficulty="3" data-tags="Softmax,梯度,数学推导" data-company="无公司" data-source="P6Q21" data-kw="Softmax 梯度 反向传播 雅可比矩阵 Kronecker delta δ 数学推导 链式法则">
+
+  <div class="q-no">Agent算法 · Q21</div>
+  <h3>推导 Softmax 的梯度</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#Softmax</span><span class="tag">#梯度</span><span class="tag">#数学推导</span>
+    <span class="company">无公司</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"Softmax 把 logits 变成概率分布 y = softmax(z)。它的梯度有个漂亮的结果:<b>∂yᵢ/∂zⱼ = yᵢ(δᵢⱼ − yⱼ)</b>,即对角元是 yᵢ(1−yᵢ)、非对角元是 −yᵢyⱼ。推导只需对商式求导,分 i=j 和 i≠j 两种情况。更实用的推论是:Softmax + 交叉熵合起来,梯度退化成 y − t,实现和推导都极简,这也是所有分类框架的标准写法。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>把 Softmax 想象成"<b>抢红包分钱</b>":原始 logits 是大家手里的本金,softmax 把本金按指数换算成"中奖概率"。梯度问的是:某人的本金 zⱼ 增加一点,第 i 个人分到的概率 yᵢ 怎么变?直觉是——改的是自己(i=j),自己概率上涨;改的是别人(i≠j),因为总概率恒等于 1,别人的上涨必然挤占我的份额,所以是负的。这就是 δᵢⱼ 那一项的含义。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 定义与性质</b></p>
+    <ul>
+      <li>设 z = (z₁,…,z_K),S = Σₖ exp(zₖ),则 yᵢ = exp(zᵢ)/S。</li>
+      <li>性质:Σ yᵢ = 1、非负、单调(zᵢ 增 → yᵢ 增)。注意每个 yᵢ 依赖<b>所有</b> z 分量,这是"耦合"的来源。</li>
+    </ul>
+    <p><b>2. 分情况推导</b></p>
+    <pre class="code">yᵢ = e^{zᵢ} / Σₖ e^{zₖ} = e^{zᵢ} / S
+
+<span class="c"># 情况 1: i = j(对自身求导,商式法则)</span>
+∂yᵢ/∂zᵢ = e^{zᵢ}/S − e^{zᵢ}·e^{zᵢ}/S²
+         = yᵢ − yᵢ² = yᵢ(1 − yᵢ)
+
+<span class="c"># 情况 2: i ≠ j(分子不含 zⱼ,只有分母含)</span>
+∂yᵢ/∂zⱼ = 0 − e^{zᵢ}·e^{zⱼ}/S² = − yᵢ·yⱼ
+
+<span class="c"># 统一写(δᵢⱼ 为 Kronecker delta:i=j 为 1,否则 0)</span>
+∂yᵢ/∂zⱼ = yᵢ · (δᵢⱼ − yⱼ)</pre>
+    <p><b>3. 两个实用推论</b></p>
+    <ul>
+      <li><b>与 CE 合体</b>:L = −Σₖ tₖ·log yₖ,链式法则可得 ∂L/∂zᵢ = yᵢ − tᵢ(one-hot t)。推导:∂L/∂zᵢ = Σⱼ(−tⱼ/yⱼ)·yⱼ(δⱼᵢ−yᵢ) = yᵢ − tᵢ。这是所有分类框架的标配,数值稳定。</li>
+      <li><b>数值稳定</b>:实际先减 max(z),即 yᵢ = exp(zᵢ−m)/Σₖ exp(zₖ−m),结果不变,避免 exp 溢出。</li>
+    </ul>
+    <p><b>4. 为什么面试爱考</b></p>
+    <ul>
+      <li>检验链式法则基本功,以及是否理解 softmax 是"耦合的"(雅可比矩阵非对角不为 0)。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:Softmax 的雅可比矩阵长什么样?</summary><div class="an">J 是 K×K 方阵,对角元 yᵢ(1−yᵢ),非对角元 −yᵢyⱼ,可写成 J = diag(y) − y·yᵀ。注意当 y 接近 one-hot 时,对角元趋近 0,雅可比趋近 0 矩阵——对应 softmax 饱和区的梯度消失。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么 Softmax+CE 的梯度是 y−t,不是更复杂的形式?</summary><div class="an">因为 log 和 exp 互为反函数,链式求导时指数和对数相互抵消,最后只剩线性项 y−t。这也是交叉熵配 softmax 成为标配的原因之一:梯度简洁、数值稳定、实现不容易出错。</div></details>
+    <details class="qa"><summary class="qu">Q:Softmax 会梯度消失吗?</summary><div class="an">单独看 softmax,当某个 zᵢ 远大于其他分量时 yᵢ→1,对角元 yᵢ(1−yᵢ)→0,该方向梯度趋近 0(饱和)。但配 CE 后,输出层梯度 y−t 不会因此消失——所以实践中几乎总是 softmax+CE 连用,而不是分开算梯度。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>Logits</b>:softmax 前的原始分数向量 z。</div>
+      <div class="term-item"><b>Kronecker delta(δᵢⱼ)</b>:i=j 为 1,否则为 0。</div>
+      <div class="term-item"><b>雅可比矩阵</b>:输出对输入的全部一阶偏导组成的矩阵。</div>
+      <div class="term-item"><b>数值稳定</b>:减去 max(z) 防止 exp 溢出。</div>
+    </div>
+  </div>
+</article>

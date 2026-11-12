@@ -1,0 +1,83 @@
+<article class="q" id="algo-001" data-topic="algo" data-title="设计Function Calling微调数据生成系统" data-difficulty="4" data-tags="FunctionCalling,数据生成,微调" data-company="" data-source="P1Q8" data-kw="FunctionCalling 工具调用 数据生成 微调 蒸馏 schema 校验 质量控制 格式">
+
+      <div class="q-no">系统设计 · Q8</div>
+      <h3>设计一个 Function Calling 微调数据生成系统</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#FunctionCalling</span><span class="tag">#数据生成</span><span class="tag">#微调</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"本质是<b>用强模型当老师给小模型造题(知识蒸馏)</b>:先定义工具 Schema,再程序化+LLM 结合生成多样化场景(重点是要覆盖<b>不需要工具的负样本</b>和多工具选择样本),强模型产出『用户话术 → 工具调用 → 参数』样本,然后过<b>四道质检</b>:Schema 合法性校验、参数沙箱执行验证、结果一致性检查、LLM 打分去重,人工抽检后转成目标模型的 chat template 格式。质量控制是这套系统的灵魂。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>就是<b>老师傅出题带徒弟</b>:老师傅(强模型)按考纲(工具 Schema)编各种模拟题——有的要用扳手、有的其实啥工具都不用、有的得先量再拧;自己做出标准答案(标注),再<b>实际拧一遍验证答案能跑通</b>(沙箱校验),装订成册(数据集)给徒弟(小模型)刷题(微调)。徒弟练完后专门会这几样活,又快又便宜。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 输入:工具 Schema 定义</b></p>
+        <p>每个工具一份 JSON Schema:名称、描述(要写清<b>什么时候该用/不该用</b>,这直接决定模型选对工具的率)、参数类型、必填项、枚举值。这份 Schema 同时服务于生成和校验,一处定义多处复用。</p>
+        <p><b>2. 场景生成(多样性是关键)</b></p>
+        <ul>
+          <li><b>正样本</b>:单工具调用、<b>多工具组合</b>(先查天气再订餐厅)、<b>多轮</b>(参数不足先反问用户)、参数边角案例(日期格式、枚举边界、空值)。</li>
+          <li><b>负样本(必须占 20~30%)</b>:闲聊、无关请求 —— <b>没有负样本,模型会得上"工具上瘾症",见谁都想调一下</b>,这是 FC 微调最常见的翻车点。</li>
+          <li>生成方式:程序化模板(保证覆盖)+ LLM 扩写(保证自然)+ 真实日志回流(bad case 沉淀,最值钱)。</li>
+        </ul>
+        <p><b>3. 标注:强模型生成</b></p>
+        <p>用旗舰模型 + few-shot 示例,输入场景输出结构化三元组:<code>(user_query, assistant_tool_call, tool_response + final_answer)</code>。温度调高多生成几个变体。</p>
+        <p><b>4. 质量验证(四道关卡,系统核心)</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 846 92" role="img" aria-label="Function Calling 微调数据四道质检流水线">
+  <rect class="sd-box2" x="10" y="16" width="100" height="56" rx="10"/>
+  <text class="sd-t" x="60" y="40" text-anchor="middle">样本</text>
+  <text class="sd-ts" x="60" y="58" text-anchor="middle">生成样本</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M110 44 L128 44"/>
+  <rect class="sd-box" x="130" y="16" width="100" height="56" rx="10"/>
+  <text class="sd-t" x="180" y="40" text-anchor="middle">① Schema</text>
+  <text class="sd-ts" x="180" y="58" text-anchor="middle">格式·类型·枚举</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M230 44 L248 44"/>
+  <rect class="sd-box-teal" x="250" y="16" width="100" height="56" rx="10"/>
+  <text class="sd-t" x="300" y="40" text-anchor="middle">② 沙箱执行</text>
+  <text class="sd-ts" x="300" y="58" text-anchor="middle">真实调用跑通</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M350 44 L368 44"/>
+  <rect class="sd-box" x="370" y="16" width="100" height="56" rx="10"/>
+  <text class="sd-t" x="420" y="40" text-anchor="middle">③ 闭环校验</text>
+  <text class="sd-ts" x="420" y="58" text-anchor="middle">结果反推判</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M470 44 L488 44"/>
+  <rect class="sd-box-amber" x="490" y="16" width="100" height="56" rx="10"/>
+  <text class="sd-t" x="540" y="40" text-anchor="middle">④ 打分去重</text>
+  <text class="sd-ts" x="540" y="58" text-anchor="middle">1~5分·去近似</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M590 44 L608 44"/>
+  <rect class="sd-box-rose" x="610" y="16" width="100" height="56" rx="10"/>
+  <text class="sd-t" x="660" y="40" text-anchor="middle">人工抽检</text>
+  <text class="sd-ts" x="660" y="58" text-anchor="middle">抽 5%~10%</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M710 44 L728 44"/>
+  <rect class="sd-box-teal" x="730" y="16" width="100" height="56" rx="10"/>
+  <text class="sd-t" x="780" y="40" text-anchor="middle">入库</text>
+  <text class="sd-ts" x="780" y="58" text-anchor="middle">数据集</text>
+</svg></div>
+        <p><b>5. 格式标准化</b></p>
+        <ul>
+          <li>目标模型的 chat template 各不相同(Qwen、Hermes、Llama 格式对 tool_call 的标签写法不一样),写转换器按模板渲染;工具定义按 OpenAI tools 字段组织。</li>
+          <li>配比建议:工具调用样本 + 通用对话样本混着训(如 7:3),防止微调后<b>通用能力遗忘</b>(只会调工具不会聊天)。</li>
+          <li>数据集版本化:和训练配置绑定,可复现。</li>
+        </ul>
+        <p><b>6. 效果评估</b>:留出测试集(不参与训练),测三个指标——<b>工具选择准确率</b>(该不该调、调哪个)、<b>参数精确匹配率</b>(EM/F1)、<b>负样本拒绝率</b>。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:需要多少条数据?</summary><div class="an">经验值:单一工具场景 1~2K 起步就能显著提升;工具多(20+)、场景复杂的要 1~5 万;质量 &gt; 数量,脏数据 500 条不如干净数据 100 条。</div></details>
+        <details class="qa"><summary class="qu">Q:为什么不直接用带 FC 的大模型?</summary><div class="an">三个场景必须微调:① 成本(小模型便宜 10~50 倍,高频调用);② 私有化/合规(数据不能出内网);③ 垂类工具特别多且专有,大模型没见过、选择准确率低。</div></details>
+        <details class="qa"><summary class="qu">Q:线上效果怎么持续改进?</summary><div class="an">线上 bad case(选错工具/参数错)自动捕获 → 回流数据工厂 → 定期增量微调 → 灰度上线,形成数据飞轮。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>知识蒸馏</b>:强模型的输出当弱模型的训练数据。</div>
+          <div class="term-item"><b>负样本</b>:不该调用工具的样本,治"工具上瘾"。</div>
+          <div class="term-item"><b>Chat Template</b>:各模型的对话格式模板。</div>
+          <div class="term-item"><b>EM/F1</b>:参数精确匹配/部分匹配指标。</div>
+          <div class="term-item"><b>数据飞轮</b>:bad case 回流→再训练→效果提升的循环。</div>
+        </div>
+      </div>
+</article>

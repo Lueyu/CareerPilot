@@ -1,0 +1,53 @@
+<article class="q" id="biz-006" data-topic="biz" data-title="Agent框架选型:LangGraph vs CrewAI vs AutoGen" data-difficulty="4" data-tags="Agent,框架选型" data-company="" data-source="P3Q6" data-kw="Agent 框架 LangGraph CrewAI AutoGen 选型 工作流 生产">
+
+      <div class="q-no">框架选型 · Q6</div>
+      <h3>Agent 框架选型:LangGraph vs CrewAI vs AutoGen</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#Agent</span><span class="tag">#框架选型</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"按<b>控制力需求</b>排序选:生产级复杂流程我选 <b>LangGraph</b>——显式图 + 共享 State + checkpoint 持久化,可控、可调试、支持人工介入,是三个里唯一把'工程化'做到位的;CrewAI 主打<b>角色协作、快速上手</b>,demo 和轻量场景舒服,但流程黑盒些;AutoGen 是<b>对话式多 Agent</b>,研究探索强,生产控制力弱。一句话:<b>要掌控选 LangGraph,要快选 CrewAI,要研究选 AutoGen</b>。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>像三种<b>组织形式</b>:LangGraph 是<b>流程手册驱动的公司</b>——每步谁做、怎么流转、卡住了从哪重来,白纸黑字(显式图+checkpoint);CrewAI 是<b>小团队分工</b>——"你是研究员,你是作家,你俩配合完成任务",氛围好但具体怎么配合靠默契(模型自由发挥);AutoGen 是<b>圆桌会议</b>——大家开会讨论直到出结果,idea 火花多,但会议可能跑题、没人管时间(控制力弱)。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <table>
+          <tr><th>维度</th><th>LangGraph</th><th>CrewAI</th><th>AutoGen</th></tr>
+          <tr><td><b>编排模型</b></td><td>显式有向图 + 状态机</td><td>角色(Role)+ 任务(Task)委派</td><td>Agent 对话循环</td></tr>
+          <tr><td><b>控制力</b></td><td><b>最强</b>(每个分支/循环你定义)</td><td>中(框架管流程,细节偏黑盒)</td><td>弱(对话自组织)</td></tr>
+          <tr><td><b>状态与持久化</b></td><td><b>Checkpoint 一等公民</b>,断点恢复/HITL</td><td>基础</td><td>基础</td></tr>
+          <tr><td><b>调试</b></td><td>图结构清晰,LangSmith 配套</td><td>中等</td><td>对话日志翻起来费劲</td></tr>
+          <tr><td><b>上手成本</b></td><td>陡(要自己想清楚图)</td><td>缓(半天出 demo)</td><td>中</td></tr>
+          <tr><td><b>适合</b></td><td><b>生产级复杂工作流</b></td><td>轻量协作、POC</td><td>多 Agent 模式研究</td></tr>
+        </table>
+        <p><b>我的实战选择路径</b></p>
+        <ul>
+          <li>POC 阶段:CrewAI 快速验证"这个任务多 Agent 值不值得做"。</li>
+          <li>生产阶段:把验证过的流程<b>翻译成 LangGraph 的显式图</b>(或直接自研状态机)——因为生产要的是:循环防护、断点恢复、人工审批、每步可观测,这四样 LangGraph 都原生给。</li>
+          <li>特别场景(需要 Agent 间自由讨论的,如辩论式评审):AutoGen 的对话模式反而是对的工具。</li>
+        </ul>
+        <p><b>反过来想:什么时候不选 LangGraph?</b></p>
+        <ul>
+          <li>流程是纯线性的(RAG 问答):普通代码/管道就够,上图框架纯属过度设计。</li>
+          <li>团队完全不想学新抽象:自研 300 行状态机 + 自由定制,比学框架划算——<b>能说出"不选"的条件,说明你真理解选型</b>。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:LangGraph 的 checkpoint 怎么用在你的场景?</summary><div class="an">例:客服 Agent 走到"退款审批"节点挂起 → checkpoint 存 Redis → 人工在后台审批 → invoke 恢复继续;再加一个例子:长任务跑一半进程重启,从最后 checkpoint 恢复,不用用户重新说一遍需求。</div></details>
+        <details class="qa"><summary class="qu">Q:三个框架的流式输出和可观测性呢?</summary><div class="an">LangGraph 节点粒度对齐 trace(每个 span=一个节点),观测最清晰;CrewAI 靠日志;AutoGen 对话式 trace 要自己拼——可观测性是生产的硬指标,这也是我生产偏 LangGraph 的主要原因之一。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>显式图</b>:节点和边全部明确定义的流程图。</div>
+          <div class="term-item"><b>黑盒编排</b>:框架自动决定执行顺序。</div>
+          <div class="term-item"><b>HITL</b>:人工介入节点。</div>
+        </div>
+      </div>
+</article>

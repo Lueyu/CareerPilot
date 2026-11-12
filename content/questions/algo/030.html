@@ -1,0 +1,63 @@
+<article class="q" id="algo-030" data-topic="algo" data-title="Qwen系列核心技术演进(Qwen1.0/1.5/2.0/2.5)" data-difficulty="3" data-tags="论文解读,Qwen,技术演进" data-company="" data-source="P6Q39" data-kw="Qwen Qwen1.0 Qwen1.5 Qwen2 Qwen2.5 GQA SwiGLU RoPE 上下文 MoE 预训练 数据规模 通义千问">
+
+  <div class="q-no">Agent算法 · Q39</div>
+  <h3>Qwen 系列的核心技术演进</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#论文解读</span><span class="tag">#Qwen</span><span class="tag">#技术演进</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>我把 Qwen 的演进看成一条"<b>架构收敛 + 数据扩张 + 能力纵深</b>"的主线:<b>Qwen1.0</b> 铺开 7B/14B/72B 打地基,多语言强、上下文 8K 起步;<b>Qwen1.5</b> 是过渡——统一架构、引入 GQA,为 Qwen2 探路;<b>Qwen2</b> 全系吃下 <b>GQA + SwiGLU + RoPE</b>,并推出 MoE 版,上下文升到 32K 起步、部分到 128K,预训练数据量级翻倍;<b>Qwen2.5</b> 主打<b>代码、数学、长文本</b>的深度突破,稠密 + MoE 双路线做全,数据规模再上台阶。一句话:架构越来越标准化,数据越喂越多,能力从"全面"走向"硬核"。</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>像一款<b>汽车平台逐年换代</b>:1.0 是首批量产车(7B/14B/72B),能开但配置还杂;1.5 是把生产线统一、换上更省油的发动机(GQA),为大规模生产做准备;2.0 是全线标配新平台(GQA + SwiGLU + RoPE),并推出混动版(MoE),续航(上下文)翻倍;2.5 是主打<b>赛道性能</b>——代码、数学这些硬核科目专门强化,日常驾驶(通用能力)也稳。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <table>
+      <tr><th>代际</th><th>规模/形态</th><th>架构关键点</th><th>上下文</th><th>能力侧重</th></tr>
+      <tr><td><b>Qwen1.0</b></td><td>7B/14B/72B 稠密</td><td>标准 Transformer + RoPE 起步</td><td>约 8K</td><td>多语言、通用能力打底</td></tr>
+      <tr><td><b>Qwen1.5</b></td><td>0.5B~72B,统一架构</td><td>引入 <b>GQA</b>,对齐 Qwen2 路线</td><td>32K(部分)</td><td>架构统一、为下一代替换探路</td></tr>
+      <tr><td><b>Qwen2</b></td><td>稠密 + MoE(如 57B-A14B)</td><td>全系 <b>GQA + SwiGLU + RoPE</b></td><td>32K 起步,部分 128K</td><td>数据规模上台阶,多语言/推理增强</td></tr>
+      <tr><td><b>Qwen2.5</b></td><td>0.5B~72B 稠密 + MoE</td><td>延续 Qwen2 架构,优化训练数据与对齐</td><td>长文本显著增强(部分 128K+)</td><td><b>代码、数学、长文本</b>专项突破</td></tr>
+    </table>
+    <p><b>1. 架构演进:从"各自为战"到"统一标准"</b></p>
+    <ul>
+      <li>Qwen1.0 早期各尺寸配置不统一;Qwen1.5 开始<b>统一到一套架构</b>,并引入 <b>GQA(Grouped Query Attention)</b>——用共享的 KV 头降低长序列推理显存与带宽。</li>
+      <li>Qwen2 全系落地 <b>GQA + SwiGLU 激活 + RoPE 位置编码</b> 的现代组合,同时推出 <b>MoE 版本</b>(总参数大、激活参数小),用稀疏化换容量。</li>
+    </ul>
+    <p><b>2. 数据规模:逐代翻倍</b></p>
+    <ul>
+      <li>预训练 token 数逐代抬升(量级从数 T 到十几 T),Qwen2.5 的预训练数据规模与质量都明显高于前代。</li>
+      <li>数据策略从"堆量"走向"提质":清洗、去重、多语言配比、代码/数学语料占比逐步优化——这是能力跃迁的主要来源之一。</li>
+    </ul>
+    <p><b>3. 上下文长度:逐步拉长</b></p>
+    <ul>
+      <li>从 Qwen1.0 的约 8K → Qwen1.5/2 的 32K(部分 128K)→ Qwen2.5 的长文本进一步增强。</li>
+      <li>拉长上下文不是简单改位置编码,还要配合<b>长文本续训</b>(在长序列上继续预训练),否则窗口是空的。</li>
+    </ul>
+    <p><b>4. 能力纵深:Qwen2.5 的"专项化"</b></p>
+    <ul>
+      <li>Qwen2.5 明显加码<b>代码与数学推理</b>,并对齐质量(指令遵循、工具调用)做针对性优化。</li>
+      <li>生态策略:全尺寸开源 + MoE 多档位,让"旗舰打硬仗、小模型跑边端"都有对应选项。</li>
+    </ul>
+    <p class="note">面试话术:具体 token 数和 benchmark 分数会随版本更新,我讲"演进逻辑"——架构标准化、数据规模化、上下文拉长、能力专项化——这条主线比背数字更稳。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:为什么 Qwen2 全系上 GQA?它牺牲了什么?</summary><div class="an">GQA 让多个 query 头共享同一组 KV 头,大幅降低 KV cache 和推理带宽,是长序列 + 高并发推理的刚需。代价是表达能力略降(理论上 KV 头变少),但通过把 GQA 用在更大的模型上、配合良好训练数据,精度损失通常很小、甚至可忽略——本质是"用可接受的表达力换显著的推理效率"。</div></details>
+    <details class="qa"><summary class="qu">Q:Qwen2 的 MoE 和稠密版怎么选?</summary><div class="an">看部署约束:MoE 版总参数大(容量高)、激活参数小(单 token 推理便宜),但全量显存要装得下所有专家、且有路由/专家并行的工程复杂度;稠密版实现简单、确定性好、易部署。所以我通常:推理成本敏感、显存够 → MoE;要简单可控、边端/小卡 → 稠密。</div></details>
+    <details class="qa"><summary class="qu">Q:长上下文能力是怎么"训"出来的?</summary><div class="an">不是只把 RoPE 调大就完事:① 先用常规长度预训练;② 再分阶段在更长的序列上继续预训练(长文本续训),逐步扩展窗口;③ 用长序列数据(长文档、多文档问答)做后训练对齐。只改位置编码而不补长序列数据,模型会在长窗口下"失焦"、质量崩。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>GQA</b>:分组查询注意力,多 query 头共享 KV 头以省显存。</div>
+      <div class="term-item"><b>SwiGLU</b>:一种门控激活函数,常见于现代 LLM。</div>
+      <div class="term-item"><b>RoPE</b>:旋转位置编码,靠旋转矩阵编码相对位置。</div>
+      <div class="term-item"><b>长文本续训</b>:在更长序列上继续预训练以扩展上下文窗口。</div>
+    </div>
+  </div>
+</article>

@@ -1,0 +1,70 @@
+<article class="q" id="eval-006" data-topic="eval" data-title="Prompt优化效果评估指标" data-difficulty="3" data-tags="Prompt评估,性能指标" data-company="字节(真题)" data-source="P5Q33" data-kw="Prompt评估 性能指标 LLM-as-judge 评测集 准确率 工具调用 token成本 AB测试 回归测试 字节">
+
+  <div class="q-no">Agent核心 · Q33</div>
+  <h3>你做Prompt优化时，是如何判断优化后的Prompt在Agent推理链路中性能提升的？用什么指标来衡量？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐</span>
+    <span class="tag">#Prompt评估</span><span class="tag">#性能指标</span>
+    <span class="company">字节(真题)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"核心是<b>先建评测集、再量化对比</b>,而不是凭感觉。我会分三层:① <b>离线评测</b>——用带标准答案的回归测试集,比优化前后的准确率/任务成功率/工具调用正确率,配上 <b>LLM-as-judge</b> 打分和人工抽检;② <b>效率指标</b>——token 消耗、延迟、重试次数(好的 Prompt 应该更省);③ <b>在线 AB 实验</b>——小流量灰度看端到端指标和成本。结论看<b>四个维度:质量、成本、延迟、稳定性</b>,都涨才叫优化成功。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>改 Prompt 就像<b>改一份发给员工的作业指导书</b>:不能只凭"感觉新版本更好",要<b>出同一套考卷</b>让新老两版指导书下的员工都做一遍,对答案打分(<b>回归测试集</b>);光看分数不够,还要看<b>谁更快交卷、谁用了更少纸</b>(延迟、token 成本);个别拿不准的卷子请资深老师复核(<b>LLM-as-judge + 人工抽检</b>);最后<b>小范围试运行一周</b>再全面推广(AB 实验)。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 第一步:没有评测集就别谈优化(最重要的意识)</b></p>
+    <ul>
+      <li>Prompt 优化必须有<b>固定的回归测试集</b>(几十到几百条真实 case),否则每次改动都在"盲改",今天修好 A 明天改坏 B 都不知道。</li>
+      <li>测试集要<b>分层覆盖</b>:正常场景 + 边界场景 + 对抗/刁钻场景;Agent 场景还要包含"该调用哪个工具"的判定。</li>
+      <li>理想情况带<b>标准答案(golden answer)</b>或<b>标准动作序列</b>,才能自动算分。</li>
+    </ul>
+    <p><b>2. 离线指标(质量维度)</b></p>
+    <table>
+      <tr><th>指标</th><th>含义</th><th>适用</th></tr>
+      <tr><td><b>准确率/正确率</b></td><td>答案与标准答案匹配比例</td><td>有明确对错的任务(数学/代码/抽取)</td></tr>
+      <tr><td><b>任务成功率</b></td><td>端到端把任务做成的比例</td><td>Agent 多步任务</td></tr>
+      <tr><td><b>工具调用正确率</b></td><td>选对工具 + 参数正确 + 调用顺序对</td><td>Agent 链路,最该盯的指标之一</td></tr>
+      <tr><td><b>格式合规率</b></td><td>输出 JSON/结构化格式的合法率</td><td>要求结构化输出的场景</td></tr>
+      <tr><td><b>LLM-as-judge 分</b></td><td>强模型按 rubric 打分(相关性/完整性/流畅性)</td><td>开放生成、难自动判分的任务</td></tr>
+    </table>
+    <p><b>3. 效率与成本指标(很多人漏掉)</b></p>
+    <ul>
+      <li><b>token 消耗</b>:同样效果下,输入/输出 token 越少越省。好的 Prompt 常能砍掉冗余上下文。</li>
+      <li><b>延迟</b>:TTFT / 总时长。加长 Prompt 可能提升质量却拖慢首字,要一起看。</li>
+      <li><b>重试/反思次数</b>:Prompt 写得清晰,Agent 反复重试、走弯路的概率会下降——这是"链路性能"的直接体现。</li>
+      <li><b>成本</b>:token × 单价,直接换算成钱。</li>
+    </ul>
+    <p><b>4. 评判方法怎么落地</b></p>
+    <ul>
+      <li><b>LLM-as-judge</b>:用强模型 + 明确评分标准(rubric),给新旧两版回答打 1~5 分或对打分,批量跑。注意:judge 也可能有偏见,要抽 10~20% 做人工复核。</li>
+      <li><b>人工评估</b>:抽样看质量,尤其看"模型判不出来、但用户会不爽"的细节(语气、格式、幻觉)。</li>
+      <li><b>AB 对比原则</b>:同测试集、同模型、同温度,只改 Prompt 变量,否则归因不清。</li>
+    </ul>
+    <p><b>5. 在线验证</b></p>
+    <ul>
+      <li>小流量灰度(如 5%)跑 1~2 周,对比<b>任务成功率、用户满意度/留存、转人工率、成本</b>。</li>
+      <li>Promp 优化上线也要留<b>回滚开关</b>,指标变差一键退回旧版。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:LLM-as-judge 不可靠怎么办?</summary><div class="an">四个手段:① 用<b>明确 rubric</b>(分维度、给锚点)而不是"打几分";② 让 judge 做<b>成对比较</b>(A 比 B 好吗)而非独立打分,成对判断更稳定;③ 调低温度、多次采样取平均;④ 关键结论<b>人工抽检</b>校准 judge 偏差。把 judge 当成"初筛",人工做"终审"。</div></details>
+    <details class="qa"><summary class="qu">Q:优化后质量升了但 token 翻倍,算成功吗?</summary><div class="an">看业务约束。若成本是硬指标,可以算"不划算",需要继续压缩;更常见的做法是<b>分级</b>:高价值/复杂请求用长 Prompt 保质量,简单请求用精简版保成本。<b>优化的目标是"单位成本的质量",不是单看质量。</b></div></details>
+    <details class="qa"><summary class="qu">Q:Agent 链路里,Prompt 效果怎么和"工具/流程改动"区分归因?</summary><div class="an">控制变量:评测时<b>固定工具与流程不变,只切 Prompt</b>,对比差值就是 Prompt 的净贡献;再做全链路 AB 看叠加效果。日志里记录版本号,事后能按版本拆指标。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>Golden answer</b>:评测集里人工标注的标准答案。</div>
+      <div class="term-item"><b>LLM-as-judge</b>:用强模型按标准给生成结果打分。</div>
+      <div class="term-item"><b>Rubric</b>:评分标准,分维度给锚点。</div>
+      <div class="term-item"><b>回归测试集</b>:固定不变的评测集,防止改坏旧能力。</div>
+      <div class="term-item"><b>AB 实验</b>:小流量灰度对比新老版本指标。</div>
+    </div>
+  </div>
+</article>

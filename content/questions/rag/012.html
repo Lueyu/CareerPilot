@@ -1,0 +1,106 @@
+<article class="q" id="rag-012" data-topic="rag" data-title="多模态RAG检索融合算法(文本图像表格)" data-difficulty="5" data-tags="多模态,RAG,融合算法" data-company="所有公司（通用）" data-source="P6Q5" data-kw="多模态 RAG 检索融合 文本 图像 表格 跨模态 CLIP embedding 重排 RRF OCR caption">
+
+  <div class="q-no">Agent算法 · Q5</div>
+  <h3>多模态 RAG 的检索融合算法</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐⭐</span>
+    <span class="tag">#多模态</span><span class="tag">#RAG</span><span class="tag">#融合算法</span>
+    <span class="company">所有公司（通用）</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"融合文本、图像、表格,我讲三种层次,由浅入深:第一,<b>桥接式(最常用、最稳)</b>——图像先做 OCR + caption 生成文本描述,表格转成 Markdown/结构化文本,统一进文本检索通道,再按模态标记来源;第二,<b>分路检索 + 结果融合</b>——文本、图像、表格各自建索引独立检索,结果用 RRF 或加权重排合并;第三,<b>统一向量空间(最优雅、最难)</b>——用 CLIP 类多模态模型把图文映射到同一 embedding 空间做跨模态检索。难点是<b>模态间语义对齐</b>和<b>融合权重</b>,通常用桥接打底 + 跨模态重排提升精度。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>就是<b>整理一份"图文表格混合"的复习资料</b>:一道题的答案可能藏在文字段落、也可能在那张流程图里、还可能在那张 Excel 表里。单一的文字搜索根本搜不到图片里的答案。多模态 RAG 就是同时开三条检索通道——<b>文字通道、图片通道、表格通道</b>,各找各的,最后把三路找到的东西按相关度合并成一份。难点在于"图和文字说的是同一件事"怎么判断——这需要一个<b>能同时看懂图和字的翻译官</b>(跨模态模型)。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 为什么多模态检索难(先讲清本质)</b></p>
+    <ul>
+      <li><b>语义鸿沟</b>:文本 embedding 和图像 embedding 通常不在同一个语义空间,直接算相似度没意义。</li>
+      <li><b>信息形态不同</b>:图里的信息可能是"视觉布局/流程关系",表格是"结构化数值关系",OCR 出来的文字又会丢失版式语义。</li>
+      <li><b>查询通常是纯文本</b>:要用一段文字去命中"图片内容",本质是跨模态匹配(cross-modal matching),比同模态检索难。</li>
+    </ul>
+    <p><b>2. 三种融合架构(对比清楚,面试必问选型)</b></p>
+    <table>
+      <tr><th>架构</th><th>做法</th><th>优点</th><th>缺点</th></tr>
+      <tr><td><b>桥接式</b></td><td>图像→OCR+caption 转文本;表格→Markdown;统一进文本索引</td><td>实现快、复用文本 RAG 全套、稳定</td><td>丢失视觉/版式语义,caption 可能失真</td></tr>
+      <tr><td><b>分路融合</b></td><td>各模态独立建索引独立检索,结果 RRF/加权合并</td><td>保留各模态本征特征,灵活</td><td>跨模态语义靠不上,融合权重难调</td></tr>
+      <tr><td><b>统一向量空间</b></td><td>CLIP 类多模态模型把图文映射到同一空间</td><td>真跨模态检索,语义对齐好</td><td>训练/算力贵,对表格/长文效果一般</td></tr>
+    </table>
+    <p><b>3. 各模态的预处理与索引(桥接式落地细节)</b></p>
+    <ul>
+      <li><b>图像</b>:① OCR 抽文字;② 视觉 caption/描述(LLM 或多模态模型生成);③ 视觉 embedding(CLIP/ViT)。三者分别建"文本索引"和"视觉索引",图既可以被文字命中、也可以被相似图命中。</li>
+      <li><b>表格</b>:转 Markdown 或结构化 JSON(保留表头-单元格对齐),单元格级切片(chunk)建索引,而不是整张表一个大 chunk——否则检索粒度太粗;同时保留"表格标题 + 表头"作为上下文。</li>
+      <li><b>文本</b>:常规分块 + 文本 embedding,保持作为"锚点"。</li>
+    </ul>
+    <p><b>4. 融合算法(结果怎么合成一个榜单)</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 626 464" role="img" aria-label="多模态 RAG 检索融合：三路检索与跨模态重排">
+  <rect class="sd-box-rose" x="270" y="16" width="110" height="56" rx="10"/>
+  <text class="sd-t" x="325" y="38" text-anchor="middle">查询</text>
+  <text class="sd-ts" x="325" y="56" text-anchor="middle">文本 Query</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M312 72 L125 100"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M325 72 L325 100"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M338 72 L525 100"/>
+  <rect class="sd-box" x="40" y="104" width="170" height="56" rx="10"/>
+  <text class="sd-t" x="125" y="126" text-anchor="middle">文本路</text>
+  <text class="sd-ts" x="125" y="144" text-anchor="middle">BM25+向量·候选T</text>
+  <rect class="sd-box2" x="240" y="104" width="170" height="56" rx="10"/>
+  <text class="sd-t" x="325" y="126" text-anchor="middle">图像路</text>
+  <text class="sd-ts" x="325" y="144" text-anchor="middle">视觉·OCR·caption</text>
+  <rect class="sd-box-teal" x="440" y="104" width="170" height="56" rx="10"/>
+  <text class="sd-t" x="525" y="126" text-anchor="middle">表格路</text>
+  <text class="sd-ts" x="525" y="144" text-anchor="middle">结构化/向量·候选B</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M125 160 L300 198"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M325 160 L325 196"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M525 160 L350 198"/>
+  <rect class="sd-box" x="250" y="200" width="150" height="56" rx="10"/>
+  <text class="sd-t" x="325" y="222" text-anchor="middle">RRF 加权融合</text>
+  <text class="sd-ts" x="325" y="240" text-anchor="middle">合并候选集</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M325 256 L325 292"/>
+  <rect class="sd-box-amber" x="245" y="296" width="160" height="56" rx="10"/>
+  <text class="sd-t" x="325" y="318" text-anchor="middle">跨模态重排</text>
+  <text class="sd-ts" x="325" y="336" text-anchor="middle">cross-modal reranker</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M325 352 L325 388"/>
+  <rect class="sd-box" x="270" y="392" width="110" height="56" rx="10"/>
+  <text class="sd-t" x="325" y="414" text-anchor="middle">最终 top-k</text>
+  <text class="sd-ts" x="325" y="432" text-anchor="middle">输出</text>
+</svg></div>
+    <ul>
+      <li><b>RRF</b>:与具体分数量纲无关,天然适合融合异构路,score = Σ 1/(k + rank_i),是打底首选。</li>
+      <li><b>加权融合</b>:按模态重要性加权(如文字 0.6 / 图像 0.2 / 表格 0.2),权重可离线调或学习得到;注意各模态分数要先归一化。</li>
+      <li><b>跨模态重排</b>:用能同时吃"文本 + 图像"的重排模型(多模态 reranker)对合并后的候选精排,显著提升图文匹配精度,是提升效果的关键一步。</li>
+    </ul>
+    <p><b>5. 跨模态对齐(统一空间那套怎么做)</b></p>
+    <ul>
+      <li><b>CLIP 思路</b>:对比学习把成对的(图,文)拉近、不配对的推远,得到共享 embedding 空间;训练用海量图文对。</li>
+      <li>难点:① 表格/长文档不是"一张自然图",直接用 CLIP 效果一般,需要专门的多模态文档模型(如把版式也编码进去);② 对齐质量决定检索上限,通常<b>桥接式打底 + 少量对齐模块增强</b>是最务实的路线。</li>
+    </ul>
+    <p><b>6. 评估与鲁棒性</b></p>
+    <ul>
+      <li>指标:跨模态检索 recall@k、端到端问答准确率;分别评"纯文本 / 纯图 / 图文混合 / 表格"四类查询,暴露短板。</li>
+      <li>模态缺失鲁棒性:某模态索引挂了或数据缺图,系统要能降级(图路 miss 就只用文字路),不能整体崩。</li>
+      <li>成本:多模态 embedding 和 caption 都贵,预生成 + 缓存;重排只对合并后的少量候选做,别全量。</li>
+    </ul>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:用户只问文字问题,要不要去检索图像?</summary><div class="an">要看任务:纯事实问答只走文字即可省成本;但像"这个产品长什么样""流程怎么走"这类答案就在图里的,必须走图像路。工程上可以先让分类器判断查询是否可能指向图片/表格(含"图/表/示意图/对比"等词,或答案在文字路命中不足时兜底升级到多模态路),而不是无脑全查。</div></details>
+    <details class="qa"><summary class="qu">Q:图像里的文字(OCR)和视觉语义(caption)怎么平衡?</summary><div class="an">两者互补:OCR 保证"图里的字"能被文字检索命中,caption 保证"图的意思"(没有文字的示意图/照片)能被语义命中。实践中<b>两者都做</b>,OCR 文本和 caption 都进图像路的文本侧索引;检索时两者各自打分再融合,而不是二选一。</div></details>
+    <details class="qa"><summary class="qu">Q:跨模态 embedding 对齐不好,检索效果差怎么办?</summary><div class="an">先诊断是"对齐差"还是"数据差":用少量标注对做相似度回测。若对齐差,可加对比学习微调(图文对 + 难负样本)或换更强的多模态模型;更务实的做法是<b>别死磕统一空间,改用桥接式 + 跨模态重排</b>——把重排模型当"最后一公里"的对齐器,成本低见效快。</div></details>
+    <details class="qa"><summary class="qu">Q:多路融合的权重怎么定?</summary><div class="an">起步用 RRF(无需调权、量纲无关)先跑通;有评测集后可以网格搜索权重,或把"各模态 top 命中率"作为先验赋权(某模态历史上贡献大的加权);再进阶用学习排序把融合和重排一起训。权重要按查询类型动态化,固定权重很难在所有场景最优。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>CLIP</b>:对比学习把图/文映射到同一向量空间的模型。</div>
+      <div class="term-item"><b>跨模态检索</b>:用一种模态的查询命中另一种模态的内容。</div>
+      <div class="term-item"><b>RRF</b>:倒数排名融合,异构检索结果的合并利器。</div>
+      <div class="term-item"><b>caption</b>:为图像生成的文字描述,是桥接图文的关键。</div>
+      <div class="term-item"><b>跨模态重排</b>:能同时理解图文的模型对候选精排。</div>
+      <div class="term-item"><b>语义鸿沟</b>:不同模态特征空间不一致导致不可直接比较。</div>
+    </div>
+  </div>
+</article>

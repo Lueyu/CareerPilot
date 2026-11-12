@@ -1,0 +1,16 @@
+<article class="q top10" id="top10" data-title="高频Top10速记" data-kw="高频 真题 速记 top10 核心 考前">
+<div class="q-no">速查卡</div>
+      <h3>高频真题 Top10 · 三行核心答案</h3>
+      <ol style="padding-left:22px;line-height:2.15;font-size:14.6px">
+        <li><b>设计日均百万级 RAG 系统</b>(<a href="#/q/rag-001">完整版</a>)<br>先算账:均值 12 QPS、峰值 3000 按峰值设计;分层架构:网关→查询理解→混合检索→重排→流式生成;三大抓手:语义缓存、模型分级、降级预案。</li>
+        <li><b>如何优化 P99 延迟?</b>(<a href="#/q/rag-005">完整版</a>)<br>先分段测量再动手;检索:缓存+HNSW 调参+砍重排;生成:流式让感知延迟=TTFT;长尾单独治理,质量护栏护航。</li>
+        <li><b>LangChain vs AutoGen 选型?</b>(<a href="#/q/biz-003">完整版</a> / <a href="#/q/biz-006">Agent 框架版</a>)<br>定位不同:全家桶 vs 多 Agent 对话;生产用组件不用全家桶;复杂工作流选 LangGraph(图+checkpoint+可控)。</li>
+        <li><b>如何降低 API 成本 70%?</b>(<a href="#/q/biz-002">完整版</a>)<br>组合拳带数学:语义缓存×0.7、模型分级×0.4、Prompt 压缩×0.8 ≈ 整体 -78%;先建成本账单,每招配质量护栏。</li>
+        <li><b>Multi-Agent 架构设计?</b>(<a href="#/q/harness-001">完整版</a>)<br>Supervisor 模式分诊,子 Agent 无状态+最小工具集;状态外置 Redis;异常四件套:超时/死循环防护/敏感操作审批/转人工兜底。</li>
+        <li><b>Memory 系统如何实现?</b>(<a href="#/q/ctx-001">完整版</a>)<br>三层:窗口原文→滚动摘要→长期事实(抽取-冲突消解-检索注入);遗忘=时间衰减×访问频率;参考 Mem0 / Zep。</li>
+        <li><b>如何评估 Agent 效果?</b>(<a href="#/q/eval-001">完整版</a>)<br>离线(黄金集+规则/程序化/LLM-judge 三级评分)+在线(AB+用户反馈);指标四维:成功率/步数/延迟/成本;评估进 CI 阻断退化。</li>
+        <li><b>分布式 Agent 的并发控制?</b>(<a href="#/q/harness-003">完整版</a>)<br>分层:入口令牌桶→有界队列→信号量→下游配额;关键算扇出系数;分布式用 Redis 原子操作;背压优雅降速。</li>
+        <li><b>异常处理与重试机制?</b>(<a href="#/q/sys-004">完整版</a>)<br>先分类错误(可重试/不可重试);指数退避+抖动+预算;副作用必须幂等;重试尽头是降级链,不是报错。</li>
+        <li><b>监控与可观测性怎么做?</b>(<a href="#/q/eval-002">完整版</a> / <a href="#/q/biz-010">选型</a>)<br>两层体系:P+G 管机器指标,LangFuse 管语义 trace;span 记录 prompt/输出/token/成本可回放;告警分级带 trace 直达现场。</li>
+      </ol>
+</article>

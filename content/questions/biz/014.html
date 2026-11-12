@@ -1,0 +1,82 @@
+<article class="q" id="biz-014" data-topic="biz" data-title="如何量化Agent的业务价值(ROI计算)" data-difficulty="4" data-tags="ROI,业务价值,成本收益" data-company="" data-source="P4Q8" data-kw="ROI 业务价值 成本收益 计算 量化 降本增效 汇报">
+
+      <div class="q-no">业务落地 · Q8</div>
+      <h3>如何量化 Agent 的业务价值(ROI 计算)?</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#ROI</span><span class="tag">#业务价值</span><span class="tag">#成本收益</span>
+      </div>
+
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"公式先行:<b>ROI =(年化收益 − 年化成本)/ 年化成本</b>,其中收益四件套:<b>人力替代节省</b>(被 Agent 解决的会话量 × 人工单成本)、<b>效率增益</b>(响应提速带来的转化/处理量提升)、<b>收入增长</b>(转化率提升 × 客单价)、<b>满意度留存</b>(折算);成本三件套:研发人力、推理/GPU、运维。两个最容易高估的坑主动声明:<b>替代率不能按 100% 算</b>(要乘实际承接率和解决率),<b>隐性成本别漏</b>(bad case 处理、监控、迭代团队是持续投入)。"</p>
+      </div>
+
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p>像<b>论证"买洗碗机值不值"</b>:不能说"洗碗机=解放了一个洗碗工"(它洗不了锅);要算:每天省 30 分钟 × 时薪 = 每年省多少钱(<b>替代率折算</b>),水电耗材费(<b>运行成本</b>),加上"再也不为谁洗碗吵架"的<b>隐性幸福收益</b>(满意度,尽量折算,折算不了就如实标注)。最后诚实一句:"半年回本"——<b>账算得糙可以,算得假不行</b>。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 收益侧四件套(逐项给公式)</b></p>
+        <table>
+          <tr><th>收益项</th><th>计算公式(示例)</th><th>数据来源</th></tr>
+          <tr><td><b>人力替代</b></td><td>日咨询量 1万 × Agent承接率60% × 解决率70% × 人工单成本8元 × 365</td><td>客服系统工单+AB实验</td></tr>
+          <tr><td><b>效率增益</b></td><td>平均处理时长 5min→30s,客服人均日处理量×3 → 同人力多消化量</td><td>工单系统时长统计</td></tr>
+          <tr><td><b>收入增长</b></td><td>转化率 +1.5pct × 日流量 × 客单价(售前 Agent)</td><td>AB 实验分流对比</td></tr>
+          <tr><td><b>满意度</b></td><td>CSAT +5 → 投诉工单成本下降 + 续费率折算(标注"保守未计入"更稳)</td><td>NPS/续费数据</td></tr>
+        </table>
+        <p class="note">注意上面公式里的精髓是<b>承接率 × 解决率</b>——很多汇报直接拿"总咨询量×单价"算,等于声称 100% 替代,一眼假。敢打折的账才可信。</p>
+        <p><b>2. 成本侧三件套</b></p>
+        <ul>
+          <li><b>研发</b>:初期 + 持续迭代团队(Prompt 工程师、评估、标注)× 人力成本——<b>迭代团队最容易被漏算</b>,LLM 应用是持续运营不是一次性交付。</li>
+          <li><b>推理</b>:单会话 token 成本 × 量,加上 GPU 摊销/网关费用。</li>
+          <li><b>运维与风险</b>:监控、人工审核成本、bad case 补救、合规审计。</li>
+        </ul>
+        <p><b>3. 一个能背下来的示例账(面试现场算给面试官)</b></p>
+        <div class="svgwrap">
+<svg class="sdiagram" viewBox="0 0 570 350" role="img" aria-label="Agent ROI 测算示例账">
+  <text class="sd-l" x="10" y="20">ROI 测算 · 客服场景示例账</text>
+  <rect class="sd-box2" x="180" y="32" width="200" height="52" rx="10"/>
+  <text class="sd-t" x="280" y="54" text-anchor="middle">客服场景输入</text>
+  <text class="sd-ts" x="280" y="72" text-anchor="middle">日咨询 1万单 · 单成本 8元</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M272 84 L150 112"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M290 84 L445 112"/>
+  <rect class="sd-box" x="40" y="114" width="220" height="52" rx="10"/>
+  <text class="sd-t" x="150" y="136" text-anchor="middle">承接率 × 解决率</text>
+  <text class="sd-ts" x="150" y="154" text-anchor="middle">60% × 70% → 日替代 4200 单</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M150 166 L150 192"/>
+  <rect class="sd-box-amber" x="40" y="194" width="220" height="52" rx="10"/>
+  <text class="sd-t" x="150" y="216" text-anchor="middle">人力节省</text>
+  <text class="sd-ts" x="150" y="234" text-anchor="middle">4200 × 8 × 365 ≈ 1226 万/年</text>
+  <rect class="sd-box2" x="340" y="114" width="210" height="52" rx="10"/>
+  <text class="sd-t" x="445" y="136" text-anchor="middle">推理成本</text>
+  <text class="sd-ts" x="445" y="154" text-anchor="middle">6000 × 0.3 × 365 ≈ 66 万/年</text>
+  <rect class="sd-box2" x="340" y="194" width="210" height="52" rx="10"/>
+  <text class="sd-t" x="445" y="216" text-anchor="middle">持续投入</text>
+  <text class="sd-ts" x="445" y="234" text-anchor="middle">2人迭代 + 审核 ≈ 120 万/年</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M150 246 L278 272"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M445 246 L282 272"/>
+  <rect class="sd-box-rose" x="120" y="274" width="320" height="60" rx="10"/>
+  <text class="sd-t" x="280" y="300" text-anchor="middle">净收益 ≈ 1040 万/年</text>
+  <text class="sd-ts" x="280" y="318" text-anchor="middle">研发 100 万投入 → ROI ≈ 10 倍</text>
+</svg>
+</div>
+        <p><b>4. 汇报的两个高级细节</b></p>
+        <ul>
+          <li><b>分阶段叙事</b>:工具期(给客服提效 20%)→ 协助期(人机协同,替代 50%)→ 自主期(端到端,替代 80%)——比"直接替代人工"的叙事可信且可执行。</li>
+          <li><b>敏感性分析</b>:解决率 60%/70%/80% 三档下的 ROI 区间——展示"我算过账,且知道哪些假设最脆弱",这是和只会说"AI 很强"的候选人的区别。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:间接价值(员工体验、知识沉淀)怎么算?</summary><div class="an">能用代理指标折算就折算(客服离职率、培训周期缩短);折不了就定性列出并标注"未计入,构成额外上行空间"——严禁把无法度量的东西塞进主公式凑数。</div></details>
+        <details class="qa"><summary class="qu">Q:老板问"什么时候回本"?</summary><div class="an">把成本拆成"一次性(研发) vs 经常性(推理+运营)",一次性投入 ÷ 月净收益 = 回本周期;示例账里研发 100 万 ÷ 月净收益 87 万 ≈ 1.2 个月,给区间给假设,不给假精确。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>承接率</b>:Agent 实际接待的流量占比。</div>
+          <div class="term-item"><b>敏感性分析</b>:关键假设变动对结论的影响。</div>
+          <div class="term-item"><b>回本周期</b>:一次性投入/月净收益。</div>
+        </div>
+      </div>
+</article>

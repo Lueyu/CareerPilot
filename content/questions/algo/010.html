@@ -1,0 +1,87 @@
+<article class="q" id="algo-010" data-topic="algo" data-title="DPO与PPO的理论对比与数学推导" data-difficulty="4" data-tags="DPO,PPO,RLHF" data-company="" data-source="P6Q7" data-kw="DPO PPO RLHF 强化学习 偏好优化 直接偏好优化 近端策略优化 数学推导 Bradley-Terry 隐式奖励 场景选择">
+
+  <div class="q-no">Agent算法 · Q7</div>
+  <h3>DPO 与 PPO 的理论对比</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#DPO</span><span class="tag">#PPO</span><span class="tag">#RLHF</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"一句话结论:两者<b>优化的是同一个目标</b>——在参考策略约束下最大化奖励,区别只是<b>怎么逼近它</b>。PPO 走『奖励模型 + 强化学习』两步:训练 reward model 打分,再用带 KL 惩罚的 PPO 在线采样、用策略梯度更新;DPO 走一步:从 Bradley-Terry 偏好模型推出最优策略的<b>闭式解</b>,直接把这个解写进一个分类损失去优化,<b>省掉了奖励模型和 RL 循环</b>。所以数学上等价、工程上 DPO 更简单稳定,但 DPO 依赖离线偏好数据、容易分布偏移;PPO 支持在线探索和过程奖励,上限更高但成本也高。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>PPO 像<b>请教练 + 下场打比赛</b>:教练(奖励模型)给每个动作打分,运动员(策略)在场上不断试错、按教练反馈微调动作,练出来很扎实但费时费力。DPO 像<b>直接看两份答卷定胜负</b>:不请教练、不反复试错,直接拿着"好答案 vs 坏答案"这对样本告诉模型"以后往好答案靠、远离坏答案",一条损失函数就完事——快、稳,但你不下场试错,就学不到考卷之外的新花样。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. PPO 的数学(RLHF 标准流程,要能写 clipped objective)</b></p>
+    <p>RLHF 里 PPO 通常挂着四个模块:策略 <code>π_θ</code>、参考策略 <code>π_ref</code>(SFT 模型)、奖励模型 <code>r_φ</code>、价值模型 <code>V</code>(估计优势函数)。核心损失:</p>
+    <pre class="code">L_CLIP(θ) = 𝔼_t[ min( r_t(θ)·Â_t , clip(r_t(θ), 1−ε, 1+ε)·Â_t ) ]
+r_t(θ) = π_θ(a_t|s_t) / π_θold(a_t|s_t)      <span class="c"># 新旧策略的概率比</span>
+Â_t = Σ_{l≥0} (γλ)^l · δ_{t+l}              <span class="c"># GAE 优势估计</span>
+δ_t = r_t + γ·V(s_{t+1}) − V(s_t)            <span class="c"># TD 残差</span></pre>
+    <ul>
+      <li><b>clip 的作用</b>:把概率比限制在 <code>[1−ε, 1+ε]</code>,防止一次更新步子太大把策略"摔崩"——这是 PPO 比普通 policy gradient 稳的关键。</li>
+      <li><b>KL 惩罚</b>:奖励里通常再扣一项 <code>β·KL(π_θ ‖ π_ref)</code>,防止模型为了刷分偏离人类语言分布太远(胡言乱语但 reward 高)。</li>
+      <li>代价:要在线采样(每轮更新都要当前策略生成)、要维护 critic,训练不稳定、超参多、还吃 GPU。</li>
+    </ul>
+    <p><b>2. DPO 的数学(直接偏好优化,一步到位)</b></p>
+    <p>偏好数据给的是"赢家 y_w 输家 y_l"对,Bradley-Terry 模型把"更喜欢谁"建模为奖励差的 sigmoid:</p>
+    <pre class="code">p(y_w ≻ y_l | x) = σ( r(x, y_w) − r(x, y_l) )     <span class="c"># BT 偏好模型</span></pre>
+    <p>带 KL 约束的 RLHF 目标 <code>max 𝔼[r(x,y)] − β·KL(π ‖ π_ref)</code> 存在<b>闭式最优解</b>:</p>
+    <pre class="code">π*(y|x) = π_ref(y|x) · exp( r(x,y)/β ) / Z(x)     <span class="c"># Z(x) 是归一化项(配分函数)</span></pre>
+    <p>把它反解出奖励,就得到 DPO 的<b>隐式奖励</b>,代入 BT 模型后 Z(x) 恰好约掉,只剩策略对数比:</p>
+    <pre class="code">r_θ(x, y) = β · log( π_θ(y|x) / π_ref(y|x) )      <span class="c"># 隐式奖励:奖励即"相对参考策略的抬升"</span>
+L_DPO = −𝔼[ log σ( β·( log(π_θ(y_w|x)/π_ref(y_w|x)) − log(π_θ(y_l|x)/π_ref(y_l|x)) ) ) ]</pre>
+    <ul>
+      <li><b>妙处</b>:没有显式奖励模型、没有采样、没有 critic,两个模型(π_θ + π_ref)就能训,损失就是一条二分类交叉熵,超级稳定。</li>
+      <li><b>β 是温度</b>:控制"离参考策略多远"。β 越小,模型越敢偏离 ref 去贴合偏好,但越容易过拟合/奖励 hacking。</li>
+    </ul>
+    <p><b>3. 两者关系(本题核心,能讲清这层就是高分)</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 626 200" role="img" aria-label="DPO 与 PPO 理论对比：同一目标两种逼近">
+  <rect class="sd-box" x="175" y="16" width="300" height="60" rx="10"/>
+  <text class="sd-t" x="325" y="40" text-anchor="middle">同一个优化目标</text>
+  <text class="sd-ts" x="325" y="58" text-anchor="middle">max E[r] − β·KL(π‖π_ref)</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M318 76 L168 116"/>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M332 76 L482 116"/>
+  <rect class="sd-box" x="40" y="120" width="250" height="64" rx="10"/>
+  <text class="sd-t" x="165" y="146" text-anchor="middle">PPO</text>
+  <text class="sd-ts" x="165" y="164" text-anchor="middle">先训 r_φ · 采样→优势→clip</text>
+  <text class="sd-ts" x="165" y="178" text-anchor="middle">在线 · 有探索</text>
+  <rect class="sd-box-amber" x="360" y="120" width="250" height="64" rx="10"/>
+  <text class="sd-t" x="485" y="146" text-anchor="middle">DPO</text>
+  <text class="sd-ts" x="485" y="164" text-anchor="middle">闭式解 π*∝π_ref·exp(r/β)</text>
+  <text class="sd-ts" x="485" y="178" text-anchor="middle">离线 · 一步到位</text>
+</svg></div>
+    <p><b>4. 场景选择(用 trade-off 说话)</b></p>
+    <table>
+      <tr><th>维度</th><th>PPO</th><th>DPO</th></tr>
+      <tr><td><b>数据需求</b></td><td>需要 reward model 标注 + 在线采样</td><td>只需离线偏好对(win/lose)</td></tr>
+      <tr><td><b>模块/成本</b></td><td>4 个模型,RL 基础设施,慢、贵、不稳</td><td>2 个模型,纯监督式训练,快、稳、省</td></tr>
+      <tr><td><b>探索能力</b></td><td>在线采样,能发现新行为、配合过程奖励</td><td>离线,学不到分布外的新东西</td></tr>
+      <tr><td><b>主要坑</b></td><td>不稳定、奖励 hacking、工程复杂</td><td>分布偏移、长度偏好、奖励过拟合</td></tr>
+      <tr><td><b>适用</b></td><td>要探索上限、有多步/过程奖励、预算足</td><td>数据现成、追求稳和快、中小团队</td></tr>
+    </table>
+    <p>一句话:<b>数据离线且求稳 → DPO;要在线探索和复杂奖励、预算充足 → PPO;工程上常从 DPO 起步,再上 iterative/online DPO 折中。</b></p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:DPO 的隐式奖励 r=β·log(π/π_ref) 是怎么推导出来的?</summary><div class="an">从带 KL 约束的 RLHF 目标 <code>max 𝔼[r(x,y)] − β·KL(π ‖ π_ref)</code> 出发,对 π 求变分/拉格朗日极值,得到闭式解 <code>π*(y|x) = π_ref(y|x)·exp(r(x,y)/β)/Z(x)</code>。对这个等式两边取对数并移项,就解出 <code>r(x,y) = β·log(π*(y|x)/π_ref(y|x)) + β·log Z(x)</code>。代入 BT 模型时,同一 prompt x 下 Z(x) 是常数、在 win/lose 差值里约掉,于是只剩 <code>β·log(π/π_ref)</code> 这一项——这就是"隐式奖励",它没被显式训练,而是策略自己"长"出来的。</div></details>
+    <details class="qa"><summary class="qu">Q:DPO 省掉了奖励模型,为什么还能学出对错?</summary><div class="an">因为偏好信号直接进了损失:loss 逼 win 的对数概率比、输的拉低,本质上是在"奖励空间"里做区分。隐式奖励 <code>β·log(π/π_ref)</code> 等价于奖励模型,只是它和策略共用同一组参数 θ、同步更新,而不是先冻结训好一个 r_φ 再拿来当裁判。代价是这份"奖励"只在偏好数据覆盖的区域可靠,数据没覆盖到的地方容易乱。</div></details>
+    <details class="qa"><summary class="qu">Q:DPO 最典型的两个坑是什么?怎么缓解?</summary><div class="an">① <b>分布偏移(off-policy)</b>:偏好数据是别的模型生成的,和当前策略分布不一致,DPO 会"越训越偏"。缓解:用 iterative DPO——训完一轮就用当前模型重新采样、再标偏好、再训。② <b>长度偏好/reward hacking</b>:DPO 常学到"答得越长分越高"这种捷径。缓解:训练里加长度归一化/长度惩罚、数据里显式配平长短样本、或改用带 reference-free 校正的变体(如 SimPO)。</div></details>
+    <details class="qa"><summary class="qu">Q:训练到后期 DPO 会退化吗(赢率不升反降)?</summary><div class="an">会,这是已知现象:损失越低不代表赢率越高,因为 <code>log π_θ/π_ref</code> 被无界地拉开时,logit 会被拉得很极端、模型出现"过度自信 + 多样性崩塌"。缓解:β 别设太小、早停、对 <code>log π_θ/π_ref</code> 加 clip、或引入 length/entropy 正则。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>PPO</b>:近端策略优化,clip 概率比防止策略更新过大。</div>
+      <div class="term-item"><b>DPO</b>:直接偏好优化,把 RLHF 闭式解写成分类损失,免掉奖励模型与 RL。</div>
+      <div class="term-item"><b>Bradley-Terry 模型</b>:用奖励差建模"两两谁更优"的概率模型。</div>
+      <div class="term-item"><b>隐式奖励</b>:DPO 中 r=β·log(π/π_ref),由策略参数间接表示。</div>
+      <div class="term-item"><b>GAE</b>:广义优势估计,平衡优势函数的偏差与方差。</div>
+      <div class="term-item"><b>KL 惩罚</b>:约束策略别偏离参考策略太远的正则项。</div>
+    </div>
+  </div>
+</article>

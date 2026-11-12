@@ -1,0 +1,59 @@
+<article class="q" id="biz-022" data-topic="biz" data-title="给Agent领域初学者的建议与重点学习路径" data-difficulty="1" data-tags="学习路径,建议" data-company="所有公司" data-source="P7Q16" data-kw="学习路径 初学者 建议 入门 路线图 Python LLM API RAG LangGraph 提示词 工程">
+
+  <div class="q-no">评估讨论 · Q16</div>
+  <h3>对于想要进入Agent领域的初学者，你会给他/她什么建议？应该重点学习哪些技术？</h3>
+  <div class="q-meta">
+    <span class="stars">⭐</span>
+    <span class="tag">#学习路径</span><span class="tag">#建议</span>
+    <span class="company">所有公司</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"三条建议。第一,<b>先动手做出一个能跑的东西,再补理论</b>——别从读论文开始,先从『用 API 搭一个能查知识库的问答机器人』开始,一周内跑通。第二,<b>学习顺序是『用起来 → 会调优 → 懂原理 → 会评估』</b>,不是反过来。第三,<b>重点学四样</b>:扎实的 Python 工程能力、LLM 基础(API/prompt/RAG/上下文管理)、一个 Agent 框架(推荐 LangGraph),以及<b>评估与调试</b>。最怕两类人:只刷教程不写代码的,和一上来就啃 Transformer 数学的。"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>学 Agent 就像<b>学开车</b>:没人先背完发动机原理再上车。正确姿势是——先坐进车里把车开起来(跑通一个 demo),再慢慢搞懂"为什么踩刹车要提前"(理解原理),最后学会"怎么判断这车状态好不好"(评估监控)。一上来啃《内燃机原理》的人,三个月后还在纠结热力学,而别人已经上路、已经出过几次小事故、已经知道哪里容易翻车了。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 一条可执行的路线图(四阶段,每阶段有明确里程碑)</b></p>
+    <table>
+      <tr><th>阶段</th><th>学什么</th><th>做出什么(里程碑)</th></tr>
+      <tr><td><b>① 用起来</b>(1-2周)</td><td>Python 基础、调用 LLM API、prompt 写法、SSE 流式</td><td>一个命令行问答机器人,会流式输出、能带系统提示词</td></tr>
+      <tr><td><b>② 会调优</b>(3-6周)</td><td>RAG(切分/向量检索/重排)、Function Calling、工具调用</td><td>一个"能查自己知识库、能调用工具"的 RAG Agent</td></tr>
+      <tr><td><b>③ 懂原理</b>(2-3月)</td><td>Transformer 直觉、token/上下文窗口、缩放定律、微调概念</td><td>能解释"为什么 prompt 顺序影响结果、为什么上下文太长会退化"</td></tr>
+      <tr><td><b>④ 会评估</b>(持续)</td><td>评估集构建、LLM-as-judge、回归测试、可观测性</td><td>给自己的 Agent 建一套"改一次能自动发现退没退化"的评测</td></tr>
+    </table>
+    <p><b>2. 重点技术的优先级(别平均用力)</b></p>
+    <ul>
+      <li><b>Python 工程能力是第一优先级</b>:Agent 开发的日常是处理数据、调 API、写并发、处理异常——这是地基,比背模型公式更先被用到。</li>
+      <li><b>RAG 和上下文工程</b>:这是绝大多数业务 Agent 的骨架,把"怎么检索、怎么把上下文喂给模型"搞透,胜过读十篇 Agent 论文。</li>
+      <li><b>一个框架选 LangGraph</b>:它能让你理解"图、状态、checkpoint、条件分支"这些 Agent 的底层概念,比只会拖 LangChain 全家桶更有迁移价值。学框架是为了<b>理解思想</b>,不是为了背 API。</li>
+      <li><b>评估(Eval)越早建立越好</b>:多数人学到"会调"就停了,而真正拉开差距的是"会用指标判断自己做得对不对"。</li>
+    </ul>
+    <p><b>3. 三个最常见的坑</b></p>
+    <ul>
+      <li><b>坑1:从读论文/啃数学开始</b> → 热情三个月耗光,一行代码没写。应先跑通 demo,再回头补理论,理解会快得多。</li>
+      <li><b>坑2:囤教程、复刻 demo,却从不做自己的项目</b> → 换一个场景就不会了。必须有一个"自己定义问题、自己踩坑"的项目。</li>
+      <li><b>坑3:只追求"跑通",不建立评估</b> → 改个 prompt 看似变好了,其实是幻觉,反复返工。没有评测的调优等于蒙眼开车。</li>
+    </ul>
+    <p><b>4. 时间与心态</b>:业余每天 2 小时,约 3 个月能独立做出一个"能调用工具、带评估"的业务级 Agent。关键是<b>前两周跑出第一个能用的东西</b>,这是唯一能把你留在牌桌上的动力。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:数学基础要多好才能入门?</summary><div class="an">入门几乎不需要数学,高中数学 + 线性代数/概率的直觉就够;API 层面你面对的是 prompt、JSON、HTTP,不是矩阵。数学是在你<b>往算法方向走</b>(想自己训模型、做 RL、理解注意力机制细节)时才需要补。所以我的建议是:<b>先不设数学门槛,等你自己产生"这里为什么是这样"的好奇时再针对性地补</b>,比一上来补微积分高效得多。</div></details>
+    <details class="qa"><summary class="qu">Q:LangChain 现在争议很大,还值得学吗?</summary><div class="an">值得"理解",但不必"迷信"。LangChain 的价值在于<b>把 RAG、Agent、Memory 这些概念用一套 API 串起来了</b>,对建立心智模型很有帮助;争议在于它的抽象层太厚、版本变动快、生产上常被绕开。我的建议:用它快速理解概念和跑 demo,但生产上更倾向用<b>更薄的 LangGraph 或直接手写编排</b>,把控制权拿在自己手里。</div></details>
+    <details class="qa"><summary class="qu">Q:零基础最快多久能做出第一个作品?</summary><div class="an">按上面的路线,<b>一周内能做出"会流式输出、能带提示词的问答机器人"</b>,3~6 周做出"能查自己知识库的 RAG Agent"。前提是别卡在环境配置和"选哪个模型最完美"这种无意义的纠结上——先跑通,再优化。能快速做出小东西的能力,本身就是 Agent 工程师的核心素质。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>RAG</b>:检索增强生成,先查资料再让模型作答。</div>
+      <div class="term-item"><b>Function Calling</b>:让模型以结构化方式调用外部工具。</div>
+      <div class="term-item"><b>Prompt Engineering</b>:设计提示词以稳定引导模型行为。</div>
+      <div class="term-item"><b>LLM-as-judge</b>:用强模型给输出打分,做自动化评估。</div>
+      <div class="term-item"><b>上下文工程</b>:精心组织喂给模型的上下文,是 RAG 的核心手艺。</div>
+    </div>
+  </div>
+</article>
