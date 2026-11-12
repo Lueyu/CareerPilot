@@ -104,6 +104,12 @@
   .block.fol{border-color:var(--teal)}
   .b-term{background:var(--term-bg);color:var(--slate)}
   .block.term{border-color:var(--slate)}
+  /* 块类型徽章图标(全站统一) */
+  .b-fast::before{content:"🎤 ";margin-right:2px}
+  .b-ana::before{content:"💡 ";margin-right:2px}
+  .b-det::before{content:"🔍 ";margin-right:2px}
+  .b-fol::before{content:"🎯 ";margin-right:2px}
+  .b-term::before{content:"📚 ";margin-right:2px}
   .block p{margin:6px 0;font-size:14.8px}
   .block ul,.block ol{padding-left:22px;margin:8px 0}
   .block li{margin:5px 0;font-size:14.8px}
@@ -200,9 +206,9 @@
       <p>覆盖系统设计 15 题 + 工程实践 12 题 + 框架选型 10 题 + 业务落地 8 题 + Agent 核心 52 题 + Agent 算法 45 题 + 评估与开放讨论 18 题,外加高频 Top10 考前速记。</p>
       <p>每道题都按「30秒电梯稿 → 通俗类比 → 详细拆解 → 面试官追问 → 术语卡」五层展开,零基础也能看懂。</p>
       <div class="pill-row">
-        <span class="pill">AI 应用开发工程师</span>
-        <span class="pill">Agent 开发工程师</span>
-        <span class="pill">RAG 系统工程师</span>
+        <span class="pill">💻 AI 应用开发工程师</span>
+        <span class="pill">🤖 Agent 开发工程师</span>
+        <span class="pill">🔎 RAG 系统工程师</span>
       </div>
     </section>
 
@@ -223,7 +229,7 @@
     </section>
 
     <!-- ================= 第一部分 ================= -->
-    <h2 class="part-title" id="part1">第一部分 · 系统设计题(15题)</h2>
+    <h2 class="part-title" id="part1">🏗️ 第一部分 · 系统设计题(15题)</h2>
     <p class="part-sub">系统设计题的回答框架:先问清楚需求 → 算容量账 → 画分层架构 → 逐层讲优化 → 聊可用性与监控。照着这个顺序讲,面试官会跟得很舒服。</p>
 
     <!-- P1 Q1 -->
@@ -1239,7 +1245,7 @@ app = g.compile(checkpointer=RedisSaver())  <span class="c"># 带持久化编译
     </article>
 
     <!-- ================= 第二部分 ================= -->
-    <h2 class="part-title" id="part2">第二部分 · 工程实践题(12题)</h2>
+    <h2 class="part-title" id="part2">🔧 第二部分 · 工程实践题(12题)</h2>
     <p class="part-sub">工程题的答题心法:先说"我会先测量/先算账",再说方案,最后说"怎么验证没改坏"。展现的是工程师素养而不是背方案。</p>
 
     <!-- P2 Q1 -->
@@ -2027,7 +2033,7 @@ async def chat(req: ChatRequest):
     </article>
 
     <!-- ================= 第三部分 ================= -->
-    <h2 class="part-title" id="part3">第三部分 · 框架选型题(10题)</h2>
+    <h2 class="part-title" id="part3">⚖️ 第三部分 · 框架选型题(10题)</h2>
     <p class="part-sub">选型题答题模板:先说"选型取决于 X/Y/Z 三个约束"→ 对比表 → 给出自己会怎么选 + 理由 → 主动补一句"什么情况下我会反过来选"。展示的是决策框架,不是背参数。</p>
 
     <!-- P3 Q1 -->
@@ -2571,7 +2577,7 @@ LLM 语义层:<span class="hl">LangFuse(自部署)</span>
     </article>
 
     <!-- ================= 第四部分 ================= -->
-    <h2 class="part-title" id="part4">第四部分 · 业务落地题(8题)</h2>
+    <h2 class="part-title" id="part4">💼 第四部分 · 业务落地题(8题)</h2>
     <p class="part-sub">业务题考察的不是技术深度,而是"技术人有没有商业味":敢不敢算钱、会不会设计实验、能不能对老板讲人话。答这部分的杀手锏是主动给出数字和公式。</p>
 
     <!-- P4 Q1 -->
@@ -3054,7 +3060,7 @@ Agent 承接 60%,其中解决率 70% → 日替代 4200 单
     </article>
 
     <!-- ================= 第五部分 ================= -->
-    <h2 class="part-title" id="part5">第五部分 · Agent 核心面试题（52题）</h2>
+    <h2 class="part-title" id="part5">🤖 第五部分 · Agent 核心面试题（52题）</h2>
     <p class="part-sub">Agent 核心篇是「Agent 算法 / Agent 开发」两个岗位的必学题库，覆盖：Agent 定义与架构、ReAct 范式、规划（CoT/ToT/GoT）、Memory 系统、Tool Use / Function Calling、Multi-Agent 协作、安全与对齐，以及字节/阿里/腾讯的 Agent 真题。答题心法：先给定义 → 再讲机制 → 最后聊 trade-off 与真实案例。</p>
 
 <!-- P5 Q1 -->
@@ -6784,7 +6790,7 @@ else: retry from GET</pre>
 </article>
 
     <!-- ================= 第六部分 ================= -->
-    <h2 class="part-title" id="part6">第六部分 · Agent 算法岗专项（45题）</h2>
+    <h2 class="part-title" id="part6">🧮 第六部分 · Agent 算法岗专项（45题）</h2>
     <p class="part-sub">算法岗专项，目标是「Agent 算法工程师 / RAG 算法工程师」，分四类：算法创新（GraphRAG、Memory 压缩、RLHF、Multi-Agent 共识等）、理论推导（PPO / Attention / RoPE / LoRA / Softmax 等公式手推）、实验设计（评估 / 消融 / A-B）、论文解读（DeepSeek / o1 / GraphRAG / FlashAttention 等）。公式题建议纸笔默写，别只背结果。</p>
 
 <!-- P6 Q1 -->
@@ -10063,7 +10069,7 @@ p(y_w ≻ y_l | x) = σ( r(x,y_w) − r(x,y_l) )
 </article>
 
     <!-- ================= 第七部分 ================= -->
-    <h2 class="part-title" id="part7">第七部分 · Agent 评估与开放讨论（18题）</h2>
+    <h2 class="part-title" id="part7">📊 第七部分 · Agent 评估与开放讨论（18题）</h2>
     <p class="part-sub">前半是「模型与 Agent 评估」（评估指标、LLM-as-Judge、Agent 基准、红队测试、线上监控），后半是「开放讨论」（Agent 瓶颈、涌现能力、商业落地、学习路径、工程师素质）。开放题考察思维与判断力，重在真诚、有观点、有证据，不背标准答案。</p>
 
 <!-- P7 Q1 -->
@@ -11290,7 +11296,7 @@ p(y_w ≻ y_l | x) = σ( r(x,y_w) − r(x,y_l) )
 </article>
 
 <!-- ================= Top10 ================= -->
-    <h2 class="part-title" id="top10">考前速记 · 高频真题 Top10</h2>
+    <h2 class="part-title" id="top10">🏆 考前速记 · 高频真题 Top10</h2>
     <p class="part-sub">考前最后一晚看这里:每题浓缩成三行核心答案,点击跳转完整版。</p>
 
     <article class="q top10" id="t1" data-title="高频Top10速记" data-kw="高频 真题 速记 top10 核心 考前">
