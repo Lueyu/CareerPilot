@@ -305,7 +305,7 @@ def selftest():
     raw = '<article id="p2q4" data-title="如何处理Agent的长对话场景(>10轮)">正文'
     tag, end = scan_tag(raw, 0)
     ok &= assert_eq("scan_tag:quote-gt", tag.endswith(')">') and "长对话场景(>10轮)" in tag, True)
-    ok &= assert_eq("scan_tag:end", end, len(raw))
+    ok &= assert_eq("scan_tag:end", raw[end:], "正文")
     # T3-2 find_articles + parse_attrs
     src = ('<article class="q" id="a-001" data-topic="rag" data-title="测试题" data-kw="a b">'
            '正文<details class="qa"><summary class="qu">Q:x</summary>'
@@ -357,7 +357,64 @@ git commit -m "feat: build.py骨架:引号感知标签扫描器+selftest框架"
 ### Task 4: build.py:题目文件解析(article 属性 + MCQ JSON)
 
 **Files:**
-- Modify: `build.py`(在 `# ==== selftest ====` 行之前插入解析函数;在 selftest() 内追加用例)
+- Modify: `build.py`(先加固扫描器,再在 `# ==== selftest ====` 行之前插入解析函数;在 selftest() 内追加用例)
+- Modify: `content/SPEC.md`(硬规则追加第 9 条:正文禁止字面 `<article`)
+
+- [ ] **Step 0: 扫描器加固(Task 3 质量审查结论落地)**
+
+用以下版本整体替换 build.py 中的 `scan_tag` 与 `find_articles`(变更:①scan_tag 未闭合报错带摘录;②find_articles 跳过 `<articlefoo` 前缀误匹配;③正文含字面 `<article` 时立即报错,杜绝嵌套场景下的静默截断——将来题卡代码示例中出现 article 字样必须写转义 `&lt;article&gt;`):
+
+```python
+def scan_tag(src, start):
+    """扫描从 src[start]('<')开始的标签,返回 (标签文本, 结束下标)。
+    引号内的 '>' 不视为标签结束(处理 data-title="...(>10轮)" 这类值)。"""
+    quote = None
+    i = start
+    n = len(src)
+    while i < n:
+        c = src[i]
+        if quote:
+            if c == quote:
+                quote = None
+        else:
+            if c in ('"', "'"):
+                quote = c
+            elif c == ">":
+                return src[start:i + 1], i + 1
+        i += 1
+    raise ValueError("unterminated tag at offset %d: %s" % (start, src[start:start + 80]))
+
+
+def find_articles(src):
+    """返回 [(tag, attrs, body)],按文档顺序;article 必须显式 </article> 闭合。
+    正文内出现字面 <article 视为错误(嵌套会静默截断内容,必须报错)。"""
+    out = []
+    pos = 0
+    while True:
+        s = src.find("<article", pos)
+        if s == -1:
+            return out
+        nxt = src[s + 8:s + 9]
+        if nxt not in (" ", "\t", "\r", "\n", ">", "/"):
+            pos = s + 1
+            continue
+        tag, after = scan_tag(src, s)
+        e = src.find("</article>", after)
+        if e == -1:
+            raise ValueError("article 未闭合: %s" % tag[:80])
+        body = src[after:e]
+        if "<article" in body:
+            raise ValueError("嵌套/字面 <article 检出,正文可能被截断: %s" % tag[:80])
+        out.append((tag, parse_attrs(tag), body))
+        pos = e + len("</article>")
+```
+
+同时在 content/SPEC.md 硬规则末尾追加第 9 条:
+
+```markdown
+9. **正文禁止字面 `<article` 标签**:题卡正文(含 pre.code 代码示例)中如需展示该标签,
+   一律写转义形式 `&lt;article&gt;`;嵌套 article 会导致构建直接报错。
+```
 
 - [ ] **Step 1: 在 `# ==== selftest ====` 行之前插入以下代码**
 
@@ -449,6 +506,24 @@ def scan_questions(qdir):
             ok &= assert_eq("parse:missing-attr-raises", False, True)
         except ValueError:
             ok &= assert_eq("parse:missing-attr-raises", True, True)
+    # ---- T3-6~T3-8 扫描器加固 ----
+    arts3 = find_articles('<articlex id="fake">x</articlex><article id="ok">y</article>')
+    ok &= assert_eq("find_articles:prefix-skip", [a[1]["id"] for a in arts3], ["ok"])
+    try:
+        find_articles('<article id="a">正文<pre class="code">&lt;article&gt;</pre></article>')
+        ok &= assert_eq("find_articles:escaped-ok", True, True)
+    except ValueError:
+        ok &= assert_eq("find_articles:escaped-ok", False, True)
+    try:
+        find_articles('<article id="a">正文<article id="b">X</article>尾部</article>')
+        ok &= assert_eq("find_articles:nested-raises", False, True)
+    except ValueError:
+        ok &= assert_eq("find_articles:nested-raises", True, True)
+    try:
+        scan_tag('<article id="a" data-x="未', 0)
+        ok &= assert_eq("scan_tag:unterminated-raises", False, True)
+    except ValueError as ex:
+        ok &= assert_eq("scan_tag:unterminated-raises", "article" in str(ex), True)
 ```
 
 注意:`import tempfile` 只允许出现在 selftest 函数内部(保持 build() 主流程零多余依赖观感),`Path` 已在文件顶部导入。
@@ -456,7 +531,7 @@ def scan_questions(qdir):
 - [ ] **Step 3: 运行自测**
 
 Run: `python build.py --selftest`
-Expected: 之前的用例 + T4 新用例(7 个)全部 PASS,退出码 0。
+Expected: 之前的用例 + T4 解析用例(7 个)+ 加固用例(T3-6~T3-8,4 个断言)全部 PASS,退出码 0。
 
 - [ ] **Step 4: Commit**
 
