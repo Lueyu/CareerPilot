@@ -56,7 +56,9 @@
 </article>
 <script type="application/json">
 [
-  {"q":"单选题干","options":["A","B","C","D"],"answer":2,
+  {"q":"单选题干1","options":["A","B","C","D"],"answer":2,
+   "explain":"为什么选它,其余错在哪,1~3 句"},
+  {"q":"单选题干2","options":["A","B","C","D"],"answer":0,
    "explain":"为什么选它,其余错在哪,1~3 句"}
 ]
 </script>
