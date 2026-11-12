@@ -531,7 +531,7 @@ def scan_questions(qdir):
 - [ ] **Step 3: 运行自测**
 
 Run: `python build.py --selftest`
-Expected: 之前的用例 + T4 解析用例(7 个)+ 加固用例(T3-6~T3-8,4 个断言)全部 PASS,退出码 0。
+Expected: 之前的用例 + T4 解析用例(8 个)+ 加固用例(T3-6~T3-8,4 个断言)全部 PASS,退出码 0。
 
 - [ ] **Step 4: Commit**
 
