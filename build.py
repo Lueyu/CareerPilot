@@ -182,6 +182,83 @@ def validate(questions, topics):
     return errors, warnings
 
 
+# ==== 生成与构建 ====
+
+from datetime import datetime, timezone
+
+
+def topic_rank(code):
+    return TOPIC_CODES.index(code)
+
+
+def sort_questions(questions):
+    return sorted(questions, key=lambda q: (topic_rank(q["topic"]), q["id"]))
+
+
+def generate_js(questions, topics, top10_html):
+    now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    payload = {
+        "version": 1,
+        "builtAt": now,
+        "topics": [{"code": t["code"], "name": t["name"], "icon": t.get("icon", ""),
+                    "order": t["order"], "desc": t.get("desc", "")} for t in topics],
+        "top10": top10_html,
+        "questions": [
+            {"id": q["id"], "topic": q["topic"], "title": q["title"], "kw": q["kw"],
+             "difficulty": int(q["difficulty"]), "tags": q["tags"], "company": q["company"],
+             "source": q["source"], "html": q["html"], "mcq": q["mcq"]}
+            for q in questions
+        ],
+    }
+    return "window.QB = " + json.dumps(payload, ensure_ascii=False,
+                                       separators=(",", ":")) + ";\n"
+
+
+def write_atomic(path, text):
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(path)
+
+
+def load_top10(extra_dir):
+    p = extra_dir / "top10.html"
+    return p.read_text(encoding="utf-8") if p.exists() else ""
+
+
+def summary(questions, warnings, out_path):
+    counts, mcq_total = {}, 0
+    for q in questions:
+        counts[q["topic"]] = counts.get(q["topic"], 0) + 1
+        if q["mcq"]:
+            mcq_total += 1
+    print("== build summary ==")
+    for code in TOPIC_CODES:
+        print("  %-8s %3d" % (code, counts.get(code, 0)))
+    print("  TOTAL    %3d | MCQ %d/%d (%.0f%%) | data.js %.1f KB | warnings %d"
+          % (len(questions), mcq_total, len(questions),
+             100.0 * mcq_total / max(1, len(questions)),
+             out_path.stat().st_size / 1024, len(warnings)))
+    for w in warnings:
+        print("  warn: %s" % w)
+
+
+def build(out=OUT, qdir=QDIR, extra=EXTRA):
+    if not qdir.exists():
+        raise SystemExit("missing %s ; run --migrate first" % qdir)
+    topics = load_topics()
+    questions = scan_questions(qdir)
+    errors, warnings = validate(questions, topics)
+    if errors:
+        print("== validate FAILED (%d) ==" % len(errors))
+        for e in errors:
+            print("  error: %s" % e)
+        raise SystemExit(1)
+    questions = sort_questions(questions)
+    write_atomic(out, generate_js(questions, topics, load_top10(extra)))
+    summary(questions, warnings, out)
+    print("wrote %s" % out)
+
+
 # ==== selftest ====
 
 
@@ -351,11 +428,33 @@ def selftest():
     ok &= assert_eq("validate:mcq-bool-answer", any("answer" in x for x in e), True)
     e, w = validate([mkq("rag-001", "rag", mcq=[])], topics)
     ok &= assert_eq("validate:mcq-warn", any("无 MCQ" in x for x in w), True)
+    # ---- T6 生成与原子写 ----
+    with tempfile.TemporaryDirectory() as td:
+        tdp = Path(td)
+        qdir = tdp / "questions"
+        (qdir / "rag").mkdir(parents=True)
+        (qdir / "harness").mkdir(parents=True)
+        (qdir / "rag" / "001.html").write_text(
+            '<article class="q" id="rag-001" data-topic="rag" data-title="R1" data-kw="k" '
+            'data-difficulty="2" data-tags="a" data-source="P1Q1">A</article>', encoding="utf-8")
+        (qdir / "rag" / "002.html").write_text(
+            '<article class="q" id="rag-002" data-topic="rag" data-title="R2" data-kw="k" '
+            'data-difficulty="5" data-tags="a" data-source="P1Q2">B</article>', encoding="utf-8")
+        (qdir / "harness" / "001.html").write_text(
+            '<article class="q" id="harness-001" data-topic="harness" data-title="H1" '
+            'data-kw="k" data-difficulty="1" data-tags="a" data-source="P2Q1">C</article>',
+            encoding="utf-8")
+        out = tdp / "data.js"
+        build(out=out, qdir=qdir, extra=tdp / "extra")
+        js = out.read_text(encoding="utf-8")
+        ok &= assert_eq("build:prefix", js.startswith("window.QB = "), True)
+        ok &= assert_eq("build:order", js.index('"rag-001"') < js.index('"rag-002"') <
+                        js.index('"harness-001"'), True)
+        ok &= assert_eq("build:tmp-cleaned", (tdp / "data.js.tmp").exists(), False)
     return ok
 
 
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
         sys.exit(0 if selftest() else 1)
-    print("build/migrate 未接线(后续任务实现);当前可用:python build.py --selftest")
-    sys.exit(2)
+    build()
