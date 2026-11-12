@@ -314,6 +314,8 @@ def selftest():
     ok &= assert_eq("validate:bad-id-format", any("三位序号" in x for x in e), True)
     e, w = validate([mkq("sys-001", "rag")], topics)
     ok &= assert_eq("validate:id-topic-mismatch", any("不一致" in x for x in e), True)
+    e, w = validate([mkq("rag-002", "rag", path="content/questions/rag/003.html")], topics)
+    ok &= assert_eq("validate:path-mismatch", any("id 与文件路径不符" in x for x in e), True)
     badmcq = [{"q": "q?", "options": ["a", "b", "c"], "answer": 0, "explain": "e"}]
     e, w = validate([mkq("rag-001", "rag", mcq=badmcq)], topics)
     ok &= assert_eq("validate:mcq-options", any("options" in x for x in e), True)
