@@ -554,10 +554,50 @@ function render404(){
   view.innerHTML = '<div class="empty">页面不存在<br><br><a style="color:var(--accent)" href="#/">回仪表盘</a></div>';
 }
 
-/* ---------- 临时视图(Task 12/13 将完整替换) ---------- */
+/* ---------- 视图:主题 ---------- */
 function renderTopic(code){
-  view.innerHTML = '<div class="empty">主题视图(Task 12)</div>';
+  var t = topicByCode[code];
+  if(!t){ render404(); return; }
+  var qs = byTopic[code] || [];
+  var h = '<div class="crumb"><a href="#/">仪表盘</a> › ' + t.icon + ' ' + esc(t.name) + '</div>'
+        + '<h2 class="part-title">' + t.icon + ' ' + esc(t.name)
+        + '<span style="font-size:14px;color:var(--muted);font-weight:400">' + qs.length + ' 题</span></h2>'
+        + '<p class="part-sub">' + esc(t.desc) + '</p>'
+        + '<div class="filter-row" id="filter-row"></div>'
+        + '<div class="qlist" id="qlist"></div>';
+  view.innerHTML = h;
+  buildTopicList(code, 'all');
+  var defs = [['all', '全部'], ['unseen', '未学'], ['1', '模糊'], ['2', '熟练'], ['3', '精通'], ['seen', '已学']];
+  $('#filter-row').innerHTML = defs.map(function(d){
+    return '<button class="fchip' + (d[0] === 'all' ? ' on' : '') + '" data-f="' + d[0] + '">' + d[1] + '</button>';
+  }).join('');
+  $('#filter-row').addEventListener('click', function(e){
+    var b = e.target.closest('.fchip'); if(!b) return;
+    buildTopicList(code, b.getAttribute('data-f'));
+  });
 }
+function buildTopicList(code, filter){
+  var qs = (byTopic[code] || []).slice();
+  if(filter === 'unseen') qs = qs.filter(function(q){ return Store.level(q.id) === 0; });
+  else if(filter === 'seen') qs = qs.filter(function(q){ return Store.level(q.id) > 0; });
+  else if(filter !== 'all') qs = qs.filter(function(q){ return Store.level(q.id) === +filter; });
+  qs.sort(function(a, b){ return nn(a.id) - nn(b.id); });
+  var row = $('#qlist'); if(!row) return;
+  row.innerHTML = qs.length ? '' : '<div class="empty">该筛选下没有题目</div>';
+  qs.forEach(function(q){
+    var lv = Store.level(q.id);
+    var a = el('a', 'qrow');
+    a.href = '#/q/' + q.id;
+    a.innerHTML = '<span class="no">' + ('' + nn(q.id)).padStart(3, '0') + '</span>'
+                + '<span class="t">' + esc(q.title) + '</span>'
+                + '<span style="color:#f59e0b;font-size:12px;white-space:nowrap">' + '⭐'.repeat(q.difficulty) + '</span>'
+                + '<span class="lvdot lv' + lv + '"></span>';
+    row.appendChild(a);
+  });
+  $$('#filter-row .fchip').forEach(function(c){ c.classList.toggle('on', c.getAttribute('data-f') === filter); });
+}
+
+/* ---------- 临时视图(Task 13 将完整替换) ---------- */
 function renderQuestion(qid){
   view.innerHTML = '<div class="empty">题目视图(Task 13)</div>';
 }
@@ -613,7 +653,7 @@ $('#btn-print').onclick = function(){ window.print(); };
 $('#backtop').onclick = function(){ window.scrollTo({ top: 0, behavior: 'smooth' }); };
 $('#btn-menu').onclick = function(){ $('#sidenav').classList.toggle('open'); };
 $('#sidenav').addEventListener('click', function(e){
-  if(e.target.tagName === 'A' && window.innerWidth <= 960) $('#sidenav').classList.remove('open');
+  if(e.target.closest('a') && window.innerWidth <= 960) $('#sidenav').classList.remove('open');
 });
 window.addEventListener('hashchange', route);
 window.addEventListener('scroll', updateProgress);
@@ -622,6 +662,31 @@ document.addEventListener('keydown', function(e){ if(window.__ibKeyHandler) wind
 
 /* ---------- 调试/测试句柄(受控暴露) ---------- */
 window.__ib = { Store: Store, FileSync: FileSync, refresh: refreshAfterStore };
+
+/* ---------- 全局搜索 ---------- */
+var pop = $('#search-pop');
+$('#search').addEventListener('input', function(){
+  var kw = this.value.trim().toLowerCase();
+  if(!kw){ pop.classList.remove('open'); pop.innerHTML = ''; refreshCount(TOTAL); return; }
+  var hits = QB.questions.filter(function(q){
+    return (q.title + ' ' + q.kw + ' ' + q.source + ' ' + q.id).toLowerCase().indexOf(kw) !== -1;
+  }).slice(0, 20);
+  pop.innerHTML = hits.length ? '' : '<div class="empty" style="padding:18px 0">没有匹配的题目</div>';
+  hits.forEach(function(q){
+    var a = el('a', 'sr-item');
+    a.href = '#/q/' + q.id;
+    a.innerHTML = '<small>' + q.id + '</small>' + esc(q.title);
+    pop.appendChild(a);
+  });
+  pop.classList.add('open');
+  refreshCount(hits.length);
+});
+pop.addEventListener('click', function(e){
+  if(e.target.closest('a')){ pop.classList.remove('open'); $('#search').value = ''; refreshCount(TOTAL); }
+});
+document.addEventListener('click', function(e){
+  if(!e.target.closest('#search-pop') && e.target !== $('#search')) pop.classList.remove('open');
+});
 })();
 </script>
 </body>
