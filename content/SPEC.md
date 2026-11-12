@@ -78,8 +78,8 @@
 7. **MCQ 必须有**:2~3 道单选,options 恰 4 项,answer 为 0..3 的下标,explain 非空;
    干扰项要"像样"(利用常见误解出题),解析要说清对错原因。
 8. **难度**:data-difficulty 取 1~5,与 stars 的 ⭐ 数一致。
-9. **正文禁止字面 `<article` 标签**:题卡正文(含 pre.code 代码示例)中如需展示该标签,
-   一律写转义形式 `&lt;article&gt;`;嵌套 article 会导致构建直接报错。
+9. **正文禁止字面 `<article` / `</article` 标签**:题卡正文(含 pre.code 代码示例)中如需展示这些
+   标签,一律写转义形式 `&lt;article&gt;` / `&lt;/article&gt;`;否则构建直接报错。
 
 ## 内容质量(面试满分答案标准)
 
