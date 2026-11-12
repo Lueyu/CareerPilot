@@ -324,12 +324,12 @@ var Store = {
       var raw = localStorage.getItem(LS_KEY);
       if(!raw) return;
       var d = JSON.parse(raw);
-      if(d && d.items){ d.last = d.last || null; d.version = d.version || 1; this.data = d; }
+      if(d && d.items && typeof d.items === 'object'){ d.last = d.last || null; d.version = d.version || 1; this.data = d; }
     } catch(e){}
   },
   persist: function(){
     this.data.updatedAt = isoNow();
-    try { localStorage.setItem(LS_KEY, JSON.stringify(this.data)); } catch(e){}
+    try { localStorage.setItem(LS_KEY, JSON.stringify(this.data)); } catch(e){ if(window.console) console.warn('localStorage write failed:', e); }
     FileSync.onStoreChange();
   },
   item: function(qid){
@@ -398,7 +398,15 @@ var FileSync = {
     if(!this.available){ this.setStatus('local'); return; }
     this.setStatus('pending');
     showOpenFilePicker({ types: [{ description: '题库笔记', accept: { 'application/json': ['.json'] } }] })
-      .then(function(arr){ self.handle = arr[0]; return self.idb('readwrite', 'notes-handle', arr[0]); })
+      .then(function(arr){
+        if(arr[0].name !== 'notes.json'){
+          alert('请选择仓库根目录的 notes.json(当前选中的是 ' + arr[0].name + ')');
+          var err = new Error('wrong file'); err.name = 'AbortError';
+          throw err;
+        }
+        self.handle = arr[0];
+        return self.idb('readwrite', 'notes-handle', arr[0]);
+      })
       .then(function(){ return self.readMerge(); })
       .then(function(){ self.setStatus('synced'); })
       .catch(function(e){ self.setStatus(e && e.name === 'AbortError' ? 'off' : 'error'); });
@@ -440,13 +448,17 @@ var FileSync = {
   },
   writeNow: function(){
     var self = this;
+    this.timer = null;
     if(!this.handle) return;
     this.handle.createWritable()
       .then(function(w){ return w.write(JSON.stringify(Store.data)).then(function(){ return w.close(); }); })
       .then(function(){ self.setStatus('synced'); })
       .catch(function(){ self.setStatus('error'); });
   },
-  flush: function(){ if(this.timer){ clearTimeout(this.timer); this.timer = null; this.writeNow(); } },
+  flush: function(){
+    if(this.timer){ clearTimeout(this.timer); this.timer = null; }
+    if(this.handle && (this.status === 'dirty' || this.status === 'error')) this.writeNow();
+  },
   export: function(){
     var blob = new Blob([JSON.stringify(Store.data)], { type: 'application/json' });
     var a = document.createElement('a');
@@ -461,8 +473,8 @@ var FileSync = {
       var d;
       try { d = JSON.parse(txt); } catch(e){ throw e; }
       if(!d || !d.items) throw new Error('bad');
-      if(Store.merge(d)){ Store.persist(); refreshAfterStore(); }
-      self.setStatus(self.handle ? 'dirty' : 'local');
+      if(Store.merge(d)){ Store.persist(); refreshAfterStore(); self.setStatus(self.handle ? 'dirty' : 'local'); }
+      else{ self.setStatus(self.handle ? 'synced' : 'local'); }
     }).catch(function(){ alert('导入失败:文件不是有效的 notes.json 备份'); });
   }
 };
