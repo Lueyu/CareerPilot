@@ -248,7 +248,7 @@
 .sr-item:hover{background:var(--accent-light)}
 .sr-item small{color:var(--muted);margin-right:8px;font-size:11.5px}
 .empty{color:var(--muted);text-align:center;padding:40px 0}
-.continue-row{display:block;margin:14px 0;text-decoration:none}
+.continue-row{margin:14px 0;text-decoration:none;display:flex}
 </style>
 <script>
 (function(){try{var t=localStorage.getItem('ib-theme');if(!t){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}if(t==='dark'){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();
@@ -336,7 +336,10 @@ var Store = {
     if(!this.data.items[qid]) this.data.items[qid] = { level: 0, note: '', updated: null, history: [] };
     return this.data.items[qid];
   },
-  level: function(qid){ var it = this.data.items[qid]; return it ? it.level : 0; },
+  level: function(qid){
+    var it = this.data.items[qid], l = it && it.level;
+    return (typeof l === 'number' && l >= 0 && l <= 3) ? Math.floor(l) : 0;
+  },
   setLevel: function(qid, level, mode){
     var it = this.item(qid);
     it.level = level; it.updated = isoNow();
@@ -516,7 +519,7 @@ function renderHome(){
   QB.questions.forEach(function(q){ lv[Store.level(q.id)]++; });
   var pct = TOTAL ? mastered / TOTAL : 0, C = 2 * Math.PI * 52;
   var h = '<section class="hero"><h1>AI Agent 面试题库 v2</h1>'
-        + '<p>8 主题 · ' + TOTAL + ' 题 · 一页一题,笔记与熟练度自动同步到 notes.json。</p>'
+        + '<p>' + QB.topics.length + ' 主题 · ' + TOTAL + ' 题 · 一页一题,笔记与熟练度自动同步到 notes.json。</p>'
         + '<div class="pill-row"><span class="pill">每天刷几题</span><span class="pill">错题标模糊</span>'
         + '<span class="pill">考前看 Top10</span></div></section>';
   h += '<div class="ring-wrap"><svg width="120" height="120" viewBox="0 0 120 120">'
@@ -570,7 +573,7 @@ function route(){
   else if(h.indexOf('#/q/') === 0) renderQuestion(h.slice('#/q/'.length));
   else render404();
   setActiveNav(h);
-  window.scrollTo(0, 0);
+  window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   updateProgress();
 }
 /* ---------- 公共 ---------- */
@@ -618,7 +621,7 @@ window.addEventListener('pagehide', function(){ FileSync.flush(); });
 document.addEventListener('keydown', function(e){ if(window.__ibKeyHandler) window.__ibKeyHandler(e); });
 
 /* ---------- 调试/测试句柄(受控暴露) ---------- */
-window.__ib = { Store: Store, FileSync: FileSync };
+window.__ib = { Store: Store, FileSync: FileSync, refresh: refreshAfterStore };
 })();
 </script>
 </body>
