@@ -83,10 +83,16 @@ MCQ_RE = re.compile(r'<script\s+type="application/json"\s*>\s*(\[.*?\])\s*</scri
 
 
 def parse_question_file(path, text):
-    """解析单个题目源文件,返回 dict;失败抛 ValueError(带文件名)。"""
-    arts = find_articles(text)
+    """解析单个题目源文件,返回 dict;失败抛 ValueError(带文件名)。
+    注意:content/extra/top10.html 是片段不是题目文件,不适用本函数(缺 data-topic 会报错,属预期)。"""
+    try:
+        arts = find_articles(text)
+    except ValueError as e:
+        raise ValueError("%s: %s" % (path, e))
     if len(arts) != 1:
         raise ValueError("%s: 文件必须恰好包含 1 个 <article>,实际 %d 个" % (path, len(arts)))
+    if text.count("</article>") != 1:
+        raise ValueError("%s: 检出字面 </article>(可能截断正文),示例中请写 &lt;/article&gt;" % path)
     tag, attrs, body = arts[0]
     for need in ("id", "data-topic", "data-title", "data-kw"):
         if need not in attrs:
@@ -176,7 +182,7 @@ def selftest():
         q = parse_question_file(tdp / "rag-001.html", good)
         ok &= assert_eq("parse:id", q["id"], "rag-001")
         ok &= assert_eq("parse:tags", q["tags"], ["RAG", "缓存"])
-        ok &= assert_eq("parse:html", "内容" in q["html"], True)
+        ok &= assert_eq("parse:html", q["html"], "<body>内容")
         ok &= assert_eq("parse:mcq", q["mcq"][0]["answer"], 1)
         # 无 MCQ 的文件允许(返回空列表)
         nomcq = good.split("<script")[0]
@@ -201,6 +207,26 @@ def selftest():
             ok &= assert_eq("parse:missing-attr-raises", False, True)
         except ValueError:
             ok &= assert_eq("parse:missing-attr-raises", True, True)
+        # 扫描器错误必须带文件路径
+        try:
+            parse_question_file(tdp / "bad.html",
+                                '<article id="a">正文<article id="b">X</article>尾部</article>')
+            ok &= assert_eq("parse:scanner-error-path", False, True)
+        except ValueError as ex:
+            ok &= assert_eq("parse:scanner-error-path",
+                            str(ex).startswith(str(tdp / "bad.html")), True)
+        # 正文含字面 </article> 拒绝(防静默截断)
+        try:
+            parse_question_file(tdp / "bad.html", '<article id="c">A</article> 尾巴</article>')
+            ok &= assert_eq("parse:literal-close-raises", False, True)
+        except ValueError:
+            ok &= assert_eq("parse:literal-close-raises", True, True)
+        # MCQ 字符串含 ] 不会被截断(lazy 匹配由 </script> 锚定)
+        mcqbr = ('<article class="q" id="rag-001" data-topic="rag" data-title="题一" data-kw="k">'
+                 '正文</article>\n<script type="application/json">\n[{"q":"x[见]附录?","options":'
+                 '["a","b","c","d"],"answer":0,"explain":"e[1]"}]\n</script>\n')
+        q3 = parse_question_file(tdp / "rag-001.html", mcqbr)
+        ok &= assert_eq("parse:mcq-bracket", q3["mcq"][0]["explain"], "e[1]")
     # ---- T3-6~T3-8 扫描器加固 ----
     arts3 = find_articles('<articlex id="fake">x</articlex><article id="ok">y</article>')
     ok &= assert_eq("find_articles:prefix-skip", [a[1]["id"] for a in arts3], ["ok"])
