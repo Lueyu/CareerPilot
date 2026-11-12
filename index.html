@@ -363,7 +363,7 @@ var Store = {
 /* ---------- FileSync:notes.json 直写(File System Access API) ---------- */
 var FileSync = {
   available: ('showOpenFilePicker' in window),
-  handle: null, status: 'off', timer: null,
+  handle: null, status: 'off', timer: null, writing: false,
   setStatus: function(s){
     this.status = s;
     var b = $('#sync-badge'); if(!b) return;
@@ -400,19 +400,36 @@ var FileSync = {
     var self = this;
     if(!this.available){ this.setStatus('local'); return; }
     this.setStatus('pending');
-    showOpenFilePicker({ types: [{ description: '题库笔记', accept: { 'application/json': ['.json'] } }] })
-      .then(function(arr){
-        if(arr[0].name !== 'notes.json'){
-          alert('请选择仓库根目录的 notes.json(当前选中的是 ' + arr[0].name + ')');
-          var err = new Error('wrong file'); err.name = 'AbortError';
-          throw err;
-        }
-        self.handle = arr[0];
-        return self.idb('readwrite', 'notes-handle', arr[0]);
-      })
-      .then(function(){ return self.readMerge(); })
-      .then(function(){ self.setStatus('synced'); })
-      .catch(function(e){ self.setStatus(e && e.name === 'AbortError' ? 'off' : 'error'); });
+    var tryPicker = function(){
+      showOpenFilePicker({ types: [{ description: '题库笔记', accept: { 'application/json': ['.json'] } }] })
+        .then(function(arr){
+          if(arr[0].name !== 'notes.json'){
+            alert('请选择仓库根目录的 notes.json(当前选中的是 ' + arr[0].name + ')');
+            var err = new Error('wrong file'); err.name = 'AbortError';
+            throw err;
+          }
+          self.handle = arr[0];
+          return self.idb('readwrite', 'notes-handle', arr[0]);
+        })
+        .then(function(){ return self.readMerge(); })
+        .then(function(){ self.setStatus('synced'); })
+        .catch(function(e){ self.setStatus(e && e.name === 'AbortError' ? 'off' : 'error'); });
+    };
+    if(this.handle){
+      this.handle.requestPermission({ mode: 'readwrite' }).then(function(p){
+        if(p === 'granted'){ return self.readMerge().then(function(){ self.setStatus('synced'); }); }
+        tryPicker();
+      }).catch(function(){ tryPicker(); });
+    } else {
+      this.idb('readonly', 'notes-handle', undefined).then(function(h){
+        if(!h){ tryPicker(); return; }
+        self.handle = h;
+        return h.requestPermission({ mode: 'readwrite' }).then(function(p){
+          if(p === 'granted'){ return self.readMerge().then(function(){ self.setStatus('synced'); }); }
+          tryPicker();
+        });
+      }).catch(function(){ tryPicker(); });
+    }
   },
   autoAttach: function(){
     var self = this;
@@ -452,11 +469,12 @@ var FileSync = {
   writeNow: function(){
     var self = this;
     this.timer = null;
-    if(!this.handle) return;
+    if(!this.handle || this.writing) return;
+    this.writing = true;
     this.handle.createWritable()
       .then(function(w){ return w.write(JSON.stringify(Store.data)).then(function(){ return w.close(); }); })
-      .then(function(){ self.setStatus('synced'); })
-      .catch(function(){ self.setStatus('error'); });
+      .then(function(){ self.writing = false; self.setStatus('synced'); })
+      .catch(function(){ self.writing = false; self.setStatus('error'); });
   },
   flush: function(){
     if(this.timer){ clearTimeout(this.timer); this.timer = null; }
@@ -772,6 +790,26 @@ window.addEventListener('hashchange', route);
 window.addEventListener('scroll', updateProgress);
 window.addEventListener('pagehide', function(){ flushNote(); FileSync.flush(); });
 document.addEventListener('keydown', function(e){ if(window.__ibKeyHandler) window.__ibKeyHandler(e); });
+
+/* ---------- 同步菜单 ---------- */
+var menu = $('#sync-menu');
+$('#sync-badge').onclick = function(e){ e.stopPropagation(); menu.classList.toggle('open'); };
+document.addEventListener('click', function(e){
+  if(!e.target.closest('#sync-menu') && e.target !== $('#sync-badge')) menu.classList.remove('open');
+});
+menu.addEventListener('click', function(e){
+  var b = e.target.closest('button'); if(!b) return;
+  menu.classList.remove('open');
+  var a = b.getAttribute('data-a');
+  if(a === 'connect') FileSync.connect();
+  else if(a === 'write') FileSync.writeNow();
+  else if(a === 'export') FileSync.export();
+  else if(a === 'import') $('#file-import').click();
+});
+$('#file-import').addEventListener('change', function(){
+  if(this.files && this.files[0]) FileSync.importFile(this.files[0]);
+  this.value = '';
+});
 
 /* ---------- 调试/测试句柄(受控暴露) ---------- */
 window.__ib = { Store: Store, FileSync: FileSync, refresh: refreshAfterStore };
