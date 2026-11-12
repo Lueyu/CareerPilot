@@ -412,12 +412,12 @@ var FileSync = {
           return self.idb('readwrite', 'notes-handle', arr[0]);
         })
         .then(function(){ return self.readMerge(); })
-        .then(function(){ self.setStatus('synced'); })
-        .catch(function(e){ self.setStatus(e && e.name === 'AbortError' ? 'off' : 'error'); });
+        .then(function(ok){ if(ok) self.setStatus('synced'); })
+        .catch(function(e){ if(e && e.name === 'AbortError'){ self.handle = null; self.setStatus('off'); } else { self.setStatus('error'); } });
     };
     if(this.handle){
       this.handle.requestPermission({ mode: 'readwrite' }).then(function(p){
-        if(p === 'granted'){ return self.readMerge().then(function(){ self.setStatus('synced'); }); }
+        if(p === 'granted'){ return self.readMerge().then(function(ok){ if(ok) self.setStatus('synced'); }); }
         tryPicker();
       }).catch(function(){ tryPicker(); });
     } else {
@@ -425,7 +425,7 @@ var FileSync = {
         if(!h){ tryPicker(); return; }
         self.handle = h;
         return h.requestPermission({ mode: 'readwrite' }).then(function(p){
-          if(p === 'granted'){ return self.readMerge().then(function(){ self.setStatus('synced'); }); }
+          if(p === 'granted'){ return self.readMerge().then(function(ok){ if(ok) self.setStatus('synced'); }); }
           tryPicker();
         });
       }).catch(function(){ tryPicker(); });
@@ -439,7 +439,7 @@ var FileSync = {
         if(!h){ self.setStatus('off'); return 'off'; }
         self.handle = h;
         return h.queryPermission({ mode: 'readwrite' }).then(function(p){
-          if(p === 'granted'){ return self.readMerge().then(function(){ self.setStatus('synced'); return 'synced'; }); }
+          if(p === 'granted'){ return self.readMerge().then(function(ok){ if(ok){ self.setStatus('synced'); } return self.status; }); }
           self.setStatus('off'); return 'off';
         });
       })
@@ -793,7 +793,7 @@ document.addEventListener('keydown', function(e){ if(window.__ibKeyHandler) wind
 
 /* ---------- 同步菜单 ---------- */
 var menu = $('#sync-menu');
-$('#sync-badge').onclick = function(e){ e.stopPropagation(); menu.classList.toggle('open'); };
+$('#sync-badge').onclick = function(e){ e.stopPropagation(); pop.classList.remove('open'); menu.classList.toggle('open'); };
 document.addEventListener('click', function(e){
   if(!e.target.closest('#sync-menu') && e.target !== $('#sync-badge')) menu.classList.remove('open');
 });
@@ -845,10 +845,13 @@ document.addEventListener('click', function(e){
   if(!e.target.closest('#search-pop') && e.target !== $('#search')) pop.classList.remove('open');
 });
 document.addEventListener('keydown', function(e){
-  if(e.key === 'Escape' && pop.classList.contains('open')){
-    pop.classList.remove('open');
-    $('#search').value = '';
-    refreshCount(TOTAL);
+  if(e.key === 'Escape'){
+    if(pop.classList.contains('open')){
+      pop.classList.remove('open');
+      $('#search').value = '';
+      refreshCount(TOTAL);
+    }
+    menu.classList.remove('open');
   }
 });
 })();
