@@ -128,6 +128,54 @@ def scan_questions(qdir):
     return out
 
 
+# ==== 校验 ====
+
+
+def validate(questions, topics):
+    """返回 (errors, warnings)。errors 非空则拒绝构建。"""
+    errors, warnings = [], []
+    codes = {t["code"] for t in topics}
+    seen = {}
+    for q in questions:
+        f = q["file"]
+        if q["id"] in seen:
+            errors.append("%s: id '%s' 重复(已出现在 %s)" % (f, q["id"], seen[q["id"]]))
+        else:
+            seen[q["id"]] = f
+        m = re.match(r"^(%s)-(\d{3})$" % "|".join(TOPIC_CODES), q["id"])
+        if not m:
+            errors.append("%s: id '%s' 不符合 {主题}-{三位序号} 规范" % (f, q["id"]))
+        else:
+            expect_tail = "%s/%s.html" % (m.group(1), m.group(2))
+            if not str(f).replace("\\", "/").endswith(expect_tail):
+                errors.append("%s: id 与文件路径不符(期望位于 %s)" % (f, expect_tail))
+            if m.group(1) != q["topic"]:
+                errors.append("%s: id 前缀 %s 与 data-topic %s 不一致" % (f, m.group(1), q["topic"]))
+        if q["topic"] not in codes:
+            errors.append("%s: 未知主题 '%s'" % (f, q["topic"]))
+        if q["difficulty"] not in ("1", "2", "3", "4", "5"):
+            errors.append("%s: data-difficulty 必须为 1..5,实际 %r" % (f, q["difficulty"]))
+        if not q["title"].strip():
+            errors.append("%s: data-title 为空" % f)
+        if not q["kw"].strip():
+            warnings.append("%s: data-kw 为空" % q["id"])
+        if not q["mcq"]:
+            warnings.append("%s: 无 MCQ" % q["id"])
+        for i, item in enumerate(q["mcq"]):
+            opts = item.get("options")
+            ans = item.get("answer")
+            if not isinstance(opts, list) or len(opts) != 4 or \
+                    not all(isinstance(o, str) and o.strip() for o in opts):
+                errors.append("%s: MCQ#%d options 必须为 4 个非空字符串" % (q["id"], i))
+            if not isinstance(ans, int) or ans not in (0, 1, 2, 3):
+                errors.append("%s: MCQ#%d answer 必须为 0..3 整数" % (q["id"], i))
+            if not str(item.get("q", "")).strip():
+                errors.append("%s: MCQ#%d 缺少题干" % (q["id"], i))
+            if not str(item.get("explain", "")).strip():
+                errors.append("%s: MCQ#%d 缺少 explain" % (q["id"], i))
+    return errors, warnings
+
+
 # ==== selftest ====
 
 
@@ -245,6 +293,35 @@ def selftest():
         ok &= assert_eq("scan_tag:unterminated-raises", False, True)
     except ValueError as ex:
         ok &= assert_eq("scan_tag:unterminated-raises", "article" in str(ex), True)
+    # ---- T5 校验规则 ----
+    def mkq(qid, topic, diff="3", path=None, mcq=None):
+        return {"file": path or ("content/questions/%s/%s.html" % (topic, qid.split("-")[1])),
+                "id": qid, "topic": topic, "title": "t", "kw": "k", "difficulty": diff,
+                "tags": [], "company": "", "source": "", "html": "x",
+                "mcq": mcq if mcq is not None else
+                [{"q": "q?", "options": ["a", "b", "c", "d"], "answer": 0, "explain": "e"}]}
+    topics = load_topics()
+    base = [mkq("rag-001", "rag"), mkq("harness-001", "harness")]
+    e, w = validate(base, topics)
+    ok &= assert_eq("validate:clean", e, [])
+    e, w = validate([mkq("rag-001", "rag"), mkq("rag-001", "rag", path="other.html")], topics)
+    ok &= assert_eq("validate:dup-id", any("重复" in x for x in e), True)
+    e, w = validate([mkq("rag-001", "wrongtopic")], topics)
+    ok &= assert_eq("validate:bad-topic", any("未知主题" in x for x in e), True)
+    e, w = validate([mkq("rag-001", "rag", diff="6")], topics)
+    ok &= assert_eq("validate:bad-diff", any("difficulty" in x for x in e), True)
+    e, w = validate([mkq("rag-99", "rag")], topics)
+    ok &= assert_eq("validate:bad-id-format", any("三位序号" in x for x in e), True)
+    e, w = validate([mkq("sys-001", "rag")], topics)
+    ok &= assert_eq("validate:id-topic-mismatch", any("不一致" in x for x in e), True)
+    badmcq = [{"q": "q?", "options": ["a", "b", "c"], "answer": 0, "explain": "e"}]
+    e, w = validate([mkq("rag-001", "rag", mcq=badmcq)], topics)
+    ok &= assert_eq("validate:mcq-options", any("options" in x for x in e), True)
+    badans = [{"q": "q?", "options": ["a", "b", "c", "d"], "answer": 9, "explain": "e"}]
+    e, w = validate([mkq("rag-001", "rag", mcq=badans)], topics)
+    ok &= assert_eq("validate:mcq-answer", any("answer" in x for x in e), True)
+    e, w = validate([mkq("rag-001", "rag", mcq=[])], topics)
+    ok &= assert_eq("validate:mcq-warn", any("无 MCQ" in x for x in w), True)
     return ok
 
 
