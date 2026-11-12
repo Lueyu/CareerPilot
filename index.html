@@ -597,9 +597,87 @@ function buildTopicList(code, filter){
   $$('#filter-row .fchip').forEach(function(c){ c.classList.toggle('on', c.getAttribute('data-f') === filter); });
 }
 
-/* ---------- 临时视图(Task 13 将完整替换) ---------- */
+/* ---------- 视图:题目 ---------- */
 function renderQuestion(qid){
-  view.innerHTML = '<div class="empty">题目视图(Task 13)</div>';
+  var q = byId[qid];
+  if(!q){ render404(); return; }
+  Store.visit(q.id);
+  var t = topicByCode[q.topic];
+  var qs = byTopic[q.topic];
+  var i = qs.indexOf(q);
+  var h = '<div class="crumb"><a href="#/">仪表盘</a> › <a href="#/topic/' + q.topic + '">'
+        + t.icon + ' ' + esc(t.name) + '</a> › 第 ' + nn(q.id) + ' 题</div>'
+        + '<article class="q">' + q.html + '</article>'
+        + '<div class="qnav"><button id="btn-prev"' + (i === 0 ? ' disabled' : '') + '>← 上一题</button>'
+        + '<span class="qpos">' + (i + 1) + ' / ' + qs.length + '</span>'
+        + '<button id="btn-next"' + (i === qs.length - 1 ? ' disabled' : '') + '>下一题 →</button></div>'
+        + studyPanelHTML(q);
+  view.innerHTML = h;
+  injectFolToggles();
+  $('#btn-prev').onclick = function(){ if(i > 0) location.hash = '#/q/' + qs[i - 1].id; };
+  $('#btn-next').onclick = function(){ if(i < qs.length - 1) location.hash = '#/q/' + qs[i + 1].id; };
+  bindStudyPanel(q);
+}
+
+function injectFolToggles(){
+  /* 复刻旧站:为每个"面试官追问"块注入 展开/收起全部 按钮 */
+  $$('#view .block.fol').forEach(function(fol){
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'fol-toggle';
+    btn.textContent = '展开全部追问';
+    btn.addEventListener('click', function(){
+      var ds = $$('.qa', fol);
+      var anyClosed = ds.some(function(d){ return !d.open; });
+      ds.forEach(function(d){ d.open = anyClosed; });
+      btn.textContent = anyClosed ? '收起全部追问' : '展开全部追问';
+    });
+    var badge = fol.querySelector('.badge');
+    if(badge) badge.insertAdjacentElement('afterend', btn);
+  });
+}
+
+function studyPanelHTML(q){
+  var it = Store.data.items[q.id] || { level: 0, note: '' };
+  var names = ['未学', '模糊', '熟练', '精通'];
+  var btns = names.map(function(n, ix){
+    return '<button class="lv-btn' + (it.level === ix ? ' on-' + ix : '') + '" data-lv="' + ix + '">'
+         + n + ' <span class="kbd">' + (ix + 1) + '</span></button>';
+  }).join('');
+  return '<div class="study-panel"><div class="level-btns" id="level-btns">' + btns + '</div>'
+       + '<textarea class="notebox" id="notebox" placeholder="记下你的理解、口播要点、踩过的坑…(自动保存,同步到 notes.json)">' + esc(it.note || '') + '</textarea>'
+       + '<div class="note-meta"><span>←/→ 切题 · 数字键 1-4 评熟练度</span><span id="note-status"></span></div></div>';
+}
+
+function bindStudyPanel(q){
+  $('#level-btns').addEventListener('click', function(e){
+    var b = e.target.closest('.lv-btn'); if(!b) return;
+    setLevelUI(q, +b.getAttribute('data-lv'), 'manual');
+  });
+  var box = $('#notebox'), timer = null;
+  box.addEventListener('input', function(){
+    clearTimeout(timer);
+    timer = setTimeout(function(){ Store.setNote(q.id, box.value); noteStatus(); }, 400);
+  });
+  window.__ibKeyHandler = function(e){
+    if(e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT')) return;
+    if(e.key === 'ArrowLeft'){ var p = $('#btn-prev'); if(p && !p.disabled) p.click(); }
+    else if(e.key === 'ArrowRight'){ var nx = $('#btn-next'); if(nx && !nx.disabled) nx.click(); }
+    else if(e.key >= '1' && e.key <= '4'){ setLevelUI(q, +e.key - 1, 'key'); }
+  };
+  noteStatus();
+}
+
+function setLevelUI(q, lv, mode){
+  Store.setLevel(q.id, lv, mode);
+  $$('#level-btns .lv-btn').forEach(function(b, i){
+    b.className = 'lv-btn' + (i === lv ? ' on-' + lv : '');
+  });
+  noteStatus(); refreshNav();
+}
+function noteStatus(){
+  var s = $('#note-status'); if(!s) return;
+  s.textContent = ({ synced: '笔记已同步', dirty: '保存中…' })[FileSync.status] || '本地保存';
 }
 
 /* ---------- 路由 ---------- */
@@ -621,6 +699,24 @@ function refreshAfterStore(){
   refreshNav();
   var h = location.hash || '#/';
   if(h === '#/' || h === '#' || h === ''){ renderHome(); return; }
+  if(h.indexOf('#/topic/') === 0){
+    $$('#qlist .qrow').forEach(function(r){
+      var id = (r.getAttribute('href') || '').split('/q/')[1];
+      if(!id || !byId[id]) return;
+      var dot = r.querySelector('.lvdot');
+      if(dot) dot.className = 'lvdot lv' + Store.level(id);
+    });
+    return;
+  }
+  var mq = h.match(/^#\/q\/([\w-]+)$/);
+  if(mq && byId[mq[1]]){
+    var q = byId[mq[1]];
+    var it = Store.data.items[q.id];
+    $$('#level-btns .lv-btn').forEach(function(b, i){
+      b.className = 'lv-btn' + (it && i === it.level ? ' on-' + it.level : '');
+    });
+    noteStatus();
+  }
 }
 function updateProgress(){
   var d = document.documentElement;
@@ -668,9 +764,10 @@ var pop = $('#search-pop');
 $('#search').addEventListener('input', function(){
   var kw = this.value.trim().toLowerCase();
   if(!kw){ pop.classList.remove('open'); pop.innerHTML = ''; refreshCount(TOTAL); return; }
-  var hits = QB.questions.filter(function(q){
+  var matched = QB.questions.filter(function(q){
     return (q.title + ' ' + q.kw + ' ' + q.source + ' ' + q.id).toLowerCase().indexOf(kw) !== -1;
-  }).slice(0, 20);
+  });
+  var hits = matched.slice(0, 20);
   pop.innerHTML = hits.length ? '' : '<div class="empty" style="padding:18px 0">没有匹配的题目</div>';
   hits.forEach(function(q){
     var a = el('a', 'sr-item');
@@ -678,14 +775,26 @@ $('#search').addEventListener('input', function(){
     a.innerHTML = '<small>' + q.id + '</small>' + esc(q.title);
     pop.appendChild(a);
   });
+  if(matched.length > hits.length){
+    var foot = el('div', 'empty', '共 ' + matched.length + ' 条,显示前 20 条');
+    foot.setAttribute('style', 'padding:10px 0;font-size:12px');
+    pop.appendChild(foot);
+  }
   pop.classList.add('open');
-  refreshCount(hits.length);
+  refreshCount(matched.length);
 });
 pop.addEventListener('click', function(e){
   if(e.target.closest('a')){ pop.classList.remove('open'); $('#search').value = ''; refreshCount(TOTAL); }
 });
 document.addEventListener('click', function(e){
   if(!e.target.closest('#search-pop') && e.target !== $('#search')) pop.classList.remove('open');
+});
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape' && pop.classList.contains('open')){
+    pop.classList.remove('open');
+    $('#search').value = '';
+    refreshCount(TOTAL);
+  }
 });
 })();
 </script>
