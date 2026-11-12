@@ -39,7 +39,7 @@ def scan_tag(src, start):
             elif c == ">":
                 return src[start:i + 1], i + 1
         i += 1
-    raise ValueError("unterminated tag at offset %d" % start)
+    raise ValueError("unterminated tag at offset %d: %s" % (start, src[start:start + 80]))
 
 
 def parse_attrs(tag):
@@ -48,18 +48,25 @@ def parse_attrs(tag):
 
 
 def find_articles(src):
-    """返回 [(tag, attrs, body)],按文档顺序;article 必须显式 </article> 闭合。"""
+    """返回 [(tag, attrs, body)],按文档顺序;article 必须显式 </article> 闭合。
+    正文内出现字面 <article 视为错误(嵌套会静默截断内容,必须报错)。"""
     out = []
     pos = 0
     while True:
         s = src.find("<article", pos)
         if s == -1:
             return out
+        nxt = src[s + 8:s + 9]
+        if nxt not in (" ", "\t", "\r", "\n", ">", "/"):
+            pos = s + 1
+            continue
         tag, after = scan_tag(src, s)
         e = src.find("</article>", after)
         if e == -1:
             raise ValueError("article 未闭合: %s" % tag[:80])
         body = src[after:e]
+        if "<article" in body:
+            raise ValueError("嵌套/字面 <article 检出,正文可能被截断: %s" % tag[:80])
         out.append((tag, parse_attrs(tag), body))
         pos = e + len("</article>")
 
@@ -67,6 +74,52 @@ def find_articles(src):
 def load_topics():
     data = json.loads((CONTENT / "topics.json").read_text(encoding="utf-8"))
     return sorted(data, key=lambda t: t["order"])
+
+
+# ==== 题目源文件解析 ====
+
+
+MCQ_RE = re.compile(r'<script\s+type="application/json"\s*>\s*(\[.*?\])\s*</script>', re.S)
+
+
+def parse_question_file(path, text):
+    """解析单个题目源文件,返回 dict;失败抛 ValueError(带文件名)。"""
+    arts = find_articles(text)
+    if len(arts) != 1:
+        raise ValueError("%s: 文件必须恰好包含 1 个 <article>,实际 %d 个" % (path, len(arts)))
+    tag, attrs, body = arts[0]
+    for need in ("id", "data-topic", "data-title", "data-kw"):
+        if need not in attrs:
+            raise ValueError("%s: article 缺少 %s 属性" % (path, need))
+    mcq = []
+    m = MCQ_RE.search(text)
+    if m:
+        try:
+            mcq = json.loads(m.group(1))
+        except json.JSONDecodeError as e:
+            raise ValueError("%s: MCQ JSON 解析失败: %s" % (path, e))
+    tags = [t.strip() for t in attrs.get("data-tags", "").split(",") if t.strip()]
+    return {
+        "file": str(path),
+        "id": attrs["id"],
+        "topic": attrs["data-topic"],
+        "title": attrs.get("data-title", ""),
+        "kw": attrs.get("data-kw", ""),
+        "difficulty": attrs.get("data-difficulty", ""),
+        "tags": tags,
+        "company": attrs.get("data-company", ""),
+        "source": attrs.get("data-source", ""),
+        "html": body.strip("\n"),
+        "mcq": mcq,
+    }
+
+
+def scan_questions(qdir):
+    """扫描目录下所有 .html,返回题目 dict 列表(按路径排序)。"""
+    out = []
+    for f in sorted(qdir.rglob("*.html")):
+        out.append(parse_question_file(f, f.read_text(encoding="utf-8")))
+    return out
 
 
 # ==== selftest ====
@@ -110,6 +163,62 @@ def selftest():
     topics = load_topics()
     ok &= assert_eq("load_topics:count", len(topics), 8)
     ok &= assert_eq("load_topics:order", [t["code"] for t in topics], TOPIC_CODES)
+    # ---- T4 题目文件解析 ----
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        tdp = Path(td)
+        good = ('<article class="q" id="rag-001" data-topic="rag" data-title="题一" '
+                'data-difficulty="3" data-tags="RAG,缓存" data-company="字节" '
+                'data-source="P1Q1" data-kw="rag 缓存">\n<body>内容\n</article>\n'
+                '<script type="application/json">\n[{"q":"x?","options":["a","b","c","d"],'
+                '"answer":1,"explain":"e"}]\n</script>\n')
+        (tdp / "rag-001.html").write_text(good, encoding="utf-8")
+        q = parse_question_file(tdp / "rag-001.html", good)
+        ok &= assert_eq("parse:id", q["id"], "rag-001")
+        ok &= assert_eq("parse:tags", q["tags"], ["RAG", "缓存"])
+        ok &= assert_eq("parse:html", "内容" in q["html"], True)
+        ok &= assert_eq("parse:mcq", q["mcq"][0]["answer"], 1)
+        # 无 MCQ 的文件允许(返回空列表)
+        nomcq = good.split("<script")[0]
+        q2 = parse_question_file(tdp / "rag-001.html", nomcq)
+        ok &= assert_eq("parse:no-mcq", q2["mcq"], [])
+        # 两个 article 报错
+        try:
+            parse_question_file(tdp / "bad.html", good + good)
+            ok &= assert_eq("parse:two-articles-raises", False, True)
+        except ValueError:
+            ok &= assert_eq("parse:two-articles-raises", True, True)
+        # 坏 JSON 报错
+        bad = good.replace('"answer":1', '"answer":1,')
+        try:
+            parse_question_file(tdp / "bad.html", bad)
+            ok &= assert_eq("parse:bad-json-raises", False, True)
+        except ValueError:
+            ok &= assert_eq("parse:bad-json-raises", True, True)
+        # 缺属性报错
+        try:
+            parse_question_file(tdp / "bad.html", '<article id="x">y</article>')
+            ok &= assert_eq("parse:missing-attr-raises", False, True)
+        except ValueError:
+            ok &= assert_eq("parse:missing-attr-raises", True, True)
+    # ---- T3-6~T3-8 扫描器加固 ----
+    arts3 = find_articles('<articlex id="fake">x</articlex><article id="ok">y</article>')
+    ok &= assert_eq("find_articles:prefix-skip", [a[1]["id"] for a in arts3], ["ok"])
+    try:
+        find_articles('<article id="a">正文<pre class="code">&lt;article&gt;</pre></article>')
+        ok &= assert_eq("find_articles:escaped-ok", True, True)
+    except ValueError:
+        ok &= assert_eq("find_articles:escaped-ok", False, True)
+    try:
+        find_articles('<article id="a">正文<article id="b">X</article>尾部</article>')
+        ok &= assert_eq("find_articles:nested-raises", False, True)
+    except ValueError:
+        ok &= assert_eq("find_articles:nested-raises", True, True)
+    try:
+        scan_tag('<article id="a" data-x="未', 0)
+        ok &= assert_eq("scan_tag:unterminated-raises", False, True)
+    except ValueError as ex:
+        ok &= assert_eq("scan_tag:unterminated-raises", "article" in str(ex), True)
     return ok
 
 
