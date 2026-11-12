@@ -610,17 +610,23 @@ def validate(questions, topics):
         if not q["mcq"]:
             warnings.append("%s: 无 MCQ" % q["id"])
         for i, item in enumerate(q["mcq"]):
+            if not isinstance(item, dict):
+                errors.append("%s: MCQ#%d 不是对象" % (f, i + 1))
+                continue
             opts = item.get("options")
             ans = item.get("answer")
+            stem = item.get("q")
+            exp = item.get("explain")
             if not isinstance(opts, list) or len(opts) != 4 or \
-                    not all(isinstance(o, str) and o.strip() for o in opts):
-                errors.append("%s: MCQ#%d options 必须为 4 个非空字符串" % (q["id"], i))
-            if not isinstance(ans, int) or ans not in (0, 1, 2, 3):
-                errors.append("%s: MCQ#%d answer 必须为 0..3 整数" % (q["id"], i))
-            if not str(item.get("q", "")).strip():
-                errors.append("%s: MCQ#%d 缺少题干" % (q["id"], i))
-            if not str(item.get("explain", "")).strip():
-                errors.append("%s: MCQ#%d 缺少 explain" % (q["id"], i))
+                    not all(isinstance(o, str) and o.strip() for o in opts) or \
+                    len(set(opts)) != 4:
+                errors.append("%s: MCQ#%d options 必须为 4 个非空且不重复的字符串" % (f, i + 1))
+            if not isinstance(ans, int) or isinstance(ans, bool) or ans not in (0, 1, 2, 3):
+                errors.append("%s: MCQ#%d answer 必须为 0..3 整数" % (f, i + 1))
+            if not isinstance(stem, str) or not stem.strip():
+                errors.append("%s: MCQ#%d 缺少题干" % (f, i + 1))
+            if not isinstance(exp, str) or not exp.strip():
+                errors.append("%s: MCQ#%d 缺少 explain" % (f, i + 1))
     return errors, warnings
 ```
 
@@ -628,9 +634,9 @@ def validate(questions, topics):
 
 ```python
     # ---- T5 校验规则 ----
-    def mkq(qid, topic, diff="3", path=None, mcq=None):
+    def mkq(qid, topic, diff="3", path=None, mcq=None, title="t", kw="k"):
         return {"file": path or ("content/questions/%s/%s.html" % (topic, qid.split("-")[1])),
-                "id": qid, "topic": topic, "title": "t", "kw": "k", "difficulty": diff,
+                "id": qid, "topic": topic, "title": title, "kw": kw, "difficulty": diff,
                 "tags": [], "company": "", "source": "", "html": "x",
                 "mcq": mcq if mcq is not None else
                 [{"q": "q?", "options": ["a", "b", "c", "d"], "answer": 0, "explain": "e"}]}
@@ -656,12 +662,40 @@ def validate(questions, topics):
     ok &= assert_eq("validate:mcq-answer", any("answer" in x for x in e), True)
     e, w = validate([mkq("rag-001", "rag", mcq=[])], topics)
     ok &= assert_eq("validate:mcq-warn", any("无 MCQ" in x for x in w), True)
+    boolans = [{"q": "q?", "options": ["a", "b", "c", "d"], "answer": True, "explain": "e"}]
+    e, w = validate([mkq("rag-001", "rag", mcq=boolans)], topics)
+    ok &= assert_eq("validate:mcq-bool-answer", any("answer" in x for x in e), True)
+    e, w = validate([mkq("rag-002", "rag", path="content/questions/rag/003.html")], topics)
+    ok &= assert_eq("validate:path-mismatch", any("id 与文件路径不符" in x for x in e), True)
+    e, w = validate([mkq("rag-001", "rag", mcq=["oops"])], topics)
+    ok &= assert_eq("validate:mcq-non-dict", any("不是对象" in x for x in e), True)
+    nullexp = [{"q": "q?", "options": ["a", "b", "c", "d"], "answer": 0, "explain": None}]
+    e, w = validate([mkq("rag-001", "rag", mcq=nullexp)], topics)
+    ok &= assert_eq("validate:mcq-null-explain", any("explain" in x for x in e), True)
+    nullstem = [{"q": None, "options": ["a", "b", "c", "d"], "answer": 0, "explain": "e"}]
+    e, w = validate([mkq("rag-001", "rag", mcq=nullstem)], topics)
+    ok &= assert_eq("validate:mcq-null-stem", any("题干" in x for x in e), True)
+    dupopts = [{"q": "q?", "options": ["a", "a", "a", "a"], "answer": 0, "explain": "e"}]
+    e, w = validate([mkq("rag-001", "rag", mcq=dupopts)], topics)
+    ok &= assert_eq("validate:mcq-dup-options", any("options" in x for x in e), True)
+    strans = [{"q": "q?", "options": ["a", "b", "c", "d"], "answer": "2", "explain": "e"}]
+    e, w = validate([mkq("rag-001", "rag", mcq=strans)], topics)
+    ok &= assert_eq("validate:mcq-string-answer", any("answer" in x for x in e), True)
+    e, w = validate([mkq("rag-001", "rag", title="   ")], topics)
+    ok &= assert_eq("validate:empty-title", any("data-title" in x for x in e), True)
+    e, w = validate([mkq("rag-001", "rag", kw="")], topics)
+    ok &= assert_eq("validate:empty-kw-warn", any("data-kw" in x for x in w), True)
 ```
+
+> 修订记录(双审查后落地):MCQ 错误消息统一为文件路径前缀、序号 1 起始;非 dict 项 / 布尔
+> answer / null 题干与解析 / 重复选项均改为拒绝。**有意保留的软校验**(决策,非疏漏):
+> data-tags/company/source 缺失不阻断(仅影响元数据完整性),MCQ 数量 2~3 不强制(0 才警告)。
+> 自测合计 43 个断言。
 
 - [ ] **Step 3: 运行自测**
 
 Run: `python build.py --selftest`
-Expected: 全部 PASS(累计 20+ 行),退出码 0。
+Expected: 25 基线 + T5 校验 18 个用例 = 43 个 PASS,退出码 0。
 
 - [ ] **Step 4: Commit**
 
