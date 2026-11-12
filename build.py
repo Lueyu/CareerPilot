@@ -216,8 +216,12 @@ def generate_js(questions, topics, top10_html):
 
 def write_atomic(path, text):
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(path)
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def load_top10(extra_dir):
@@ -246,7 +250,12 @@ def build(out=OUT, qdir=QDIR, extra=EXTRA):
     if not qdir.exists():
         raise SystemExit("missing %s ; run --migrate first" % qdir)
     topics = load_topics()
-    questions = scan_questions(qdir)
+    try:
+        questions = scan_questions(qdir)
+    except ValueError as e:
+        print("== parse FAILED ==")
+        print("  error: %s" % e)
+        raise SystemExit(1)
     errors, warnings = validate(questions, topics)
     if errors:
         print("== validate FAILED (%d) ==" % len(errors))
@@ -257,6 +266,142 @@ def build(out=OUT, qdir=QDIR, extra=EXTRA):
     write_atomic(out, generate_js(questions, topics, load_top10(extra)))
     summary(questions, warnings, out)
     print("wrote %s" % out)
+
+
+# ==== 旧站题目 → v2 主题映射(160 题,按内容归类) ====
+
+
+OLD2TOPIC = {
+    # P1 系统设计(15)
+    "p1q1": "rag", "p1q2": "harness", "p1q3": "rag", "p1q4": "harness",
+    "p1q5": "sys", "p1q6": "infer", "p1q7": "ctx", "p1q8": "algo",
+    "p1q9": "eval", "p1q10": "sys", "p1q11": "eval", "p1q12": "sys",
+    "p1q13": "rag", "p1q14": "biz", "p1q15": "rag",
+    # P2 工程实践(12)
+    "p2q1": "rag", "p2q2": "biz", "p2q3": "rag", "p2q4": "ctx",
+    "p2q5": "infer", "p2q6": "sys", "p2q7": "rag", "p2q8": "harness",
+    "p2q9": "sys", "p2q10": "infer", "p2q11": "harness", "p2q12": "rag",
+    # P3 框架选型(10)
+    "p3q1": "biz", "p3q2": "biz", "p3q3": "biz", "p3q4": "infer",
+    "p3q5": "infer", "p3q6": "biz", "p3q7": "biz", "p3q8": "biz",
+    "p3q9": "biz", "p3q10": "biz",
+    # P4 业务落地(8)
+    "p4q1": "eval", "p4q2": "eval", "p4q3": "eval", "p4q4": "biz",
+    "p4q5": "biz", "p4q6": "biz", "p4q7": "ctx", "p4q8": "biz",
+    # P5 Agent核心(52)
+    "p5q1": "harness", "p5q2": "harness", "p5q3": "harness", "p5q4": "ctx",
+    "p5q5": "harness", "p5q6": "algo", "p5q7": "biz", "p5q8": "biz",
+    "p5q9": "harness", "p5q10": "harness", "p5q11": "harness", "p5q12": "harness",
+    "p5q13": "biz", "p5q14": "rag", "p5q15": "algo", "p5q16": "sys",
+    "p5q17": "sys", "p5q18": "harness", "p5q19": "harness", "p5q20": "ctx",
+    "p5q21": "ctx", "p5q22": "harness", "p5q23": "algo", "p5q24": "infer",
+    "p5q25": "harness", "p5q26": "biz", "p5q27": "sys", "p5q28": "harness",
+    "p5q29": "harness", "p5q30": "sys", "p5q31": "infer", "p5q32": "harness",
+    "p5q33": "eval", "p5q34": "sys", "p5q35": "harness", "p5q36": "harness",
+    "p5q37": "eval", "p5q38": "harness", "p5q39": "algo", "p5q40": "harness",
+    "p5q41": "ctx", "p5q42": "eval", "p5q43": "algo", "p5q44": "harness",
+    "p5q45": "harness", "p5q46": "biz", "p5q47": "eval", "p5q48": "eval",
+    "p5q49": "biz", "p5q50": "algo", "p5q51": "harness", "p5q52": "algo",
+    # P6 算法岗(45)
+    "p6q1": "rag", "p6q2": "ctx", "p6q3": "rag", "p6q4": "harness",
+    "p6q5": "rag", "p6q6": "algo", "p6q7": "algo", "p6q8": "algo",
+    "p6q9": "harness", "p6q10": "harness", "p6q11": "algo", "p6q12": "algo",
+    "p6q13": "algo", "p6q14": "algo", "p6q15": "algo", "p6q16": "algo",
+    "p6q17": "algo", "p6q18": "algo", "p6q19": "algo", "p6q20": "algo",
+    "p6q21": "algo", "p6q22": "algo", "p6q23": "algo", "p6q24": "algo",
+    "p6q25": "algo", "p6q26": "algo", "p6q27": "algo", "p6q28": "eval",
+    "p6q29": "eval", "p6q30": "eval", "p6q31": "eval", "p6q32": "eval",
+    "p6q33": "eval", "p6q34": "eval", "p6q35": "eval", "p6q36": "eval",
+    "p6q37": "eval", "p6q38": "algo", "p6q39": "algo", "p6q40": "algo",
+    "p6q41": "algo", "p6q42": "algo", "p6q43": "algo", "p6q44": "algo",
+    "p6q45": "algo",
+    # P7 评估与开放讨论(18)
+    "p7q1": "eval", "p7q2": "eval", "p7q3": "eval", "p7q4": "eval",
+    "p7q5": "eval", "p7q6": "eval", "p7q7": "eval", "p7q8": "eval",
+    "p7q9": "eval", "p7q10": "eval", "p7q11": "harness", "p7q12": "harness",
+    "p7q13": "algo", "p7q14": "biz", "p7q15": "harness", "p7q16": "biz",
+    "p7q17": "biz", "p7q18": "biz",
+}
+
+
+def migrate(old_index=None, out_root=None, id_map=None):
+    """从旧 index.html 拆出题目源文件 + top10 片段,并当场校验。
+    返回 {旧id: 新id} 映射。id_map 参数供 selftest 注入小映射。"""
+    id_map = id_map if id_map is not None else OLD2TOPIC
+    old = Path(old_index) if old_index else ROOT / "index.html"
+    out_root = Path(out_root) if out_root else CONTENT
+    src = old.read_text(encoding="utf-8")
+    arts = find_articles(src)
+    questions = [a for a in arts if a[1].get("id") in id_map]
+    tops = [a for a in arts if "top10" in a[0]]
+    if len(questions) != len(id_map):
+        found = {a[1]["id"] for a in questions}
+        missing = sorted(set(id_map) - found)
+        raise SystemExit("old ids mismatch: found=%d map=%d missing=%s"
+                         % (len(questions), len(id_map), missing))
+    # 依文档顺序分配新 id(主题内递增)
+    counter, old2new, old2len = {}, {}, {}
+    for tag, attrs, body in questions:
+        code = id_map[attrs["id"]]
+        counter[code] = counter.get(code, 0) + 1
+        old2new[attrs["id"]] = "%s-%03d" % (code, counter[code])
+        old2len[attrs["id"]] = len(body)
+    qdir = out_root / "questions"
+    for tag, attrs, body in questions:
+        oid = attrs["id"]
+        code = id_map[oid]
+        nid = old2new[oid]
+        stars = re.search(r'class="stars"[^>]*>([^<]*)<', body)
+        diff = (stars.group(1).count("⭐") if stars else 0) or 3
+        tags = [t.lstrip("#").strip() for t in
+                re.findall(r'class="tag">([^<]*)</span>', body)]
+        comp = re.search(r'class="company">([^<]*)</span>', body)
+        company = comp.group(1) if comp else ""
+        part, num = oid[1:].split("q")
+        new_tag = ('<article class="q" id="%s" data-topic="%s" data-title="%s" '
+                   'data-difficulty="%d" data-tags="%s" data-company="%s" '
+                   'data-source="P%sQ%s" data-kw="%s">') % (
+            nid, code, attrs.get("data-title", ""), diff, ",".join(tags), company,
+            part, num, attrs.get("data-kw", ""))
+        p = qdir / code / (nid.split("-")[1] + ".html")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(new_tag + "\n" + body.rstrip() + "\n</article>\n", encoding="utf-8")
+    # top10:重写旧锚点链接为 SPA 路由
+    extra_dir = out_root / "extra"
+    if tops:
+        tag, attrs, body = tops[0]
+        for oid, nid in old2new.items():
+            body = body.replace('href="#%s"' % oid, 'href="#/q/%s"' % nid)
+        extra_dir.mkdir(parents=True, exist_ok=True)
+        (extra_dir / "top10.html").write_text(
+            '<article class="q top10" id="top10" data-title="%s" data-kw="%s">\n%s\n</article>\n'
+            % (attrs.get("data-title", "高频Top10速记"), attrs.get("data-kw", ""), body.strip()),
+            encoding="utf-8")
+    # 产物校验 + 零丢失校验(标题清单、正文长度)
+    topics = load_topics()
+    qs = scan_questions(qdir)
+    errors, warnings = validate(qs, topics)
+    if errors:
+        for e in errors:
+            print("  error: %s" % e)
+        raise SystemExit("migrate output validate FAILED")
+    old_titles = sorted(a[1].get("data-title", "") for a in questions)
+    new_titles = sorted(q["title"] for q in qs)
+    if old_titles != new_titles:
+        raise SystemExit("migrate title parity FAILED")
+    for q in qs:
+        expect = old2len["p%sq%s" % (q["source"][1], q["source"].split("Q")[1])] \
+            if q["source"].startswith("P") else None
+        if expect is not None and abs(len(q["html"]) - expect) > 16:
+            raise SystemExit("migrate body-length parity FAILED at %s" % q["id"])
+    counts = {}
+    for q in qs:
+        counts[q["topic"]] = counts.get(q["topic"], 0) + 1
+    print("== migrate done ==")
+    for code in TOPIC_CODES:
+        print("  %-8s %3d" % (code, counts.get(code, 0)))
+    print("  TOTAL %d | top10 %d | parity ok" % (len(qs), 1 if tops else 0))
+    return old2new
 
 
 # ==== selftest ====
@@ -451,10 +596,45 @@ def selftest():
         ok &= assert_eq("build:order", js.index('"rag-001"') < js.index('"rag-002"') <
                         js.index('"harness-001"'), True)
         ok &= assert_eq("build:tmp-cleaned", (tdp / "data.js.tmp").exists(), False)
+        p = json.loads(js[len("window.QB = "):-2])
+        ok &= assert_eq("build:roundtrip", [q["id"] for q in p["questions"]],
+                        ["rag-001", "rag-002", "harness-001"])
+        ok &= assert_eq("build:difficulty-int", p["questions"][0]["difficulty"], 2)
+    # ---- T7 migrate(小型夹具:含 p2q4 式标题、stars、company、top10 链接重写) ----
+    with tempfile.TemporaryDirectory() as td:
+        tdp = Path(td)
+        mini = (
+            '<article class="q" id="p1q1" data-title="设计RAG系统" data-kw="rag">'
+            '<span class="stars">⭐⭐⭐⭐⭐</span><span class="tag">#系统设计</span>'
+            '<span class="company">字节(高频)</span>正文A</article>'
+            '<article class="q" id="p1q2" data-title="设计MultiAgent" data-kw="ma">'
+            '<span class="stars">⭐⭐</span>正文B</article>'
+            '<article class="q" id="p2q4" data-title="如何处理Agent的长对话场景(>10轮)" '
+            'data-kw="长对话">正文C</article>'
+            '<article class="q top10" id="t1" data-title="高频Top10速记" data-kw="top10">'
+            '<a href="#p1q1">完整版</a></article>'
+        )
+        oldf = tdp / "old.html"
+        oldf.write_text(mini, encoding="utf-8")
+        m = {"p1q1": "rag", "p1q2": "harness", "p2q4": "ctx"}
+        old2new = migrate(oldf, tdp / "content", m)
+        ok &= assert_eq("migrate:newids", old2new,
+                        {"p1q1": "rag-001", "p1q2": "harness-001", "p2q4": "ctx-001"})
+        q1 = (tdp / "content" / "questions" / "rag" / "001.html").read_text(encoding="utf-8")
+        ok &= assert_eq("migrate:attrs", 'data-difficulty="5"' in q1 and
+                        'data-source="P1Q1"' in q1 and 'data-company="字节(高频)"' in q1, True)
+        ok &= assert_eq("migrate:tags", 'data-tags="系统设计"' in q1, True)
+        ok &= assert_eq("migrate:gt-title", "(>10轮)" in
+                        (tdp / "content" / "questions" / "ctx" / "001.html").read_text(encoding="utf-8"), True)
+        t10 = (tdp / "content" / "extra" / "top10.html").read_text(encoding="utf-8")
+        ok &= assert_eq("migrate:top10-link", 'href="#/q/rag-001"' in t10, True)
     return ok
 
 
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
         sys.exit(0 if selftest() else 1)
-    build()
+    if "--migrate" in sys.argv:
+        migrate()
+    else:
+        build()
