@@ -184,6 +184,7 @@
       color-scheme:light;
     }
     .topbar,#sidenav,#backtop,#progress,#btn-menu{display:none!important}
+    .qnav,.study-panel,.sync-menu,#search-pop{display:none!important}
     .layout{display:block;max-width:100%}
     main{padding:0;max-width:100%}
     article.q{break-inside:avoid;box-shadow:none}
@@ -396,6 +397,28 @@ var FileSync = {
       };
     });
   },
+  idbDelete: function(k){
+    return new Promise(function(res, rej){
+      var rq = indexedDB.open('ib-notes', 1);
+      rq.onupgradeneeded = function(){ rq.result.createObjectStore('kv'); };
+      rq.onerror = function(){ rej(rq.error); };
+      rq.onsuccess = function(){
+        var db = rq.result;
+        try {
+          var tx = db.transaction('kv', 'readwrite');
+          var st = tx.objectStore('kv');
+          var op = st.delete(k);
+          op.onsuccess = function(){ res(true); };
+          op.onerror = function(){ rej(op.error); };
+        } catch(e){ rej(e); }
+      };
+    });
+  },
+  forgetHandle: function(){
+    this.handle = null;
+    var self = this;
+    this.idbDelete('notes-handle').catch(function(){});
+  },
   connect: function(){
     var self = this;
     if(!this.available){ this.setStatus('local'); return; }
@@ -452,12 +475,13 @@ var FileSync = {
       .then(function(f){ return f.text(); })
       .then(function(txt){
         var d = {};
-        try { d = txt ? JSON.parse(txt) : {}; } catch(e){ self.setStatus('error'); return false; }
+        try { d = txt ? JSON.parse(txt) : {}; }
+        catch(e){ self.forgetHandle(); self.setStatus('error'); return false; }
         var changed = Store.merge(d);
         if(changed){ Store.persist(); refreshAfterStore(); }
         return true;
       })
-      .catch(function(){ self.setStatus('error'); return false; });
+      .catch(function(){ self.forgetHandle(); self.setStatus('error'); return false; });
   },
   onStoreChange: function(){
     if(!this.handle){ this.setStatus(this.available ? 'off' : 'local'); return; }
@@ -473,7 +497,7 @@ var FileSync = {
     this.writing = true;
     this.handle.createWritable()
       .then(function(w){ return w.write(JSON.stringify(Store.data)).then(function(){ return w.close(); }); })
-      .then(function(){ self.writing = false; self.setStatus('synced'); })
+      .then(function(){ self.writing = false; self.setStatus('synced'); noteStatus(); })
       .catch(function(){ self.writing = false; self.setStatus('error'); });
   },
   flush: function(){
