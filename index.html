@@ -597,6 +597,15 @@ function buildTopicList(code, filter){
   $$('#filter-row .fchip').forEach(function(c){ c.classList.toggle('on', c.getAttribute('data-f') === filter); });
 }
 
+/* ---------- 待写笔记兜底(切页/关页时落库) ---------- */
+var pendingNote = null; /* {qid, box, timer} */
+function flushNote(){
+  if(!pendingNote) return;
+  clearTimeout(pendingNote.timer);
+  Store.setNote(pendingNote.qid, pendingNote.box.value);
+  pendingNote = null;
+}
+
 /* ---------- 视图:题目 ---------- */
 function renderQuestion(qid){
   var q = byId[qid];
@@ -638,10 +647,11 @@ function injectFolToggles(){
 }
 
 function studyPanelHTML(q){
+  var lv0 = Store.level(q.id);
   var it = Store.data.items[q.id] || { level: 0, note: '' };
   var names = ['未学', '模糊', '熟练', '精通'];
   var btns = names.map(function(n, ix){
-    return '<button class="lv-btn' + (it.level === ix ? ' on-' + ix : '') + '" data-lv="' + ix + '">'
+    return '<button class="lv-btn' + (lv0 === ix ? ' on-' + ix : '') + '" data-lv="' + ix + '">'
          + n + ' <span class="kbd">' + (ix + 1) + '</span></button>';
   }).join('');
   return '<div class="study-panel"><div class="level-btns" id="level-btns">' + btns + '</div>'
@@ -654,12 +664,18 @@ function bindStudyPanel(q){
     var b = e.target.closest('.lv-btn'); if(!b) return;
     setLevelUI(q, +b.getAttribute('data-lv'), 'manual');
   });
-  var box = $('#notebox'), timer = null;
+  var box = $('#notebox');
   box.addEventListener('input', function(){
-    clearTimeout(timer);
-    timer = setTimeout(function(){ Store.setNote(q.id, box.value); noteStatus(); }, 400);
+    if(pendingNote && pendingNote.box !== box) flushNote();
+    clearTimeout(pendingNote ? pendingNote.timer : null);
+    var timer = setTimeout(function(){
+      Store.setNote(q.id, box.value); noteStatus();
+      if(pendingNote && pendingNote.box === box) pendingNote = null;
+    }, 400);
+    pendingNote = { qid: q.id, box: box, timer: timer };
   });
   window.__ibKeyHandler = function(e){
+    if(e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
     if(e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT')) return;
     if(e.key === 'ArrowLeft'){ var p = $('#btn-prev'); if(p && !p.disabled) p.click(); }
     else if(e.key === 'ArrowRight'){ var nx = $('#btn-next'); if(nx && !nx.disabled) nx.click(); }
@@ -685,6 +701,7 @@ var view = $('#view');
 function route(){
   window.__ibKeyHandler = null;
   FileSync.flush();
+  flushNote();
   var h = location.hash || '#/';
   if(h === '#/' || h === '#' || h === '') renderHome();
   else if(h.indexOf('#/topic/') === 0) renderTopic(h.slice('#/topic/'.length));
@@ -711,9 +728,9 @@ function refreshAfterStore(){
   var mq = h.match(/^#\/q\/([\w-]+)$/);
   if(mq && byId[mq[1]]){
     var q = byId[mq[1]];
-    var it = Store.data.items[q.id];
+    var lv0 = Store.level(q.id);
     $$('#level-btns .lv-btn').forEach(function(b, i){
-      b.className = 'lv-btn' + (it && i === it.level ? ' on-' + it.level : '');
+      b.className = 'lv-btn' + (i === lv0 ? ' on-' + lv0 : '');
     });
     noteStatus();
   }
@@ -753,7 +770,7 @@ $('#sidenav').addEventListener('click', function(e){
 });
 window.addEventListener('hashchange', route);
 window.addEventListener('scroll', updateProgress);
-window.addEventListener('pagehide', function(){ FileSync.flush(); });
+window.addEventListener('pagehide', function(){ flushNote(); FileSync.flush(); });
 document.addEventListener('keydown', function(e){ if(window.__ibKeyHandler) window.__ibKeyHandler(e); });
 
 /* ---------- 调试/测试句柄(受控暴露) ---------- */
