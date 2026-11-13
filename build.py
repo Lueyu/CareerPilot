@@ -3,7 +3,7 @@
 """题库构建工具 v2
 
 用法:
-  python build.py             扫描 content/ -> 校验 -> 生成 data.js
+  python build.py             扫描 content/ -> 校验 -> 术语自动链接 -> 生成 data.js(内嵌 QB.glossary)
   python build.py --selftest  内置自测(坏样例回归)
   python build.py --migrate   一次性:从旧 index.html 拆分出 content/questions/
 """
@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parent
 CONTENT = ROOT / "content"
 QDIR = CONTENT / "questions"
 EXTRA = CONTENT / "extra"
+GLOSSARY = CONTENT / "glossary.json"
 OUT = ROOT / "data.js"
 TOPIC_CODES = ["rag", "harness", "ctx", "infer", "eval", "sys", "algo", "biz"]
 
@@ -182,6 +183,115 @@ def validate(questions, topics):
     return errors, warnings
 
 
+# ==== 术语自动链接(构建期,题面 -> #/glossary) ====
+
+GL_LINK = '<a class="gl-term" href="#/glossary">%s</a>'
+GL_EXCLUDE = ("code", "pre", "a")  # 排除区:标签内文与属性绝不改动
+GL_TAG_NAME = re.compile(r'</?([A-Za-z][A-Za-z0-9-]*)')
+
+
+def _ascii_alnum(c):
+    return c.isascii() and c.isalnum()
+
+
+def load_glossary(path=GLOSSARY):
+    """读 content/glossary.json,返回术语卡列表(构建期内嵌进 data.js 的 QB.glossary)。
+    schema: 每条 {term, en, one_liner, analogy, detail, links};结构坏直接抛 ValueError。"""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, list) or not data:
+        raise ValueError("%s: 必须为非空 JSON 数组" % path)
+    seen, out = set(), []
+    for i, g in enumerate(data):
+        if not isinstance(g, dict):
+            raise ValueError("%s: 第 %d 条不是对象" % (path, i + 1))
+        for need in ("term", "en", "one_liner", "analogy", "detail", "links"):
+            if need not in g:
+                raise ValueError("%s: 第 %d 条缺少 %s 字段" % (path, i + 1, need))
+        term = str(g["term"])
+        if not term.strip():
+            raise ValueError("%s: 第 %d 条 term 为空" % (path, i + 1))
+        if term in seen:
+            raise ValueError("%s: term '%s' 重复" % (path, term))
+        if not isinstance(g["links"], list) or \
+                not all(isinstance(x, str) and x for x in g["links"]):
+            raise ValueError("%s: term '%s' 的 links 必须为非空字符串数组" % (path, term))
+        seen.add(term)
+        out.append({"term": term, "en": str(g["en"]), "one_liner": str(g["one_liner"]),
+                    "analogy": str(g["analogy"]), "detail": str(g["detail"]),
+                    "links": list(g["links"])})
+    return out
+
+
+def link_terms(html, terms):
+    """题面术语自动链接(构建期):
+    - 大小写敏感精确匹配(P99/BM25/HNSW 大小写即术语本体),长词优先(避免短词吃长词);
+    - 每题每个术语只链第一次出现(防满屏链接);
+    - 排除区绝不改动:HTML 标签本身(含属性)、<code>/<pre> 内文、已有 <a>…</a> 的内部与属性;
+    - 纯 ASCII 术语不吃单词中段(chunk 不匹配 chunking,BM25 不匹配 BM25x)。
+    返回链接后的 HTML;总从源文件构建,不会重复加链。"""
+    ordered = sorted({str(t) for t in terms if str(t)}, key=len, reverse=True)  # 长词优先
+    by_first = {}
+    for t in ordered:  # 首字符分桶,匹配 O(1)
+        by_first.setdefault(t[0], []).append(t)
+    stack, linked, out = [], set(), []
+    i, n = 0, len(html)
+    while i < n:
+        if html[i] != "<":
+            nxt = html.find("<", i)
+            nxt = n if nxt == -1 else nxt
+            if stack:  # 排除区(code/pre/a)内部:整段原样输出
+                out.append(html[i:nxt])
+                i = nxt
+                continue
+            j = i
+            while j < nxt:  # 文本段:逐位找术语(术语不含 '<',不会跨标签)
+                hit = None
+                for t in by_first.get(html[j], ()):
+                    if t in linked or not html.startswith(t, j):
+                        continue
+                    e = j + len(t)
+                    if _ascii_alnum(t[0]) and j > 0 and _ascii_alnum(html[j - 1]):
+                        continue  # 左侧粘连 ASCII 单词中段
+                    if _ascii_alnum(t[-1]) and e < n and _ascii_alnum(html[e]):
+                        continue  # 右侧粘连 ASCII 单词中段
+                    hit = t
+                    break
+                if hit:
+                    out.append(GL_LINK % hit)
+                    linked.add(hit)
+                    j += len(hit)
+                else:
+                    out.append(html[j])
+                    j += 1
+            i = nxt
+            continue
+        if html.startswith("<!--", i):  # HTML 注释整体跳过
+            e = html.find("-->", i)
+            e = n if e == -1 else e + 3
+            out.append(html[i:e])
+            i = e
+            continue
+        m = GL_TAG_NAME.match(html, i)
+        if not m:  # 孤立 '<'(非标签)按普通文本
+            out.append(html[i])
+            i += 1
+            continue
+        try:
+            tag, after = scan_tag(html, i)  # 复用扫描器:引号内 '>' 不截断
+        except ValueError:
+            tag, after = html[i:], n  # 未闭合标签:剩余部分原样保留、不再匹配
+        out.append(tag)
+        name = m.group(1).lower()
+        if name in GL_EXCLUDE:
+            if html[i + 1] == "/":
+                if stack and stack[-1] == name:
+                    stack.pop()
+            elif not tag.endswith("/>"):
+                stack.append(name)
+        i = after
+    return "".join(out)
+
+
 # ==== 生成与构建 ====
 
 from datetime import datetime, timezone
@@ -195,7 +305,7 @@ def sort_questions(questions):
     return sorted(questions, key=lambda q: (topic_rank(q["topic"]), q["id"]))
 
 
-def generate_js(questions, topics, top10_html):
+def generate_js(questions, topics, top10_html, glossary=None):
     now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     payload = {
         "version": 1,
@@ -203,6 +313,7 @@ def generate_js(questions, topics, top10_html):
         "topics": [{"code": t["code"], "name": t["name"], "icon": t.get("icon", ""),
                     "order": t["order"], "desc": t.get("desc", "")} for t in topics],
         "top10": top10_html,
+        "glossary": glossary or [],
         "questions": [
             {"id": q["id"], "topic": q["topic"], "title": q["title"], "kw": q["kw"],
              "difficulty": int(q["difficulty"]), "tags": q["tags"], "company": q["company"],
@@ -262,9 +373,22 @@ def build(out=OUT, qdir=QDIR, extra=EXTRA):
         for e in errors:
             print("  error: %s" % e)
         raise SystemExit(1)
+    try:
+        glossary = load_glossary()
+    except ValueError as e:
+        print("== glossary FAILED ==")
+        print("  error: %s" % e)
+        raise SystemExit(1)
     questions = sort_questions(questions)
-    write_atomic(out, generate_js(questions, topics, load_top10(extra)))
+    terms = [g["term"] for g in glossary]
+    links_added = 0
+    for q in questions:
+        before = q["html"].count('class="gl-term"')
+        q["html"] = link_terms(q["html"], terms)
+        links_added += q["html"].count('class="gl-term"') - before
+    write_atomic(out, generate_js(questions, topics, load_top10(extra), glossary))
     summary(questions, warnings, out)
+    print("  glossary %d terms | gl-term links added %d" % (len(glossary), links_added))
     print("wrote %s" % out)
 
 
@@ -587,7 +711,7 @@ def selftest():
         (qdir / "harness").mkdir(parents=True)
         (qdir / "rag" / "001.html").write_text(
             '<article class="q" id="rag-001" data-topic="rag" data-title="R1" data-kw="k" '
-            'data-difficulty="2" data-tags="a" data-source="P1Q1">A</article>', encoding="utf-8")
+            'data-difficulty="2" data-tags="a" data-source="P1Q1">A 讲 P99 与 BM25</article>', encoding="utf-8")
         (qdir / "rag" / "002.html").write_text(
             '<article class="q" id="rag-002" data-topic="rag" data-title="R2" data-kw="k" '
             'data-difficulty="5" data-tags="a" data-source="P1Q2">B</article>', encoding="utf-8")
@@ -606,6 +730,10 @@ def selftest():
         ok &= assert_eq("build:roundtrip", [q["id"] for q in p["questions"]],
                         ["rag-001", "rag-002", "harness-001"])
         ok &= assert_eq("build:difficulty-int", p["questions"][0]["difficulty"], 2)
+        ok &= assert_eq("build:glossary-embedded", len(p.get("glossary") or []) > 0, True)
+        ok &= assert_eq("build:autolink-wired",
+                        '<a class="gl-term" href="#/glossary">P99</a>' in p["questions"][0]["html"]
+                        and '<a class="gl-term" href="#/glossary">BM25</a>' in p["questions"][0]["html"], True)
     # ---- T7 migrate(小型夹具:含 p2q4 式标题、stars、company、top10 链接重写) ----
     with tempfile.TemporaryDirectory() as td:
         tdp = Path(td)
@@ -647,6 +775,51 @@ def selftest():
         loaded = json.loads(np.read_text(encoding="utf-8"))
         ok &= assert_eq("init-notes:shape", sorted(loaded.keys()),
                         ["items", "last", "updatedAt", "version"])
+    # ---- T9 glossary 术语自动链接 ----
+    ok &= assert_eq("glossary:loaded", len(load_glossary()) > 0, True)
+    ok &= assert_eq("glossary:schema", sorted(load_glossary()[0].keys()),
+                    ["analogy", "detail", "en", "links", "one_liner", "term"])
+    gterms = ["P99", "BM25", "倒排索引", "向量检索", "chunk"]
+    # ① <code>/<pre> 内术语不被链
+    h = link_terms('<code>P99</code><pre class="code">BM25 与 P99</pre>正文:P99 与 BM25', gterms)
+    ok &= assert_eq("gl:code-not-linked", '<code>P99</code>' in h, True)
+    ok &= assert_eq("gl:pre-not-linked", '<pre class="code">BM25 与 P99</pre>' in h, True)
+    ok &= assert_eq("gl:code-outside-linked", h.count('class="gl-term"'), 2)
+    # ② 同题只链第一次出现
+    h = link_terms('P99 高了吗?P99 又高了。BM25 快,向量检索也快,但向量检索不懂语义', gterms)
+    ok &= assert_eq("gl:first-only-count", h.count('class="gl-term"'), 3)
+    ok &= assert_eq("gl:first-only-shape",
+                    h.startswith('<a class="gl-term" href="#/glossary">P99</a>'), True)
+    ok &= assert_eq("gl:first-only-raw", 'P99 又高了' in h and '但向量检索不懂语义' in h, True)
+    # ③ 已有 <a> 标签内部与属性不重复链
+    h = link_terms('<a href="https://x/P99" title="BM25">倒排索引 与 BM25</a>正文讲倒排索引', gterms)
+    ok &= assert_eq("gl:a-inner-untouched",
+                    '<a href="https://x/P99" title="BM25">倒排索引 与 BM25</a>' in h, True)
+    ok &= assert_eq("gl:a-attr-untouched", 'href="https://x/P99"' in h and 'title="BM25"' in h, True)
+    ok &= assert_eq("gl:a-outside-linked",
+                    h.endswith('<a class="gl-term" href="#/glossary">倒排索引</a>'), True)
+    ok &= assert_eq("gl:a-total", h.count('class="gl-term"'), 1)
+    # ④ 长词优先:同位置短词不吃长词
+    h = link_terms('向量检索是地基', ["检索", "向量检索"])
+    ok &= assert_eq("gl:longest-first", h,
+                    '<a class="gl-term" href="#/glossary">向量检索</a>是地基')
+    # ⑤ 大小写敏感 + 纯 ASCII 术语不吃单词中段
+    h = link_terms('bm25 与 BM25x 与 chunking', gterms)
+    ok &= assert_eq("gl:case-and-boundary", h, 'bm25 与 BM25x 与 chunking')
+    ok &= assert_eq("gl:ascii-standalone",
+                    link_terms('用 chunk 切文档', gterms).count('class="gl-term"'), 1)
+    # ⑥ HTML 标签本身/属性不被改动,标签间文本正常链
+    h = link_terms('<div class="P99-wrap" data-x="倒排索引">P99</div>', gterms)
+    ok &= assert_eq("gl:tag-attr-kept", '<div class="P99-wrap" data-x="倒排索引">' in h, True)
+    ok &= assert_eq("gl:tag-text-linked", h.count('class="gl-term"'), 1)
+    # ⑦ HTML 注释内不链
+    ok &= assert_eq("gl:comment-skip",
+                    link_terms('<!-- P99 倒排索引 -->P99', gterms).count('class="gl-term"'), 1)
+    # ⑧ 大写标签名的 <A> 同样排除
+    h = link_terms('<A HREF="https://x">BM25 与 P99</A>然后讲 BM25', gterms)
+    ok &= assert_eq("gl:upper-a-inner-kept", '<A HREF="https://x">BM25 与 P99</A>' in h, True)
+    ok &= assert_eq("gl:upper-a-outside-linked",
+                    h.endswith('然后讲 <a class="gl-term" href="#/glossary">BM25</a>'), True)
     return ok
 
 

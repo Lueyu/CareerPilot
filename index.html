@@ -336,6 +336,26 @@
 .empty{color:var(--muted);text-align:center;padding:40px 0}
 .continue-row{margin:14px 0;text-decoration:none;display:flex}
 
+/* ===== 术语卡(#/glossary) ===== */
+.gl-term{color:var(--accent);text-decoration:none;border-bottom:1px dashed var(--accent);transition:filter .15s}
+.gl-term:hover{color:var(--strong);border-bottom-style:solid;border-bottom-color:var(--strong);filter:brightness(1.1)}
+.gl-head{margin:22px 0 6px}
+.gl-head .note{color:var(--muted);font-size:13.5px;margin:6px 0 0}
+.gl-tools{display:flex;justify-content:center;margin:16px 0 22px}
+.gl-search{width:100%;max-width:520px;padding:10px 14px;font-size:14px;border:1px solid var(--border);border-radius:10px;background:var(--soft);color:var(--text);outline:none;transition:border-color .15s}
+.gl-search:focus{border-color:var(--accent)}
+.gl-empty{text-align:center;color:var(--muted);padding:36px 0}
+.gl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px;align-items:start}
+.gl-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--card-shadow)}
+.gl-term-title{font-size:15.5px;font-weight:600;color:var(--strong);margin:0}
+.gl-term-en{color:var(--muted);font-size:12px;font-weight:400;margin-left:6px}
+.gl-one{color:var(--text-soft);font-size:13.5px;margin:8px 0 0}
+.gl-analogy{background:var(--soft);border:1px solid var(--soft-border);border-radius:8px;padding:10px 12px;margin:10px 0 0;font-size:13px;color:var(--text-soft)}
+.gl-detail{font-size:13.2px;color:var(--text-soft);margin:10px 0 0;line-height:1.62}
+.gl-links{margin:10px 0 0;font-size:12.5px}
+.gl-links .lb{color:var(--muted);margin-right:6px}
+.gl-links a{display:inline-block;margin:2px 6px 2px 0}
+
 /* ===== 移动端最终覆盖(必须在所有 base 规则之后,否则会被覆盖) ===== */
 @media (max-width:620px){
   .notebox{display:none!important}
@@ -624,6 +644,7 @@ function buildNav(){
   var h = '<div class="nav-part">导航</div><a href="#/" data-nav="#/">仪表盘</a>'
         + (window.VAULT ? '<a href="#/vault" data-nav="#/vault">🔒 作战室仪表盘</a>' : '')
         + '<a href="#/refine" data-nav="#/refine">✂️ 答案投稿箱</a>'
+        + '<a href="#/glossary" data-nav="#/glossary">📖 术语卡</a>'
         + '<div class="nav-part">主题</div>';
   QB.topics.forEach(function(t){
     var qs = byTopic[t.code] || [];
@@ -1089,6 +1110,47 @@ function renderDraftQueue(){
     box.appendChild(d);
   });
 }
+/* ---------- 术语卡 ---------- */
+function renderGlossaryCard(g){
+  var c = el('div', 'gl-card');
+  c.appendChild(el('h3', 'gl-term-title',
+    esc(g.term) + '<span class="gl-term-en">' + esc(g.en) + '</span>'));
+  c.appendChild(el('p', 'gl-one', esc(g.one_liner)));
+  c.appendChild(el('div', 'gl-analogy', '🧩 ' + esc(g.analogy)));
+  c.appendChild(el('div', 'gl-detail', esc(g.detail)));
+  var links = el('div', 'gl-links', '<span class="lb">延伸</span>');
+  (g.links || []).forEach(function(u){
+    var a = el('a', null, esc(u));
+    a.href = u; a.target = '_blank'; a.rel = 'noopener';
+    links.appendChild(a);
+  });
+  c.appendChild(links);
+  return c;
+}
+function renderGlossaryList(){
+  var grid = $('#gl-grid'); if(!grid) return;
+  var kw = ($('#gl-search') ? $('#gl-search').value : '').trim().toLowerCase();
+  var list = (QB.glossary || []).filter(function(g){
+    if(!kw) return true;
+    return (g.term + ' ' + g.en + ' ' + g.one_liner).toLowerCase().indexOf(kw) !== -1;
+  });
+  grid.innerHTML = '';
+  if(!list.length){
+    grid.appendChild(el('div', 'gl-empty', '没有匹配的术语,换个关键词试试'));
+    return;
+  }
+  list.forEach(function(g){ grid.appendChild(renderGlossaryCard(g)); });
+}
+function renderGlossary(){
+  var n = (QB.glossary || []).length;
+  view.innerHTML = '<div class="crumb"><a href="#/">仪表盘</a> › 📖 术语卡</div>'
+    + '<section class="hero"><h1>📖 术语卡</h1>'
+    + '<p>' + n + ' 个高频术语 · 先说人话再上技术 · 全部配类比</p></section>'
+    + '<div class="gl-tools"><input id="gl-search" class="gl-search" type="search" placeholder="搜术语 / 英文 / 一句话解释…"></div>'
+    + '<div id="gl-grid" class="gl-grid"></div>';
+  $('#gl-search').addEventListener('input', renderGlossaryList);
+  renderGlossaryList();
+}
 
 /* ---------- 路由 ---------- */
 var view = $('#view');
@@ -1101,6 +1163,7 @@ function route(){
   else if(h.indexOf('#/topic/') === 0) renderTopic(h.slice('#/topic/'.length));
   else if(h.indexOf('#/q/') === 0) renderQuestion(h.slice('#/q/'.length));
   else if(h === '#/vault') renderVault();
+  else if(h === '#/glossary') renderGlossary();
   else if(h === '#/refine' || h.indexOf('#/refine/') === 0)
     renderRefine(h.indexOf('#/refine/') === 0 ? h.slice('#/refine/'.length) : '');
   else render404();
