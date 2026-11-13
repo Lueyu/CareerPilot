@@ -153,6 +153,10 @@ python build.py --migrate    # 一次性:从旧 index.html 拆出 160 题(配合
 
 ## 8. 笔记/熟练度存储与 Git 同步
 
+> **修订(2026-11-13,用户决策)**:仓库转为公开协作后,notes.json **不再随 git 提交**
+> (已 gitignore),变为纯本地文件;跨设备迁移改用页面内「导出/导入备份」。
+> 新环境初始化:`python build.py --init-notes`。贡献者 PR 只含题目内容,个人数据永不入库。
+
 notes.json(仓库根目录,git 提交):
 
 ```json

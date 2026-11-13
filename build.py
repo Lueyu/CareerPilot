@@ -639,13 +639,35 @@ def selftest():
             ok &= assert_eq("migrate:rerun-guard", False, True)
         except SystemExit:
             ok &= assert_eq("migrate:rerun-guard", True, True)
+    # ---- T8 init-notes(本地个人笔记文件,已 gitignore) ----
+    with tempfile.TemporaryDirectory() as td:
+        np = Path(td) / "notes.json"
+        ok &= assert_eq("init-notes:create", init_notes(np), True)
+        ok &= assert_eq("init-notes:idempotent", init_notes(np), False)
+        loaded = json.loads(np.read_text(encoding="utf-8"))
+        ok &= assert_eq("init-notes:shape", sorted(loaded.keys()),
+                        ["items", "last", "updatedAt", "version"])
     return ok
+
+
+def init_notes(path=None):
+    """创建本地笔记文件(个人数据,不进仓库)。已存在则不动。"""
+    p = Path(path) if path else ROOT / "notes.json"
+    if p.exists():
+        print("notes.json already exists: %s" % p)
+        return False
+    p.write_text('{"version":1,"updatedAt":null,"last":null,"items":{}}\n',
+                 encoding="utf-8")
+    print("created %s" % p)
+    return True
 
 
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
         sys.exit(0 if selftest() else 1)
-    if "--migrate" in sys.argv:
+    if "--init-notes" in sys.argv:
+        init_notes()
+    elif "--migrate" in sys.argv:
         migrate()
     else:
         build()

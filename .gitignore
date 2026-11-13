@@ -9,3 +9,7 @@ __pycache__/
 
 # 浏览器自动化测试产物
 .playwright-mcp/
+
+# 个人学习数据(笔记/熟练度,仅存本地,绝不入库)
+notes.json
+notes-export-*.json
