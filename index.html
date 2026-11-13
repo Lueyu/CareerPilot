@@ -375,7 +375,7 @@
 <header class="topbar">
   <div class="topbar-inner">
     <button id="btn-menu" title="目录" aria-label="打开目录">☰</button>
-    <a class="brand" href="#/">AI Agent 面试题库 v2<small>160题 · 8主题 · 一页一题</small></a>
+    <a class="brand" href="#/">AI Agent 面试题库 v2<small id="brand-meta">题库 · 一页一题</small></a>
     <input id="search" type="text" placeholder="搜索:如 缓存 / LangGraph / 幻觉 / PPO …" aria-label="搜索题库">
     <button id="sync-badge" class="sync-badge" title="连接笔记文件">连接笔记</button>
     <span id="count"></span>
@@ -645,6 +645,7 @@ function buildNav(){
         + (window.VAULT ? '<a href="#/vault" data-nav="#/vault">🔒 作战室仪表盘</a>' : '')
         + '<a href="#/refine" data-nav="#/refine">✂️ 答案投稿箱</a>'
         + '<a href="#/glossary" data-nav="#/glossary">📖 术语卡</a>'
+        + '<a href="#/top10" data-nav="#/top10">⭐ 考前 Top10</a>'
         + '<div class="nav-part">主题</div>';
   QB.topics.forEach(function(t){
     var qs = byTopic[t.code] || [];
@@ -1152,6 +1153,14 @@ function renderGlossary(){
   renderGlossaryList();
 }
 
+/* ---------- 视图:top10 考前速记 ---------- */
+function renderTop10(){
+  view.innerHTML = '<div class="crumb"><a href="#/">仪表盘</a> › ⭐ 考前 Top10</div>'
+    + '<section class="hero"><h1>⭐ 考前 Top10</h1>'
+    + '<p>高频考点速记 · 面试前 30 分钟过一遍</p></section>'
+    + (QB.top10 || '<div class="empty">内容生成中,请稍后刷新</div>');
+}
+
 /* ---------- 路由 ---------- */
 var view = $('#view');
 function route(){
@@ -1164,6 +1173,7 @@ function route(){
   else if(h.indexOf('#/q/') === 0) renderQuestion(h.slice('#/q/'.length));
   else if(h === '#/vault') renderVault();
   else if(h === '#/glossary') renderGlossary();
+  else if(h === '#/top10') renderTop10();
   else if(h === '#/refine' || h.indexOf('#/refine/') === 0)
     renderRefine(h.indexOf('#/refine/') === 0 ? h.slice('#/refine/'.length) : '');
   else render404();
@@ -1208,6 +1218,7 @@ Store.load();
 buildNav();
 route();
 refreshCount(TOTAL);
+$('#brand-meta').textContent = TOTAL + '题 · ' + QB.topics.length + '主题 · 一页一题';
 FileSync.autoAttach();
 window.addEventListener('storage', function(e){
   if(e.key === LS_KEY && e.newValue){
