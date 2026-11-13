@@ -7,23 +7,27 @@
         <span class="tag">#混合检索</span><span class="tag">#RAG</span><span class="tag">#系统设计</span>
       </div>
 
+      <div class="note"><b>先说人话:</b>RAG 系统里「帮模型找资料」的环节,任何单一招数都有抓瞎的时候——按意思找的,碰到产品编号就糊;按字面找的,碰到换种说法就懵;按关系找的,建库又贵又难。这题让你设计一个三路互补的「找资料流水线」,把三招拼成没有死角的组合。面试官爱问它,是因为一题就能同时考你「三种检索的原理 + 系统级权衡 + 知不知道什么时候不该过度设计」。</div>
+
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
         <p>"三路<b>并行</b>检索:向量管语义改写、BM25 管精确关键词、图管多跳关系——每一路都有另外两路覆盖不了的失效场景。融合用 <b>RRF(倒数排名融合)</b>,因为它不需要跨引擎归一化分数;融合后可选 cross-encoder 重排。性能上三路并行、各自索引调优、图查询限制跳数;进阶做 <b>query 自适应路由</b>,按查询类型动态调三路权重。"</p>
       </div>
 
       <div class="block ana"><span class="badge b-ana">通俗类比</span>
-        <p>想象<b>找一个人</b>:向量检索是"按<b>长相气质</b>找"(描述性:"高高瘦瘦戴眼镜的程序猿")——换个说法也能找到,但容易找来一堆相似的;BM25 是"按<b>身份证号</b>找"(精确:"张伟,工号 8867")——一个字都不能差,但你说"那个写代码的张哥"它就懵了;图检索是"按<b>人际关系网</b>找"("他同组同事的 mentor")——多跳关系只有它能顺着链条查。三种合起来,才敢说"找得到"。</p>
+        <p><b>先讲 BM25(用备份系统的索引想)</b>:备份系统里有块索引元数据——「块指纹 → 属于哪些文件」。恢复时拿指纹精确查表,一个字节都不用差。<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/Okapi_BM25">BM25</a> 干的就是这个活:先靠<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/倒排索引">倒排索引</a>(「词 → 哪些文档含有它」的表)秒级锁定候选,再给候选打分排序。打分有两个朴素直觉:① 一个词在越多文档里出现,它越不值钱(「的」「了」到处都是,没区分度;「TB-2024-8867」全库独一份,一击命中)——这就是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Tf%E2%80%93idf">TF-IDF</a> 的思想;② 同一个词出现 10 次不比出现 3 次相关 3 倍多,收益递减,而且长文档要打折(不然长文档靠篇幅白捡分)。<b>哪里像</b>:都是「先查倒排表锁候选、再精确处理」,都快、都可解释。<b>哪里不像</b>:块指纹全局唯一、查到即答案;自然语言一词多义(「苹果」是水果还是公司),BM25 只看字面,不懂你想表达什么——这个缺口要靠向量路补。</p>
+        <p><b>再想象找一个人</b>:向量检索是"按<b>长相气质</b>找"(描述性:"高高瘦瘦戴眼镜的程序猿")——换个说法也能找到,但容易找来一堆相似的;BM25 是"按<b>身份证号</b>找"(精确:"张伟,工号 8867")——一个字都不能差,但你说"那个写代码的张哥"它就懵了;图检索是"按<b>人际关系网</b>找"("他同组同事的 mentor")——多跳关系只有它能顺着链条查。三种合起来,才敢说"找得到"。<b>哪里像</b>:三路各管一种「找人线索」,谁也不是全能。<b>哪里不像</b>:找人三招结果天然都是同一个人,合并答案容易;三路检索返回的是<b>不同文档、不同格式的分数</b>,怎么融合才是本题真正的考点——这正是 RRF 登场的地方。</p>
       </div>
 
       <div class="block det"><span class="badge b-det">详细拆解</span>
         <p><b>1. 为什么必须混合(先讲清每路的失效场景,本题的灵魂)</b></p>
+        <p>用人话说:三种找法各有「抓瞎时刻」,混合的动机不是「多多益善」,而是<b>互相补位</b>——A 抓瞎的查询恰好在 B 的强项里。</p>
         <table>
           <tr><th>检索路</th><th>强项</th><th>失效场景(必须有实例)</th></tr>
           <tr><td><b>向量</b></td><td>同义改写("怎么退货"≈"退货政策")</td><td>型号编号("TB-2024-8867")、低频专有名词被 embedding"糊掉";黑话缩写(内行黑话训练语料里没有)</td></tr>
           <tr><td><b>BM25</b></td><td>精确词匹配、编号、罕见词</td><td>同义改写失效:搜"退款"找不到"我不想买了该怎么办";跨语言查不到</td></tr>
           <tr><td><b>图</b></td><td>多跳关系("A部门 leader 下属负责的项目文档")</td><td>建图成本高;节点名对不上("老王"≠"王工");孤立文档无关系可走</td></tr>
         </table>
-        <p><b>2. 架构</b></p>
+        <p><b>2. 架构</b>(顺着图走一遍:query 进来先预处理,然后三路<b>同时</b>出发——这是并行,不是串行;各自拿到 top-N 后交给 RRF 融合成 top20,再用 Cross-Encoder 精排到 top5,最后送进 LLM 生成):</p>
         <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 856 222" role="img" aria-label="向量+BM25+图 三路混合检索架构">
   <rect class="sd-box2" x="10" y="90" width="110" height="60" rx="10"/>
   <text class="sd-t" x="65" y="116" text-anchor="middle">query</text>
@@ -56,17 +60,20 @@
   <text class="sd-ts" x="795" y="122" text-anchor="middle">进 LLM</text>
 </svg></div>
         <p><b>3. RRF 融合(公式要能写出来)</b></p>
+        <p>人话版:三路各自交回一份「排名榜」(不交分数,只交名次),每个文档的 RRF 得分 = 它在各路榜单里「名次的倒数-ish」加起来——在越多的榜上、名次越靠前,总分越高。像三个评委各自给选手排名,谁综合名次好谁晋级,评委们完全不用商量「我的 10 分和你的 10 分是不是一个 10 分」。</p>
         <pre class="code">score(d) = Σ<sub>每路检索</sub> 1 / (k + rank<sub>该路</sub>(d))    <span class="c"># k 常取 60</span>
 <span class="c"># 例:文档A 在向量路排第2、BM25路排第10</span>
-<span class="c"># score = 1/(60+2) + 1/(60+10) ≈ 0.0307  → 比只在单路排第1的都高</span></pre>
+<span class="c"># score = 1/(60+2) + 1/(60+10) = 0.01613 + 0.01429 ≈ 0.0304</span>
+<span class="c"># 对比:只在单路排第1的文档 score = 1/(60+1) ≈ 0.0164 → 文档A 反超</span></pre>
         <ul>
-          <li>RRF 的妙处:<b>只用排名不用分数</b>——向量库给相似度 0.83 和 ES 给 BM25 分 12.6 根本不可比,加权融合需要痛苦的归一化,RRF 直接绕开。</li>
+          <li>看懂这个例子就懂了 RRF 的价值观:<b>「两边都说好」胜过「一边说最好」</b>——文档A 两路都排进前列,总分 0.0304,反超只在一路拿第 1 的文档(0.0164)。这恰好是我们想要的稳健性:单路的偶然高分坑不到融合结果。</li>
+          <li>RRF 的妙处:<b>只用排名不用分数</b>——向量库给相似度 0.83 和 ES 给 BM25 分 12.6 根本不可比,加权融合需要痛苦的归一化,RRF 直接绕开(出处:<a target="_blank" rel="noopener" href="https://dl.acm.org/doi/10.1145/1571941.1572114">Cormack et al., SIGIR 2009</a>)。</li>
           <li>可扩展加权 RRF(重要的路 rank 减一个偏移),权重可配置。</li>
         </ul>
         <p><b>4. 图检索构建</b></p>
         <ul>
-          <li>离线管道:文档 → 实体抽取(LLM)→ 实体消歧("老王/王工/王明"合并)→ 关系抽取 → 知识图谱( Neo4j );文档和实体双向索引。</li>
-          <li>在线:query 抽实体 → 图上 2 跳扩展 → 拉回关联文档。跳数限制 ≤2(性能+噪音控制)。</li>
+          <li>离线管道:文档 → 实体抽取(LLM)→ 实体消歧("老王/王工/王明"合并)→ 关系抽取 → 知识图谱( Neo4j );文档和实体双向索引。类比:这一步像给全公司的资产建 CMDB——抽取=盘点资产、消歧=「开发二部那台备份存储」和「型号 BBU-05」合并成一条记录、关系抽取=录入资产间的依赖线;CMDB 建得好,「A 依赖 B、B 依赖 C」这类链式问题才有得查。</li>
+          <li>在线:query 抽实体 → 图上 2 跳扩展 → 拉回关联文档。跳数限制 ≤2(性能+噪音控制)——跳数不限制,2 跳变 6 跳,拉回来的是整个公司。</li>
         </ul>
         <p><b>5. 性能与平衡</b></p>
         <ul>
@@ -74,22 +81,24 @@
           <li>召回率 vs 精度:topk 调大召回高但重排贵;重排只处理融合后 top20,成本可控。</li>
           <li><b>自适应路由(加分项)</b>:轻量分类器判断 query 类型——含编号/专有名词 → BM25 权重高;语义描述 → 向量权重高;含关系词("谁的/属于哪个部门") → 图路启用。避免每次都跑三路,省延迟省钱。</li>
         </ul>
-        <p><b>6. 评估</b>:分路评估(每路的 Recall@k)+ 融合后整体评估;用标注好的 query-文档对测试集回归。</p>
+        <p><b>6. 评估</b>:分路评估(每路的 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Precision_and_recall">Recall@k</a>)+ 融合后整体评估;用标注好的 query-文档对测试集回归。</p>
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:为什么用 RRF 而不是把三路分数加权求和?</summary><div class="an">① 跨引擎分数量纲不可比,归一化脆弱(分布漂移就失效);② 分数对异常值敏感(一个引擎的满分压制其他路);RRF 只用排名,天然免疫这两点。缺点是丢失分数信息,补救:融合后用 cross-encoder 重排找回精度。</div></details>
-        <details class="qa"><summary class="qu">Q:图检索建图成本高,什么时候才值得上?</summary><div class="an">有明确的多跳关系型查询需求且占比 &gt; 10~15%(组织架构、产品 BOM、依赖关系),或需要可解释的关联推理时才上;否则向量+BM25 够用——主动说"不过度设计"很加分。</div></details>
-        <details class="qa"><summary class="qu">Q:三路延迟差很大,怎么不让慢的拖死整体?</summary><div class="an">并行 + 超时截止(hedged request 思想);图路结果异步补发或只用于增强上下文;对延迟敏感场景干脆路由层就决定不用图。</div></details>
+        <details class="qa"><summary class="qu">Q:为什么用 RRF 而不是把三路分数加权求和?</summary><div class="an"><b>人话:</b>三路的「分」根本不是一种东西,直接加总就像把人民币、美元、日元按面值相加——数值能加,意义全错。<b>类比:</b>不同监控系统的「健康分」不可直接平均,跨系统聚合要看排名/分位,不看原始分。<b>技术:</b>① 跨引擎分数量纲不可比,归一化脆弱(分布漂移就失效);② 分数对异常值敏感(一个引擎的满分压制其他路);RRF 只用排名,天然免疫这两点。缺点是丢失分数信息(第 1 名和第 2 名差距多大看不见了),补救:融合后用 cross-encoder 重排找回精度。</div></details>
+        <details class="qa"><summary class="qu">Q:图检索建图成本高,什么时候才值得上?</summary><div class="an"><b>人话:</b>只有当「顺藤摸瓜式」的问题是常客时才值得建这套藤蔓。<b>类比:</b>像要不要为一类偶发查询专门建一套资产依赖图谱——如果每天有人问「这台备份存储影响哪些业务」,建 CMDB 就值;一年问两次,临时人肉查更快。<b>技术:</b>有明确的多跳关系型查询需求且占比 &gt; 10~15%(组织架构、产品 BOM、依赖关系),或需要可解释的关联推理时才上;否则向量+BM25 够用——主动说"不过度设计"很加分。</div></details>
+        <details class="qa"><summary class="qu">Q:三路延迟差很大,怎么不让慢的拖死整体?</summary><div class="an"><b>人话:</b>齐步走的队伍速度由最慢的人决定——要么给他设截止时间,要么干脆别让他进场。<b>类比:</b>多副本读策略里常见的「对冲请求」(hedged request):主请求稍慢就立刻向副本补发一个,谁先回用谁。<b>技术:</b>并行 + 超时截止(hedged request 思想);图路结果异步补发或只用于增强上下文;对延迟敏感场景干脆路由层就决定不用图。</div></details>
+        <details class="qa"><summary class="qu">Q:BM25 靠字面匹配,那分词和停用词是怎么回事?中文怎么办?</summary><div class="an"><b>人话:</b>BM25 第一步得把句子切成一个个词,切法直接决定索引建得对不对——切歪了,后面全歪。<b>类比:</b>像备份系统选块大小/指纹算法:切分方案定了,整套索引元数据就绑定了;中途换切法,索引全部重建。<b>技术:</b>① 中文没有空格,必须用分词器(jieba、ES 的 IK 等),专名、型号要加自定义词典,否则"TB-2024-8867"会被切碎,精确匹配直接失效;② <a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/停用词">停用词</a>("的/了/is/the")在几乎所有文档都出现、零区分度,建索引时直接丢掉,省空间也防误匹配;③ BM25 = TF 饱和(词频收益递增递减)+ IDF(罕见词更值钱)+ 文档长度归一化三件套,公式细节见 <a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/Okapi_BM25">维基 Okapi BM25</a>。工程上 ES/Lucene 默认就是 BM25 打分,开箱即用。</div></details>
       </div>
 
       <div class="block term"><span class="badge b-term">术语卡</span>
         <div class="terms-grid">
-          <div class="term-item"><b>RRF</b>:倒数排名融合,k 常取 60。</div>
-          <div class="term-item"><b>Recall@k</b>:前 k 条结果包含正确文档的比例。</div>
-          <div class="term-item"><b>Cross-Encoder</b>:query 和文档拼一起打分的重排模型,准但慢。</div>
-          <div class="term-item"><b>实体消歧</b>:合并指向同一实体的不同叫法。</div>
-          <div class="term-item"><b>Hedged request</b>:对冲请求,先到先用。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/Okapi_BM25">BM25</a></b>:基于词频+逆文档频率+长度归一化的经典关键词打分,精确匹配之王、语义理解之盲。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://dl.acm.org/doi/10.1145/1571941.1572114">RRF</a></b>:倒数排名融合,只看各路名次不看分数,k 常取 60。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Precision_and_recall">Recall@k</a></b>:前 k 条结果包含正确文档的比例。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1908.10084">Cross-Encoder</a></b>:query 和文档拼一起打分的重排模型,准但慢。</div>
+          <div class="term-item"><b>实体消歧</b>:合并指向同一实体的不同叫法("老王"="王工"="王明")。</div>
+          <div class="term-item"><b>Hedged request</b>:对冲请求——主请求慢了就补发副本,先到先用。</div>
         </div>
       </div>
 </article>
