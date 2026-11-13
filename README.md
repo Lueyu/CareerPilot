@@ -90,7 +90,8 @@ content/
 ├─ SPEC.md                       # 题目写作规范(贡献必读)
 ├─ extra/top10.html              # 考前速记 Top10
 └─ questions/{topic}/{NNN}.html  # 每题一文件(题卡+元数据+MCQ)
-.opencode/skill/                 # opencode skills:add-question(加题)/ refine-answer(美化答案)
+.opencode/skill/                 # opencode skills:add-question(加题)/ refine-answer(美化答案)/ publish-site(发布站点)
+deploy/                          # 部署工具(Node):构建指纹/上传 OSS/域名证书/强制 HTTPS,见 publish-site skill
 docs/superpowers/                # 设计文档与实施计划
 ```
 

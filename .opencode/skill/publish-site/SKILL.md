@@ -1,9 +1,9 @@
 ---
-name: deploy-site
+name: publish-site
 description: Use when the user asks to deploy, redeploy, update, publish or 上线/发布/部署 this interview-bank site to its public domain (agent-interview.icu), or asks about HTTPS certificate, OSS bucket, DNS records for it. Covers content fingerprinting, OSS upload, custom-domain binding, Let's Encrypt certificate issuance and HTTPS enforcement.
 ---
 
-# 题库站点部署(deploy-site)
+# 题库站点部署(publish-site)
 
 把仓库根目录的静态站点(`index.html` + `data.js`)发布到 **https://agent-interview.icu**,并维护域名、证书与强制 HTTPS。
 
