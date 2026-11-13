@@ -162,15 +162,60 @@
 
   @media (max-width:960px){
     .layout{grid-template-columns:1fr}
-    #sidenav{position:fixed;left:0;top:0;height:100vh;width:280px;background:var(--card);z-index:80;transform:translateX(-100%);transition:transform .25s;padding:20px 14px;box-shadow:2px 0 20px rgba(0,0,0,.12)}
+    #sidenav{position:fixed;left:0;top:0;height:100vh;height:100dvh;width:min(280px,84vw);background:var(--card);z-index:80;transform:translateX(-100%);transition:transform .25s;padding:20px 14px;box-shadow:2px 0 20px rgba(0,0,0,.12);overflow-y:auto}
     #sidenav.open{transform:translateX(0)}
     #btn-menu{display:block}
     main{padding-left:0}
-    .hero{padding:26px 22px}
-    article.q{padding:20px 18px}
+    #view{padding-top:18px}
+    .hero{padding:24px 18px}
+    article.q{padding:18px 14px}
+    .study-panel{padding:12px 12px 14px}
+    #nav-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:75;display:none}
+    #nav-backdrop.show{display:block}
   }
-  @media (max-width:760px){.brand small{display:none}}
-  @media (max-width:620px){#count{display:none}}
+  @media (min-width:961px){#nav-backdrop{display:none!important}}
+  @media (max-width:760px){
+    .brand small{display:none}
+    #count{display:none}
+    /* SVG 架构图与表格保持可读:横向滑动查看 */
+    .svgwrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    .sdiagram{min-width:640px}
+    .tbl-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    .tbl-scroll table{min-width:520px;margin:12px 0}
+    /* iOS:输入控件聚焦避免自动放大 */
+    .notebox,#search,.refine-row select{font-size:16px}
+    .refine-row{flex-direction:column}
+    .refine-row select{min-width:0;width:100%}
+    .dq-item .t{white-space:normal}
+  }
+  @media (max-width:620px){
+    .brand{display:none}
+    #btn-print{display:none}
+    #backtop{display:none}
+    .topbar-inner{gap:8px;padding:9px 10px}
+    .qnav{gap:6px}
+    .qnav button{padding:9px 13px;font-size:13px}
+    .qpos{font-size:12px}
+    .lv-btn{padding:9px 14px;font-size:13px}
+    .level-btns{gap:6px}
+    .note-meta{flex-direction:column;gap:2px}
+    .part-title{font-size:19px}
+    .q h3{font-size:17px}
+    .hero h1{font-size:22px}
+    .terms-grid{grid-template-columns:1fr}
+    .topic-card{padding:13px 14px}
+    .topic-card .desc{min-height:0}
+    .qrow{padding:10px 10px;gap:8px}
+    .qrow .no{min-width:34px}
+    .ring-wrap{padding:14px;gap:12px}
+    .ring-wrap svg{width:96px;height:96px}
+    .sync-menu{left:10px;right:10px;min-width:0;top:50px;transform:none}
+    .empty{font-size:14px}
+    .btn-line{gap:8px}
+    .btn-main,.btn-ghost{padding:10px 14px;font-size:13px}
+    .crumb{font-size:12px}
+    .block{padding-left:12px;margin:14px 0}
+  }
   @media print{
     :root,html[data-theme="dark"]{
       --accent:#4f46e5; --accent-light:#eef2ff;
@@ -295,6 +340,7 @@
   <nav id="sidenav"></nav>
   <main id="view"></main>
 </div>
+<div id="nav-backdrop"></div>
 
 <div id="sync-menu" class="sync-menu">
   <button data-a="connect">连接 notes.json(仓库文件)</button>
@@ -684,6 +730,7 @@ function renderQuestion(qid){
         + studyPanelHTML(q);
   view.innerHTML = h;
   injectFolToggles();
+  wrapViewTables();
   $('#btn-prev').onclick = function(){ if(i > 0) location.hash = '#/q/' + qs[i - 1].id; };
   $('#btn-next').onclick = function(){ if(i < qs.length - 1) location.hash = '#/q/' + qs[i + 1].id; };
   bindStudyPanel(q);
@@ -704,6 +751,16 @@ function injectFolToggles(){
     });
     var badge = fol.querySelector('.badge');
     if(badge) badge.insertAdjacentElement('afterend', btn);
+  });
+}
+
+function wrapViewTables(){
+  /* 移动端可读:题目表格包进横向滚动容器(内容来自 data.js,渲染后统一处理) */
+  $$('#view table').forEach(function(tb){
+    if(tb.parentNode && tb.parentNode.className === 'tbl-scroll') return;
+    var w = el('div', 'tbl-scroll');
+    tb.parentNode.insertBefore(w, tb);
+    w.appendChild(tb);
   });
 }
 
@@ -975,9 +1032,19 @@ $('#btn-theme').onclick = function(){
 };
 $('#btn-print').onclick = function(){ window.print(); };
 $('#backtop').onclick = function(){ window.scrollTo({ top: 0, behavior: 'smooth' }); };
-$('#btn-menu').onclick = function(){ $('#sidenav').classList.toggle('open'); };
+$('#btn-menu').onclick = function(){
+  $('#sidenav').classList.toggle('open');
+  $('#nav-backdrop').classList.toggle('show', $('#sidenav').classList.contains('open'));
+};
+$('#nav-backdrop').onclick = function(){
+  $('#sidenav').classList.remove('open');
+  $('#nav-backdrop').classList.remove('show');
+};
 $('#sidenav').addEventListener('click', function(e){
-  if(e.target.closest('a') && window.innerWidth <= 960) $('#sidenav').classList.remove('open');
+  if(e.target.closest('a') && window.innerWidth <= 960){
+    $('#sidenav').classList.remove('open');
+    $('#nav-backdrop').classList.remove('show');
+  }
 });
 window.addEventListener('hashchange', route);
 window.addEventListener('scroll', updateProgress);
@@ -1045,6 +1112,8 @@ document.addEventListener('keydown', function(e){
       refreshCount(TOTAL);
     }
     menu.classList.remove('open');
+    $('#sidenav').classList.remove('open');
+    $('#nav-backdrop').classList.remove('show');
   }
 });
 })();
