@@ -13,3 +13,6 @@ __pycache__/
 # 个人学习数据(笔记/熟练度,仅存本地,绝不入库)
 notes.json
 notes-export-*.json
+
+# 答案草稿箱(别家AI的原始回答,处理完成后由 skill 清理)
+drafts/

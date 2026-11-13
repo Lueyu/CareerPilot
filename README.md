@@ -61,6 +61,17 @@ python build.py --init-notes   # 在仓库根目录创建 notes.json(个人数�
 - 题目来源请注明公司(如"字节·真题"),不确定的写"网友面经"
 - 技术准确性最高优先级:公式写错比不写更糟,不确定的细节用保守表述
 
+### 修改/升级已有答案
+
+觉得某道题的答案不够好?把别的 AI 给的更满意回答交进来:
+
+- **单题**:在 opencode 里粘贴,说"美化 rag-003 的答案:[内容]"
+- **批量**:存到 `drafts/` 目录(文件名带题号,如 `drafts/rag-003.txt`),说"处理草稿"
+
+内置的 `refine-answer` skill 会全量重写题卡(五模块+选择题,流程性内容自动生成 SVG 架构图
+/表格),元数据保持不变,`python build.py` 校验通过后提交。旧版永远在 git 历史里,
+`git revert` 即可回退。草稿目录与个人笔记一样不进仓库。
+
 ## 隐私说明
 
 你的**笔记、熟练度、复习进度**只保存在本地 `notes.json`(由浏览器直写,已 gitignore),换设备用页面里的「导出备份/导入备份」迁移。**这些个人数据永远不会进入 Git 仓库**——贡献题目时也只会上传题库内容本身。
@@ -71,13 +82,14 @@ python build.py --init-notes   # 在仓库根目录创建 notes.json(个人数�
 index.html                       # v2 单页应用(双击即开)
 data.js                          # 构建产物:window.QB(题目数据)
 notes.json                       # 你的个人笔记(本地生成,不入库)
+drafts/                          # 答案草稿箱(本地,不入库;refine-answer skill 消化)
 build.py                         # 构建工具:校验/生成/自测/迁移/初始化笔记
 content/
 ├─ topics.json                   # 8 主题配置
 ├─ SPEC.md                       # 题目写作规范(贡献必读)
 ├─ extra/top10.html              # 考前速记 Top10
 └─ questions/{topic}/{NNN}.html  # 每题一文件(题卡+元数据+MCQ)
-.opencode/skill/add-question/    # opencode 加题 skill(含贡献流程)
+.opencode/skill/                 # opencode skills:add-question(加题)/ refine-answer(美化答案)
 docs/superpowers/                # 设计文档与实施计划
 ```
 
