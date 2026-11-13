@@ -26,7 +26,9 @@ description: Use when the user wants to 美化/改写/升级 an existing questio
 ### 1. 收集输入
 
 - 聊天粘贴 → 直接作为新答案文本
-- `drafts/*.txt|md` → 读文件;文件名通常含题号(如 `rag-003-gpt.txt`),以此定位
+- `drafts/*.txt|md` → 读文件;文件名通常含题号(如 `rag-003-gpt.txt`),以此定位。
+  网页「答案投稿箱」(`index.html#/refine`)生成的草稿命名严格为 `{qid}.txt`
+  (如 `rag-003.txt`),内容即新答案纯文本——批量处理时优先认准这类文件
 
 ### 2. 定位目标题
 

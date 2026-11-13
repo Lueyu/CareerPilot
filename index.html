@@ -221,7 +221,24 @@
 .kbd{font-size:11px;color:var(--muted);opacity:.7}
 .notebox{width:100%;min-height:96px;border:1.5px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);padding:10px 12px;font-size:14px;font-family:inherit;line-height:1.7;resize:vertical;outline:none}
 .notebox:focus{border-color:var(--accent)}
-.note-meta{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:6px}
+  .note-meta{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:6px}
+  /* 答案投稿箱 */
+  .refine-panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px 22px;margin:14px 0}
+  .refine-hint{font-size:13px;color:var(--muted);margin-bottom:14px}
+  .refine-row{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+  .refine-row select{flex:1;min-width:220px;padding:8px 10px;border:1.5px solid var(--border);border-radius:10px;background:var(--card);color:var(--text);font-size:13.5px;font-family:inherit;outline:none}
+  .refine-row select:focus{border-color:var(--accent)}
+  .btn-line{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+  .btn-main{padding:9px 18px;border-radius:999px;border:none;background:var(--accent);color:var(--btn-on-accent);font-size:13.5px;cursor:pointer;font-family:inherit}
+  .btn-main:disabled{opacity:.45;cursor:default}
+  .btn-ghost{padding:9px 18px;border-radius:999px;border:1.5px solid var(--border);background:var(--card);color:var(--text);font-size:13.5px;cursor:pointer;font-family:inherit}
+  .btn-ghost:hover,.btn-main:hover:not(:disabled){opacity:.85}
+  .refine-status{margin-top:10px;font-size:13px;color:var(--teal);min-height:20px}
+  .draft-queue{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+  .dq-item{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--soft);border:1px solid var(--soft-border);border-radius:10px;font-size:13.5px}
+  .dq-item .no{color:var(--accent);font-weight:700;font-size:12px}
+  .dq-item .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dq-item button{border:none;background:none;color:var(--rose);cursor:pointer;font-size:12px;font-family:inherit}
 .ring-wrap{display:flex;align-items:center;gap:18px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px 22px;margin:18px 0}
 .ring-num{font-size:28px;font-weight:800}
 .ring-lbl{font-size:13px;color:var(--muted)}
@@ -526,6 +543,7 @@ var FileSync = {
 /* ---------- 侧边栏 ---------- */
 function buildNav(){
   var h = '<div class="nav-part">导航</div><a href="#/" data-nav="#/">仪表盘</a>'
+        + '<a href="#/refine" data-nav="#/refine">✂️ 答案投稿箱</a>'
         + '<div class="nav-part">主题</div>';
   QB.topics.forEach(function(t){
     var qs = byTopic[t.code] || [];
@@ -540,6 +558,7 @@ function setActiveNav(hash){
   var topicHash = hash;
   var mq = hash.match(/^#\/q\/([\w-]+)$/);
   if(mq && byId[mq[1]]) topicHash = '#/topic/' + byId[mq[1]].topic;
+  else if(hash.indexOf('#/refine') === 0) topicHash = '#/refine';
   $$('#sidenav a').forEach(function(a){
     a.classList.toggle('active', a.getAttribute('data-nav') === topicHash);
   });
@@ -698,7 +717,7 @@ function studyPanelHTML(q){
   }).join('');
   return '<div class="study-panel"><div class="level-btns" id="level-btns">' + btns + '</div>'
        + '<textarea class="notebox" id="notebox" placeholder="记下你的理解、口播要点、踩过的坑…(自动保存,同步到 notes.json)">' + esc(it.note || '') + '</textarea>'
-       + '<div class="note-meta"><span>←/→ 切题 · 数字键 1-4 评熟练度</span><span id="note-status"></span></div></div>';
+        + '<div class="note-meta"><span>←/→ 切题 · 数字键 1-4 · <a style="color:var(--accent)" href="#/refine/' + q.id + '">改答案</a></span><span id="note-status"></span></div></div>';
 }
 
 function bindStudyPanel(q){
@@ -738,6 +757,154 @@ function noteStatus(){
   s.textContent = ({ synced: '笔记已同步', dirty: '保存中…' })[FileSync.status] || '本地保存';
 }
 
+/* ---------- 答案投稿箱(网页粘贴 → drafts/ → refine-answer skill) ---------- */
+var DRAFT_Q_KEY = 'ib-draft-queue';
+var draftQueue = [];
+try { draftQueue = JSON.parse(localStorage.getItem(DRAFT_Q_KEY) || '[]'); } catch(e){ draftQueue = []; }
+function saveDraftQueue(){
+  try { localStorage.setItem(DRAFT_Q_KEY, JSON.stringify(draftQueue)); }
+  catch(e){ if(window.console) console.warn('draft queue save failed:', e); }
+}
+
+var DraftFS = {
+  available: ('showDirectoryPicker' in window),
+  root: null, drafts: null,
+  connect: function(){
+    var self = this;
+    if(!this.available) return Promise.resolve(false);
+    return showDirectoryPicker({ mode: 'readwrite' }).then(function(dir){
+      self.root = dir;
+      return dir.getDirectoryHandle('drafts', { create: true }).then(function(d){
+        self.drafts = d;
+        return FileSync.idb('readwrite', 'drafts-dir', dir);
+      });
+    });
+  },
+  autoAttach: function(){
+    var self = this;
+    if(!this.available) return Promise.resolve(false);
+    return FileSync.idb('readonly', 'drafts-dir', undefined).then(function(h){
+      if(!h) return false;
+      return h.queryPermission({ mode: 'readwrite' }).then(function(p){
+        if(p !== 'granted') return false;
+        self.root = h;
+        return h.getDirectoryHandle('drafts', { create: true }).then(function(d){
+          self.drafts = d; return true;
+        });
+      });
+    }).catch(function(){ return false; });
+  },
+  saveAll: function(){
+    var self = this;
+    if(!this.drafts) return Promise.reject(new Error('no drafts dir'));
+    return Promise.all(draftQueue.map(function(item){
+      return self.drafts.getFileHandle(item.qid + '.txt', { create: true }).then(function(fh){
+        return fh.createWritable().then(function(w){
+          return w.write(item.text).then(function(){ return w.close(); });
+        });
+      });
+    })).then(function(r){ return r.length; });
+  },
+  download: function(item){
+    var blob = new Blob([item.text], { type: 'text/plain' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = item.qid + '.txt';
+    a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
+  }
+};
+
+function renderRefine(qid){
+  var h = '<div class="crumb"><a href="#/">仪表盘</a> › 答案投稿箱</div>'
+        + '<h2 class="part-title">✂️ 答案投稿箱<span style="font-size:14px;color:var(--muted);font-weight:400">网页粘贴 → 存入 drafts/ → 对 opencode 说「处理草稿」</span></h2>'
+        + '<p class="part-sub">把别家 AI 给你的更好回答粘贴进来,批量存入本地草稿箱(drafts/ 目录,已 gitignore 不入库),然后回到 opencode 触发 refine-answer skill 全量重写题卡。</p>'
+        + '<div class="refine-panel">'
+        + '<div class="refine-hint">① 选题 → ② 粘贴新答案 → ③ 加入队列(可重复多题)→ ④ 保存到草稿箱</div>'
+        + '<div class="refine-row"><select id="rf-topic" aria-label="主题"></select><select id="rf-q" aria-label="题目"></select></div>'
+        + '<textarea class="notebox" id="rf-text" style="min-height:150px" placeholder="粘贴这道题的新答案(任意 AI 的原始输出,不用整理格式)…"></textarea>'
+        + '<div class="btn-line">'
+        + '<button class="btn-ghost" id="rf-add">加入队列</button>'
+        + '<button class="btn-main" id="rf-save">保存到草稿箱(0)</button>'
+        + '<button class="btn-ghost" id="rf-conn">连接仓库目录</button>'
+        + '</div>'
+        + '<div class="refine-status" id="rf-status"></div>'
+        + '<div class="draft-queue" id="rf-queue"></div>'
+        + '</div>';
+  view.innerHTML = h;
+  var topicSel = $('#rf-topic'), qSel = $('#rf-q');
+  topicSel.innerHTML = QB.topics.map(function(t){
+    return '<option value="' + t.code + '">' + t.icon + ' ' + esc(t.name) + '</option>';
+  }).join('');
+  function fillQ(code, wantId){
+    var qs = (byTopic[code] || []).slice().sort(function(a, b){ return nn(a.id) - nn(b.id); });
+    qSel.innerHTML = qs.map(function(q){
+      return '<option value="' + q.id + '">' + q.id + ' · ' + esc(q.title) + '</option>';
+    }).join('');
+    if(wantId && byId[wantId]) qSel.value = wantId;
+  }
+  topicSel.addEventListener('change', function(){ fillQ(topicSel.value); });
+  var preset = (qid && byId[qid]) ? byId[qid].topic
+             : (draftQueue.length && byId[draftQueue[draftQueue.length - 1].qid] ? byId[draftQueue[draftQueue.length - 1].qid].topic : 'rag');
+  topicSel.value = preset;
+  fillQ(preset, qid);
+  renderDraftQueue();
+  $('#rf-add').onclick = function(){
+    var target = qSel.value, text = $('#rf-text').value.trim();
+    if(!text){ $('#rf-status').textContent = '先粘贴新答案,再加入队列。'; return; }
+    draftQueue.push({ qid: target, text: text });
+    saveDraftQueue();
+    $('#rf-text').value = '';
+    $('#rf-status').textContent = '已入队:' + target + '(可继续选下一题粘贴)';
+    renderDraftQueue();
+  };
+  $('#rf-conn').onclick = function(){
+    if(!DraftFS.available){ $('#rf-status').textContent = '当前浏览器不支持目录直写:保存时会逐个下载文件,手动放入仓库 drafts/ 目录即可。'; return; }
+    $('#rf-status').textContent = '连接中…';
+    DraftFS.connect().then(function(){
+      $('#rf-status').textContent = DraftFS.drafts ? '已连接仓库目录,drafts/ 就绪。' : '连接已取消。';
+    }).catch(function(){
+      $('#rf-status').textContent = '连接失败,可重试;或直接保存走下载兜底。';
+    });
+  };
+  $('#rf-save').onclick = function(){
+    if(!draftQueue.length) return;
+    if(!DraftFS.available){
+      draftQueue.forEach(function(it){ DraftFS.download(it); });
+      $('#rf-status').textContent = '已下载 ' + draftQueue.length + ' 个草稿文件,请移入仓库 drafts/ 目录后对 opencode 说「处理草稿」。';
+      draftQueue = []; saveDraftQueue(); renderDraftQueue();
+      return;
+    }
+    var go = function(){
+      DraftFS.saveAll().then(function(n){
+        draftQueue = []; saveDraftQueue(); renderDraftQueue();
+        $('#rf-status').innerHTML = '已写入 drafts/ 共 <b>' + n + '</b> 个草稿。现在回到 opencode,说<b>「处理草稿」</b>即可批量重写题卡。';
+      }).catch(function(){
+        $('#rf-status').textContent = '写入失败:请确认选中的是仓库根目录(会自动建 drafts/),或点「连接仓库目录」重试。';
+      });
+    };
+    if(DraftFS.drafts) go();
+    else DraftFS.connect().then(go, go);
+  };
+  DraftFS.autoAttach().then(function(ok){
+    if(ok) $('#rf-status').textContent = '已自动连接仓库目录,drafts/ 就绪。';
+  });
+}
+function renderDraftQueue(){
+  var box = $('#rf-queue'); if(!box) return;
+  var btn = $('#rf-save');
+  if(btn){ btn.textContent = '保存到草稿箱(' + draftQueue.length + ')'; btn.disabled = !draftQueue.length; }
+  box.innerHTML = draftQueue.length ? '' : '<div class="empty" style="padding:10px 0;font-size:13px">队列为空</div>';
+  draftQueue.forEach(function(it, i){
+    var d = el('div', 'dq-item',
+      '<span class="no">' + esc(it.qid) + '</span><span class="t">' + esc((it.text || '').slice(0, 60)) + '…</span>');
+    var b = el('button', null, '移除');
+    b.onclick = function(){ draftQueue.splice(i, 1); saveDraftQueue(); renderDraftQueue(); };
+    d.appendChild(b);
+    box.appendChild(d);
+  });
+}
+
 /* ---------- 路由 ---------- */
 var view = $('#view');
 function route(){
@@ -748,6 +915,8 @@ function route(){
   if(h === '#/' || h === '#' || h === '') renderHome();
   else if(h.indexOf('#/topic/') === 0) renderTopic(h.slice('#/topic/'.length));
   else if(h.indexOf('#/q/') === 0) renderQuestion(h.slice('#/q/'.length));
+  else if(h === '#/refine' || h.indexOf('#/refine/') === 0)
+    renderRefine(h.indexOf('#/refine/') === 0 ? h.slice('#/refine/'.length) : '');
   else render404();
   setActiveNav(h);
   window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
@@ -836,7 +1005,7 @@ $('#file-import').addEventListener('change', function(){
 });
 
 /* ---------- 调试/测试句柄(受控暴露) ---------- */
-window.__ib = { Store: Store, FileSync: FileSync, refresh: refreshAfterStore };
+window.__ib = { Store: Store, FileSync: FileSync, refresh: refreshAfterStore, DraftFS: DraftFS, draftQueue: function(){ return draftQueue; } };
 
 /* ---------- 全局搜索 ---------- */
 var pop = $('#search-pop');
