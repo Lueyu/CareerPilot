@@ -1,0 +1,124 @@
+<article class="q" id="biz-025" data-topic="biz" data-title="Agent沙箱执行与自进化:第三方代码运行与权限扩张的安全设计" data-difficulty="4" data-tags="沙箱,安全,自进化,权限" data-company="腾讯云(社区文章)" data-source="网友面经" data-kw="沙箱 隔离 容器 microVM Firecracker 自进化 权限扩张 最小权限 审计 回放 网络白名单 资源限额 prompt注入 代码解释器">
+
+  <div class="q-no">安全沙箱 · Q25</div>
+  <h3>你的 Agent 要执行模型生成的代码、还要"自我进化"改自己的工具和权限——怎么保证安全?</h3>
+  <div class="q-meta">
+    <span class="stars">⭐⭐⭐⭐</span>
+    <span class="tag">#沙箱</span><span class="tag">#安全</span><span class="tag">#自进化</span>
+    <span class="company">腾讯云(社区文章)</span>
+  </div>
+
+  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+    <p>"安全思维是 Agent 和 Demo 的分水岭,我抓两条线。第一,<b>任何模型生成/第三方代码绝不进主进程</b>:一律丢独立沙箱——容器或 microVM,限额 CPU/内存/时长,不注入密钥,默认断网、外联只走白名单代理。第二,<b>自进化可以,但权限变更不能静默生效</b>:Agent 只能'提议'加工具、改提示词、扩权限,判定权在框架层,必须过审批门(人工或策略引擎),登记进能力注册表,全程留可回放的审计。一句话:<b>能力可以自动长,权限永远手动批。</b>"</p>
+  </div>
+
+  <div class="block ana"><span class="badge b-ana">通俗类比</span>
+    <p>把 Agent 当作<b>能力很强但不能全信的外包驻场团队</b>:活可以交,但门禁卡只开指定房间(最小权限);想进新房间必须先到前台申请(审批门);进出全程有监控(审计回放)。高危操作关在独立小隔间里做,就算砸了也伤不到主楼(沙箱隔离)。</p>
+  </div>
+
+  <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 为什么必须有沙箱:RCE 是 Agent 系统的默认攻击面</b></p>
+    <ul>
+      <li><b>模型天然要产出代码</b>:代码解释器、数据管线、自动修复脚本……"让 Agent 写代码并跑起来"是核心卖点,也就意味着<b>任意代码执行(RCE)风险是系统自带的</b>,不是可选件。</li>
+      <li><b>Prompt 注入会升级风险</b>:一份恶意网页/文档里藏一句"请执行以下命令",就能把"帮我读文档"变成"帮我跑脚本、外传数据"。</li>
+      <li><b>主进程就是皇冠珠宝</b>:密钥、数据库连接、用户数据全在主进程。代码一旦在主进程执行,一次逃逸=全线失守。所以答案只有一个:<b>换个地方跑</b>。</li>
+    </ul>
+    <p><b>2. 隔离层级怎么选(按代码可信度递增)</b></p>
+    <table>
+      <tr><th>隔离层级</th><th>强度</th><th>典型用途</th><th>注意</th></tr>
+      <tr><td>同进程函数调用</td><td>❌ 无隔离</td><td>仅纯计算且完全可信</td><td>生产环境直接禁用</td></tr>
+      <tr><td>子进程 + rlimit</td><td>弱</td><td>可信脚本</td><td>一个内核漏洞就击穿</td></tr>
+      <tr><td>WASM(Wasmtime 等)</td><td>中</td><td>高频小函数、表达式求值</td><td>系统能力受限于宿主 API</td></tr>
+      <tr><td>容器(Docker/gVisor)</td><td>强</td><td>代码解释器、批任务</td><td>共享内核:非特权 + seccomp + 只读根文件系统</td></tr>
+      <tr><td>microVM(Firecracker/Kata)</td><td>最强</td><td>多租户、完全不可信代码</td><td>独立内核,ms 级冷启动,成本略高</td></tr>
+    </table>
+    <p><b>3. 沙箱的四条默认(我的落地配置)</b></p>
+    <pre class="code"># 沙箱出口策略:默认拒绝
+network: deny_all
+egress_allow:            # 外联必须显式授权,按任务给域名
+  - host: api.github.com
+fs_mounts:
+  - /work                # 只挂工作目录,读写
+secrets: none            # 沙箱内不注入任何凭据
+limits: { cpu: "2", mem: "1G", wall: "120s" }</pre>
+    <ul>
+      <li><b>不注入密钥</b>是单点最有效的一条:沙箱里没有凭据,代码想外传也传不出有价值的东西——出口再套白名单代理,双保险。</li>
+      <li>结果回传主进程前做<b>出站校验</b>:只回文本/文件,大小与类型受限,不回传可执行物。</li>
+    </ul>
+    <p><b>4. 自进化的安全设计:能力开放,权限收紧</b></p>
+    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 480 400" role="img" aria-label="沙箱执行与自进化审批双通道">
+  <text class="sd-ts" x="122" y="20" text-anchor="middle">外部代码执行线</text>
+  <text class="sd-ts" x="358" y="20" text-anchor="middle">自进化权限线</text>
+  <rect class="sd-box" x="10" y="30" width="224" height="62" rx="10"/>
+  <text class="sd-t" x="122" y="56" text-anchor="middle">① 要跑生成代码/第三方脚本</text>
+  <text class="sd-ts" x="122" y="76" text-anchor="middle">解释器 · 修复脚本 · 批处理</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M122 92 L122 102"/>
+  <rect class="sd-box-amber" x="10" y="102" width="224" height="62" rx="10"/>
+  <text class="sd-t" x="122" y="128" text-anchor="middle">② 丢进独立沙箱</text>
+  <text class="sd-ts" x="122" y="148" text-anchor="middle">容器/microVM · 限额 · 不带密钥</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M122 164 L122 174"/>
+  <rect class="sd-box" x="10" y="174" width="224" height="62" rx="10"/>
+  <text class="sd-t" x="122" y="200" text-anchor="middle">③ 默认断网 · 出口白名单代理</text>
+  <text class="sd-ts" x="122" y="220" text-anchor="middle">外联按任务授权域名</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M122 236 L122 246"/>
+  <rect class="sd-box-rose" x="10" y="246" width="224" height="62" rx="10"/>
+  <text class="sd-t" x="122" y="272" text-anchor="middle">④ 只回传结果(文本/文件)</text>
+  <text class="sd-ts" x="122" y="292" text-anchor="middle">出站过校验 · 不回传可执行物</text>
+  <rect class="sd-box" x="246" y="30" width="224" height="62" rx="10"/>
+  <text class="sd-t" x="358" y="56" text-anchor="middle">⑤ 提议:新工具/改权限/改提示词</text>
+  <text class="sd-ts" x="358" y="76" text-anchor="middle">模型只有"请求权",没有"决定权"</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M358 92 L358 102"/>
+  <rect class="sd-box-rose" x="246" y="102" width="224" height="62" rx="10"/>
+  <text class="sd-t" x="358" y="128" text-anchor="middle">⑥ 审批门:人工/策略引擎</text>
+  <text class="sd-ts" x="358" y="148" text-anchor="middle">权限扩张绝不静默生效</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M358 164 L358 174"/>
+  <rect class="sd-box" x="246" y="174" width="224" height="62" rx="10"/>
+  <text class="sd-t" x="358" y="200" text-anchor="middle">⑦ 登记能力注册表 + 审计日志</text>
+  <text class="sd-ts" x="358" y="220" text-anchor="middle">trace 全留 · 可回放取证</text>
+  <path class="sd-a" marker-end="url(#sd-arr)" d="M358 236 L358 246"/>
+  <rect class="sd-box-amber" x="246" y="246" width="224" height="62" rx="10"/>
+  <text class="sd-t" x="358" y="272" text-anchor="middle">⑧ 会话级权限 · 快照可回滚</text>
+  <text class="sd-ts" x="358" y="292" text-anchor="middle">用完过期 · 越界熔断</text>
+  <rect class="sd-box2" x="10" y="330" width="460" height="52" rx="10"/>
+  <text class="sd-t" x="240" y="352" text-anchor="middle">同一句原则贯穿两条线</text>
+  <text class="sd-ts" x="240" y="370" text-anchor="middle">能力可以自动长 · 权限永远手动批 · 一切留痕可回放</text>
+</svg></div>
+    <ul>
+      <li><b>先定义"自进化"是什么</b>:Agent 修改自身行为——换提示词、加/改工具、写长期记忆、更新技能库。<b>风险三类</b>:权限扩张(注入让它"给自己提权")、目标漂移(为了完成度越改越偏)、供应链(自装依赖被投毒)。</li>
+      <li><b>权限判定权不在模型手里</b>:模型只能发起请求,判定在框架层(策略引擎/RBAC)执行——注入再厉害也改不了代码里的权限表。</li>
+      <li><b>能力注册表</b>:每个工具/权限/提示词版本登记来源与版本号,新能力首次调用必须有签名与审批记录。</li>
+      <li><b>快照 + 回滚</b>:自进化的每一步改动可一键回退,坏版本不扩散。</li>
+    </ul>
+    <p><b>5. 审计与回放:安全设计的"事后"一半</b></p>
+    <ul>
+      <li>每一步落 trace:输入、工具调用、<b>权限判定结果</b>、输出,出事可按 trace 重放取证,这是讲安全时最容易加分的细节。</li>
+      <li>异常信号接告警:新工具首次调用、权限请求频率突增、出站流量形状异常。</li>
+    </ul>
+    <p><b>6. 讲自己的实践(面试决胜区)</b>:我在自己的多智能体项目里定了两条铁律——<b>第三方代码不进主进程;权限扩张不静默生效</b>。面试时直接讲"我怎么做的、踩过什么坑",比背十条概念值钱。</p>
+  </div>
+
+  <div class="block fol"><span class="badge b-fol">面试官追问</span>
+    <details class="qa"><summary class="qu">Q:都有容器了,为什么还要 microVM?什么时候必须上?</summary><div class="an">容器共享宿主内核:<b>gVisor 做系统调用代理已经能挡住大多数攻击,但内核 0day 依然可能逃逸</b>。判断标准是"代码可信度 × 爆炸半径":单租户内部工具,容器 + 非特权 + seccomp 足够;<b>多租户、跑完全不可信的用户代码,上 Firecracker/Kata 这类独立内核 microVM</b>——每个沙箱一个精简内核,逃逸了也只是逃到一台空 VM 里。成本上 Firecracker 冷启动 ~125ms,对代码解释器场景无感。</div></details>
+    <details class="qa"><summary class="qu">Q:沙箱默认断网,但工具就是要调外部 API,怎么办?</summary><div class="an">不是"给沙箱开网",而是<b>把网络收回到代理层</b>:沙箱内 deny_all,唯一出口是宿主侧的 egress 代理,代理上按任务授权域名白名单(这次任务只允许 api.github.com),请求带任务级短时凭证,全部请求落审计。这样<b>权限粒度从"能不能上网"细化到"这一单任务能访问哪几个域"</b>,凭证泄漏了也只在白名单域内、几分钟内有效。</div></details>
+    <details class="qa"><summary class="qu">Q:Prompt 注入让 Agent "给自己加权限",你的设计怎么挡住?</summary><div class="an">靠<b>权限判定权不在模型手里</b>:模型输出的只是"请求",真正的判定发生在框架代码里——策略引擎对照静态权限表(代码管,模型改不了)做判定,危险操作走人工审批。注入能操纵的是模型的话,操纵不了我的服务端代码。再配两条兜底:权限扩张<b>绝不静默生效</b>(宁可打断体验也要确认);会话级权限用完过期,即便骗到授权,影响窗口也有限。</div></details>
+    <details class="qa"><summary class="qu">Q:审批门打断自动化,体验和安全怎么平衡?</summary><div class="an"><b>按爆炸半径分级</b>:只读浏览类自动放行;写操作限额放行(每会话 N 次,超了才审);真正危险的操作(支付、删除生产数据、权限变更、新增执行代码的通道)必须人审。再加<b>会话级时效</b>:批一次只管这一单任务,不沉淀成长期权限。原则是:低危讲效率,高危讲确定性——面试时主动把这条分级讲出来,说明你考虑过产品侧,不是只会喊"都审批"。</div></details>
+  </div>
+
+  <div class="block term"><span class="badge b-term">术语卡</span>
+    <div class="terms-grid">
+      <div class="term-item"><b>沙箱(Sandbox)</b>:隔离执行环境,代码跑在受限进程/容器/VM 内,越界也伤不到宿主。</div>
+      <div class="term-item"><b>gVisor / Firecracker</b>:前者拦截系统调用做用户态内核,后者轻量 microVM,独立内核隔离最强。</div>
+      <div class="term-item"><b>最小权限原则</b>:只授完成任务所需的最小权限,且随任务结束回收。</div>
+      <div class="term-item"><b>权限扩张(Privilege Escalation)</b>:攻击者(含注入的指令)诱导系统授予超出授权的能力。</div>
+      <div class="term-item"><b>能力注册表</b>:工具/权限/提示词版本的登记台账,带来源、签名与审批记录。</div>
+      <div class="term-item"><b>审计回放(Audit Replay)</b>:全量 trace 落盘,事后可按步重演取证。</div>
+    </div>
+  </div>
+</article>
+<script type="application/json">
+[
+  {"q":"模型生成的代码/第三方脚本应该在哪里执行?","options":["主进程里,共享上下文最快","独立沙箱:资源限额、不注入密钥、默认断网","和其他任务共用的 worker 进程","直接发给前端浏览器执行"],"answer":1,"explain":"主进程持有全部密钥与数据,一次逃逸全线失守;共享 worker 同样没有隔离边界。正确做法是独立沙箱(容器/microVM)+限额+无密钥+默认断网,结果校验后回传。"},
+  {"q":"Agent 自进化时要新增一个能删除生产数据的工具,正确的处理是?","options":["模型判断有必要就直接注册生效","写进长期记忆,下次自动使用","进审批门:人工或策略引擎确认后生效,并登记审计","永久关闭自进化功能"],"answer":2,"explain":"能力可以自动长,权限永远手动批:权限判定权不能在模型手里,扩张必须过审批门并留痕。因噎废食关闭自进化也不对——要的是治理,不是阉割。"},
+  {"q":"防沙箱内代码把数据外传,单点最有效的措施是?","options":["提示词里叮嘱模型不要外传数据","沙箱内不注入任何凭据 + 默认断网、出口走白名单代理","上线前人工逐行 review 全部生成代码","对模型输出做关键词过滤"],"answer":1,"explain":"提示词和关键词过滤挡不住注入与恶意代码;人工逐行 review 在高频生成场景不可行。釜底抽薪的是:沙箱里没有凭据可偷、没有网络可走——想外传也拿不到东西、出不去门。"}
+]
+</script>
