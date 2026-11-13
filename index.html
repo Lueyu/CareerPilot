@@ -207,13 +207,21 @@
     .brand{display:none}
     #btn-print{display:none}
     #backtop{display:none}
+    #sync-badge{display:none}
+    #count{display:none}
     .topbar-inner{gap:8px;padding:9px 10px}
+    #search{flex:1;font-size:14px;padding:8px 10px}
+    #search::placeholder{font-size:12px}
     .qnav{gap:6px}
-    .qnav button{padding:9px 13px;font-size:13px}
+    .qnav button{padding:10px 14px;font-size:14px}
     .qpos{font-size:12px}
-    .lv-btn{padding:9px 14px;font-size:13px}
+    /* 手机上只保留熟练度评分,隐藏笔记与改答案 */
+    .notebox{display:none}
+    .note-meta{display:none}
     .level-btns{gap:6px}
-    .note-meta{flex-direction:column;gap:2px}
+    .lv-btn{flex:1;padding:12px 0;font-size:14px;justify-content:center}
+    .lv-btn .kbd{display:none}
+    .study-panel{padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
     .part-title{font-size:19px}
     .q h3{font-size:17px}
     .hero h1{font-size:22px}
@@ -327,6 +335,14 @@
 .sr-item small{color:var(--muted);margin-right:8px;font-size:11.5px}
 .empty{color:var(--muted);text-align:center;padding:40px 0}
 .continue-row{margin:14px 0;text-decoration:none;display:flex}
+
+/* ===== 移动端最终覆盖(必须在所有 base 规则之后,否则会被覆盖) ===== */
+@media (max-width:620px){
+  .notebox{display:none!important}
+  .note-meta{display:none!important}
+  .lv-btn .kbd{display:none!important}
+  #sync-badge{display:none!important}
+}
 </style>
 <script>
 (function(){try{var t=localStorage.getItem('ib-theme');if(!t){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}if(t==='dark'){document.documentElement.setAttribute('data-theme','dark');}var m=document.querySelector('meta[name="theme-color"]');if(m){m.setAttribute('content',t==='dark'?'#0e1016':'#f7f8fb');}}catch(e){}})();
