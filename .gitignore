@@ -17,6 +17,9 @@ notes-export-*.json
 # 答案草稿箱(别家AI的原始回答,处理完成后由 skill 清理)
 drafts/
 
+# 个人求职数据(招聘情报/面经/差距分析/画像,由自动化任务每日追加,仅存本地,绝不入库)
+personal/
+
 # 部署产物、依赖与本地私钥(绝不入库)
 deploy/dist/
 deploy/node_modules/
