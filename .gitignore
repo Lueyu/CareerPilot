@@ -16,3 +16,10 @@ notes-export-*.json
 
 # 答案草稿箱(别家AI的原始回答,处理完成后由 skill 清理)
 drafts/
+
+# 部署产物、依赖与本地私钥(绝不入库)
+deploy/dist/
+deploy/node_modules/
+deploy/certs/
+deploy/.acme-account-key.pem
+deploy/verify-https.json
