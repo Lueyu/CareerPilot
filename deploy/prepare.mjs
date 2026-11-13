@@ -9,14 +9,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const DIST = path.join(__dirname, 'dist');
 
-const SITE_FILES = ['index.html', 'data.js'];
+const SITE_FILES = ['index.html', 'data.js', 'manifest.webmanifest', 'sw.js'];
 
 await rm(DIST, { recursive: true, force: true });
 await mkdir(DIST, { recursive: true });
+await mkdir(path.join(DIST, 'icons'), { recursive: true });
 
 for (const file of SITE_FILES) {
   await cp(path.join(ROOT, file), path.join(DIST, file));
 }
+await cp(path.join(ROOT, 'icons'), path.join(DIST, 'icons'), { recursive: true });
 
 const dataBuf = await readFile(path.join(DIST, 'data.js'));
 const hash = crypto.createHash('sha256').update(dataBuf).digest('hex').slice(0, 10);
