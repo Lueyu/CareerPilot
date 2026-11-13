@@ -26,3 +26,6 @@ deploy/node_modules/
 deploy/certs/
 deploy/.acme-account-key.pem
 deploy/verify-https.json
+
+# 本地测试用 vault.js（密文不入仓库；线上走 deploy/dist → OSS）
+/vault.js

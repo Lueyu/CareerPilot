@@ -50,6 +50,17 @@ async function probeUrl(u) {
   }
 }
 
+// 从 dist/index.html 里取实际使用的带指纹 vault.js 地址
+async function fingerprintedVaultUrl() {
+  try {
+    const html = await readFile(path.join(__dirname, 'dist', 'index.html'), 'utf8');
+    const m = html.match(/src="(vault\.js\?v=[0-9a-f]+)"/);
+    return m ? `https://${ROOT_DOMAIN}/${m[1]}` : null;
+  } catch {
+    return null;
+  }
+}
+
 // 从 dist/index.html 里取实际使用的带指纹 data.js 地址
 async function fingerprintedDataUrl() {
   try {
@@ -71,6 +82,7 @@ const urls = [
   `https://${WWW_DOMAIN}/`,
   `https://${ROOT_DOMAIN}/data.js`,
   await fingerprintedDataUrl(),
+  await fingerprintedVaultUrl(),
   `https://${ROOT_DOMAIN}/nonexistent-404-test`,
   `http://${ROOT_DOMAIN}/`,
   `http://${WWW_DOMAIN}/`,

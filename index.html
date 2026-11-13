@@ -392,6 +392,7 @@
 </div>
 
 <script src="data.js"></script>
+<script src="vault.js"></script>
 <script>
 (function(){
 'use strict';
@@ -621,6 +622,7 @@ var FileSync = {
 /* ---------- 侧边栏 ---------- */
 function buildNav(){
   var h = '<div class="nav-part">导航</div><a href="#/" data-nav="#/">仪表盘</a>'
+        + (window.VAULT ? '<a href="#/vault" data-nav="#/vault">🔒 作战室仪表盘</a>' : '')
         + '<a href="#/refine" data-nav="#/refine">✂️ 答案投稿箱</a>'
         + '<div class="nav-part">主题</div>';
   QB.topics.forEach(function(t){
@@ -691,6 +693,100 @@ function renderHome(){
 /* ---------- 视图:404 ---------- */
 function render404(){
   view.innerHTML = '<div class="empty">页面不存在<br><br><a style="color:var(--accent)" href="#/">回仪表盘</a></div>';
+}
+
+/* ---------- 视图:vault 作战室加密仪表盘 ---------- */
+function b64u(s){ var bin = atob(s), u = new Uint8Array(bin.length); for(var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
+function vaultDecrypt(pass, env){
+  return crypto.subtle.importKey('raw', new TextEncoder().encode(pass), { name: 'PBKDF2' }, false, ['deriveKey'])
+    .then(function(km){
+      return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64u(env.salt), iterations: env.iter, hash: 'SHA-256' }, km, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+    })
+    .then(function(key){ return crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64u(env.iv) }, key, b64u(env.ct)); })
+    .then(function(pt){ return JSON.parse(new TextDecoder().decode(pt)); });
+}
+function vaultRadar(m){
+  var R = 100, C = 130, N = QB.topics.length, i, pt = [];
+  var mx = 100;
+  for(i = 0; i < N; i++){
+    var a = -Math.PI / 2 + i * 2 * Math.PI / N;
+    var sc = (m[QB.topics[i].code] && typeof m[QB.topics[i].code].score === 'number') ? m[QB.topics[i].code].score : 0;
+    pt.push((C + R * sc / mx * Math.cos(a)).toFixed(1) + ',' + (C + R * sc / mx * Math.sin(a)).toFixed(1));
+  }
+  var axes = '';
+  for(i = 0; i < N; i++){
+    var a2 = -Math.PI / 2 + i * 2 * Math.PI / N;
+    var x1 = C + R * Math.cos(a2), y1 = C + R * Math.sin(a2);
+    var x2 = C + (R + 16) * Math.cos(a2), y2 = C + (R + 16) * Math.sin(a2);
+    axes += '<line x1="' + C + '" y1="' + C + '" x2="' + x1.toFixed(1) + '" y2="' + y1.toFixed(1) + '" stroke="var(--border)"/>'
+      + '<text x="' + x2.toFixed(1) + '" y="' + y2.toFixed(1) + '" font-size="11" fill="var(--muted)" text-anchor="middle">' + QB.topics[i].code + '</text>';
+  }
+  return '<svg width="260" height="260" viewBox="0 0 260 260">' + axes
+    + '<polygon points="' + pt.join(' ') + '" fill="var(--accent)" fill-opacity="0.18" stroke="var(--accent)" stroke-width="2"/></svg>';
+}
+function renderVault(){
+  if(!window.VAULT){
+    view.innerHTML = '<div class="empty">作战室仪表盘未随本页发布<br><br><span style="font-size:13px;color:var(--muted)">请访问线上站 agent-interview.icu</span></div>';
+    return;
+  }
+  view.innerHTML = '<div class="crumb"><a href="#/">仪表盘</a> › 🔒 作战室仪表盘</div>'
+    + '<section class="hero"><h1>🔒 作战室仪表盘</h1><p>每日 08:30 自动更新 · AES-256-GCM 端到端加密</p></section>'
+    + '<div style="max-width:420px;margin:14px auto;text-align:center">'
+    + '<input id="vault-pass" type="password" placeholder="输入口令" style="width:220px;padding:10px 14px;border:1.5px solid var(--border);border-radius:10px;background:var(--card);color:var(--text);font-size:14px">'
+    + ' <button id="vault-unlock" style="padding:10px 18px;border:none;border-radius:10px;background:var(--accent);color:#fff;font-size:14px;cursor:pointer">解锁</button>'
+    + '<p id="vault-err" style="color:#e5484d;font-size:13px;min-height:18px"></p></div>'
+    + '<div id="vault-body"></div>';
+  var go = function(){
+    $('#vault-err').textContent = '解密中…';
+    vaultDecrypt($('#vault-pass').value, window.VAULT).then(function(d){
+      $('#vault-err').textContent = '';
+      $('#vault-pass').parentElement.style.display = 'none';
+      renderVaultBody(d);
+    }, function(){ $('#vault-err').textContent = '口令错误或数据损坏'; });
+  };
+  $('#vault-unlock').onclick = go;
+  $('#vault-pass').onkeydown = function(e){ if(e.key === 'Enter') go(); };
+  $('#vault-pass').focus();
+}
+function renderVaultBody(d){
+  var m = d.mastery || {};
+  var h = '<div class="ring-wrap">' + vaultRadar(m) + '<div><div class="ring-num">掌握度雷达</div>'
+    + '<div class="ring-lbl">8 主题 · 三源合流(自评/拉练/闭卷)</div>'
+    + '<div class="ring-lbl" style="margin-top:6px">更新:' + esc(d.generatedAt || '—') + '</div></div></div>';
+  h += '<h2 class="part-title">主题掌握度</h2><table style="width:100%;border-collapse:collapse;font-size:13px">';
+  QB.topics.forEach(function(t){
+    var s = m[t.code] || {};
+    h += '<tr><td style="padding:6px 10px;border-bottom:1px solid var(--border)">' + t.icon + ' ' + esc(t.name) + '</td>'
+      + '<td style="padding:6px 10px;border-bottom:1px solid var(--border);font-weight:700">' + (typeof s.score === 'number' ? s.score : '未测') + '</td>'
+      + '<td style="padding:6px 10px;border-bottom:1px solid var(--border)">' + esc(s.confidence || '—') + '</td>'
+      + '<td style="padding:6px 10px;border-bottom:1px solid var(--border)">' + esc(s.trend || '—') + '</td>'
+      + '<td style="padding:6px 10px;border-bottom:1px solid var(--border);color:var(--muted)">' + esc(s.last_tested || '—') + '</td></tr>';
+  });
+  h += '</table>';
+  h += '<h2 class="part-title">短板 Top5</h2>';
+  var w = d.weaknesses || [];
+  h += w.length ? w.map(function(x){
+    return '<div class="topic-card"><h3>' + esc(x.topic || '') + '</h3><div class="desc">' + esc(x.gap || '') + '</div>'
+      + '<div class="meta-row"><span>动作:' + esc(x.action || '') + '</span><span>' + esc(x.evidence || '') + '</span></div></div>';
+  }).join('') : '<div class="empty">待生成</div>';
+  h += '<h2 class="part-title">求职漏斗</h2>';
+  var f = d.funnel || {};
+  h += '<p style="line-height:1.9">投递 ' + (f.applied || 0) + ' · 筛选 ' + (f.screening || 0) + ' · 面试 ' + (f.interview || 0) + ' · Offer ' + (f.offer || 0) + '<br><span style="font-size:12px;color:var(--muted)">目标:' + esc(f.target || '—') + '</span></p>';
+  h += '<h2 class="part-title">本周行动</h2>';
+  var acts = d.actions || [];
+  h += acts.length ? acts.map(function(a){
+    return '<div class="topic-card"><h3>' + esc(a.week || '') + '</h3><div class="desc">' + (a.items || []).map(esc).join('<br>') + '</div></div>';
+  }).join('') : '<div class="empty">待生成</div>';
+  h += '<h2 class="part-title">身价档位</h2><p style="line-height:1.9">' + esc((d.salary && d.salary.tiers) || '待生成')
+    + '<br><span style="font-size:12px;color:var(--muted)">' + esc((d.salary && d.salary.note) || '') + '</span></p>';
+  h += '<h2 class="part-title">伤疤摘要(wound_log)</h2>';
+  var ws = d.wounds || [];
+  h += ws.length ? ws.map(function(x){
+    return '<div class="topic-card"><h3>' + esc(x.date || '') + ' · ' + esc(x.topic || '') + '</h3><div class="desc">' + esc(x.summary || '') + '</div>'
+      + '<div class="meta-row"><span>下次怎么答:' + esc(x.fix || '') + '</span></div></div>';
+  }).join('') : '<div class="empty">待生成</div>';
+  if(d.notes) h += '<h2 class="part-title">作战室总评</h2><p style="line-height:1.9">' + esc(d.notes) + '</p>';
+  $('#vault-body').innerHTML = h;
 }
 
 /* ---------- 视图:主题 ---------- */
@@ -1004,6 +1100,7 @@ function route(){
   if(h === '#/' || h === '#' || h === '') renderHome();
   else if(h.indexOf('#/topic/') === 0) renderTopic(h.slice('#/topic/'.length));
   else if(h.indexOf('#/q/') === 0) renderQuestion(h.slice('#/q/'.length));
+  else if(h === '#/vault') renderVault();
   else if(h === '#/refine' || h.indexOf('#/refine/') === 0)
     renderRefine(h.indexOf('#/refine/') === 0 ? h.slice('#/refine/'.length) : '');
   else render404();
