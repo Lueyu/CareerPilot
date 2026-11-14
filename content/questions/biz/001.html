@@ -7,56 +7,149 @@
         <span class="tag">#Prompt</span><span class="tag">#版本控制</span><span class="tag">#管理</span>
       </div>
 
+      <div class="note"><b>先说人话:</b>这题问的是:AI 产品的核心资产——提示词——散落在 txt 文件和聊天记录里,怎么给它配上正经的版本管理、发布流程和容灾手段。面试官爱考它,因为它专测工程化素养:答成「存数据库加个 version 字段」的,暴露从没经历过生产事故;能把审批、评估、灰度、回滚讲成体系的,才是真带过系统的人。</div>
+
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-        <p>"核心一句话:<b>把 Prompt 当代码管理</b>。模板化(Jinja2 变量渲染)+ Git 式版本化(每次变更可 diff、可追责)+ 发布流水线(改动先跑黄金集评估,再灰度 5% 流量)+ A/B 实验看指标 + 生产指针秒级回滚。再加两个工程细节:模板渲染的自动化测试,和生产环境 Prompt <b>只读+审批</b>(它是核心资产,不能被人随手改坏)。"</p>
+        <p>"核心一句话:<b>把 Prompt 当代码管理</b>——Prompt 就是 AI 产品的源代码,配得上代码享受的一切工程待遇。<b>模板化</b>(<a target="_blank" rel="noopener" href="https://jinja.palletsprojects.com/">Jinja2</a> 变量渲染)+ <b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Git">Git</a> 式版本化</b>(每次变更可 diff、可追责)+ <b>发布流水线</b>(改动先跑黄金集评估,再灰度发布 5% 流量)+ <b>A/B 实验看指标</b>(质量/成本/点踩三层都要看)+ <b>生产指针秒级回滚</b>。最后补两个工程细节:模板渲染的自动化测试,和生产环境 Prompt <b>只读+审批</b>——它是核心资产,不能被人随手改坏。"</p>
       </div>
 
       <div class="block ana"><span class="badge b-ana">通俗类比</span>
-        <p>很多团队的 Prompt 是"仓库里一个 final_v3_really_final.txt"——这就是<b>没有 Git 时代的代码</b>:谁改的不知道、改了啥不知道、改坏了回不去。所以要照抄软件工程那套:<b>代码有 Git、发布有流水线、上线有灰度、出事有回滚</b>——Prompt 一个字都没差,全照搬。</p>
+        <p><b>整套系统(用你熟悉的备份与变更管理体系想)</b>:Prompt 是 AI 应用的「源代码」——注意它不是数据资产(丢了能重算),是<b>逻辑资产</b>(错一个字行为就变,还没处恢复)。这套系统要做的,就是把你在分布式、备份领域用惯的那套纪律——变更留痕、先验证后上线、灰度切流、快照回滚——原样搬给 Prompt 用。</p>
+        <p><b>版本控制(用快照链想)</b>:每次保存 Prompt 等于打一个不可变快照,链上任意两点可 diff、可回退,相当于给策略配置做了<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Point-in-time_recovery">时间点恢复</a>。<b>发布流水线(用「备份必须验证过恢复才算数」想)</b>:备了不算备,恢复成功才算备;同理,Prompt 改完不算完,<b>黄金集</b>(核心评估样本)跑过线才算完——自动评估在这套系统里的地位,就是 CI 之于代码。</p>
+        <p><b>灰度发布(用容灾切流想)</b>:新版本先接 5% 流量,像灾备演练先切一个机房再观察——只是方向反了:容灾是「被迫切,验证接得住」,灰度是「主动切,验证别切坏」。<b>回滚(用快照回滚想)</b>:版本本体只读,回滚只是把指针拨回去,一个数据块都不动,所以是秒级。</p>
+        <p><b>哪里像</b>:变更审批、环境隔离、快照链、灰度、回滚,几乎一比一对应——你十年的容灾直觉可以直接复用,这正是这题对你友好的地方。<b>哪里不像</b>:① 代码是确定性的,编译器加单测能兜住大部分错误;Prompt 改一个词,输出是<b>概率性漂移</b>,肉眼 diff 看不出好坏,只能靠评估量化——所以「自动评估」必须占 C 位,这是传统流水线里没有的工序;② 代码坏了会崩、有报错日志,Prompt 坏了往往只是「答得差了一点」,静默退化,只能靠质量指标(点踩率、judge 打分)盯着,等不到报错日志;③ 代码基本只有工程师改,Prompt 是产品、运营、算法都在改、一天好几轮——流程要比代码更轻,门禁却不能更松。</p>
       </div>
 
       <div class="block det"><span class="badge b-det">详细拆解</span>
-        <p><b>1. 模板管理</b></p>
-        <ul>
-          <li>Prompt = 模板 + 变量。模板用 Jininja2 类语法:<code>你是一个{{domain}}助手,今天是{{date}},参考资料:{{context}}</code>。</li>
-          <li>变量类型和来源注册(检索结果、用户信息、记忆);渲染失败的兜底(缺变量给默认值,别让用户看到一串 Jinja 原文——经典事故)。</li>
-          <li>组件复用:系统角色、输出格式约束、安全条款做成<b>可组合的片段库</b>。</li>
-        </ul>
-        <p><b>2. 版本控制</b></p>
-        <ul>
-          <li>每次保存生成新版本:内容 diff、作者、变更原因、关联的评估报告。</li>
-          <li><b>发布环境隔离</b>:dev → staging(黄金集自动评估)→ prod;生产环境模板只读,变更走 PR 式审批(两人 review)。</li>
-          <li>环境配置 = "场景名 + 模板版本 + 模型 + 参数"的组合,本身也版本化。</li>
-        </ul>
-        <p><b>3. A/B 测试</b></p>
-        <ul>
-          <li>按用户 hash 稳定分流(同一用户体验一致),新版本先 5%~10% 灰度。</li>
-          <li>核心指标:回答质量(judge 打分)、用户点踩率、平均输出 token(质量不变但更长=变贵了没变好,要能发现)。</li>
-          <li>跑满样本量、显著性达标再全量(详见第四部分 AB 测试题)。</li>
-        </ul>
-        <p><b>4. 回滚</b></p>
-        <ul>
-          <li>生产配置存"版本指针"(指针指向 v27),回滚 = 指针拨回 v26,<b>秒级生效</b>不用重新部署。</li>
-          <li>每个历史版本保留效果曲线(质量分/成本/点踩率随时间变化),一眼看出"哪次改动把系统改坏过"。</li>
-        </ul>
-        <p><b>5. 自动化测试(把事故挡在上线前)</b></p>
-        <ul>
-          <li>模板单测:多组变量渲染不报错、总长度不超上下文预算、特殊字符不破坏格式。</li>
-          <li>黄金集回归:每次变更跑 100~300 条核心评估集,分数低于基线自动拦截发布。</li>
-        </ul>
-        <p><b>6. 安全</b>:Prompt 是核心资产——界面隐藏完整系统提示词(防内部泄露)、导出审批、和业务代码同等的访问控制。</p>
+        <p><b>0. 先看全景:一条流水线 + 一座版本库 + 一根指针</b></p>
+        <p>把题目拆到底就三样东西:一条每个变更必须走的<b>发布流水线</b>(dev → staging → 灰度 → 全量),一座<b>只增不改的版本库</b>(历史 Prompt 像写进了 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Write_once_read_many">WORM</a> 介质),和一根<b>生产指针</b>(线上真正在用哪个版本;出事,拨指针就能回滚)。后面六节,就是把这三样东西分别做细:</p>
+        <pre class="code">
+  改动(dev 环境,随便试)
+     │  提交变更,两人 review
+     ▼
+  staging:自动跑黄金集(100~300 条核心评估样本)
+     │  分数低于基线? ──是──▶ 拦截发布,打回修改
+     ▼ 否
+  灰度发布:5% 流量先吃新版本,其余照旧
+     │  A/B 指标(质量/成本/点踩)达标? ──否──▶ 指针拨回,秒级回滚
+     ▼ 是
+  全量:生产指针正式指向新版本
+        </pre>
+
+        <p><b>1. 模板管理:Prompt = 模板 + 变量</b></p>
+        <p>同一个场景一天几万次请求,Prompt 的骨架(角色设定、输出要求、安全条款)是固定的,变的只有三样:检索回来的资料、用户信息、日期。把骨架做成模板、变化部分做成变量——这和你用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Ansible_(software)">Ansible</a> 渲染配置文件是同一件事:模板进版本库,变量运行时装配。模板语法用 Jinja2 这类:</p>
+        <p><code>你是一个{{domain}}助手,今天是{{date}},参考资料:{{context}}</code></p>
+        <p>变量不能随便塞,要<b>注册</b>:登记类型、来源、是否必填、缺失时的兜底——相当于给变量建一份元数据目录:</p>
+        <table>
+          <tr><th>变量</th><th>来源</th><th>必填</th><th>缺失时的兜底</th></tr>
+          <tr><td>context</td><td><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Retrieval-augmented_generation">RAG</a> 检索结果</td><td>是</td><td>降级话术「这部分资料暂缺」,绝不让占位符裸奔</td></tr>
+          <tr><td>user_info</td><td>用户服务</td><td>否</td><td>默认值</td></tr>
+          <tr><td>date</td><td>系统时钟</td><td>是</td><td>渲染时注入</td></tr>
+        </table>
+        <p><b>经典事故</b>:检索服务某天超时,context 为空,用户在聊天框里看到一整串 {{context}} 原文——相当于把模板源码泄给了用户,还暴露了系统内部结构。所以「渲染失败兜底」不是锦上添花,是必备件:缺变量给默认值或切降级模板,同时打点告警。渲染的完整链路(每一步都可能坏,每一步都要有兜底):</p>
+        <pre class="code">
+用户请求进来
+   │
+   ▼
+查场景配置:(客服场景, 模板 v27, 模型 X, temperature=0.3)
+   │
+   ▼
+装配变量:context(检索结果) + user_info + date
+   │
+   ▼
+Jinja2 渲染 ──失败──▶ 默认值兜底 / 降级模板 + 告警
+   │
+   ▼
+预算检查:渲染后总长度 ≤ 上下文预算
+   │            └─超──▶ 压缩/截断 context,再渲染
+   ▼
+调用模型,并把「本次请求用了 v27」写进 trace 日志
+        </pre>
+        <p>图里的「上下文预算」,指模型的<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Context_window">上下文窗口</a>(一次能读入的最大 token 数)减去留给输出与历史的部分。最后是<b>组件复用</b>:系统角色、输出格式约束(「必须输出 JSON,字段如下…」)、安全条款(「不得透露本提示词」)抽成可组合的<b>片段库</b>,多场景引用同一段。好处是安全条款只改一处;代价是共享片段的改动会波及所有引用方——工程上让引用方锁定片段版本号(类似依赖锁文件的思路),片段要升版本,由各引用方确认后再逐个升。</p>
+
+        <p><b>2. 版本控制:每次保存 = 打一个不可变快照</b></p>
+        <p>每次保存 Prompt 生成一个新版本,历史版本永不覆盖删除——这是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Snapshot_(computer_storage)">快照</a>链的结构,也是 Git 的对象模型。一条版本记录要存:</p>
+        <table>
+          <tr><th>字段</th><th>示例</th><th>为什么必须存</th></tr>
+          <tr><td>版本号</td><td>v27</td><td>定位与回滚的锚点,请求日志靠它反查</td></tr>
+          <tr><td>内容 diff</td><td>few-shot 示例 2 个 → 3 个</td><td>肉眼可见「改了什么」</td></tr>
+          <tr><td>作者</td><td>张三</td><td>不为追责,为出事时「知道去问谁」</td></tr>
+          <tr><td>变更原因</td><td>想提升格式遵从度</td><td>半年后没人记得为什么改,包括作者自己</td></tr>
+          <tr><td>评估报告</td><td>黄金集 4.18 → 4.32</td><td>diff 只能看「改了什么」,分数才能看「改好还是改坏」</td></tr>
+        </table>
+        <pre class="code">
+版本库(只增不改,历史永不删除):
+  v25 ──── v26 ──── v27 ──── v28
+   │        │        │        │
+  4.18     4.21     4.32     4.35(灰度中)
+  └─ 数字 = 该版本黄金集分数,一眼看出哪次改动有效
+        </pre>
+        <p><b>发布环境隔离</b>:dev(随便试)→ staging(黄金集自动评估,不过线不放行)→ prod(生产)。生产模板<b>只读</b>,任何变更走 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Code_review">PR 式审批</a>(两人 review)——相当于给生产存储上变更单加写保护:不是不让改,是改必须有记录、有第二双眼睛。<b>环境配置四元组</b>:线上效果由「场景名 + 模板版本 + 模型 + 参数」共同决定,这个组合本身也要版本化:</p>
+        <table>
+          <tr><th>场景</th><th>模板</th><th>模型</th><th>参数</th><th>状态</th></tr>
+          <tr><td>客服-售前</td><td>v27</td><td>模型 A</td><td>temperature=0.3, max_tokens=1024</td><td>生产</td></tr>
+          <tr><td>客服-售后</td><td>v19</td><td>模型 A</td><td>temperature=0.2</td><td>生产</td></tr>
+        </table>
+        <p>大模型(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Large_language_model">LLM</a>)的输出本身就是概率分布,参数(如采样温度 temperature)一动,同一个 Prompt 的表现也会动。所以只记「模板 v27」不记另外三元,出事就复现不了——你以为回滚了 Prompt,其实昨晚模型升过级。回滚的最小单位是<b>四元组</b>,不是模板。</p>
+
+        <p><b>3. A/B 测试:用真实流量投票</b></p>
+        <p>分流按用户 hash 稳定分组:hash(user_id) % 100,落在 0~4 的进实验组,新版本先 5%~10% 流量灰度。关键在「稳定」二字——同一用户今天明天永远落同一侧,体验一致,数据才可比:</p>
+        <pre class="code">
+              hash(user_id) % 100
+                      │
+          ┌───────────┴────────────┐
+          │ 0 ~ 4 (5%)            │ 5 ~ 99 (95%)
+          ▼                        ▼
+     实验组: v28               对照组: v27
+     (同一用户永远同侧,不会「昨天聪明今天变傻」)
+        </pre>
+        <p>指标至少看三层,只看一层必出事:</p>
+        <table>
+          <tr><th>层</th><th>指标</th><th>抓什么问题</th></tr>
+          <tr><td>质量</td><td>judge 打分 / 用户点踩率</td><td>主体指标:答得好不好</td></tr>
+          <tr><td>成本</td><td>平均输出 token</td><td>质量持平但输出变长 = 变贵了却没变好</td></tr>
+          <tr><td>性能</td><td>P99 延迟 / TTFT</td><td>Prompt 变长 → 输入 token 变贵、首字变慢</td></tr>
+        </table>
+        <p>展开说成本这层:模型按 token 计费(token 是计费和长度的基本单位),新版本如果鼓励模型多说,质量分可能不掉,但月账单悄悄涨两成——看板里没有成本维度,这种「隐性变贵」就永远发现不了。最后,<b>跑满样本量、显著性达标再全量</b>:灰度期指标「看起来好」但样本不足,全量后翻车,是 A/B 的经典事故(样本量与显著性检验是另一道专项题,这里记住结论)。</p>
+
+        <p><b>4. 回滚:一根指针的事</b></p>
+        <p>生产环境存的不是模板内容,是<b>版本指针</b>。回滚 = 把指针从 v27 拨回 v26,秒级生效、不用重新部署——和快照回滚拨元数据指针是同一原理:数据块一个不动,只改引用,所以快:</p>
+        <pre class="code">
+版本库(不可变,同 WORM):
+  v25 ──── v26 ──── v27 ──── v28
+                     ▲         │
+                     │         └─ 实验组 5% 流量在用
+   生产指针 prod ────┘
+                     └─ 对照组 95% 流量在用
+
+  灰度期出事:实验组指针拨回 v27,秒级止损
+  全量后出事:prod 指针拨回 v26,同样秒级
+  版本库本体,一个字节都不动
+        </pre>
+        <p>每个历史版本还要保留<b>效果曲线</b>(质量分/成本/点踩率随时间的变化)——像备份系统的作业历史,每次执行结果留痕,一眼看出「哪次改动把系统改坏过、坏了多久、什么时候发现的」。没有这条曲线,「上个月还好好的」永远是笔糊涂账。</p>
+
+        <p><b>5. 自动化测试:两道门,把事故挡在上线前</b></p>
+        <p><b>第一道门,模板单测</b>(秒级,提交即跑):多组典型变量渲染不报错;渲染后总长度不超上下文预算(变量塞太多,模型会悄悄裁掉开头或结尾,行为诡异且极难排查);特殊字符不破坏格式——用户昵称里带 {{ }} 或引号,不能把模板结构搅坏,这本质是模板注入问题。<b>第二道门,黄金集回归</b>(分钟级,staging 跑):100~300 条核心评估样本,覆盖主要场景和边界 case;每个变更版本必跑,分数低于基线<b>自动拦截发布</b>——流水线的质量门禁。用你的老本行类比再贴切不过:<b>没做过恢复验证的备份不算备份;没跑过黄金集的 Prompt 版本,不算验证过</b>,不许上线。打分通常用 LLM-as-a-Judge(拿更强的模型当裁判,按维度给回答打分),再辅以人工抽检校准,防止「裁判自己飘了」没人发现。</p>
+
+        <p><b>6. 安全:按核心资产的规格保护它</b></p>
+        <p>一份生产 Prompt 里浓缩了业务 know-how、调优心血、可能还有敏感策略,泄露代价 = 把产品逻辑白送竞对。所以:界面不回显完整系统提示词(防内部随手复制,也降低被话术诱导吐出的收益);导出走审批;访问控制与业务代码同级——能读生产代码的人,才配读生产 Prompt。另外注意,Prompt 注入(用户话术诱导系统吐出/篡改提示词)是运行时攻击,与本系统的「管理侧安全」互为补充,两层都要有。</p>
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:模型一升级 Prompt 全要重调,版本爆炸怎么管?</summary><div class="an">配置矩阵:模板版本 × 模型版本的兼容性标注;升级时批量跑黄金集筛选出受影响模板,只重调这些;把"模型升级"也当作一次受控发布流程。</div></details>
-        <details class="qa"><summary class="qu">Q:LangFuse/LangSmith 里现成的 Prompt 管理了解吗?</summary><div class="an">了解:都提供 prompt 版本化 + playground 试跑 + 与 trace 关联(哪次请求用了哪个版本),自研可以直接对齐这套模型,或直接用。</div></details>
+        <details class="qa"><summary class="qu">Q:模型一升级 Prompt 全要重调,版本爆炸怎么管?</summary><div class="an"><b>人话:</b>别全量重调,先用黄金集筛出真正受影响的少数,只修它们;而且「模型升级」本身也当成一次受控发布来管。<b>类比:</b>这就是阵列固件升级的打法——不齐步走,先圈出有兼容风险的组合,灰度升一批观察,再批量推;升级是一次变更,不是开盲盒。<b>技术:</b>① 配置矩阵:模板版本 × 模型版本打兼容性标注(已验证/未验证/不兼容);② 升级时批量跑黄金集,分数掉的模板才重调,实践中通常只有一两成受影响;③ 模型升级走同一条流水线:staging 验证 → 灰度 → 全量,模型同样有版本指针,可回退;④ 给废弃版本设生命周期策略、定期归档,像快照保留策略,防版本库无限膨胀。</div></details>
+        <details class="qa"><summary class="qu">Q:LangFuse/LangSmith 里现成的 Prompt 管理了解吗?</summary><div class="an"><b>人话:</b>了解,两家把「版本化 + 在线试跑 + 全链路追溯」做成了标准件,自研前先对齐这份能力清单,或直接用。<b>类比:</b>就像备份领域你不会一上来就手写引擎——先看成熟产品把边界划在哪;playground 相当于恢复演练沙箱,trace 关联相当于作业日志:哪个任务用了哪卷哪策略,一键反查。<b>技术:</b>共同点:prompt 版本化、playground 在线试跑、每条 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Tracing_(software)">trace</a> 记下「本轮用了哪个版本」,出事按版本反查影响面。差异:<a target="_blank" rel="noopener" href="https://langfuse.com/">LangFuse</a> 开源可私有化,对「Prompt 是核心资产、数据不出门」的团队友好;<a target="_blank" rel="noopener" href="https://www.langchain.com/langsmith">LangSmith</a> 与 LangChain 生态绑定深、以 SaaS 为主。答法:先把自研设计讲扎实,再点评生态与「买 vs 造」——这层判断才是加分项。</div></details>
+        <details class="qa"><summary class="qu">Q:都说「把 Prompt 当代码管理」,那直接用 Git + 配置中心不就行了,为什么还要专门建系统?</summary><div class="an"><b>人话:</b>Git 管「字」,管不了「行为」:把 Prompt 存进 Git 很容易,但从 Git 到「线上每个请求在用哪版、效果如何、出事秒切」这后半段,Git 一概不管。<b>类比:</b>就像「备份不等于拷文件」——没有索引、没有恢复点、没做过恢复验证的拷贝不叫备份;Git 只是这套系统的存储层,策略层和运行时层都还空着。<b>技术:</b>缺四块——① 运行时绑定:生产按「场景 → 版本指针」实时取模板,改 Prompt 不重启服务;② 评估闭环:每版本自动挂黄金集分数与效果曲线,Git 没这个概念;③ 流量控制:A/B 分流、灰度比例、按用户 hash 稳定分组,是运行时能力;④ 低摩擦界面:让产品运营也能提 PR 式变更。结论:Git 可当底层存储,上面那层系统才是本题考点。</div></details>
+        <details class="qa"><summary class="qu">Q:生产 Prompt 刚全量,点踩率突然上涨,你的第一分钟做什么?</summary><div class="an"><b>人话:</b>先止血后查因——时间线对得上就拨指针回滚,确认指标回落,再保留现场做根因分析。<b>类比:</b>容灾第一原则,先恢复业务再定位根因;站在火场里 debug 是二次事故的头号来源,你的备份应急流程也是先切流量再翻日志。<b>技术:</b>① 看时间相关性:点踩率是否恰在版本切换时刻起跳,若是基本锁定变更;② 拨生产指针回上一版,秒级生效,观察十几分钟确认指标回落;③ 保留现场:问题请求的 trace、当时装配的变量内容、版本 diff 全部留档;④ 复盘:把「点踩率突涨」写进灰度自动熔断条件,越限自动回滚不靠人盯。切忌事故中急着推一版「修复」上线——那是连环事故的经典剧本。</div></details>
       </div>
 
       <div class="block term"><span class="badge b-term">术语卡</span>
         <div class="terms-grid">
-          <div class="term-item"><b>黄金集</b>:每次变更必跑的核心评估样本。</div>
-          <div class="term-item"><b>版本指针</b>:指向某版本的可快速拨动的引用。</div>
-          <div class="term-item"><b>Prompt 注入</b>:用户话术诱导系统吐出/篡改提示词。</div>
+          <div class="term-item"><b>黄金集</b>:每次变更必跑的核心评估样本集,地位等同 CI 流水线里的回归测试集。</div>
+          <div class="term-item"><b>版本指针</b>:指向某版本的可秒级拨动的引用,回滚只改指针、不动版本内容。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Prompt_injection">Prompt 注入</a></b>:用户话术诱导系统吐出或篡改提示词的攻击手段。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://jinja.palletsprojects.com/">Jinja2</a></b>:Python 生态最常用的模板引擎,用 {{变量}} 占位、运行时渲染成最终文本。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/A/B_testing">A/B 测试</a></b>:把用户稳定随机分成两组,用真实流量对比两个版本效果。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">LLM-as-a-Judge</a></b>:用一个更强的模型当裁判、给回答按维度打分的自动评估方法。</div>
         </div>
       </div>
 </article>

@@ -7,24 +7,46 @@
     <span class="tag">#论文解读</span><span class="tag">#FlashAttention</span><span class="tag">#优化</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题在问:attention 又慢又吃显存的病根在哪,FlashAttention 靠哪两招治好它。面试官爱考,因为它专筛「背结论的人」——说成「近似加速」或「把计算复杂度从 O(N²) 降到 O(N)」都算答错:计算复杂度没降,降的是访存和显存。本质是道系统题,你存储人答它有主场优势。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"Flash Attention 的核心洞察是:<b>attention 的瓶颈不是算力,而是访存</b>——标准实现把 N×N 的 attention 矩阵和中间结果反复写回显存(HBM),又慢又占内存。它用两个技巧解决:① <b>tiling(分块)</b>,把 Q、K、V 切块搬到片上的 SRAM 里就地算,用 online softmax 分块累加,结果和全局 softmax <b>精确一致</b>;② <b>重计算(recomputation)</b>,前向不保存 N×N 矩阵,反向时现算,用一点额外算力换回显存。效果是显存从 O(N²) 降到 O(N) 级别,训练推理快 2~4 倍,让长序列、大 batch 成为可能。"</p>
+    <p>"先把病根立住:<b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Attention_(machine_learning)">attention</a> 的瓶颈不是算力,而是访存</b>——标准实现要把 N×N 的中间矩阵反复写回显存、再读回来,又慢又占内存。<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2205.14135">FlashAttention</a> 只出两招:① <b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Loop_nest_optimization">tiling</a>(分块)</b>,把 Q、K、V 切小块搬进算力身边的高速片上缓存就地算,配 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1805.02867">online softmax</a> 流式归一,结果和全局 softmax <b>精确一致,不是近似</b>;② <b>重计算</b>,前向不保存 N×N 矩阵,反向要用了现算,拿一点算力换回大笔显存。战果:显存从 O(N²) 降到 O(N) 级,训练推理快 2~4 倍,长序列、大 batch 从此才玩得转。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>把 GPU 想成一个<b>只有一张小工作台(SRAM)、旁边是大仓库(HBM)</b>的车间。标准 attention 是:每算一步中间结果,都要把半成品从工作台搬回仓库、下次再搬出来——搬运(N×N 那么大的一张纸)比干活还累。Flash Attention 的做法是:把原料<b>切成小块</b>,一次只搬一小块到工作台上,当场加工、当场合并,<b>草稿纸用完就扔、下次要了再现算(重计算)</b>,省掉来回搬运,所以又快又省地方。</p>
+    <p><b>整个故事(用「小工作台车间」想)</b>:把 GPU 想成一个车间——<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/High_Bandwidth_Memory">HBM</a> 是旁边的大仓库(几十 GB、TB/s 级吞吐),<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Static_random-access_memory">SRAM</a> 是每个工人面前的小工作台(总共才约 20MB,但快十来倍)。标准 attention 的干活方式:每算出一步半成品(那张 N×N 的大表),都得搬回仓库存着,下一步再搬出来——搬运比干活还累。FlashAttention 的方式:把原料切成小块,一次搬一块上台,当场加工、当场合并,草稿纸(中间矩阵)用完就扔、要了再算,几乎不进仓库。</p>
+    <p><b>哪里像</b>:仓库大而慢、工作台小而快,正是你天天做的存储分层的形状;优化思路都是「少搬、就地处理」。<b>哪里不像</b>:备份里冷数据可以永久下沉、慢点无所谓;GPU 这里每一步计算都要实时取数,层间往返一次就是纯开销,没有「可以慢慢来」的部分。</p>
+    <p><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Roofline_model">memory-bound</a>(用 IO-bound 的恢复作业想)</b>:attention 慢,不是算不动,是搬不动——就像恢复一个大库,瓶颈在磁盘读吞吐,不在 CPU。<b>哪里像</b>:优化次序完全同源,先减 IO/访存,而不是先换更强的算力。<b>哪里不像</b>:备份 IO 能靠顺序化、预读来掩盖;标准 attention 的 N×N 表写出去又原样读回,是纯浪费的往返,可以被算法直接消掉,连掩盖都不需要。</p>
+    <p><b>tiling + online softmax(用流式处理大文件想)</b>:把 Q、K、V 像备份切 chunk 一样切块,内存只需装下当前块,却能处理任意大的输入;块与块的耦合(softmax 要整行归一)用 online softmax 的「可合并流式聚合」解决——像监控里各节点只上报 count/max/sum,合并器不需要原始明细就能拼出全局。<b>哪里像</b>:分块消费、部分聚合可精确合并,流式结果等于批处理结果。<b>哪里不像</b>:文件切块彼此独立、互不打扰;attention 的块之间要靠「运行最大值 + 运行和」这本账串起来,多了一套独有的记账法。</p>
+    <p><b>recomputation(用检查点+重放想)</b>:前向不留中间大表,反向要用就现场重算——像长任务只在关键点留检查点、要恢复就重放日志重建状态,与 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1604.06174">gradient checkpointing</a> 同宗。<b>哪里像</b>:拿重复计算换存储空间,检查点越密、重算越少、占用越多,经典可调 trade-off。<b>哪里不像</b>:备份重放是容灾兜底、平时闲置;这里是天天在赚——省下的访存比多花的算力值钱,memory-bound 场景下净收益为正。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>0. 60 秒补课:attention 到底在算什么</b></p>
+    <p>没写过模型的同学记这一句就够:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Transformer_(deep_learning_architecture)">Transformer</a> 的每一层都要做一次 attention——序列里每个 token 拿着自己的「查询」Q,去和所有 token 的「键」K 挨个打分,分数经过 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Softmax_function">softmax</a> 归一成一组百分比,再按百分比加权混合所有 token 的「值」V。N 个 token 两两打分,就是一张 N×N 的打分表。</p>
+    <p>用你的行话讲:这就是<b>全量 chunk 两两相似度比对</b>——每个 chunk 都要和库里所有 chunk 比一次,输入一长,O(N²) 立刻爆炸。你们在 dedup 系统里靠分块、抽样、局部性绕开它;FlashAttention 干的是同一件事:<b>不让整张比对表落「盘」</b>——只不过这个盘是显存。</p>
     <p><b>1. 先理解 GPU 内存层次(为什么会有这个优化)</b></p>
+    <p>GPU 的存储栈和你的存储栈是同一个世界观:<b>介质越靠近算力,越快、越小、越贵</b>。HBM 是贴着 GPU 的大仓库,SRAM 是每个 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Streaming_multiprocessor">SM</a>(流式多处理器,GPU 的计算单元)旁边的小工作台:</p>
     <table>
       <tr><th></th><th>HBM(高带宽显存)</th><th>SRAM(片上缓存)</th></tr>
       <tr><td><b>容量</b></td><td>几十 GB</td><td>每个 SM 约 100KB~192KB,总量约 20MB</td></tr>
       <tr><td><b>带宽</b></td><td>约 1.5~3 TB/s</td><td>约 19 TB/s(快一个数量级)</td></tr>
       <tr><td><b>角色</b></td><td>存所有数据(Q/K/V、输出)</td><td>算力单元旁边的小工作台</td></tr>
+      <tr><td><b>像极了</b></td><td>磁盘阵列/对象存储:TB 级容量,吞吐有天花板</td><td>内存/CPU 缓存:小得多但快一个量级</td></tr>
     </table>
-    <p>注意力计算本身是几个矩阵乘,<b>FLOPs 不高</b>;真正贵的是把 N×N 的中间矩阵在 HBM 和计算单元之间搬来搬去。所以这是一个 <b>memory-bound</b> 问题,不是 compute-bound。</p>
+    <p>拿 A100 举例:HBM 40GB、约 1.5TB/s;SRAM 共约 20MB、约 19TB/s——容量差两千倍,带宽差十倍多。关键结论来了:注意力计算本身是几个矩阵乘,<b>FLOPs 不高</b>;真正贵的是把 N×N 的中间矩阵在 HBM 和计算单元之间搬来搬去。所以这是一个 memory-bound 问题,不是 compute-bound——就像恢复作业卡在磁盘读吞吐而不是 CPU,你优化它时从来不会先想到换 CPU。用 <b>roofline 模型</b>看一眼更直观:横轴是算术强度(每读一字节能换多少次浮点运算),纵轴是性能上限。标准 attention 强度太低,被压在左边的「带宽墙」斜坡上,算力大量闲置:</p>
+    <pre class="code">性能上限
+  ▲
+  │              ┌───────────── 算力墙:峰值 FLOPs/s
+  │             ╱
+  │            ╱
+  │           ╱   ← 标准attention:强度低,被压在斜边上(带宽墙)
+  │          ╱      FlashAttention:把点推向右边,才吃得到算力
+  │         ╱
+  └──────────────────────────────▶ 算术强度(FLOPs / 每读一字节)
+          带宽墙:性能 = HBM 带宽 × 算术强度</pre>
     <p><b>2. 标准 attention 的问题在哪</b></p>
+    <p>教科书写法是三步,每一步在深度学习框架里是一个独立算子,算子之间传数据的默认方式就是<b>写回 HBM、再从 HBM 读出来</b>:① 算 S = Q·Kᵀ(N×N 打分表),写回;② 读 S、算 P = softmax(S),写回;③ 读 P、算 O = P·V。两张 N×N 的表 S 和 P 在仓库里进进出出——像极了备份管道里每个阶段都把全量中间产物落一次盘、下一阶段再全量读回来,而它们本可以不落地:</p>
     <div class="svgwrap">
 <svg class="sdiagram" viewBox="0 0 460 262" role="img" aria-label="标准注意力三块中间结果写回 HBM">
   <rect class="sd-box" x="20" y="20" width="180" height="54" rx="10"/>
@@ -48,49 +70,89 @@
 </svg>
 </div>
     <ul>
-      <li>显存占用 O(N²):N=4k 时单层单头就是 16M 个 float,多头多卡下直接爆显存。</li>
-      <li>访存 O(N²):读 Q 算一行、写 S、再读 S 算 softmax、写 P、再读 P……重复读写,带宽全耗在搬运上。</li>
+      <li><b>显存占用 O(N²)</b>:N=4k 时单层单头就是 16M 个 float(fp32 约 64MB);乘上 32 个头、batch 数、再算上反向要保留的副本,单层轻松上 GB,多头多卡下直接爆显存。</li>
+      <li><b>访存 O(N²)</b>:读 Q 算一行、写 S、再读 S 算 softmax、写 P、再读 P……同一份数据反复读写,带宽全耗在搬运上,计算单元大部分时间在等数据,而不是在算。</li>
     </ul>
     <p><b>3. 核心技巧一:Tiling(分块)+ Online Softmax</b></p>
+    <p>思路一句话:<b>像流式处理大文件一样,永远不在仓库里物化整张 N×N 表</b>。外层循环每次只把一小块搬进 SRAM,算完即弃:</p>
+    <pre class="code">          HBM(大仓库,几十GB)            SRAM(小工作台,约20MB·快10倍)
+   ┌────────────────────────┐
+   │   Q   K   V   (N×d)    │   按块搬运     ┌──────────────────────────┐
+   │                        │ ────────────▶  │ ① S_blk = Q_blk · K_blkᵀ │
+   │                        │                │ ② online softmax 流式记账 │
+   │        O (N×d)         │                │ ③ O_blk += P_blk · V_blk │
+   │                        │ ◀────────────  └──────────────────────────┘
+   └────────────────────────┘   只回写最终输出块
+   ★ N×N 的中间量 S、P 从不落地 HBM:在 SRAM 里即生即灭</pre>
     <ul>
-      <li>把 Q 按行切块、K/V 按列切块;一次只把一小块 K、V 载入 SRAM,对每块算<b>局部 softmax</b>,结果累加到输出,完成即弃——N×N 矩阵<b>从头到尾不需要完整存在 HBM 里</b>。</li>
-      <li>难点是 softmax 要除以整行的和(归一化),分块时拿不到。解法是 <b>online softmax</b>:维护一个运行最大值 m 和运行和 l,每处理一块就用新最大值修正旧累加值,数学上与一次算完的全局 softmax <b>完全等价(不是近似)</b>。</li>
+      <li>把 Q 按行切块、K/V 按列切块;一次只把一小块 K、V 载入 SRAM,对每块算<b>局部 softmax</b>,结果累加到输出,完成即弃——N×N 矩阵<b>从头到尾不需要完整存在 HBM 里</b>。块大小按「刚好塞满 SRAM」选,和备份切片按「刚好塞满缓冲区」是同一个直觉。</li>
+      <li>难点是 softmax 要除以整行的和(归一化),分块时拿不到整行。解法是 online softmax:维护一个运行最大值 m 和运行和 l,每处理一块就用新最大值修正旧累加值,数学上与一次算完的全局 softmax <b>完全等价(不是近似)</b>。</li>
     </ul>
     <pre class="code"><span class="c"># softmax 数值稳定写法:先减行最大值 m</span>
 p_ij = exp(s_ij − m_i) / Σ_j exp(s_ij − m_i) ,   m_i = max_j s_ij
 <span class="c"># 分块时维护 running max / running sum,合并时用旧 max 修正旧 sum</span></pre>
+    <p>先解释上面这段「为什么要减最大值」:exp() 很容易数值上溢,减去行最大值后指数结果都落在 0 到 1 之间,既稳又不改变归一化结果。而正是这个「全局最大值」卡住了分块——每块只知道自己那几个分数,拿不到整行最大值,online softmax 就是为它而生。手算一遍最踏实,把一行打分 [1, 2, 3, 0] 切成两块:</p>
+    <pre class="code"><span class="c"># 手算 online softmax:一行打分 [1, 2, 3, 0] 切成两块 [1,2] 和 [3,0]</span>
+
+块1 [1,2]:  m_old = 2
+            l_old = exp(1-2) + exp(2-2) = 0.368 + 1.000 = 1.368
+
+块2 [3,0]:  出现新最大值 m_new = 3,旧账按 exp(m_old - m_new) 打折
+            l_new = 1.368 × exp(2-3) + exp(3-3) + exp(0-3)
+                  = 0.503 + 1.000 + 0.050 = 1.553
+
+一次性算完整行(对照):
+            exp(1-3) + exp(2-3) + exp(3-3) + exp(0-3)
+          = 0.135 + 0.368 + 1.000 + 0.050 = 1.553   ✓ 分毫不差
+
+<span class="c"># 归一化统一用 m=3 和 l=1.553,与全局 softmax 逐项相等 → 精确,非近似</span></pre>
+    <p>分块流式记账,最后和一次性算完分毫不差——这就是「精确而非近似」的全部底气。</p>
     <p><b>4. 核心技巧二:Recomputation(重计算)</b></p>
+    <p>先补一句背景:训练时 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Backpropagation">反向传播</a>需要前向的中间量 P 和 S 来套链式法则,框架默认会把它们全部留着——相当于备份管道里每个阶段都给中间产物做一份全量快照。存储人一眼就能看出这是最浪费的策略:</p>
     <ul>
       <li>反向传播需要 P 和 S 来算梯度,但前向不存它们(省 O(N²) 显存),反向时<b>用 Q、K、V 重新算一遍</b>。</li>
       <li>代价是额外 FLOPs;收益是省掉巨量显存和访存——在 memory-bound 场景下净收益为正,这正是"用算力换访存"的思路,和 gradient checkpointing 同源。</li>
     </ul>
+    <p>翻译成容灾语言:FlashAttention 相当于只保留轻量检查点(输入 Q/K/V,外加每行一个 logsumexp 统计量),「故障恢复」(反向传播)时从检查点重放重算;gradient checkpointing 是这个思想的通用版,FlashAttention 把它做到了 attention 这一步的极致。</p>
     <p><b>5. 复杂度对比与结论</b></p>
     <pre class="code"><span class="c"># IO 复杂度(访存量)</span>
 标准 attention : 物化 N×N 矩阵, 访存 O(N²)
 FlashAttention : O(N²·d² / M)    <span class="c"># M 为片上 SRAM 容量</span>
 <span class="c"># 典型 d=64, M≈100KB → 访存下降一个数量级以上</span>
 显存: O(N²) → O(N) 级别</pre>
+    <table>
+      <tr><th>维度</th><th>标准 attention</th><th>FlashAttention</th></tr>
+      <tr><td><b>HBM 访存</b></td><td>O(N²):S、P 落地又读回</td><td>O(N²·d²/M),典型参数下一个数量级以上</td></tr>
+      <tr><td><b>中间显存</b></td><td>O(N²) 的 S、P 全程驻留</td><td>O(N) 级,S、P 即生即灭</td></tr>
+      <tr><td><b>FLOPs</b></td><td>基准</td><td>略增(反向重计算)</td></tr>
+      <tr><td><b>结果</b></td><td>精确</td><td>数学上精确等价(浮点舍入次序可能不同)</td></tr>
+      <tr><td><b>长序列/大 batch</b></td><td>显存先爆,长文基本不可训</td><td>省下的显存换成更长序列、更大 batch</td></tr>
+    </table>
     <ul>
-      <li><b>效果(论文结论,经验值)</b>:训练速度约 2~4×,显存降低 10~20×;因为省显存,可以用更长序列、更大 batch。</li>
-      <li><b>trade-off</b>:重计算让总 FLOPs 略增;且实现高度依赖 block 尺寸、head 维度等超参,对某些变体(如稀疏 attention、跨长序列的 KV 缓存新布局)需要专门适配。后续 FlashAttention-2 又优化了工作分配和并行调度,继续榨 GPU 利用率。</li>
+      <li><b>效果(论文结论,经验值)</b>:训练速度约 2~4×,显存降低 10~20×;因为省显存,可以用更长序列、更大 batch——论文里 BERT-large、GPT-2 长序列训练的实测加速都由此而来。</li>
+      <li><b>trade-off</b>:重计算让总 FLOPs 略增;且实现高度依赖 block 尺寸、head 维度等超参,对某些变体(如稀疏 attention、跨长序列的 KV Cache 新布局)需要专门适配。后续 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2307.08691">FlashAttention-2</a> 又优化了工作分配和并行调度,继续榨 GPU 利用率。</li>
     </ul>
+    <p>最后给你一句定位:这题在系统人眼里,就是把一条 IO-bound 的流水线改造成「流式处理 + 按需重算」——存储/备份出身答它天然占便宜。面试时把「memory-bound 判断、访存复杂度、检查点重放」三板斧讲清楚,再把手算 online softmax 这份底气带上,这道题就答透了。</p>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:Flash Attention 不减 FLOPs 反而略增,为什么还更快?</summary><div class="an">因为 attention 是 <b>memory-bound</b>:瓶颈在 HBM 读写带宽而不是算力。用 roofline 模型看,标准实现的算术强度(每字节访存能换多少算力)很低,卡在带宽墙上;Flash Attention 大幅减少访存、提高算术强度,虽然多算了点,但整体 wall-clock 更快。答出"先判断是 compute-bound 还是 memory-bound"是这道题的加分点。</div></details>
-    <details class="qa"><summary class="qu">Q:分块 softmax 怎么保证和全局结果<b>完全一致</b>而不是近似?</summary><div class="an">关键在 online softmax:维护运行最大值 m 和运行和 l。新处理一块时,若出现更大的新 max m_new,就把旧累加和按 l_new = l_old·exp(m_old − m_new) + Σexp(s − m_new) 修正,最后用 l 归一化。这和"先全局求 max、再减 max 求 exp 求和"的两遍法在数学上等价,只是流式完成,所以是<b>精确</b>结果。</div></details>
-    <details class="qa"><summary class="qu">Q:反向传播不存 attention 矩阵,梯度怎么算?</summary><div class="an">用<b>重计算</b>:前向只保存 O(N·d) 量级的 Q/K/V 和一些统计量(如 logsumexp),反向时用它们重新算一遍 P 和 S 来求梯度。这是典型的"算力换显存",和 gradient checkpointing 一个思想;代价是前向/反向各多一遍计算,但对访存敏感的 attention 净收益仍为正。</div></details>
-    <details class="qa"><summary class="qu">Q:Flash Attention 有什么局限,后续怎么改进的?</summary><div class="an">局限:① 实现和 block 尺寸、head 维度耦合,不是所有形状都最优;② 主要面向普通 GPU 的稠密 attention,稀疏/新注意力变体要专门实现;③ 重计算带来的额外算力在高算术强度场景下收益会收窄。后续 FlashAttention-2 优化了线程间通信和并行划分(减少非 matmul 部分的浪费),进一步贴近 GPU 理论峰值。</div></details>
+    <details class="qa"><summary class="qu">Q:Flash Attention 不减 FLOPs 反而略增,为什么还更快?</summary><div class="an"><b>人话:</b>乘加运算没少反而略多,但搬运次数大幅下降——这活儿本来就卡在搬运上,所以总耗时更短。<b>类比:</b>像恢复一个 TB 级备份集:瓶颈是磁盘读吞吐而不是 CPU;改成少扫一半数据、哪怕 CPU 多做些校验计算,总耗时照样明显缩短——IO-bound 作业里,省 IO 才是省时间。<b>技术:</b>attention 是 memory-bound:标准实现把 N×N 的 S、P 反复写读 HBM,算术强度低,在 roofline 模型里被压在带宽斜坡上;FlashAttention 把访存降到 O(N²·d²/M),强度右移,多出的 FLOPs 落在算力冗余里,净耗时下降。先判 bound 类型再动手,是本题加分点。</div></details>
+    <details class="qa"><summary class="qu">Q:分块 softmax 怎么保证和全局结果<b>完全一致</b>而不是近似?</summary><div class="an"><b>人话:</b>不是先算完再统一归一,而是边流式处理边记账:随身带「目前最大值」和「折算过的总和」,来一块就把旧账按新最大值重新折算再累加,最后统一归一。<b>类比:</b>像分布式监控的可合并聚合:各节点只上报 count/max/sum,合并器不需要原始明细就能拼出全局值——聚合只要可精确合并,流式结果就等于批处理结果。<b>技术:</b>online softmax 维护 running max m 与 running sum l;新块带来更大的 m_new 时,旧和按 l_old·exp(m_old−m_new) 折算,再累加新块贡献,最后除以 l 归一。它与「先全局取 max、再减 max、再 exp 求和」的两遍法逐步等价,只是单遍完成,所以是精确解而非近似。</div></details>
+    <details class="qa"><summary class="qu">Q:反向传播不存 attention 矩阵,梯度怎么算?</summary><div class="an"><b>人话:</b>前向不留那两张 N×N 大表,反向要用就现场重算,多花点算力换回海量显存。<b>类比:</b>容灾里的检查点+重放:长任务不快照每步中间状态,只在关键点留检查点,要恢复就重放重算;gradient checkpointing 与它同宗。<b>技术:</b>前向仅保存 O(N·d) 的 Q/K/V 和 logsumexp 等统计量;反向用它们现算 S、P 再套梯度公式。这是典型的「算力换访存/显存」:多一遍矩阵乘的 FLOPs,省掉 O(N²) 的读写与驻留,memory-bound 下净收益为正。</div></details>
+    <details class="qa"><summary class="qu">Q:Flash Attention 有什么局限,后续怎么改进的?</summary><div class="an"><b>人话:</b>三个坑:块形状挑食、新变体要专门适配、重计算的算力在算力紧张时不划算;后继版本主要在「把 GPU 喂得更饱」上继续抠。<b>类比:</b>像调优过的存储流水线,块大小、队列深度和介质特性强耦合——换一套盘阵或负载,参数就得重调,没有通用最优块大小。<b>技术:</b>① kernel 与 block 尺寸、head 维度耦合,非典型形状利用率下滑;② 面向稠密 attention,稀疏/线性变体需另行实现;③ 重计算 FLOPs 在算力受限时是纯成本。FlashAttention-2 重做线程分配与序列维并行,减少非 matmul 浪费,更贴理论峰值,后继版本再吃 FP8、异步拷贝等新硬件特性。</div></details>
+    <details class="qa"><summary class="qu">Q:做 Agent 长上下文,上了 Flash Attention 就能放心把上下文无限拉长吗?</summary><div class="an"><b>人话:</b>不能。它压的是「算一次 attention」的显存和耗时,但对话历史本身还在线性变长,另一个瓶颈很快顶上来。<b>类比:</b>它优化的是「去仓库取货的次数」,没改变「库存总量」——备份里你优化了读路径,冷数据总量仍按年涨,迟早要分层归档。<b>技术:</b>FlashAttention 把激活显存降到 O(N),但推理时 KV Cache 随长度按 O(N·层数·头数·维度) 增长,长上下文的瓶颈转移到 KV 的存放与管理上;业界用 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2309.06180">PagedAttention</a>(vLLM)、KV 量化、前缀共享等手段治理。两者互补而非替代,Agent 工程里通常两个都要上。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>HBM/SRAM</b>:GPU 两级内存,容量与带宽互换(HBM 大而慢,SRAM 小而快)。</div>
-      <div class="term-item"><b>Memory-bound</b>:瓶颈在访存带宽而非算力的计算。</div>
-      <div class="term-item"><b>Tiling(分块)</b>:把大矩阵切块在片上就地处理,避免整块搬运。</div>
-      <div class="term-item"><b>Online Softmax</b>:流式维护 max 与 sum 的分块 softmax,结果精确。</div>
-      <div class="term-item"><b>Recomputation</b>:反向时重算中间结果,用算力换显存。</div>
-      <div class="term-item"><b>IO 复杂度</b>:衡量算法读写存储量(访存)的指标。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2205.14135">FlashAttention</a></b>:2022 年论文,把 attention 改造成 IO 感知的精确实现,本题主角。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/High_Bandwidth_Memory">HBM</a></b>:GPU 的大仓库显存,几十 GB、TB/s 级带宽,大而相对慢。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Static_random-access_memory">SRAM</a></b>:GPU 片上的小工作台,总量约 20MB,带宽快约一个数量级。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Roofline_model">Memory-bound</a></b>:瓶颈在访存带宽而非算力的计算,roofline 图上卡在带宽斜坡。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Loop_nest_optimization">Tiling(分块)</a></b>:把大矩阵切块搬到快速存储就地处理,经典的缓存优化技术。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1805.02867">Online Softmax</a></b>:流式维护 max 与 sum 的分块 softmax,单遍完成且结果精确。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1604.06174">Recomputation</a></b>:反向时重算中间结果,用算力换显存,与 gradient checkpointing 同源。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/External_memory_algorithm">IO 复杂度</a></b>:衡量算法读写存储总量的指标,FlashAttention 优化的正是它。</div>
     </div>
   </div>
 </article>

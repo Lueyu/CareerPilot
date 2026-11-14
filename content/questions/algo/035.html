@@ -7,15 +7,39 @@
     <span class="tag">#论文解读</span><span class="tag">#DPO</span><span class="tag">#理论</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题要你现场推导:<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.18290">DPO</a> 凭什么能把 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Reinforcement_learning_from_human_feedback">RLHF</a> 的「先训评委、再让选手刷分」两步并成一步。面试官爱考它,是因为四步推导环环相扣,最能区分「背结论」和「懂推导」——追问一句「Z(x) 哪去了」,答不上就暴露只背过博客、没读过论文。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"DPO 的核心贡献是把 RLHF 的<b>两步(先训奖励模型,再跑 PPO)</b>合并成<b>一步(直接在偏好数据上做分类式损失)</b>。推导链条四步:① RLHF 的目标是"最大化奖励、同时用 KL 惩罚偏离参考策略",这个目标有<b>唯一闭式最优解</b>;② 把闭式解<b>反解</b>出隐式奖励 r(x,y)=β·log(π_θ/π_ref);③ 把它代入 <b>Bradley-Terry</b> 偏好模型,其中与 y 无关的配分项 Z(x) 在奖励差里抵消;④ 得到可微的 DPO loss,直接梯度下降。于是不需要显式奖励模型、不需要采样和强化学习,训练更稳定、更省。"</p>
+    <p>"DPO 的核心贡献是把 RLHF 的<b>两步(先训奖励模型,再跑 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Proximal_policy_optimization">PPO</a>)</b>合并成<b>一步(直接在偏好数据上做分类式损失)</b>。推导链条四步:① RLHF 的目标是"最大化奖励、同时用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence">KL</a> 惩罚偏离参考策略",这个目标有唯一<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Closed-form_expression">闭式解</a>;② 把闭式解<b>反解</b>出隐式奖励 r(x,y)=β·log(π_θ/π_ref);③ 把它代入 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Bradley%E2%80%93Terry_model">Bradley-Terry</a> 偏好模型,其中与 y 无关的配分项 Z(x) 在奖励差里抵消;④ 得到可微的 DPO loss,直接梯度下降。于是不需要显式奖励模型、不需要采样和强化学习,训练更稳定、更省。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>RLHF 像<b>选秀比赛</b>:先请一群评委给每位选手打分(训奖励模型),再让选手反复彩排、只为刷高评委分(PPO),中间人(评委)和试错环节都很贵还不稳。DPO 的发现是:<b>"评委的打分"本质上就等于"你比参考答案好多少"</b>——把这个关系反解出来,就能把评委约掉,直接对"你更喜欢 A 还是 B"做对比学习。少一个评委、少一轮试错,目标更直接,结果更稳。</p>
+    <p><b>RLHF 流水线(用「备份体系」想)</b>:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Fine-tuning_(machine_learning)">SFT</a> 像先落一版<b>全量基线</b>,保证系统能跑;奖励模型 RM 像部署一台<b>质量评分中间件</b>,靠人工标注的好/坏样本对学着打分;PPO 像一个<b>在线重均衡作业</b>——不停生成新配置、送中间件打分、按分调整。DPO 的发现是:这台中间件的输出本来就等于「你相对基线改了多少」,把这条恒等式找出来,中间件可以整体下线。</p>
+    <p><b>哪里像</b>:中间件会失准(被策略钻空子),在线作业又贵又不稳,和备份体系里「评分代理不可靠、在线变更风险高」一一对应。<b>哪里不像</b>:备份流水线处理的是确定性字节,错了能按版本回滚;策略崩坏发生在概率分布层面,一旦分布塌缩,回滚的是整个模型权重,代价高一个量级。</p>
+    <p><b>KL 正则与 β(用「增量必须锚定基线」想)</b>:KL 惩罚相当于规定「每次变更只能做成相对 π_ref 的增量」,β 就是允许的<b>变更窗口</b>大小。DPO 反解出的隐式奖励 r=β·log(π_θ/π_ref),本质上是一份<b>相对基线的增量日志</b>——你比基线把这个回答的概率抬得越高,隐式奖励越大。</p>
+    <p><b>哪里像</b>:防的都是「一次大改把系统改到不可恢复」;β 小=窗口大、见效快但易翻车,β 大=小步慢走、稳但慢。<b>哪里不像</b>:增量备份是字节级硬差量,KL 是两个概率分布之间的「距离」(散度),而且作为罚项写进目标函数,是软约束不是硬配额。</p>
+    <p><b>Z(x) 抵消(用「两个副本都减同一份主本」想)</b>:Bradley-Terry 只关心两个回答的奖励<b>差</b>,像判断两个副本谁更新——各自先和同一份主本做 diff,主本自身的公共内容一相减就没了,剩下的纯增量对比才是有效信息。Z(x) 就是那个「主本公共项」:只随问题 x 变,与具体回答 y 无关。</p>
+    <p><b>哪里像</b>:公共项在「做差」时天然消失,从头到尾不需要真的把它算出来。<b>哪里不像</b>:副本 diff 是确定性比较,Bradley-Terry 输出的是「人更偏好谁」的概率——用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Sigmoid_function">sigmoid</a> 把奖励差映射成概率,把比较结果概率化了。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>0. 先看推导地图:五步,每步只做一件事</b></p>
+    <p>论文推导本身不难,难在不知道每一步在干嘛。先记住这张地图,后面每一小节都是在地图上往前挪一格:</p>
+    <pre class="code">RLHF 目标      max_π E_{x,y}[ r(x,y) ] − β·KL( π‖π_ref )     ← ① 出发点:奖励最大化 + KL 约束
+      │         (逐 y 求导置零:该优化存在唯一解析解)
+      ▼
+闭式最优解     π*(y|x) = π_ref(y|x)·exp(r/β) / Z(x)          ← ② Boltzmann 形式的最优策略
+      │         (两边取对数、移项,把奖励 r 反解成策略的函数)
+      ▼
+隐式奖励       r(x,y) = β·log(π_θ/π_ref) + β·log Z(x)        ← ③ 奖励 = 策略比值的对数(×β)
+      │         (代入 Bradley-Terry:只出现奖励差,Z(x) 抵消)
+      ▼
+偏好概率       p(y_w ≻ y_l|x) = σ( β·log 比值差 )            ← ④ 偏好概率完全由策略比值表达
+      │         (对偏好数据取负对数似然)
+      ▼
+DPO 损失       L_DPO = −log σ( β·log 比值差 )                ← ⑤ 分类式损失,直接梯度下降</pre>
+    <p>一句话总纲:<b>奖励模型不是被删掉的,是被「代数消元」消掉的</b>——像解方程组时约掉中间变量,方程照样成立,但那个变量再也不用算了。</p>
+
     <p><b>1. 回顾 RLHF 三阶段(DPO 要替代的是后两段)</b></p>
     <div class="svgwrap">
 <svg class="sdiagram" viewBox="0 0 544 116" role="img" aria-label="RLHF 三阶段流程">
@@ -34,58 +58,115 @@
   <text class="sd-ts" x="445" y="76" text-anchor="middle">在线采样 + 强化学习</text>
 </svg>
 </div>
+    <p>对着图从左到右过一遍,把每个阶段翻译成备份体系里的角色:</p>
+    <table>
+      <tr><th>阶段</th><th>输入</th><th>输出</th><th>备份世界里的角色</th></tr>
+      <tr><td>SFT</td><td>人工撰写的高质量问答</td><td>会「好好说话」的基线模型</td><td>全量基线:先保证有个能跑的版本</td></tr>
+      <tr><td>奖励模型 RM</td><td>人工标注的偏好对 (y_w, y_l)</td><td>打分器 r(x,y)</td><td>质量评分中间件:给每个回答打分</td></tr>
+      <tr><td>PPO</td><td>模型在线生成 + RM 实时打分</td><td>对齐后的策略 π_θ</td><td>在线重均衡作业:边试边调,还得防改崩</td></tr>
+    </table>
     <ul>
-      <li>痛点:RM 是隐式的"代理指标",可能被策略钻空子(reward hacking);PPO 要在线采样、训练不稳定、实现复杂、算力开销大。</li>
+      <li>痛点:RM 是隐式的"代理指标",可能被策略钻空子(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Reward_hacking">reward hacking</a>);PPO 要在线采样、训练不稳定、实现复杂、算力开销大。</li>
+      <li>补一条工程账:PPO 训练通常要在显存里同时伺候 4 个模型(策略、参考、奖励、价值网络),DPO 只需要 2 个——这是它能在开源社区大规模流行的现实原因。</li>
     </ul>
+
     <p><b>2. RLHF 的目标函数(带 KL 正则)</b></p>
     <pre class="code"><span class="c"># 在奖励最大化的同时,用 KL 惩罚策略偏离参考策略 π_ref(通常是 SFT 模型)</span>
 max_π  E_{x~D, y~π}[ r(x,y) ]  −  β·KL[ π(y|x) ‖ π_ref(y|x) ]</pre>
+    <p>先认清每个符号,后面全程都在用:</p>
+    <table>
+      <tr><th>符号</th><th>含义</th><th>用备份世界的话说</th></tr>
+      <tr><td>π(y|x)</td><td>当前策略(模型)对问题 x 生成回答 y 的概率</td><td>当前生效的配置版本</td></tr>
+      <tr><td>π_ref(y|x)</td><td>参考策略,通常是 SFT 模型,全程冻结</td><td>那份永远不变的全量基线</td></tr>
+      <tr><td>r(x,y)</td><td>奖励:回答 y 的质量分</td><td>评分中间件打的分</td></tr>
+      <tr><td>β</td><td>KL 正则系数</td><td>变更窗口:一次允许偏离基线多远</td></tr>
+      <tr><td>KL[π‖π_ref]</td><td>两个概率分布的散度(「距离」)</td><td>当前版本相对基线的偏离量</td></tr>
+    </table>
     <ul>
       <li>β 是 KL 系数,控制"敢不敢偏离参考策略"。KL 项防止策略为了刷高奖励而崩坏(输出胡话、分布坍塌)。</li>
+      <li>为什么必须有 KL:没有它,最优解是把全部概率压到 argmax r 那一个回答上,分布瞬间塌缩——相当于一个只认评分中间件的变更流程,必然钻评分器的盲区疯狂刷分。KL 就是「变更必须锚定基线」的那道闸。</li>
     </ul>
+
     <p><b>3. 关键第一步:该目标有闭式最优解</b></p>
     <pre class="code"><span class="c"># 玻尔兹曼(Boltzmann)分布形式的唯一最优策略</span>
 π*(y|x) = (1/Z(x)) · π_ref(y|x) · exp( r(x,y) / β )
 Z(x) = Σ_y π_ref(y|x)·exp( r(x,y)/β )        <span class="c"># 配分函数,只依赖 x</span></pre>
+    <p>这个形状统计物理里见过:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Boltzmann_distribution">Boltzmann 分布</a>——最优策略 = 参考策略 × 奖励的指数放大器,再归一化。奖励每高 1 分,该回答(归一化前)的权重放大 e^(1/β) 倍;β 越小放大越猛,相当于温度越低。想知道它怎么解出来的(可跳过):目标对每个 π(y|x) 都是凹的,用拉格朗日乘子挂上归一化约束,逐 y 求导置零:</p>
+    <pre class="code"><span class="c"># 目标除以 β 后按 y 逐点展开;λ 是拉格朗日乘子,保证 Σ_y π(y|x)=1</span>
+∂/∂π(y|x) [ π·(r/β) − π·log(π/π_ref) − λ·(Σ_y π(y|x) − 1) ] = 0
+→  r/β − log(π(y|x)/π_ref(y|x)) − 1 − λ = 0
+→  π*(y|x) ∝ π_ref(y|x)·exp( r(x,y)/β )      <span class="c"># exp(−1−λ) 与 y 无关,吸进归一化系数 1/Z(x)</span></pre>
+    <p>类比:像带约束的凸优化问题有解析解(经典的水填充算法就是这一类),你不必跑迭代求解器,最优点直接写公式。但真正重要的不是「解出来了」,而是这座桥是<b>双向</b>的:知道 r 能写出 π*,反过来拿着 π* 也能反推出 r——第 4 步马上用反方向。</p>
+
     <p><b>4. 关键第二步:反解出「隐式奖励」</b></p>
     <pre class="code"><span class="c"># 对闭式解取对数、移项,把奖励写成策略比值(隐式奖励)</span>
 r(x,y) = β · log( π_θ(y|x) / π_ref(y|x) )  +  β·log Z(x)
 <span class="c"># Z(x) 与 y 无关,后面会在奖励差里抵消,故可省略</span></pre>
+    <p>对第 3 步的闭式解两边取对数、移项,奖励就被写成策略比值的形式;把理论最优 π* 换成带参数、待训练的 π_θ,就得到<b>隐式奖励</b>:不需要真的打分器,「当前模型相对基线把这个回答的概率抬高了多少个对数单位(乘 β)」本身就是奖励。</p>
+    <p>类比:这就是增量备份的差量日志——当前版本相对基线改了什么,变更量本身就是信息,不必再派人去「测量」改了多少。多出来的 β·log Z(x) 是<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Partition_function_(statistical_mechanics)">配分函数</a>带来的、只随 x 变的常数偏移,类似每个问题自带的固定 checksum:先记着,第 5 步它会自己消失。</p>
+
     <p><b>5. 关键第三步:代入 Bradley-Terry 偏好模型</b></p>
     <pre class="code"><span class="c"># BT 模型:回答 y_w 比 y_l 更被喜欢的概率 = sigmoid(奖励差)</span>
 p(y_w ≻ y_l | x) = σ( r(x,y_w) − r(x,y_l) )
                  = exp(r_w) / ( exp(r_w) + exp(r_l) )</pre>
+    <p>BT 模型来自统计学的两两比较(最早用来给棋手排名次):每个选项有一个「实力分」,A 赢 B 的概率是实力分的 sigmoid。这里「实力分」就是奖励,「赢」就是「人更偏好」。把隐式奖励代进去,Z(x) 的下场一目了然:</p>
+    <pre class="code"><span class="c"># 奖励差展开:两个 β·log Z(x) 是同一个量,相减归零</span>
+r(x,y_w) − r(x,y_l)
+  = β·log(π_θ(y_w|x)/π_ref(y_w|x)) + β·log Z(x)
+  − β·log(π_θ(y_l|x)/π_ref(y_l|x)) − β·log Z(x)
+                                       └─── 同一项,抵消 ───┘
+  = β·log(π_θ(y_w|x)/π_ref(y_w|x)) − β·log(π_θ(y_l|x)/π_ref(y_l|x))</pre>
     <ul>
       <li>把隐式奖励代入,β·log Z(x) 在奖励差里<b>恰好抵消</b>,于是偏好概率完全用策略比值表达。</li>
     </ul>
+    <p>至此评分中间件被彻底消元:偏好概率里只剩「两个策略比值取对数再作差」,全是能从 π_θ 和 π_ref 直接算出来的量——不需要任何打分器。</p>
+
     <p><b>6. 最终 DPO 损失(负对数似然)</b></p>
     <pre class="code">L_DPO = −E_{(x,y_w,y_l)}[ log σ( β·log(π_θ(y_w|x)/π_ref(y_w|x)) − β·log(π_θ(y_l|x)/π_ref(y_l|x)) ) ]</pre>
+    <p>最后一步是标准的<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Maximum_likelihood_estimation">最大似然</a>:偏好数据说 y_w 该赢,那就最大化 p(y_w ≻ y_l|x),等价于最小化它的负对数——于是得到上面这个损失。</p>
     <ul>
       <li>直观解读:增大「chosen 回答相对 reference 的提升」、减小「rejected 回答相对 reference 的提升」,且两者差值越大越好。</li>
-      <li>π_ref 是冻结的参考策略(常用 SFT 模型),训练时只有 π_θ 更新;这就是一个普通的交叉熵/分类式损失,直接梯度下降即可。</li>
+      <li>π_ref 是冻结的参考策略(常用 SFT 模型),训练时只有 π_θ 更新;这就是一个普通的<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Cross-entropy">交叉熵</a>/分类式损失,直接<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Gradient_descent">梯度下降</a>即可。</li>
+      <li><b>梯度小彩蛋</b>:损失里的 sigmoid 项会随模型在某对样本上的「胜势」自动缩小梯度权重,相当于难例自适应加权——细节放在追问里展开。</li>
     </ul>
+    <p>工程视角,两条路线的差别可以列成一张表:</p>
+    <table>
+      <tr><th>对比维度</th><th>RLHF(PPO 路线)</th><th>DPO</th></tr>
+      <tr><td>显存里的模型</td><td>策略 + 参考 + 奖励 + 价值,4 个</td><td>策略 + 参考,2 个</td></tr>
+      <tr><td>数据流</td><td>偏好对训 RM + 在线采样训策略</td><td>静态偏好对,离线一遍过</td></tr>
+      <tr><td>训练范式</td><td>在线强化学习(流式作业)</td><td>监督学习(批处理作业)</td></tr>
+      <tr><td>稳定性</td><td>旋钮多:reward scaling、KL 系数、裁剪阈值…</td><td>接近普通微调,好调</td></tr>
+      <tr><td>主要风险</td><td>reward hacking、训练发散</td><td>欠探索、对偏好数据质量敏感</td></tr>
+    </table>
+
     <p><b>7. 为什么说它和 RLHF「等价」又「更简单」</b></p>
     <ul>
       <li>等价性:在理想假设(闭式解可达、BT 模型成立、偏好数据来自同一奖励)下,DPO 优化的是和 RLHF <b>同一个目标</b>,只是换了个参数化。</li>
       <li>更简单:免去了 RM 训练 + 在线采样 + PPO 三件套;实践中更稳定、计算开销小,已成为主流开源模型的常用对齐手段。</li>
     </ul>
+    <p>用备份工程师的话收尾:RLHF 三件套是「评分中间件 + 在线变更 + 防崩护栏」三套组件,DPO 用一次代数消元,把前两套压成单个离线批处理作业——少一个要维护的组件、少一整条在线数据流、少一类故障模式;代价是把「探索」也从架构里拿掉了(见追问)。这也是它能成为开源社区默认对齐手段的原因。</p>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:DPO 能绕开奖励模型和 PPO,最关键的是哪一步?</summary><div class="an">是「闭式解 + 反解」这一对操作。RLHF 目标带 KL 正则时存在唯一闭式最优策略 π*∝π_ref·exp(r/β);把它取对数反解,奖励就变成策略比值的函数 r=β·log(π/π_ref)+β·log Z(x)。又因为 Bradley-Terry 只关心<b>奖励差</b>,与 y 无关的 Z(x) 被消掉,于是偏好概率完全用策略比值表达——奖励模型这个"中间人"被代数消元掉了。</div></details>
-    <details class="qa"><summary class="qu">Q:β 的作用是什么?太大或太小会怎样?</summary><div class="an">β 是 KL 正则系数,控制策略偏离参考策略 π_ref(通常 SFT 模型)的程度。β 大→约束强,策略贴近 π_ref,训练保守、分布不易崩,但可能对偏好拟合不足;β 小→约束弱,更激进地拟合偏好数据,但容易 reward hacking、输出退化。通常按任务调,经验值常在 0.1~1.0 量级(依赖数据与模型),没有万能值。</div></details>
-    <details class="qa"><summary class="qu">Q:隐式奖励里的 Z(x) 哪去了,凭什么能丢?</summary><div class="an">Z(x)=Σ_y π_ref(y|x)exp(r/β) 是配分函数,只依赖 x、不依赖具体的 y。在 Bradley-Terry 里只出现奖励差 r(x,y_w)−r(x,y_l),两项各带一个相同的 β·log Z(x),相减抵消。所以可以只保留与 y 相关的部分 r=β·log(π_θ/π_ref)。它是"隐式"的——训练中并不真的算出这个数,只作为理论工具把偏好概率和策略比值连起来。</div></details>
-    <details class="qa"><summary class="qu">Q:DPO 和 PPO 相比有什么缺点或争议?</summary><div class="an">DPO 是<b>离线</b>的,只用静态偏好对,不引入在线采样,可能欠探索、分布覆盖有限;有后续工作指出 DPO 会同时压低 chosen 与 rejected 的绝对似然而偏向让两者拉开差距,可能造成分布漂移。针对这些有 IPO(引入正则)、KTO(允许单条反馈)、ORPO(合并 SFT+对齐)等改进。答题时点出"DPO 不是终点,是一系列偏好优化工作的起点"显得有深度。</div></details>
+    <details class="qa"><summary class="qu">Q:DPO 能绕开奖励模型和 PPO,最关键的是哪一步?</summary><div class="an"><b>人话:</b>两个字——反解。先证明 RLHF 的目标有公式最优解,再把公式倒过来用,奖励就变成「策略相对基线的对数比值」,评委(奖励模型)被代数消元。<b>类比:</b>你知道最优容量分布有解析公式,就能从实际分布反推出每块盘的隐含负载,不必真去部署采集器——RM 就是那个可以不上线的采集器。<b>技术:</b>RLHF 目标带 KL 正则时存在唯一闭式最优解 π*∝π_ref·exp(r/β);取对数反解得 r=β·log(π_θ/π_ref)+β·log Z(x);代入 Bradley-Terry 只出现奖励差,与 y 无关的 Z(x) 相减抵消,偏好概率完全由策略比值表达——RM 和 PPO 一起被消掉。</div></details>
+    <details class="qa"><summary class="qu">Q:β 的作用是什么?太大或太小会怎样?</summary><div class="an"><b>人话:</b>β 是「变更窗口」,管着模型每一步敢离基线多远,开太大太小都会出事。<b>类比:</b>相当于备份系统的差量上限——β 小等于允许一次性大改,见效快但可能把现网改崩;β 大等于强制小步慢走,稳但偏好学得慢。<b>技术:</b>β 是 KL 正则系数,控制策略偏离 π_ref(通常是 SFT 模型)的程度。β 大→约束强,策略贴近参考,训练保守、分布不易崩,但可能欠拟合偏好;β 小→约束弱,激进拟合,易 reward hacking、输出退化。经验值常在 0.1~1.0 量级,随数据和模型而变,没有万能值。</div></details>
+    <details class="qa"><summary class="qu">Q:隐式奖励里的 Z(x) 哪去了,凭什么能丢?</summary><div class="an"><b>人话:</b>Z(x) 只跟问题 x 有关、跟具体回答 y 无关;BT 模型又只看两个回答的奖励差——两边各带一个相同的 Z(x),一相减就没了。<b>类比:</b>比较两个副本谁更新,都是各自和同一份主本做 diff:主本自身的公共内容在对比时天然抵消,剩下的纯增量才是有效信息。<b>技术:</b>Z(x)=Σ_y π_ref(y|x)·exp(r/β) 是配分函数,只依赖 x;BT 中只出现 r(x,y_w)−r(x,y_l),两项各带相同的 β·log Z(x),相减抵消,隐式奖励只需保留 β·log(π_θ/π_ref)。训练全程不真算它——它是纯推导工具,负责把偏好概率和策略比值焊在一起。</div></details>
+    <details class="qa"><summary class="qu">Q:DPO 和 PPO 相比有什么缺点或争议?</summary><div class="an"><b>人话:</b>DPO 是闭卷考试——只啃静态偏好对,不上线试新东西,探索和覆盖面都吃亏。<b>类比:</b>PPO 像带灰度发布的在线演练,能探到现网真实分布;DPO 像只拿历史故障报告做容灾预案——报告没写过的场景,预案里就不会有。<b>技术:</b>DPO 离线、无在线采样,分布覆盖有限;后续工作指出它可能同时压低 chosen 与 rejected 的绝对似然、造成分布漂移。改进路线:<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2310.12036">IPO</a> 加正则、<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2402.01306">KTO</a> 允许单条反馈、<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2403.07691">ORPO</a> 合并 SFT 与对齐。答出「DPO 不是终点,而是一系列偏好优化工作的起点」更显深度。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么 π_ref 必须冻结?换一个参考模型会怎样?</summary><div class="an"><b>人话:</b>π_ref 是记分牌的零分线。零分线一动,所有相对分数同时作废。<b>类比:</b>增量备份必须锚定一份不变的全量基线——基线边跑边改,增量既没法解释也没法校验;DPO 的隐式奖励 r=β·log(π_θ/π_ref) 全是相对基线的差量,同理。<b>技术:</b>π_ref 通常取 SFT 模型并全程冻结,为损失提供稳定参照;若解冻一起训,损失可以靠「挪动基线」而不是「提升策略」来刷比值差,出现退化解。更换 π_ref 等于换基准,已训模型的相对提升量失去意义,只能重训;ORPO 干脆去掉参考模型、用 odds 比惩罚替代,是另一条路线。</div></details>
+    <details class="qa"><summary class="qu">Q:DPO 损失的梯度有什么特别之处?</summary><div class="an"><b>人话:</b>它自带补短板逻辑:已经分得开的样本对,梯度自动变小;还分不开的,梯度保持大——难例自动加权。<b>类比:</b>像同步任务的自适应重试:已追平的副本少占带宽,落后的副本加大力度,资源按「还没搞定的程度」分配,不用人工设样本权重。<b>技术:</b>论文算出 ∇L_DPO ∝ −σ(r̂_l−r̂_w)·[∇log π_θ(y_w|x) − ∇log π_θ(y_l|x)],其中 r̂=β·log(π_θ/π_ref) 是隐式奖励。sigmoid 权重随模型在该对上的胜势增大而趋近 0,等效于对已解决样本降权、聚焦难例,比固定权重的朴素对比损失优雅得多。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>RLHF</b>:基于人类偏好的强化学习对齐流程(SFT→RM→PPO)。</div>
-      <div class="term-item"><b>Bradley-Terry 模型</b>:两两比较中「偏好概率 = sigmoid(奖励差)」。</div>
-      <div class="term-item"><b>KL 散度正则</b>:约束新策略别偏离参考策略,防崩坏。</div>
-      <div class="term-item"><b>闭式解</b>:目标函数能写出解析形式的最优解。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Reinforcement_learning_from_human_feedback">RLHF</a></b>:基于人类偏好的强化学习对齐流程(SFT→RM→PPO)。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Bradley%E2%80%93Terry_model">Bradley-Terry 模型</a></b>:两两比较中「偏好概率 = sigmoid(奖励差)」的统计模型。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence">KL 散度正则</a></b>:约束新策略别偏离参考策略,防崩坏。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Closed-form_expression">闭式解</a></b>:目标函数能写出解析形式的最优解。</div>
       <div class="term-item"><b>隐式奖励</b>:由策略比值 r=β·log(π/π_ref) 反推出的奖励,不必显式训练。</div>
-      <div class="term-item"><b>PPO</b>:策略梯度 + 裁剪(clip)的在线强化学习算法。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Proximal_policy_optimization">PPO</a></b>:策略梯度 + 裁剪的在线强化学习算法。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Boltzmann_distribution">Boltzmann 分布</a></b>:按 exp(能量/温度) 加权的概率分布,DPO 的闭式解正是这个形状。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Partition_function_(statistical_mechanics)">配分函数 Z(x)</a></b>:对所有候选回答求和的归一化项,只依赖 x,在奖励差中抵消。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Reward_hacking">Reward hacking</a></b>:策略钻奖励模型空子、刷出高分低质输出的现象。</div>
     </div>
   </div>
 </article>

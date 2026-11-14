@@ -7,31 +7,55 @@
     <span class="tag">#论文解读</span><span class="tag">#Agent</span><span class="tag">#前沿</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题是道开卷聊天题:面试官借"最近读了什么论文"看你有没有持续跟踪 Agent 领域,以及能不能按"痛点→方法→证据→局限"讲成体系。它没法临时突击——只背标题和结论、说不出数字与局限的,一眼就是二手摘要党;能画图、能报数、敢讲缺陷的,才像真读过原文的人。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"我按「问题 → 方法 → 实验 → 局限」四段讲一篇。以 <b>ReAct</b> 为例:问题是传统把<b>推理(CoT)</b>和<b>行动(调工具)</b>割裂——纯推理会幻觉、过时知识;纯行动短视、没规划。方法是让 LLM 生成 <b>Thought → Action → Observation</b> 交替的轨迹,在 few-shot prompt 里就实现,不改参数。实验在 HotpotQA/Fever 上,ReAct 超过纯行动 baseline,与 self-consistency 结合后达到当时最优,且更少幻觉、更可解释。局限是工具单一、长轨迹易发散。一句话:它证明了"推理和行动能互相增益",奠定了后续 Agent 工具调用的范式。"</p>
+    <p>"我按「问题 → 方法 → 实验 → 局限」四段讲一篇。以 <b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a></b> 为例:问题是传统把<b>推理(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2201.11903">CoT</a> 思维链)</b>和<b>行动(调工具)</b>割裂——纯推理会幻觉、拿过时知识硬编;纯行动短视、没规划。方法是让 LLM 生成 <b>Thought → Action → Observation</b> 交替的轨迹,在 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Prompt_engineering">few-shot prompt</a> 里就能实现,不改参数。实验在 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1809.09600">HotpotQA</a>/<a target="_blank" rel="noopener" href="https://arxiv.org/abs/1803.05455">Fever</a> 上:ReAct 明显超过纯行动 baseline,与 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2203.11171">self-consistency</a> 采样结合后达到当时最优,且更少幻觉、更可解释。局限是工具单一、长轨迹易发散。一句话:它证明了"推理和行动能互相增益",奠定了后续 Agent 工具调用的范式。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>就像<b>考试时答题的三种学生</b>:第一种"只想不查"(纯 CoT)——逻辑头头是道,但知识点记错了还硬编;第二种"只查不想"(纯行动)——翻书翻到哪算哪,漫无目的;ReAct 是第三种"<b>想一步、查一步、看结果、再想一步</b>"——先想"我该查什么",查完看结果再判断下一步。外部事实纠正了瞎编,推理又给翻书指了方向,两者配合才答得又快又对。</p>
+    <p><b>ReAct(用"值班工程师做容灾恢复"想)</b>:想象一次恢复演练,现场有三种人。<b>架构师式闭卷推演</b>是纯 CoT——在会议室里凭记忆和三个月前的文档把步骤全推演完,一步不碰真实系统,文档早过期了,推演越流畅、错得越自信;<b>慌乱的新手</b>是纯行动——不看回显狂敲命令,见服务就重启、见卷就挂载,查到哪算哪;ReAct 是<b>老练的值班工程师</b>——先想"第一步得确认元数据库能不能起来"(Thought),动手执行一步(Action),盯着日志回显(Observation),回显和预期不符就修正假设,再走下一步,直到系统恢复。</p>
+    <p><b>哪里像</b>:"假设 → 执行 → 看回显 → 修正"的闭环和处置线上故障完全同构;外部事实(回显)会无情地纠正人的想象,这正是它治幻觉的原理。<b>哪里不像</b>:工程师是真懂系统,LLM 只是生成"看起来像思考"的文本,想错了并不自知;工程师看回显免费,模型每循环一圈都烧 token、加延迟——像每看一行日志都按次计费,所以循环必须设步数上限,这个坑第 5 节和追问还会回来。</p>
+    <p><b>Self-Consistency 自洽采样(用"多副本多数派读"想)</b>:论文里拿最高分的组合技,是让模型独立采样多条推理路径、投票取多数——等价于读多个副本取<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Quorum_(distributed_computing)">多数派</a>,单条路径的随机抖动被票数淹没。<b>哪里像</b>:独立采样加多数决,随机错被抵消。<b>哪里不像</b>:存储副本的故障大体独立,同一模型的多次采样却共享同一套系统性偏差——模型记错一个事实,五条路径一起错,多数派治不了"集体幻觉"。这个差异正好解释第 4 节的数字:CoT-SC 单独已很强,ReAct+SC 还能再赢一截,赢的就是检索注入的外部事实。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
     <p><b>1. 备选论文速览(面试先亮菜单,证明你在跟踪前沿)</b></p>
+    <p>开场别急着扎进某一篇,先花 20 秒报菜名:"最近精读的是 ReAct,另外 Reflexion、Voyager、MetaGPT 也过了一遍,您想听哪篇?"——像做方案评审先给选项表、再给推荐项:既证明你在持续跟踪,又把选择权递回面试官,还暗示每篇你都有得聊。而且这五篇不是散点,是一条演进线:<b>ReAct 定下循环 → Toolformer 让模型学会调用 → Reflexion 给循环加记忆 → Voyager 把技能攒成库 → MetaGPT 让多个 Agent 组队</b>。</p>
     <table>
       <tr><th>论文</th><th>一句话:解决什么问题 → 怎么做</th></tr>
-      <tr><td><b>ReAct</b>(2023)</td><td>推理与行动割裂 → 让 LLM 生成 Thought/Action/Observation 交织轨迹</td></tr>
-      <tr><td><b>Toolformer</b>(2023)</td><td>模型不会主动用工具 → 自监督学会在文本里插入 API 调用</td></tr>
-      <tr><td><b>Reflexion</b>(2023)</td><td>一次试错就完蛋 → 用「语言化反思」存进记忆,重试时吸取教训</td></tr>
-      <tr><td><b>Voyager</b>(2023)</td><td>开放世界里技能不会积累 → 代码当技能 + 技能库,终身学习</td></tr>
-      <tr><td><b>MetaGPT</b>(2023)</td><td>多 Agent 缺乏组织 → 模拟软件公司 SOP,角色分工流水线协作</td></tr>
+      <tr><td><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a></b>(2023)</td><td>推理与行动割裂 → 让 LLM 生成 Thought/Action/Observation 交织轨迹</td></tr>
+      <tr><td><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2302.04761">Toolformer</a></b>(2023)</td><td>模型不会主动用工具 → 自监督学会在文本里插入 API 调用</td></tr>
+      <tr><td><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2303.11366">Reflexion</a></b>(2023)</td><td>一次试错就完蛋 → 用「语言化反思」存进记忆,重试时吸取教训</td></tr>
+      <tr><td><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.16291">Voyager</a></b>(2023)</td><td>开放世界里技能不会积累 → 代码当技能 + 技能库,终身学习</td></tr>
+      <tr><td><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2308.00352">MetaGPT</a></b>(2023)</td><td>多 Agent 缺乏组织 → 模拟软件公司 SOP,角色分工流水线协作</td></tr>
     </table>
-    <p><b>2. 以 ReAct 为例:问题(Problem)</b></p>
+    <p>给每篇配一个你熟悉的影子(每一句都够在追问里展开成两分钟):</p>
     <ul>
-      <li>CoT 只推理不查外部信息,面对多跳问答、需要最新事实的任务会<b>幻觉、用过时知识硬编</b>。</li>
-      <li>Act-only 只调用工具不推理,<b>缺乏规划</b>,检索/行动像无头苍蝇。</li>
-      <li>核心假设:<b>推理和行动不是二选一,而是互补</b>——推理给行动提供目标与分解,行动给推理提供外部事实、抑制幻觉。</li>
+      <li><b>Toolformer(用"系统自学触发时机"想)</b>:让模型在语料里到处试插 API 调用,只保留"调了之后预测下文更准"的位置——像备份系统观察各卷的数据变化率,自己学会该在哪些时刻触发快照,而不是人写死定时任务。<b>哪里像</b>:触发点从人工规则变成数据驱动;<b>哪里不像</b>:它为此真的动了模型权重(要训练),ReAct 只动提示——一个是改引擎,一个是改配置。</li>
+      <li><b>Reflexion(用"故障复盘写进值班手册"想)</b>:一次失败不白费,把失败原因写成文字存进记忆,下次重试先读手册再动手。<b>哪里像</b>:经验跨尝试复用,不重复踩坑;<b>哪里不像</b>:人写 wiki 是结构化沉淀,它是把自由文本塞回上下文,模型本身并没有变聪明。</li>
+      <li><b>Voyager(用"运维脚本库越攒越厚"想)</b>:每解决一个新问题就沉淀一段可复用代码入库,下次先查库、再组合、最后才写新的。<b>哪里像</b>:技能资产化、可组合、终身积累;<b>哪里不像</b>:Minecraft 有干净的执行反馈当验证器,真实环境没有这么好心的"对/错"提示,技能入库前的质检才是最大难题。</li>
+      <li><b>MetaGPT(用"带 SOP 的流水线"想)</b>:产品经理→架构师→工程师→QA,每环输出结构化文档,下游只吃上游产物——<b>文档即接口</b>。<b>哪里像</b>:流水线契约抑制误差逐环放大;<b>哪里不像</b>:人有长期记忆和问责,Agent 每次调用无状态,全靠上下文窗口硬撑,管线越长越脆。</li>
     </ul>
-    <p><b>3. 方法(Method):交织的 Thought/Action/Observation 轨迹</b></p>
+    <p><b>2. 以 ReAct 为例:问题</b></p>
+    <p>讲论文第一段永远先立靶子:之前的方法到底卡在哪。ReAct 的靶子是两头的:</p>
+    <ul>
+      <li><b>纯推理(CoT)</b>只推理、不查外部信息:思维链让模型把中间推理一步步写出来再作答,像数学考试必须列过程——但它是<b>闭卷</b>的,面对多跳问答、需要最新事实的任务,只能拿训练时记下的旧知识硬编,产生<b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)">幻觉</a></b>(模型一本正经地编造事实)。类比:拿三个月前的备份目录回答"今天哪些卷做了快照"——目录写得整整齐齐,介质上根本没有,答得越流畅错得越自信。</li>
+      <li><b>纯行动</b>只调用工具、不推理,<b>缺乏规划</b>,检索/行动像无头苍蝇——像不看回显狂敲命令的新手,查回十几个页面,每一页都没朝答案的方向走。</li>
+      <li><b>核心假设</b>:<b>推理和行动不是二选一,而是互补</b>——推理给行动提供目标与分解(该查什么、先查哪个、查完怎么用),行动给推理提供外部事实、抑制幻觉(查回来的真实数据堵住模型的嘴)。这句是全篇的中心思想,面试时值得原样说出来。</li>
+    </ul>
+    <p><b>3. 方法:交织的 Thought/Action/Observation 轨迹</b></p>
+    <p>机制一句话:让 LLM 按固定格式生成 <b>Thought(思考)→ Action(行动)→ Observation(观察)</b>交替的长文本;Action 由外层程序拦截、真正去执行(检索/查库/计算),执行结果作为 Observation 原样拼回上下文,循环往复,直到模型吐出 Finish[答案]。三种范式放一起看最清楚:</p>
+    <pre class="code">三种范式一览(问题:"苹果 2022 财年研发投入是多少?")
+
+纯推理 CoT :  问题 ──想──想──想──▶ 答案
+              闭卷作答,全凭记忆;记错就一本正经地硬编(幻觉)
+
+纯行动 Act :  问题 ──查──查──查──▶ 答案
+              开卷乱翻,没有方向;查十次也拼不出要两跳的答案
+
+ReAct     :  问题 ──想─查─看─想─查─看──▶ 答案
+              "想"指方向,"查"供事实,"看"校正下一步,每步留痕</pre>
     <div class="svgwrap">
 <svg class="sdiagram" viewBox="0 0 420 400" role="img" aria-label="ReAct 思考-行动-观察循环">
   <rect class="sd-box-rose" x="130" y="10" width="160" height="52" rx="10"/>
@@ -57,15 +81,35 @@
   <text class="sd-ts" x="210" y="370" text-anchor="middle">给出带依据的结论</text>
 </svg>
 </div>
+    <p>拆成一条真实轨迹,格式就长这样(论文 prompt 格式的中文示意):</p>
+    <pre class="code">Question: 苹果 2022 财年的研发投入是多少?
+Thought 1: 我需要查苹果财报里的研发费用。
+Action 1: Search[苹果 2022 财年 研发费用]
+Observation 1: ……苹果 2022 财年研发投入为 262.5 亿美元……
+Thought 2: 数字拿到了,可以直接回答。
+Action 2: Finish[262.5 亿美元]</pre>
     <ul>
-      <li>用 <b>few-shot 提示</b>给模型几条标注好的轨迹,模型照格式生成,<b>不更新参数</b>。</li>
-      <li>Thought 负责:分解问题、跟踪进度、处理异常(检索结果不对就换词);Action 调用外部工具(论文里是 Wikipedia Search);Observation 是工具返回,喂回给下一步。</li>
+      <li>用 <b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Prompt_engineering">few-shot 提示</a></b>给模型几条标注好的轨迹,模型照格式生成,<b>不更新参数</b>——行为改变靠"给范文",不碰模型权重。类比:像给新值班工程师几份标准工单照着办,改的是配置、不是代码;换任务只要换范文,成本极低,上限也低(第 5 节回到这点)。</li>
+      <li><b>Thought</b> 负责:分解问题、跟踪进度、处理异常(检索结果不对就换关键词重查);<b>Action</b> 调用外部工具(论文里只有 Wikipedia Search 一个);<b>Observation</b> 是工具返回,喂回给下一步。整条轨迹是纯文本,能被正则解析、被外层程序接管——后来的 function calling,本质就是把这套"文本口头约定"升级成结构化接口。</li>
     </ul>
-    <p><b>4. 实验(Experiment)</b></p>
+    <p>对写后台的同学最友好的一点:剥掉包装,ReAct 就是一个 Python 循环,你两天就能自己撸一个:</p>
+    <pre class="code"># ReAct 的全部骨架:一个循环就能复刻(伪代码)
+history = fewshot范文 + 用户问题
+for step in range(MAX_STEPS):      # 防发散:步数硬顶,禁止无限循环
+    out = llm(history)             # 模型生成一段 Thought + Action 文本
+    action = parse_action(out)     # 正则抠出 Search[...] / Finish[...]
+    if action.name == "Finish":
+        return action.args         # 拿到最终答案,收工
+    obs = dispatch_tool(action)    # 外层程序执行检索/计算,得 Observation
+    history += [out, obs]          # 拼回上下文,进入下一轮</pre>
+    <p class="note">"智能"不在新参数里,在这个循环结构里:论文全程没换模型、没动一个权重,变的只是喂进去的上下文和外面的执行器。</p>
+    <p><b>4. 实验</b></p>
+    <p>两个评测集:<b>HotpotQA</b> 是多跳问答——答案要两跳检索才能拼出来,像先查"这家公司的 CEO 是谁",再拿 CEO 名字当新查询键查"他哪年出生",本质是一次"查表-再查表"的 join;<b>Fever</b> 是事实验证——判断一句话是支持/反驳/证据不足,像拿告警和监控原始数据对账。指标是 <b>EM(Exact Match)</b>:答案逐字一致才计分,蒙个大概不给分。主结果(prompting 设置):</p>
     <table>
       <tr><th>设置</th><th>HotpotQA(EM,多跳问答)</th></tr>
-      <tr><td>仅行动(Act)</td><td>约 25.7</td></tr>
-      <tr><td>仅推理(CoT)</td><td>约 29.4</td></tr>
+      <tr><td>仅行动</td><td>约 25.7</td></tr>
+      <tr><td>仅推理</td><td>约 29.4</td></tr>
+      <tr><td>仅推理 + 自洽采样</td><td>约 33.4</td></tr>
       <tr><td><b>ReAct</b></td><td>约 27.4</td></tr>
       <tr><td><b>ReAct + CoT-SC(自洽采样)</b></td><td>约 35.1(当时最优)</td></tr>
     </table>
@@ -73,31 +117,41 @@
     <ul>
       <li>关键结论:① ReAct 显著优于 act-only(证明"推理引导行动"有用);② ReAct+CoT-SC 优于 CoT-SC(证明"行动提供的真实信息反哺推理");③ 在 Fever(事实验证)上同样优于纯行动,且生成内容<b>更少幻觉、更可解释</b>。</li>
     </ul>
+    <p>这张表里有两个细节,主动讲出来就是加分位:</p>
+    <ul>
+      <li><b>ReAct 单独(约 27.4)其实打不过 CoT 单独(约 29.4)</b>。为什么?HotpotQA 相当一部分题靠参数记忆就能答对,而检索回来的 top-k 段落里有噪声、还挤占上下文,思考反而被带偏。单一指标会低估组件价值,论文自己也没回避这一点。</li>
+      <li><b>但组合就反超(约 35.1 对约 33.4)</b>。CoT-SC 靠投票只能消灭"随机错",消灭不了"系统性错"——模型记错一个事实,五条采样路径一起错,票数再多也是错;ReAct 检索回的真实事实把其中若干路径拉回正轨,相当于给投票池注入外部校验。能讲到这层,面试官就知道你真读了原文的表格,而不是转述摘要。</li>
+    </ul>
     <p><b>5. 局限与改进(主动讲,面试官爱听)</b></p>
     <ul>
-      <li>工具单一(只有 Wikipedia 检索),真实场景要扩展到多工具/代码/API。</li>
-      <li>长轨迹容易发散、重复调用、token 成本高 → 后续用反思(Reflexion)、工具结果缓存、轨迹压缩解决。</li>
-      <li>few-shot 依赖人工标注轨迹 → 可用合成数据/自举减少标注。</li>
-      <li>不更新模型参数,深层规划能力受限 → 可结合微调或强化学习。</li>
+      <li>工具单一(只有 Wikipedia 检索),真实场景要扩展到多工具/代码/API——手里只有一把锤子,看什么都像钉子;像灾备只有磁带一种介质,冷热数据无从分层。改进:工具描述进 prompt,失败回显写回去触发重选。</li>
+      <li>长轨迹容易发散、重复调用、token 成本高 → 后续用反思(Reflexion)、工具结果缓存、轨迹压缩解决。机制:Observation 每轮原样拼回,上下文线性膨胀,像没设上限的重试风暴越滚越大;工程上要步数硬顶 + 同参数调用去重缓存(追问 6 展开)。</li>
+      <li>few-shot 依赖人工标注轨迹 → 可用合成数据/自举减少标注。类比:每接一个新系统都要手写一套 runbook,没人写范文,循环就转不起来。</li>
+      <li>不更新模型参数,深层规划能力受限 → 可结合<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Fine-tuning_(machine_learning)">微调</a>或<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Reinforcement_learning">强化学习</a>。类比:只调配置不改引擎,性能天花板锁死;要突破就得动权重,让规划能力"长进模型里",而不是"贴在 prompt 上"。</li>
     </ul>
     <p><b>6. 讲论文的通用框架(方法论,换任何一篇都成立)</b>:① 先点<b>痛点</b>(之前方法为什么不行);② 一句话说清<b>方法核心机制</b>;③ 给<b>实验证据</b>(对比了谁、赢在哪、数字约多少);④ 主动谈<b>局限与可改进</b>。四段齐全,面试官就知道你是"读过"而非"刷过摘要"。</p>
+    <p>这套框架和你读存储顶会论文、评审设计文档用的是同一块肌肉:痛点 = 现有方案 RPO/RTO 不达标;机制 = 新的数据布局;证据 = 压测数字;局限 = 写放大与工程代价。领域换了,审稿框架没换。备考建议:<b>精读一篇</b>(白板能画循环图、能报数量级、敢讲局限)+ <b>略读两篇</b>(每篇能说一句"它比前人新在哪"),远胜浅刷十篇摘要。</p>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:为什么不选更新的论文(如 Voyager / MetaGPT),而选 ReAct 这种稍早的?</summary><div class="an">ReAct 是"推理+行动"范式的奠基工作,ReWOO、Reflexion、Toolformer 乃至现在的 function calling 都建立在它之上,把它讲透最能体现基本功;同时我会补一两篇新论文说明我在跟踪前沿。反过来讲,选新论文的关键是能说清"它比 baseline 到底新在哪、牺牲了什么"——讲不出增量,再新的论文也白搭。</div></details>
-    <details class="qa"><summary class="qu">Q:ReAct 的贡献不就是 prompt 里多写几个词吗,创新点到底在哪?</summary><div class="an">表面是 prompt 工程,实质是两个洞察:① 从实验上证明"推理和行动互补"——推理提升信息检索与事实一致性,行动给推理提供外部事实、抑制幻觉,单干都不行;② 给出了可复用的 Thought/Action/Observation 轨迹格式,成为后续工具调用、Agent 循环(观察→思考→行动)的通用骨架。范式价值和实验证据一起,才是它被大量引用的原因。</div></details>
-    <details class="qa"><summary class="qu">Q:你会怎么改进 ReAct 的局限?</summary><div class="an">四方向:① 扩展到多工具与代码执行,并加工具选择的纠错;② 引入反思与记忆(Reflexion 思路),把失败经验存下来避免重复犯错;③ 用轨迹压缩/摘要控制长上下文成本,防止发散;④ 从纯提示升级到微调或 RL,让模型内化规划能力,而不是每次都靠 few-shot 示范。</div></details>
-    <details class="qa"><summary class="qu">Q:面试官问你"最近读了什么论文",最在意什么?</summary><div class="an">在意四件事:① 能说清问题痛点和"为什么之前方法不行";② 方法核心机制能一句话讲透,而不是背摘要;③ 实验证据——对比了谁、赢在哪、数量级大概多少;④ 敢讲局限。四段齐全说明真读过;只会背标题和结论,大概率是二手摘要。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么不选更新的论文(如 Voyager / MetaGPT),而选 ReAct 这种稍早的?</summary><div class="an"><b>人话:</b>经典不是"旧",是"根基"。Voyager、MetaGPT 这些后浪全都踩在 ReAct 肩膀上,把奠基作讲透最能证明基本功,再补一两篇新论文证明自己还在跟踪前沿就行。<b>类比:</b>这就像聊分布式存储却绕开 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Google_File_System">GFS</a>,直接聊最新的纠删码优化——地基没打牢,楼讲得再花也虚。选论文和选方案一样,讲不清"比 baseline 新在哪、牺牲了什么",再新也白搭。<b>技术:</b>ReAct 的 Thought/Action/Observation 循环至今仍是 function calling 的骨架;由它能自然延伸出 Reflexion(加反思)、Toolformer(学调用)、Voyager(加技能库),一篇串起整条脉络。</div></details>
+    <details class="qa"><summary class="qu">Q:ReAct 的贡献不就是 prompt 里多写几个词吗,创新点到底在哪?</summary><div class="an"><b>人话:</b>表面是 prompt 工程,实质两条:第一次用实验证明"推理和行动互补",并留下了后来所有人都在抄的轨迹格式。<b>类比:</b>就像<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Write-ahead_logging">预写日志</a>听起来只是"先记日志再改数据"一个顺序问题,却是崩溃恢复的根基——范式级贡献往往机制简单、影响深远,不能拿实现复杂度论英雄。<b>技术:</b>证据链是双向的:ReAct 显著优于 act-only,证明推理帮行动;ReAct+SC 又反超 CoT-SC,证明行动喂回的事实帮推理;外加 Fever 上更少幻觉、轨迹可解释可审计。机制简单+证据闭环+被后续工作普遍继承,才是高引的原因。</div></details>
+    <details class="qa"><summary class="qu">Q:你会怎么改进 ReAct 的局限?</summary><div class="an"><b>人话:</b>按代价从低到高排:先扩工具加纠错,再补记忆与反思,然后治长轨迹的成本,最后才考虑动参数。<b>类比:</b>就是优化备份窗口的顺序——先调策略与缓存,再改冷热分层,最后才动数据布局;越往后改动越大,能不动权重就不动权重。<b>技术:</b>① 多工具路由,失败回显写回 prompt 触发重选;② 引入 Reflexion 式反思记忆,把失败经验文本化复用;③ 轨迹摘要压缩上下文、高频查询加结果缓存;④ 用 SFT/RL 让模型内化规划能力,few-shot 只做冷启动。</div></details>
+    <details class="qa"><summary class="qu">Q:面试官问你"最近读了什么论文",最在意什么?</summary><div class="an"><b>人话:</b>最在意你讲不讲得出"为什么"——之前的方法为什么不行、新的赢在哪、还差在哪,而不是背标题背结论。<b>类比:</b>跟评审容灾方案一个逻辑:只说"我们上了双活"没人买账,必须给出 RPO/RTO、单点在哪、代价是什么;论文四段(痛点/机制/证据/局限)就是方案评审的四问。<b>技术:</b>硬信号有三个:能报数量级(ReAct 单独约 27、组合后约 35)、能主动谈局限(工具单一、轨迹发散、token 成本)、能白板画出 TAO 循环;只剩"性能显著提升"这种话术的,基本可判定为二手摘要。</div></details>
+    <details class="qa"><summary class="qu">Q:论文里 ReAct 单独跑分还不如 CoT,它凭什么还是经典?</summary><div class="an"><b>人话:</b>它输的是单个数据集的均值,赢的是范式与互补性——"单独不如你"不代表"组合不碾压你"。<b>类比:</b>增量备份单看恢复速度未必快过全量,但配上全量基线后整体窗口大幅缩短;只盯单项指标,会系统性低估组件的价值。<b>技术:</b>HotpotQA 上 ReAct 约 27.4 低于 CoT 约 29.4,但 ReAct+SC 约 35.1 反超 CoT-SC 约 33.4,Fever 上也更稳、幻觉更少。主动报出这个"难看的数字"并解释成因(部分题靠记忆可答、检索有噪声),恰恰是读过原文的标志。</div></details>
+    <details class="qa"><summary class="qu">Q:要把 ReAct 循环搬进生产环境,你最担心什么、怎么兜底?</summary><div class="an"><b>人话:</b>三个风险:发散、烧钱、无界循环——模型可能对同一个工具反复调用,直到 token 预算爆掉。<b>类比:</b>就是没设超时的重试风暴:一个坏回显引发连环重试,小故障被放大成全局故障;容灾工程里我们靠超时、重试上限、熔断三件套兜底,Agent 循环同理。<b>技术:</b>要加四道闸:最大步数与 token 预算硬顶;同一 (action, 参数) 组合去重并缓存,幂等键思路;Observation 截断与摘要,防上下文膨胀;失败轨迹落盘,供事后评估和 prompt 迭代。没有这四道闸,ReAct 只能活在 demo 里。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>ReAct</b>:Reasoning + Acting,推理与行动交织的提示范式。</div>
-      <div class="term-item"><b>Chain-of-Thought</b>:让模型一步步写出推理过程再给答案。</div>
-      <div class="term-item"><b>Few-shot prompting</b>:给几个示例引导模型按指定格式输出。</div>
-      <div class="term-item"><b>Observation</b>:工具返回的结果,供模型下一步思考。</div>
-      <div class="term-item"><b>Self-Consistency</b>:多次采样投票取多数,提升推理准确性。</div>
-      <div class="term-item"><b>Thought/Action/Observation</b>:Agent 工具调用的通用循环骨架。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a></b>:Reasoning + Acting,推理与行动交织的提示范式,后来一切 Agent 工具调用的奠基工作。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2201.11903">Chain-of-Thought</a></b>:让模型一步步写出推理过程再给答案,好比数学考试必须列过程。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Prompt_engineering">Few-shot prompting</a></b>:给几个示例引导模型按指定格式输出,不改模型参数。</div>
+      <div class="term-item"><b>Observation</b>:工具返回的结果,拼回上下文供模型下一步思考。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2203.11171">Self-Consistency</a></b>:对同一问题多次采样推理路径、投票取多数,类似分布式里的多数派读。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://react-lm.github.io/">Thought/Action/Observation</a></b>:Agent 工具调用的通用循环骨架,function calling 是它的结构化版本。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)">幻觉</a></b>:模型一本正经地编造不存在的事实,像备份目录里有条目、介质上却没有。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1809.09600">HotpotQA</a></b>:答案需要两跳检索才能拼出的多跳问答数据集,ReAct 的主战场。</div>
     </div>
   </div>
 </article>
