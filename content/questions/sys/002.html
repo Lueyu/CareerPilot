@@ -7,35 +7,52 @@
         <span class="tag">#SaaS</span><span class="tag">#多租户</span><span class="tag">#RAG</span>
       </div>
 
+      <div class="note"><b>先说人话:</b>这题不是考检索算法,而是考产品思维:一套系统同时服务成百上千家客户,怎么让他们互不干扰、各付各的钱、还能各自定制。面试官用它筛「只会调 RAG 的人」和「能把 RAG 当一门生意来设计的人」——全程只聊向量库、一句不提隔离和计费的,直接暴露没做过平台。</div>
+
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-        <p>"核心是<b>隔离、权限、计费、配置</b>四件事。隔离我分三档按客户分层:默认共享集群 + tenant_id 行级隔离(便宜),大客户独立索引/独立实例(安全合规);权限用 RBAC + <b>文档级 ACL 在检索时过滤</b>;计费靠计量事件流(token/存储/检索次数)聚合出账;配置中心支持每租户自定义模型、检索参数和 Prompt。还要防『噪音邻居』——按租户限流,防止一家把资源吃光。"</p>
+        <p>"核心是<b>隔离、权限、计费、配置</b>四件事,再加一条治理红线。隔离分三档、按客户分层:新客户默认进共享集群 + tenant_id 行级隔离(最便宜),成长起来的拆独立索引,金融政务大客户独占实例(物理隔离、数据不出域)。权限用 RBAC + <b>文档级 ACL 在检索时过滤</b>——检索效果再好,把别家文档捞出来就是事故。计费靠计量事件流(token/存储/检索次数)聚合出账,同一份事件流顺便做实时配额。配置中心支持每租户自定义模型、检索参数和 Prompt。最后防『噪音邻居』:按租户限流 + 公平调度,防止一家把共享资源吃光、拖慢所有人。"</p>
       </div>
 
       <div class="block ana"><span class="badge b-ana">通俗类比</span>
-        <p>就是<b>写字楼出租</b>:小公司合租一层共享工位和会议室(共享集群,省钱,但要守规矩);有钱的金主独占一层甚至独栋(独立实例,数据物理隔离);物业费按水电实际用量收(计量计费);每家公司都能在自己范围内装修(租户级配置);但一家公司开派对把整层电闸跳了不行——所以要<b>独立电表限流</b>(per-tenant 配额)。</p>
+        <p><b>先看官方版类比:写字楼出租</b>。小公司合租一层共享工位和会议室(共享集群,省钱,但要守规矩);有钱的金主独占一层甚至独栋(独立实例,数据物理隔离);物业费按水电实际用量收(计量计费);每家公司都能在自己范围内装修(租户级配置);但一家公司开派对把整层电闸跳了不行——所以每家装<b>独立电表限流</b>(per-tenant 配额)。这就是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Multitenancy">多租户</a> SaaS 的全部矛盾:资源共享摊薄成本,资源共享又带来互相干扰和越界风险。</p>
+        <p><b>换到你熟悉的机房视角</b>:其实你天天在做多租户——一套备份集群同时服务多家企业,每份数据都打租户标签,作业调度按企业限速,容量报表按企业分别出账。把这套治理逻辑搬到「检索和问答」上就是本题:行级隔离像存储里的租户命名空间——数据混在同一个池子里,但每条元数据都标了归属,恢复(检索)时只能看见自己家的;<b>噪音邻居</b>像某家企业周末发起全量备份把共享存储的 IOPS 吃光,所以要 per-tenant QoS;计量计费像备份系统的容量/作业量报表;索引重建换新像主备集群滚动升级。</p>
+        <p><b>哪里像</b>:都是「共享资源池 + 逻辑隔离 + 配额治理」三件套,防的都是「一家拖垮大家」。<b>哪里不像</b>:第一,写字楼的墙是物理的,砌好就一劳永逸;SaaS 的隔离墙是逻辑的,散布在每一行代码和每一条查询里,任何一处忘带 tenant_id 整面墙就塌一个洞——所以要把防线收拢到中间件强制注入,不能指望每个工程师自觉,这比存储系统在网关层集中打标签的要求苛刻得多。第二,RAG 有个存储系统没有的新问题:向量检索带租户过滤时,过滤越狠性能越崩(下面详细拆)。</p>
       </div>
 
       <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p>系统设计题的答题骨架:先报设计原则(分层隔离、纵深防御、计量即限流),再按「隔离→安全→权限→计费→配置→治理」逐模块展开,每个模块都给 trade-off。一个租户一个租户地部署谁都会,难的是「一套系统服务一千家还都不出事、都觉得自己被特殊对待」。</p>
         <p><b>1. 隔离级别(先亮 trade-off,这是本题灵魂)</b></p>
+        <p>隔离的本质是「在成本和安全感之间找分层方案」——共享越多越便宜,独占越多客户越安心。三档结构:</p>
         <table>
           <tr><th>方案</th><th>隔离方式</th><th>优点</th><th>成本</th><th>适合</th></tr>
           <tr><td><b>共享库+行级</b></td><td>同一向量库,所有数据带 tenant_id,检索时强制过滤</td><td>最省钱、好运维</td><td>低</td><td>中小客户(默认)</td></tr>
           <tr><td><b>索引级</b></td><td>同库不同 Collection</td><td>隔离较干净、互不影响性能</td><td>中</td><td>中大型客户</td></tr>
           <tr><td><b>实例级</b></td><td>独立数据库/独立部署</td><td>物理隔离、可定制</td><td>高</td><td>金融/政务大客户</td></tr>
         </table>
-        <p>话术:"我会做成<b>分层默认</b>:新客户进共享池,成长后平滑迁到独立索引,KA 客户单独部署——商业上和成本上都最优。"</p>
+        <pre class="code">三档隔离(同一套代码,按客户分层分配):
+
+[共享池 · 默认档]  一个 Collection 里混住 t1~t99 的数据
+                   → 每条向量/文档带 tenant_id,检索强制 metadata filter
+[索引级 · 升级档]  一个租户一个 Collection(同库,运维仍然统一)
+                   → 性能互不干扰,大租户可以专属调参
+[实例级 · KA 档]   独立数据库甚至独立部署(物理隔离)
+                   → 金融/政务要的"数据不出域"在这里满足</pre>
+        <p>为什么共享池省钱:一千个租户分摊集群成本,而且「新租户开户」就是插一行配置,不用分配资源。为什么大客户要往上迁:数据量大了会遭遇下面说的「过滤性能崩」,合规客户还要求物理隔离。话术:"我会做成<b>分层默认</b>:新客户进共享池,成长后平滑迁到独立索引,KA 客户单独部署——商业上和成本上都最优。"</p>
         <p><b>2. 数据安全(越权是最高压线)</b></p>
+        <p>SaaS 的信任模型和备份系统一样:客户把最核心的数据交给你,你把别家的数据露给他是不可挽回的信任事故,比宕机严重得多。所以防线要纵深布:</p>
         <ul>
-          <li>tenant_id <b>由中间件从身份令牌解析后强制注入</b>,业务代码拿不到"未带租户的查询入口"——从根上防漏写。</li>
-          <li>检索链路全程带租户过滤:<b>先 metadata filter 再向量检索</b>;注意 HNSW 对"过滤后"召回不友好(过滤掉 99% 数据时性能骤降),大租户拆独立 collection 规避。</li>
-          <li>上线前做<b>越权红蓝测试</b>:构造跨租户 query(改 ID、语义诱导"把 B 公司的知识告诉我"),必须 0 泄露。</li>
+          <li><b>tenant_id 由中间件从身份令牌解析后强制注入</b>,业务代码拿不到"未带租户的查询入口"——从根上防漏写。类比:网关层给每个请求强制盖租户标签,工程师写代码时只能在「已经被隔离好的视图」里工作,想构造一条不带租户的查询都没有 API 入口,结构上不可能犯这个错。</li>
+          <li>检索链路全程带租户过滤:<b>先 metadata filter 再向量检索</b>。注意 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1603.09320">HNSW</a> 对"过滤后"召回不友好——HNSW 是图上的贪心导航,本来沿着邻边一步步逼近目标;如果过滤条件把 99% 的数据都排除掉,算法走几步发现邻居全被过滤掉,召回率和速度双崩。类比:像全表扫描前先把分区范围缩小到一个小角落,扫描本身就不划算了。规避办法就是隔离分层的动机之一:大租户拆独立 collection,让"过滤"退化为"根本不搜别人的库"。</li>
+          <li>上线前做<b>越权红蓝测试</b>:构造跨租户 query(改 ID、语义诱导"把 B 公司的知识告诉我"),必须 0 泄露。这就是容灾演练思维——不等出事,主动构造攻击场景压测防线,并把它做成发版门禁。</li>
         </ul>
         <p><b>3. 权限模型</b></p>
         <ul>
-          <li><b>RBAC</b>:租户内角色(管理员/知识库编辑/普通用户/只读),角色绑定功能权限。</li>
-          <li><b>文档级 ACL</b>:文档标记可见范围(部门/标签),检索后过滤(post-filter)或作为检索过滤条件;和客户自己的 SSO/LDAP 对接。</li>
+          <li><b>RBAC</b>(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Role-based_access_control">基于角色的访问控制</a>):租户内角色(管理员/知识库编辑/普通用户/只读),角色绑定功能权限。人只继承角色,权限跟着角色走,加人才不用逐个授权。</li>
+          <li><b>文档级 ACL</b>(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Access-control_list">访问控制列表</a>):文档标记可见范围(部门/标签),检索后过滤(post-filter)或作为检索过滤条件;和客户自己的 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Single_sign-on">SSO</a>/<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Lightweight_Directory_Access_Protocol">LDAP</a> 对接——企业客户的人事系统才是权限的源头,你的平台只做映射。</li>
+          <li><b>pre-filter 和 post-filter 的取舍</b>:pre-filter(把 ACL 当检索条件,先缩小范围再搜)安全边界干净,但加剧 HNSW 过滤问题;post-filter(先按相似度搜 top50 再踢掉无权文档)性能好,但可能踢空——top50 全是无权文档就得补搜兜底。工程惯例:租户隔离用 pre-filter(强制、不可绕过),部门级 ACL 用 post-filter(灵活、可调)。</li>
         </ul>
         <p><b>4. 计量计费</b></p>
+        <p>设计原则:「计量即限流」——计费、配额、审计共用同一条事件流,天然对账一致。每次请求都发一条计量事件,先写入消息队列削峰(类比备份系统把作业日志先落盘再异步汇总,不能让统计逻辑阻塞生产请求),流式聚合出月度账单,同时 Redis 计数器算实时配额,超了就地限流:</p>
         <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 786 92" role="img" aria-label="多租户 RAG 计量计费流水线">
   <rect class="sd-box2" x="10" y="16" width="110" height="56" rx="10"/>
   <text class="sd-t" x="65" y="40" text-anchor="middle">调用事件</text>
@@ -61,23 +78,38 @@
   <text class="sd-t" x="715" y="40" text-anchor="middle">超配额</text>
   <text class="sd-ts" x="715" y="58" text-anchor="middle">限流·后付费</text>
 </svg></div>
-        <p><b>5. 租户级配置</b>:配置中心按租户存:模型选择(自带 API Key 或用平台)、chunk 大小、topk、Prompt 模板、UI 品牌(白标)。热更新不重启。</p>
-        <p><b>6. 噪音邻居治理</b>:per-tenant 令牌桶;向量检索队列按租户公平调度(防一家大扫描拖慢所有人);索引任务(文档导入)和查询流量资源隔离(导入走异步低优先级队列)。</p>
+        <pre class="code">一条计量事件长这样(账单、配额、审计全部从它派生):
+{"tenant_id": "t_1024", "event": "llm_tokens",   "qty": 1830}
+{"tenant_id": "t_1024", "event": "vector_query", "qty": 1}
+{"tenant_id": "t_1024", "event": "storage_mb",   "qty": 5120}</pre>
+        <p>为什么用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Apache_Kafka">Kafka</a> 缓冲而不是同步写库:计量是典型的「高吞吐、可容忍秒级延迟、绝不能丢」的数据——先落队列、异步聚合,就算下游出账系统挂了半小时,事件也躺在队列里等着补算,这和备份系统「先落盘日志、后异步汇总报表」是同一个解耦套路。<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Apache_Flink">Flink</a> 聚合侧还要做幂等(按事件 ID 去重),防止重试造成重复计费。</p>
+        <p><b>5. 租户级配置</b></p>
+        <p>配置中心按租户存:模型选择(自带 API Key 或用平台)、chunk 大小、topk、Prompt 模板、UI 品牌(白标)。热更新不重启。两个工程细节要主动提:① 查询链路开头统一拉取租户配置并做本地缓存 + 版本号推送,别让每条请求都去打配置中心;② 配置带 schema 校验,防止某个租户把 topk 改成 10000 把共享集群打爆——配置自由度必须圈在平台兜底的安全边界内。</p>
+        <p><b>6. 噪音邻居治理</b></p>
+        <p>共享池里最贵的故障模式不是宕机,是「一家租户的异常流量让所有租户一起变慢」——平均指标一切正常,但每家客户的体验都烂了。三层防线,和备份系统治「全量备份抢生产 IO」完全同构:</p>
+        <ul>
+          <li><b>入口 per-tenant 令牌桶</b>(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Token_bucket">Token Bucket</a>):按租户配额限速率,免费档限得紧、付费档放得开——配额本身就是商业分层。</li>
+          <li><b>向量检索队列按租户公平调度</b>:防一家大扫描拖慢所有人。类比存储 QoS:并发份额按租户分配,而不是先到先得——先到先得看着公平,实际是谁流量大谁通吃。</li>
+          <li><b>索引任务(文档导入)和查询流量资源隔离</b>:导入走异步低优先级队列。这正是把备份作业赶去低峰/低优先级、不跟生产查询抢 IO 的老经验——读写分离的流量治理,在 RAG 里就是「导入查询分离」。</li>
+        </ul>
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:行级隔离万一查询忘了加 filter 就泄露了,怎么防?</summary><div class="an">① ORM/中间件层强制自动拼 tenant_id,业务代码无法绕过;② 数据库层用 RLS(行级安全策略)双保险;③ 越权自动化测试进 CI,每次发版必跑。</div></details>
-        <details class="qa"><summary class="qu">Q:租户的索引重建时查询怎么办?</summary><div class="an">双缓冲:新索引建好后原子切换别名,旧索引保留一段只读期;用户无感。</div></details>
-        <details class="qa"><summary class="qu">Q:怎么支持租户自带模型 Key?</summary><div class="an">网关层按租户路由:自带 Key 的走透传模式(计费只收平台费),用平台模型的走统一计费——这是常见商业模式,能聊说明有 SaaS 味儿。</div></details>
+        <details class="qa"><summary class="qu">Q:行级隔离万一查询忘了加 filter 就泄露了,怎么防?</summary><div class="an"><b>人话:</b>不能靠人自觉,要把「带 tenant_id」变成结构上不可能漏掉的事,再加自动化验证兜底。<b>类比:</b>像备份系统的越权防护——不能指望每个工程师都记得带租户标签,而是网关/中间件层强制注入,数据库再加一道闸双保险。<b>技术:</b>① ORM/中间件层强制自动拼 tenant_id——业务代码根本拿不到「未带租户的查询入口」,想写漏过滤的查询都写不出来;② 数据库层开 RLS(行级安全策略)双保险,就算上层被绕过,行级策略照样把别家数据挡住;③ 越权自动化测试进 CI:每次发版用租户 A 的令牌去查租户 B 的数据,断言必须 0 条,跑了才许合并。</div></details>
+        <details class="qa"><summary class="qu">Q:租户的索引重建时查询怎么办?</summary><div class="an"><b>人话:</b>新旧两个索引并行,建好之前查旧的,建好那一瞬间原子切到新的,旧的多留几天当后悔药。<b>类比:</b>就是你熟悉的主备集群滚动升级——新集群数据追平→流量原子切换→旧集群只读观察期→再退役,全程用户无感;也像备份里先建新副本再删旧副本,永远留一份能回退。<b>技术:</b>重建写新索引(新 collection),重建窗口内的增量文档双写或事后补齐;建好后原子切换别名,查询请求通过别名路由,切换只是元数据操作、秒级完成;旧索引保留 N 天只读,出问题一键切回。关键是别让「切换瞬间」存在数据缺口——增量没补齐就切换,等于恢复到了旧版本数据。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么支持租户自带模型 Key?</summary><div class="an"><b>人话:</b>平台分两种模式:自带 Key 的只收平台服务费,用平台模型的按 token 全额计费——这是行业标准商业模式,能主动聊说明你懂 SaaS 的钱从哪来。<b>类比:</b>像机房托管:客户自带服务器只交机柜费和电费,用平台的服务器则按用量整体计费;网关按「这个租户的档案」决定请求往哪走。<b>技术:</b>网关层按租户路由:租户配置存模式标记,自带 Key 走透传(平台不解密、不落日志,计费只记平台费);平台模型走统一 key 池按计量事件出账。Key 用托管密钥服务加密存储。注意自带 Key 模式下计量仍要做——限流和平台费的依据还是那条事件流,只是不收模型差价。</div></details>
+        <details class="qa"><summary class="qu">Q:租户退订、要求按 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/General_Data_Protection_Regulation">GDPR</a> 删掉他的全部数据,怎么删干净?</summary><div class="an"><b>人话:</b>删除要贯穿所有副本,只删主库等于没删;而 RAG 的向量索引和缓存是存储系统没有的两层残骸。<b>类比:</b>这正是备份/容灾的老命题「剩余数据保护」——生产库删了,备份、归档、快照、缓存里还有副本,删除语义必须传播到每一层,否则合规审计一查一个准。<b>技术:</b>① 删除请求做成事件,广播到主库、向量索引、embedding 缓存、对象存储;审计日志按法规保留但脱敏;② 向量库选支持硬删除的方案,不支持的先标记软删、定期重建索引压实;③ 给租户出「删除证明」报表(计量事件流正好是证据链);④ 行级隔离在这里是优点——按 tenant_id 一次扫清,不用在别人数据里挑,这也是当初坚持行级隔离的红利兑现。</div></details>
       </div>
 
       <div class="block term"><span class="badge b-term">术语卡</span>
         <div class="terms-grid">
-          <div class="term-item"><b>多租户</b>:一套系统服务多家客户。</div>
-          <div class="term-item"><b>RLS</b>:数据库行级安全策略。</div>
-          <div class="term-item"><b>ACL</b>:访问控制列表,谁能看这条数据。</div>
-          <div class="term-item"><b>噪音邻居</b>:占用资源影响他人的租户。</div>
-          <div class="term-item"><b>白标</b>:换牌子贴客户自己的 logo。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Multitenancy">多租户</a></b>:一套系统同时服务多家客户,数据和配置按租户逻辑隔离、按租户计费。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://www.postgresql.org/docs/current/ddl-rls.html">RLS</a></b>:数据库行级安全策略,自动按租户条件生效的第二道闸,上层被绕过也挡得住。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Access-control_list">ACL</a></b>:访问控制列表,给文档打"谁能看到我"的标签,检索时逐条过滤。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Noisy_neighbor">噪音邻居</a></b>:一家租户吃光共享资源拖累别人的故障模式,靠配额和公平调度治理。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Token_bucket">令牌桶</a></b>:按固定速率发放"令牌"的限流算法,拿不到令牌的请求被拒,租户配额的地基。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Multiple_buffering">双缓冲</a></b>:新旧两份资源并行、原子切换的换索引手法,用户无感、可回退。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/White-label_product">白标</a></b>:平台换上客户自己的品牌对外售卖,logo、域名、配色全按租户配置。</div>
         </div>
       </div>
 </article>

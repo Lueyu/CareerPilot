@@ -1,41 +1,63 @@
 <article class="q" id="eval-026" data-topic="eval" data-title="Agent能力基准测试及其环境与任务构建方式" data-difficulty="3" data-tags="Agent基准,测试环境" data-company="字节 / 阿里" data-source="P7Q6" data-kw="Agent基准 测试环境 SWE-bench AgentBench WebArena GAIA tau-bench OSWorld 沙箱 执行式评估 任务构建">
 
-  <div class="q-no">评估讨论 · Q6</div>
-  <h3>你了解哪些专门用于评估 Agent 能力的基准测试？这些基准通常如何构建测试环境和任务？</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐⭐</span>
-    <span class="tag">#Agent基准</span><span class="tag">#测试环境</span>
-    <span class="company">字节 / 阿里</span>
-  </div>
+      <div class="q-no">评估讨论 · Q6</div>
+      <h3>你了解哪些专门用于评估 Agent 能力的基准测试？这些基准通常如何构建测试环境和任务？</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐</span>
+        <span class="tag">#Agent基准</span><span class="tag">#测试环境</span>
+        <span class="company">字节 / 阿里</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"我按场景分五类:<b>SWE-bench</b> 测<b>软件工程</b>——从真实 GitHub issue 出题,让 Agent 改代码、跑隐藏单测判对错;<b>AgentBench</b> 测<b>多环境通用性</b>——8 个环境(操作系统、数据库、网页购物、知识图谱等);<b>WebArena</b> 测<b>网页操作</b>——自建真实网站(GitLab/商城/论坛);<b>GAIA</b> 测<b>真实世界助手能力</b>——多步、需用工具、答案可用程序判定;<b>τ²-bench</b> 测<b>工具调用 + 用户对话</b>——用规则化用户模拟器和数据库评估。它们的共性:真实/仿真环境 + 执行式评估 + 防污染。"</p>
-  </div>
+      <div class="note"><b>先说人话:</b>这题在问两件事:给 Agent 做摸底考,世界上有哪些靠谱考场,以及这些考场本身是怎么搭起来的。面试官爱考,因为它一眼分清「背榜单的人」和「搭过评测的人」——报得出基准名只算及格,讲不清环境隔离、执行式评估、防污染这套构建方法论,暴露的就是从没亲手搭过评测。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>这些基准就像给 Agent 办的<b>不同工种的上岗实操考试</b>:SWE-bench 是"程序员改 bug"——给你真实项目的报错单,改完代码跑测试用例验活;AgentBench 是"全能打杂"——一会儿查数据库、一会儿逛淘宝、一会儿玩卡牌;WebArena 是"网页办事员"——在真实网站上发帖、购物、建仓库;GAIA 是"私人助理"——交给你一个真实任务,过程随便你用什么工具,最后只看结果对不对。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"我按『考什么工种』分五类答。<b>SWE-bench</b> 考<b>软件工程</b>:从真实 GitHub issue 出题,Agent 提交 patch,拿隐藏单测定生死;<b>AgentBench</b> 考<b>跨环境通用性</b>:同一个考生不换脑子连闯 8 个环境;<b>WebArena</b> 考<b>网页操作</b>:自托管真实网站,按环境最终状态断言判分;<b>GAIA</b> 考<b>通用助手能力</b>:多步、自由用工具,答案可精确判定;<b>τ²-bench</b> 考<b>工具调用 + 多轮对话</b>:规则化用户模拟器按剧本提需求,数据库终态定对错。共性一句话:<b>真实或高仿环境 + 执行式评估 + 防污染</b>——不看 Agent 说什么,看它干完活之后世界变成了什么样。"</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 代表性 Agent 基准(逐个讲)</b></p>
-    <table>
-      <tr><th>基准</th><th>领域/环境</th><th>任务来源</th><th>判定方式</th></tr>
-      <tr><td><b>SWE-bench</b></td><td>软件工程(真实 Python 仓库)</td><td>真实 GitHub issue</td><td>跑单测(隐藏测试补丁)</td></tr>
-      <tr><td><b>AgentBench</b></td><td>8 环境:OS/数据库/知识图谱/网页购物/ALFWorld 等</td><td>人工构造</td><td>各环境自带成功函数</td></tr>
-      <tr><td><b>WebArena</b></td><td>自建真实网站(GitLab/商城/论坛/CMS)</td><td>人工编写任务</td><td>环境状态断言</td></tr>
-      <tr><td><b>GAIA</b></td><td>真实世界助手(自由用工具)</td><td>人工出题、防检索捷径</td><td>精确答案匹配</td></tr>
-      <tr><td><b>τ²-bench</b></td><td>工具 + 对话(零售/航空/电信等域)</td><td>领域数据库 + 用户模拟器</td><td>pass^k + 数据库状态校验</td></tr>
-    </table>
-    <p><b>2. 各自特点与侧重点</b></p>
-    <ul>
-      <li><b>SWE-bench</b>:任务 = "给 issue 描述 + 仓库快照,生成 patch"。评估 = 用<b>test patch(测试补丁)</b>跑测试,通过即通过。衍生出 SWE-bench Verified(精选 500 条、去污染)是当前软件 Agent 的硬通货。</li>
-      <li><b>AgentBench</b>:强调<b>跨环境通用性</b>,同一个 Agent 不做微调去闯 8 个完全不同的环境(如 ALFWorld 家务、WebShop 购物、OS 命令、数据库 SQL),考的是"通用 Agent 能力"而非单点。</li>
-      <li><b>WebArena</b>:把真实网站(GitLab、电商、论坛、内容管理)自托管,任务从"找帖子"到"购物下单",评估靠<b>环境状态断言</b>(最终页面/数据库是否达到目标),真实感强。</li>
-      <li><b>GAIA</b>:466 个真实助手任务,需要多步 + 组合工具(搜索/计算/阅读文件);人类平均 90%+,而早期 GPT-4 配插件仅 15% 左右;故意<b>限制 API 直连</b>防止模型"作弊",答案做成可精确判定的形式。</li>
-      <li><b>τ²-bench(tau²-bench)</b>:把"Agent + 用户 + 工具 + 领域数据库"打包成一个闭环,用<b>规则化用户模拟器</b>按脚本对话,用 <b>pass^k</b>(k 次对话中至少一次成功)评估,能测"多轮交互 + 工具执行 + 策略遵循"。</li>
-    </ul>
-    <p><b>3. 环境与任务通常怎么构建(方法论)</b></p>
-    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 722 122" role="img" aria-label="Agent基准环境与任务构建流程">
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>总纲:给 Agent 做基准测试,本质是给备份系统做恢复演练</b>。行业里有句老话——<b>没验证过恢复的备份不算备份</b>;同理,<b>没在真实环境里执行过任务的 Agent,榜单高分不算能力</b>。传统 LLM 评测(比如 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/MMLU">MMLU</a> 这类)像笔试:发一张卷子、对标准答案,考的是「说」;Agent 评测像实战演练:把考生扔进一个真环境(操作系统、数据库、网站),让它真敲命令、真下订单,考的是「做」——判卷也不靠考官印象,靠验收脚本查环境的最终状态。</p>
+        <p><b>五个基准就是五个工种的演练场</b>:<b>SWE-bench</b> 是「修复工单」——真实项目报了 bug,交修复方案,验收时既看坏的修好没,又看别的有没有被顺带弄坏;<b>AgentBench</b> 是「轮岗考核」——一个考生连闯 8 个岗位,操作系统、数据库、购物网站挨个值班;<b>WebArena</b> 是「自建仿真业务区」——像容灾里的复制数据中心,在自己机房 1:1 搭一套 GitLab/商城/论坛来办事;<b>GAIA</b> 是「综合应急处置」——不限工具、只看结果,搜索引擎、计算器、文件随便用,交卷只对最终答案;<b>τ²-bench</b> 是「带客户的服务台演习」——对面坐着一个按剧本演、还会临时改主意的模拟客户,后台是真数据库,考的是沟通和动手双在线。</p>
+        <p><b>哪里像</b>:都是「真环境 + 真动作 + 结果验收」;都要可重置——每场考试的环境从同一个镜像克隆、演完即毁,像演练环境用完从模板重建;都要可复现——任务和验收标准像演练剧本一样做版本管理。<b>哪里不像</b>:容灾演练要真机器真数据,又贵又慢,一年跑不了几场;Agent 考场是 Docker/虚拟机秒级克隆,一晚上能并行开几千个考场,判卷全自动——便宜到可以拿 Agent 反复试错,这在容灾世界是不可想象的奢侈。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 为什么 Agent 评测必须换一套打法</b></p>
+        <p>LLM 评测判的是「生成的文本对不对」,Agent 评测判的是「世界的状态对不对」——订单有没有真的下进数据库、bug 有没有被真的修掉、文件有没有被真的创建。判卷对象从「一段话」变成「一堆状态」,整个评测体系就得重搭:要有能被改变状态的环境,要有能查状态的验收器,还要防止考生提前背题。下面按这个逻辑展开。</p>
+        <p><b>2. 代表性基准一览</b></p>
+        <table>
+          <tr><th>基准</th><th>领域/环境</th><th>任务来源</th><th>判定方式</th></tr>
+          <tr><td><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2310.06770">SWE-bench</a></b></td><td>软件工程:12 个真实 Python 仓库,共 2294 题</td><td>真实 GitHub issue</td><td>Docker 沙箱跑隐藏单测(F2P + P2P)</td></tr>
+          <tr><td><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2308.03688">AgentBench</a></b></td><td>8 环境:OS/数据库/知识图谱/网页购物/ALFWorld 家务等</td><td>人工构造 + 环境自带</td><td>各环境自带成功判定函数</td></tr>
+          <tr><td><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2307.13854">WebArena</a></b></td><td>自托管真实网站:GitLab/商城/论坛/CMS,812 个任务</td><td>人工编写任务</td><td>环境状态断言(页面/数据库终态)</td></tr>
+          <tr><td><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2311.12983">GAIA</a></b></td><td>开放世界助手,自由组合外部工具</td><td>人工出题,466 题、三级难度</td><td>答案精确匹配(可程序判定)</td></tr>
+          <tr><td><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2406.12045">τ²-bench</a></b></td><td>工具 + 对话:零售/航空/电信等域</td><td>领域数据库 + 规则化用户模拟器</td><td>pass^k + 数据库终态校验</td></tr>
+        </table>
+        <p><b>3. 逐个拆:每个考场考什么、怎么判卷</b></p>
+        <ul>
+          <li><b>SWE-bench</b>:输入 = 仓库快照 + issue 描述(相当于一张工单),输出 = 一份 patch(代码改动,相当于修复方案)。判卷不问「代码写得像不像」,只问「测试过没过」(流水线见下图)。衍生版 <b>SWE-bench Verified</b> 是人工逐条校验、去掉描述含糊和被污染题目后的 500 条精选,如今是软件 Agent 的硬通货——各家报分基本都报 Verified。</li>
+          <li><b>AgentBench</b>:强调<b>跨环境通用性</b>——同一个 Agent 不做任何微调,连闯 8 个完全不同的环境(ALFWorld 家务、WebShop 购物、OS 命令行、数据库 SQL 等),考的是「通用干活能力」而非单点。像把一套备份软件原封不动部署到 8 种不同负载的集群,看哪些场景掉链子。</li>
+          <li><b>WebArena</b>:把 GitLab、电商、论坛、CMS 四类站点<b>自托管</b>,任务从「找出某帖的最高赞评论」到「下单最便宜的符合条件商品」。判分不靠截图打分,靠查环境最终状态——数据库里那条订单对不对。真实感和可控性兼得,这是它比早期网页基准强的地方。</li>
+          <li><b>GAIA</b>:设计哲学是「对人简单、对 AI 难」——不需要专业知识,但需要多步规划 + 工具组合(搜索、读文件、计算)。结果悬殊:人类平均 92% 左右,早期 GPT-4 配插件只有约 15%。防作弊两手:答案设计成精确可判定,且<b>限制 API 直连</b>——不让你绕过工具直接调服务把答案掏出来。</li>
+          <li><b>τ²-bench(tau²-bench)</b>:把「Agent + 工具 + 领域数据库 + 用户」打包成闭环——用户由<b>规则化模拟器</b>扮演,按剧本对话、会改主意、会追问,「双控」场景里用户侧也有动作权。评估对完话后查数据库终态,并用 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2406.12045">pass^k</a>(k 次独立重跑<b>全部</b>成功才算过)专测稳定性。</li>
+        </ul>
+        <p>同族还可以点名:<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2407.21632">OSWorld</a> 考真机操作系统上的 GUI 操作(让 Agent 像运维一样在桌面里点开文件管理器干活),<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2010.03768">ALFWorld</a> 考文字模拟的家务环境——它们和上表五个共同构成「按环境分类」的版图。</p>
+        <p><b>4. 把 SWE-bench 的判卷摊开看(执行式评估的标本)</b></p>
+        <pre class="code">SWE-bench 判卷流水线(一次判卷 ≈ 一次恢复演练验收):
+
+  考题 = 真实仓库快照 + issue 描述(工单)
+     │
+     ▼
+  Agent 交卷 = 一份 patch(代码改动,相当于修复方案)
+     │
+     ▼  自动应用 patch,起 Docker 沙箱(从 golden image 克隆,秒级)
+     │
+     ├─ F2P 测试:修 bug 之前失败的用例 ──→ 现在必须全过   (恢复成功了吗?)
+     └─ P2P 测试:修 bug 之前通过的用例 ──→ 现在也必须全过 (没弄坏别的吗?)
+     │
+     ▼
+  两项全绿才算通过 —— "修好了"和"没修出新问题"缺一不可</pre>
+        <p><b>5. 环境与任务通常怎么构建(方法论)</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 722 122" role="img" aria-label="Agent基准环境与任务构建流程">
   <rect class="sd-layer" x="6" y="16" width="710" height="90"/>
   <text class="sd-l" x="18" y="33">Agent 基准：环境与任务的通用构建流程</text>
   <rect class="sd-box" x="14" y="44" width="126" height="60" rx="10"/>
@@ -58,28 +80,32 @@
   <text class="sd-t" x="645" y="70" text-anchor="middle">防污染</text>
   <text class="sd-ts" x="645" y="88" text-anchor="middle">私密集 · 定期换新 · 去污</text>
 </svg></div>
-    <ul>
-      <li><b>环境隔离</b>:Docker 沙箱 / 虚拟机隔离,保证 Agent 动作不影响宿主、可快速重置、可并行跑。</li>
-      <li><b>执行式评估优先</b>:能用"结果状态"(测试是否过、数据库是否对、页面是否到位)判定的,绝不用主观打分——这是 Agent 基准和纯文本基准最大的区别。</li>
-      <li><b>真实 vs 仿真权衡</b>:真实(WebArena、SWE-bench)信度高但贵、难维护;仿真(ALFWorld、部分 AgentBench 环境)便宜可控但可能与现实有 gap。</li>
-      <li><b>防污染与可复现</b>:数据集版本化、隐藏测试、限制 API 直连(GAIA),保证分数不被"刷题"污染。</li>
-    </ul>
-  </div>
+        <ul>
+          <li><b>环境隔离</b>:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Docker_(software)">Docker</a> 沙箱/虚拟机隔离,像给演练环境打快照:每场考试从 golden image 克隆、演完即毁,Agent 再能折腾也碰不到宿主。顺带白捡两项工程红利:<b>可并行</b>(一晚几千个考场,和压测集群横向扩容一个道理)、<b>可复现</b>(所有考生见到同一个初始世界)。</li>
+          <li><b>执行式评估优先</b>:能用「结果状态」判定的——测试过没过、数据库终态对不对、页面到没到位——绝不用主观打分;让 LLM 当裁判只是无标准答案场景的兜底。这就是「恢复成没成功看 checksum 和应用校验,不看值班工程师感觉恢复了」的评测版,也是 Agent 基准和纯文本基准最大的分水岭。</li>
+          <li><b>真实 vs 仿真权衡</b>:真实环境(WebArena、SWE-bench)信度高、贴近生产,但搭建贵、维护难、跑一轮成本高;仿真环境(ALFWorld、部分 AgentBench 环境)便宜可控、可无限重置,但和现实有 gap。选型就是「真机容灾演练 vs 仿真推演」的取舍——在预算和结论可信度之间找平衡。</li>
+          <li><b>防污染与可复现</b>:数据集版本化(像备份集的版本管理,每版分数可追溯对比);隐藏测试不下发给被测方;GAIA 还限制 API 直连;私密集和定期换新题兜底。类比:演练剧本保密、验收标准不提前透给被测方——否则演练变表演、考试变背题,分数再高也不代表能力。</li>
+        </ul>
+      </div>
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:SWE-bench 具体怎么判定一个 patch 对不对？</summary><div class="an">每个实例给 Agent 的是<b>代码仓库 + issue 描述</b>,Agent 产出 patch(代码改动)。评估时应用 patch,再运行该 issue 对应的<b>失败测试(F2P)+ 通过测试(P2P)</b>:要"原来失败的测试现在过了,且原来通过的测试没被破坏"。避免只看"通过了新测试"却引入了回归。这比用 LLM 看代码"像不像"可靠得多。</div></details>
-    <details class="qa"><summary class="qu">Q:WebArena 和 GAIA 都是真实任务,区别在哪？</summary><div class="an">核心在<b>环境可控性</b>和<b>自由度</b>:WebArena 把网站<b>自托管</b>,环境状态可控、评估靠状态断言,重"网页交互"这个特定技能;GAIA 不限定环境,让 Agent <b>自由组合外部工具</b>(搜索、读文件、计算),重"多步规划 + 工具组合"的通用助手能力,并用精确答案 + 限制 API 直连来防作弊。一个是"限定考场考网页操作",一个是"开放考场考综合办事"。</div></details>
-    <details class="qa"><summary class="qu">Q:这些公开基准有什么短板,实际工作够用吗？</summary><div class="an">短板:① <b>和业务场景有 gap</b>——测的是通用能力,不一定对应你的真实任务分布;② <b>成本高</b>——Agent 多步执行,大测评一遍很贵;③ <b>污染风险</b>——公开题可能被训进模型;④ 部分环境简化,和真实系统有差异。所以公开基准用于"选型 + 横向对比",落地一定要<b>自建与业务对齐的评测集</b>,公开基准分数不能直接当 KPI。</div></details>
-  </div>
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:SWE-bench 具体怎么判定一个 patch 对不对？</summary><div class="an"><b>人话:</b>判卷不看代码写得像不像,只看测试跑没跑过——原来挂的现在得过,原来过的还不能被改坏。<b>类比:</b>恢复演练验收也是两条线:坏的那份数据要能恢复,其他租户的正常业务不能被你的修复动作弄坏——只验前者,回归问题就漏进生产了。<b>技术:</b>每个实例 = 仓库快照 + issue;Agent 交 patch,在沙箱应用后跑两组单测:F2P(修复前失败 → 须通过)和 P2P(修复前通过 → 须仍通过),全绿才算过。SWE-bench Verified 是人工校验 500 条的去污染子集,报分基本认它。</div></details>
+        <details class="qa"><summary class="qu">Q:WebArena 和 GAIA 都是真实任务,区别在哪？</summary><div class="an"><b>人话:</b>一个是在自家封闭考场考「网页操作」这个单项,一个是开放世界考「综合办事」,环境可控性和自由度正好相反。<b>类比:</b>WebArena 像在自建机房搭一套 1:1 复制的业务系统做封闭演练,环境可控、验收精确;GAIA 像开放场景的应急处置,不限路径,只对最终结果验收。<b>技术:</b>WebArena 自托管 GitLab/电商/论坛/CMS(812 个任务),判分靠环境状态断言;GAIA 466 题、三级难度,允许自由组合工具但限制 API 直连,答案精确匹配。前者考交互技能,后者考多步规划 + 工具组合。</div></details>
+        <details class="qa"><summary class="qu">Q:为什么 τ²-bench 要用 pass^k,让同一道题连跑 k 次？</summary><div class="an"><b>人话:</b>Agent 跑同一道题,这次过、下次挂是常态,所以要看稳定性,不能看发挥最好的那次。<b>类比:</b>容灾演练季度连跑,一次超常发挥不算本事,连续每个季度都达标才敢写进 SLA——pass^k 就是「连跑 k 次全过」的及格线。<b>技术:</b>pass^k 要求 k 次独立重跑全部成功(k 常取 1/4/8),配合数据库终态校验,专治采样运气好。注意它和代码评测常用的 pass@k(至少一次成功)方向相反:pass@k 量能力上限,pass^k 量交付可靠性——Agent 要上岗干活,业务要的是后者。</div></details>
+        <details class="qa"><summary class="qu">Q:这些公开基准有什么短板,实际工作够用吗？</summary><div class="an"><b>人话:</b>公开基准管「选型和横向对比」,不管「你的业务行不行」——它考的是通用能力,不是你的任务分布。<b>类比:</b>行业容灾成熟度评估能给你对标分数,但兑现不了你自己的 RTO 承诺——那得拿自己的系统、自己的变更流量,建自己的演练。<b>技术:</b>短板四条:与业务任务分布有 gap;Agent 多步执行,全量评测成本高;公开题有数据污染风险;部分环境比真实系统简化。落地做法:公开基准做初筛和版本回归跟踪,上线前自建与业务对齐的评测集,分数只和自己历史比,不直接当 KPI。</div></details>
+      </div>
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>SWE-bench</b>:真实 GitHub issue 改代码、跑测试的软件 Agent 基准。</div>
-      <div class="term-item"><b>AgentBench</b>:8 环境、测通用 Agent 能力的基准。</div>
-      <div class="term-item"><b>WebArena</b>:自托管真实网站、测网页操作能力的基准。</div>
-      <div class="term-item"><b>GAIA</b>:真实助手任务、多步规划 + 工具组合的基准。</div>
-      <div class="term-item"><b>τ²-bench</b>:工具 + 用户模拟器 + 数据库的多轮交互基准。</div>
-      <div class="term-item"><b>执行式评估</b>:通过跑代码/状态断言判定对错,而非主观打分。</div>
-    </div>
-  </div>
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2310.06770">SWE-bench</a></b>:用真实 GitHub issue 出题、拿隐藏单测验 patch 的软件 Agent 基准,Verified 是它 500 条人工校验的精选版。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2308.03688">AgentBench</a></b>:8 个环境轮考、测跨环境通用性的 Agent 基准。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2307.13854">WebArena</a></b>:自托管真实网站、靠环境状态断言判分的网页操作基准。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2311.12983">GAIA</a></b>:466 题开放式助手任务,人类 90%+ 而早期 GPT-4 配插件仅约 15%。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2406.12045">τ²-bench</a></b>:工具 + 规则化用户模拟器 + 领域数据库的多轮交互基准,pass^k 看稳定性。</div>
+          <div class="term-item"><b>执行式评估</b>:靠跑代码、查状态判对错,不靠主观打分——「没演练过恢复的备份不算备份」的评测版。</div>
+          <div class="term-item"><b>F2P/P2P</b>:修复前失败/修复前通过的单测组合拳,确保「修好了」且「没修坏别的」。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Sandbox_(computer_security)">沙箱</a></b>:与宿主隔离的一次性考场,从镜像克隆、演完即毁,天然支持并行和复现。</div>
+          <div class="term-item"><b>数据污染</b>:考题泄进训练集,考试变背题——基准靠隐藏测试和定期换题来防。</div>
+        </div>
+      </div>
 </article>
