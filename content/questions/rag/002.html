@@ -7,17 +7,21 @@
         <span class="tag">#RAG</span><span class="tag">#流式输出</span><span class="tag">#系统设计</span>
       </div>
 
+      <div class="note"><b>先说人话:</b>这题让你画一套「答案边生成边往用户屏幕上吐」的系统,而不是后台憋三秒再一次性甩出来。面试官爱考它,是因为一题能验三样:懂不懂感知延迟(TTFT)、会不会选推送协议、踩没踩过长连接的工程坑。答错的典型暴露点是只会一句「用 SSE」,追问断线重连、代理攒包就哑火——一听就是跑过 demo 没上过线。</div>
+
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-        <p>"核心思路是把『等全部生成完再返回』改成『<b>边检索边反馈、边生成边推送</b>』:用 SSE 长连接,检索阶段先推送状态事件(正在查什么、命中哪些文档),生成阶段 LLM 的 token 一到就转发给前端;核心指标是 <b>TTFT(首字时间)</b>,通过检索/生成流水线并行把它压到 500ms 内;同时要处理客户端断连中止生成、断线重连续传这些工程细节。"</p>
+        <p>"核心思路是把『等全部生成完再返回』改成『<b>边检索边反馈、边生成边推送</b>』:协议上用 <a target="_blank" rel="noopener" href="https://developer.mozilla.org/zh-CN/docs/Web/API/Server-sent_events">SSE</a> 建一条服务器到浏览器的单向长连接,事件设计成类型化(状态/引用/增量/完成),检索阶段先推『正在查什么、命中了哪些文档』,生成阶段 LLM 的 token 一到就转发。核心指标是 <b>TTFT(首字时间)</b>,靠流水线并行压进 500ms。剩下全是工程细节:客户端断连要中止生成(别白烧 GPU)、断线重连靠事件序号续传、代理层要关攒包——最后这个是最常见的上线翻车点。"</p>
       </div>
 
       <div class="block ana"><span class="badge b-ana">通俗类比</span>
-        <p>差别就像<b>请客吃饭</b>:非流式是"后厨把十道菜全做完一起上",客人饿等 20 分钟;流式是"<b>凉菜先上,热菜一道道端</b>"——菜的总时长没变,但客人 2 分钟就有东西吃,感知上快了 10 倍。首字时间 TTFT 就是"第一盘凉菜多久上桌"。</p>
+        <p><b>先想清楚「流式」到底改变了什么(用备份作业想)</b>:非流式就像凌晨的备份作业——结束后才给你发一封汇总邮件,中间 40 分钟你不知道它是卡死了还是在正常干活;流式就像备份软件的实时日志:「开始扫描 → 扫描完成 12 万文件 → 正在传输 45% → 完成」。注意:<b>作业的总时长一秒没少,但「不知道它死没死」的焦虑感没了</b>。RAG 的流式输出同理——生成一段答案总归要三五秒,TTFT 压到几百毫秒,用户看到字在往外蹦,就觉得系统「活着」。<b>哪里像</b>:都是把内部阶段事件化、外化给观察者。<b>哪里不像</b>:备份日志只是给人看的,RAG 流出去的增量数据是要在前端拼回完整答案的,所以事件要带序号、要能断点续传,漏了一段答案就缺字——更像带位点管理的复制日志,不是随便打的日志。</p>
+        <p><b>SSE vs WebSocket(用灾备链路想)</b>:SSE 像灾备里的<b>单向异步复制</b>——主库往备库一个方向推,链路简单、中间任何设备都认;<a target="_blank" rel="noopener" href="https://developer.mozilla.org/zh-CN/docs/Web/API/WebSockets_API">WebSocket</a> 像<b>双活的双向同步</b>——两边随时互发,能力更强但链路更娇贵。AI 问答 95% 的流量就是「服务器单方面往浏览器吐字」,跟主库向备库推流一个方向,用全双工是杀鸡用牛刀。关键差别在基础设施:SSE 就是一段普通的 <a target="_blank" rel="noopener" href="https://developer.mozilla.org/zh-CN/docs/Web/HTTP">HTTP</a> 长响应,网关/CDN/代理都把它当「一个特别慢的响应」处理,天然兼容;WebSocket 要经过 Upgrade 握手升级协议,链路上任何一个中间件不认识它就可能被掐断,而且断线重连、心跳都得自己造轮子。</p>
+        <p><b>断线重连续传(用复制位点想)</b>:给每个流出去的事件编序号,客户端断线重连时带上 <a target="_blank" rel="noopener" href="https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events">Last-Event-ID</a> 回来,服务端从暂存区里把缺的事件补发——这就是主从复制断开后按位点(binlog 的 GTID/offset)续传的翻版:位点之前的都收到了,位点之后的从暂存缓冲区里捞。<b>哪里像</b>:都要服务端为每个会话留一小段缓冲、都要客户端记住「我收到最后一条是什么」。<b>哪里不像</b>:复制位点丢了的代价是数据不一致,必须严格;SSE 补不回来的兜底方案可以是「展示半截答案+重新生成按钮」,对一致性的要求松一档。</p>
       </div>
 
       <div class="block det"><span class="badge b-det">详细拆解</span>
         <p><b>1. 为什么要流式(先讲清价值)</b></p>
-        <p>生成一段 500 token 的答案要 3~5 秒。用户盯着白屏 3 秒就会觉得"卡死了";而首字 300ms 出现、后面每秒吐 50 字,<b>总时长没变,但感知延迟从 3 秒降到 0.3 秒</b>。这就是为什么所有主流 AI 产品(ChatGPT、Kimi、豆包)都是流式。</p>
+        <p>生成一段 500 token 的答案要 3~5 秒。用户盯着白屏 3 秒就会觉得"卡死了";而首字 300ms 出现、后面每秒吐 50 字,<b>总时长没变,但感知延迟从 3 秒降到 0.3 秒</b>。这就是为什么所有主流 AI 产品(ChatGPT、Kimi、豆包)都是流式。再补一层系统视角:非流式接口对网关也是灾难——一个占住连接 5 秒不放的慢请求,在同等连接池下能扛的 <a target="_blank" rel="noopener" href="https://baike.baidu.com/item/%E6%AF%8F%E7%A7%92%E6%9F%A5%E8%AF%A2%E7%8E%87/18138502">QPS</a> 天花板更低,超时重试还容易把上游打爆;流式把「慢」变成「持续有产出」,超时判定和用户感知都友好得多——和备份窗口里「进度可见的长作业」比「黑盒假死作业」更不容易被运维一刀砍掉,是同一个道理。</p>
         <p><b>2. 协议选型:SSE 优先</b></p>
         <table>
           <tr><th></th><th>SSE(推荐)</th><th>WebSocket</th></tr>
@@ -27,7 +31,9 @@
           <tr><td><b>断线重连</b></td><td>浏览器原生自动重连 + Last-Event-ID 续传</td><td>要自己实现</td></tr>
           <tr><td><b>适用</b></td><td>AI 回答推送,95% 的场景</td><td>语音全双工、协同编辑</td></tr>
         </table>
+        <p>展开说两句。选型第一问永远是「<b>数据到底往哪个方向流</b>」:AI 问答里用户的输入是发一次就完的普通 POST/GET,持续流动的只有下行 token 流——单向推送恰好落在 SSE 的能力圈里,而 WebSocket 的双向能力在 95% 的场景里闲置,却把它的复杂度(握手升级、心跳、自研重连、中间件兼容性)全部预付了。第二个隐性优势:浏览器对 SSE 是<b>原生内建断线重连 + Last-Event-ID 回传</b>的——这两个最容易写错的工程环节,浏览器替你干了;WebSocket 全要自己写。<b>什么时候才真的上 WebSocket</b>:语音对话(边说边听全双工)、多人协同编辑这类双向都有持续流的场景。</p>
         <p><b>3. 流水线并行(降低 TTFT 的关键)</b></p>
+        <p>先把事件流的样子画出来——一条 SSE 连接上,四类事件按时间先后推下去,前端拿到哪类渲染哪类:</p>
         <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 520 360" role="img" aria-label="流式 RAG 时间轴事件流">
   <text class="sd-l" x="12" y="46">t=0ms</text>
   <rect class="sd-box2" x="110" y="16" width="390" height="56" rx="10"/>
@@ -54,34 +60,47 @@
   <text class="sd-t" x="126" y="312">event:done</text>
   <text class="sd-ts" x="126" y="330">生成完毕 · 完整答案 + 引用 + 会话ID</text>
 </svg></div>
-        <p>细节:① <b>引用来源先推</b>,用户在等首字时已经在读文档标题,焦虑感大幅下降;② 生成和重排可重叠——rerank 完成前就可以让 LLM 基于 top 文档先开写(激进策略,适合超低延迟场景);③ SSE 事件设计成类型化(status/sources/delta/done/error),前端好编排。</p>
+        <p>再单独看「服务端内部怎么把 TTFT 从 900ms 压到 400ms」——诀窍是让原本排队等待的环节互相重叠:</p>
+        <pre class="code">串行版(每步都干等上一步,TTFT = 各步之和 ≈ 900ms):
+  改写 ──→ 向量检索 ──→ Rerank ──→ 拼 Prompt ──→ LLM 首token   总计 ~900ms
+
+流水线版(能重叠的重叠,TTFT ≈ 关键路径 ≈ 400ms):
+  改写 150ms ─┐
+               ├(并行)原query先发首轮向量检索,不等改写完
+  检索 ──→ top10 重排 ─┬─(并行)Prompt 骨架先拼好
+                       └─ 重排一出结果立即填入 → LLM 首token ~400ms
+  激进版:重排未完,先用 top 文档让 LLM 开写(超低延迟场景,牺牲一点相关性)</pre>
+        <p>细节:① <b>引用来源先推</b>,用户在等首字时已经在读文档标题,焦虑感大幅下降——好比恢复任务先给用户看「本次将恢复这 12 个文件」的清单,文件还在拉,但用户知道方向对不对了;② 生成和重排可重叠——rerank 完成前就可以让 LLM 基于 top 文档先开写(激进策略,适合超低延迟场景);③ SSE 事件设计成类型化(status/sources/delta/done/error),前端好编排——每个事件自带类型和序号,前端就是个「按事件类型分发的状态机」,和按消息类型路由的消费者一个写法。</p>
         <p><b>4. 工程细节(拉开差距的地方)</b></p>
         <ul>
-          <li><b>客户端断连必须中止生成</b>:用户关页面了还继续生成就是白烧钱。监听连接断开事件,向上游 LLM 发 cancel。</li>
-          <li><b>背压</b>:客户端网络慢,发送缓冲区堆积时要暂停从 LLM 读取(暂停拉取即可,SSE 场景 rarely 需要)。</li>
-          <li><b>断线重连</b>:事件带序号,客户端带 Last-Event-ID 回来,服务端从 Redis 里补发缺失的事件。</li>
-          <li><b>代理配置</b>:Nginx 要关 buffering(proxy_buffering off),否则 SSE 会被攒着一起发,流式失效——这是最常见的上线翻车点。</li>
+          <li><b>客户端断连必须中止生成</b>:用户关页面了还继续生成就是白烧钱。监听连接断开事件,向上游 LLM 发 cancel。这是纯利润项:按断连率 10% 算,砍掉的就是 10% 的 GPU 账单——跟「备份作业被用户取消后立即停掉、释放磁带和带宽」是同一个资源回收动作,只是这里回收的是最贵的资源。</li>
+          <li><b>背压</b>:客户端网络慢,发送缓冲区堆积时要暂停从 LLM 读取(暂停拉取即可,SSE 场景 rarely 需要)。原理和 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Backpressure">背压</a> 在任何流式系统里一样:下游消费不动,就得向上游反压减速,否则事件在中间缓冲区里越积越多最后 OOM——TCP 滑动窗口收窄、存储 IO 队列满后暂停下发,都是这个模式。好在 SSE 的服务端本身就是「从上游 LLM 拉一点、往下游推一点」的中转,暂停拉取即可天然限流。</li>
+          <li><b>断线重连</b>:事件带序号,客户端带 Last-Event-ID 回来,服务端从 <a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/Redis">Redis</a> 里补发缺失的事件——就是拿 Redis 当每会话一小段「复制缓冲区」:位点之前的已确认,位点之后的还在缓冲里就能补,缓冲也过期了才走兜底。</li>
+          <li><b>代理配置</b>:Nginx 要关 buffering(<a target="_blank" rel="noopener" href="http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering">proxy_buffering off</a>),否则 SSE 会被攒着一起发,流式失效——这是最常见的上线翻车点。可以把 Nginx 想成配送链路上的一级仓:它的默认行为是「收齐整批再转发」,对普通响应是优化,对 token 流是灾难——你在源头发一件发一件,中间仓库攒了三秒的货一次性甩给用户,流式直接报废。除了改 Nginx 配置,服务端也可以在每个响应里塞 <code>X-Accel-Buffering: no</code> 头「自证」,让代理对本条响应单独关攒包,改不了运维配置时的救命招;顺带检查链路上的 gzip,压缩中间件为了凑压缩率也会攒批,效果同坑。</li>
         </ul>
         <p><b>5. 前端展示优化</b></p>
         <ul>
           <li>打字机效果 + 平滑滚动跟随;光标闪烁指示生成中。</li>
-          <li><b>Markdown 渐进渲染</b>:token 流随时渲染,但要注意不完整的代码块/表格(常见做法:边收边渲染,未闭合的块等闭合后再格式化)。</li>
-          <li>生成中途提供"停止"按钮 → 触发 cancel。</li>
+          <li><b>Markdown 渐进渲染</b>:token 流随时渲染,但要注意不完整的代码块/表格(常见做法:边收边渲染,未闭合的块等闭合后再格式化)——本质是「流式解析」问题:日志系统边收边解析会撞上半行日志,处理手法一样:已完整的最小单元立即消费,跨单元的攒到边界再出。</li>
+          <li>生成中途提供"停止"按钮 → 触发 cancel:给用户一个体面的退出键,既是体验也是成本控制。</li>
         </ul>
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:生成到一半断线了怎么办?</summary><div class="an">服务端把已生成内容暂存 Redis(带会话 ID),客户端重连带 Last-Event-ID,补发缺失 delta;若 LLM 调用已断,展示半截答案 + "重新生成"按钮。</div></details>
-        <details class="qa"><summary class="qu">Q:多个用户同时流式,服务器连接数会不会爆?</summary><div class="an">SSE 是长连接,3000 并发就要 3000 连接——用异步框架(FastAPI + asyncio)单机可撑上万连接;更大规模靠网关层水平扩展 + 连接粘性(同一会话路由回同一节点,或状态外置 Redis 解耦)。</div></details>
-        <details class="qa"><summary class="qu">Q:Token 是一个个到吗?网络开销会不会大?</summary><div class="an">LLM 上游本来就是 chunk 到达;服务端可以攒 20~50ms 或若干 token 再 flush,平衡流畅度和包数量。</div></details>
+        <details class="qa"><summary class="qu">Q:生成到一半断线了怎么办?</summary><div class="an"><b>人话:</b>答案是半成品,不能让用户从头等,要能从断的地方接着推。<b>类比:</b>主从复制断链后的续传——位点之前的都收到了,位点之后的从复制缓冲区里补;缓冲区要是也没了,才走兜底。<b>技术:</b>服务端把已生成内容暂存 Redis(带会话 ID),客户端重连带 Last-Event-ID,补发缺失 delta;若 LLM 调用已断、补无可补,展示半截答案 + "重新生成"按钮,别静默吞掉用户已看到的内容。</div></details>
+        <details class="qa"><summary class="qu">Q:多个用户同时流式,服务器连接数会不会爆?</summary><div class="an"><b>人话:</b>会涨,但先算账再慌——长连接的数量级和「每连接一个协程」的内存,比「每连接一个线程」便宜得多。<b>类比:</b>和备份系统里几千个 agent 保持心跳长连接是同一类问题,靠的不是线程池硬扛,是事件循环 + 水平扩展。<b>技术:</b>SSE 是长连接,3000 并发就要 3000 连接——用异步框架(FastAPI + asyncio)单机可撑上万连接;更大规模靠网关层水平扩展 + 连接粘性(同一会话路由回同一节点,或状态外置 Redis 解耦,让任何节点都能续传)。</div></details>
+        <details class="qa"><summary class="qu">Q:Token 是一个个到吗?网络开销会不会大?</summary><div class="an"><b>人话:</b>没必要一个一发,也不该攒太久——小块批、勤 flush。<b>类比:</b>就是日志刷盘的经典权衡:每条日志 fsync 一次太费,攒够 1MB 才刷又会卡延迟;产线标准做法是「攒小批 + 定时强刷」双条件取先到。<b>技术:</b>LLM 上游本来就是 chunk 到达;服务端可以攒 20~50ms 或若干 token 再 flush,平衡流畅度和包数量。注意浏览器端网络 RTT 不归你控制,服务端攒批只是减少自己的发包数,别攒到上百毫秒把流式体验攒没了。</div></details>
+        <details class="qa"><summary class="qu">Q:代码都写对了,上线后流式却失效、答案 5 秒后一次性蹦出来,怎么排查?</summary><div class="an"><b>人话:</b>九成不是你代码的错,是链路上有个「中间人」把你的流攒成了批。<b>类比:</b>源头发一件发一件,链路中间的配送仓为了效率「收齐整批再转发」——对普通响应是优化,对 token 流是灾难。<b>技术:</b>逐层排查代理:① Nginx 加 proxy_buffering off,或响应头带 X-Accel-Buffering: no;② 检查链路上的 gzip/压缩插件,它们为凑压缩率也会攒批;③ 确认响应头是 Content-Type: text/event-stream、走 HTTP/1.1 chunked 传输;④ 拿 curl -N 直连服务端绕过代理,二分定位是源站问题还是中间件问题。</div></details>
       </div>
 
       <div class="block term"><span class="badge b-term">术语卡</span>
         <div class="terms-grid">
-          <div class="term-item"><b>TTFT</b>:Time To First Token,首字时间。</div>
-          <div class="term-item"><b>SSE</b>:Server-Sent Events,HTTP 长连接单向推送。</div>
-          <div class="term-item"><b>背压</b>:下游消费慢时向上游反压减速。</div>
-          <div class="term-item"><b>Nginx buffering</b>:代理攒响应,流式场景必须关闭。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Time_to_first_byte">TTFT</a></b>:Time To First Token,首字时间;流式场景下用户真正感知的延迟,也是本设计要压的头号指标。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://developer.mozilla.org/zh-CN/docs/Web/API/Server-sent_events">SSE</a></b>:Server-Sent Events,基于普通 HTTP 的服务器单向推送长连接,浏览器原生支持自动重连。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events">Last-Event-ID</a></b>:重连时客户端回传的最后事件序号,相当于复制位点,服务端据此补发缺失事件。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Backpressure">背压</a></b>:下游消费不动时向上游反压减速的机制,防止事件在中间缓冲区堆积。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering">proxy_buffering</a></b>:Nginx 攒批转发的默认行为,流式场景必须关闭,否则 SSE 失效。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://developer.mozilla.org/zh-CN/docs/Web/API/WebSockets_API">WebSocket</a></b>:需握手升级的双向长连接协议,适合全双工场景,重连逻辑要自己实现。</div>
         </div>
       </div>
 </article>
