@@ -8,47 +8,139 @@
     <span class="company">字节 / 阿里（高频）</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>LLM 天生只会「一口气把话吐完」，没有步骤、没有回头路，这题问的就是怎么给它装上「先拆解、再选路、错了能退」的规划骨架。面试官爱考，因为规划是 Agent 的脑——答成名词罗列暴露只会背论文，追问一句「你实际用哪个、为什么」，没落过地的立刻现形。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"我按三条主线讲:<b>① 推理路径增强</b>——CoT 让模型逐步推理、Self-Consistency 采样多条投票、ToT 把推理变成树做搜索、GoT 进一步升级成图支持合并汇聚;<b>② 反思修正</b>——Reflexion 让模型自我批评、失败后重试;<b>③ 任务分解执行</b>——Plan-and-Execute 先列步骤再逐步执行、ReWOO 把「计划」和「观察」解耦省 token。选型原则:简单任务 CoT 就够,需要回溯探索的复杂问题才上 ToT/GoT,长流程执行用 Plan-and-Execute。"</p>
+    <p>"这题按三条主线答，别按论文时间线背。<b>① 推理路径增强</b>——CoT 让模型逐步推理打底，Self-Consistency 采样多条路径投票求稳，要探索回溯就上 ToT 把推理变成树做搜索，GoT 进一步升级成图，支持分支合并汇聚；<b>② 反思修正</b>——Reflexion 让模型失败后自我批评，把教训写进记忆带着重试；<b>③ 任务分解执行</b>——Plan-and-Execute 先列步骤清单再逐步执行，ReWOO 把规划和观察解耦、一次出全量计划批量跑，省 token 又好并行。收尾给选型：线性任务 CoT 就够，答案抖就加投票，搜索型难题才配 ToT/GoT，长流程执行用先规划后执行——按任务结构选方法，这句是加分项。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>把规划想成<b>做一道数学大题的不同打法</b>:CoT 是"一步一步写过程"(线性);Self-Consistency 是"同一题做好几遍,哪个答案出现得多选哪个"(投票);ToT 是"每一步先想出好几个分支,哪个有希望走哪条,死路赶紧回头"(像下棋的搜索树);GoT 更进一步,允许"把两条路的结果合并成一条新思路"(图);Reflexion 是"做错了看一眼错在哪、记下来下次不犯"(复盘);Plan-and-Execute 是"先写个解题步骤大纲,再一步步执行"。</p>
+    <p><b>主框架(拿你最熟的运维世界想)</b>:LLM 本体像一台「无状态的一次性函数服务」——张嘴就是完整输出，没有步骤、没有重试、没有回滚。所谓「规划能力」，就是在外面给它包一层编排，让它像老运维干活：先出 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Runbook">runbook</a>，再执行，错了复盘。下面每个方法，都能在你的舒适区里找到亲戚：</p>
+    <table>
+      <tr><th>方法</th><th>运维世界的亲戚</th><th>一句话</th></tr>
+      <tr><td><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2201.11903">CoT</a></td><td>把心算改成写 runbook</td><td>一步一检查点，别一口气算到底</td></tr>
+      <tr><td><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2203.11171">Self-Consistency</a></td><td>三副本 + <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Quorum_(distributed_computing)">多数派</a>投票</td><td>用冗余对抗单路径偶发错误</td></tr>
+      <tr><td><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.10601">ToT</a></td><td>带剪枝的路径探索 + 死路回滚</td><td>多方案并行评估，不行就回头</td></tr>
+      <tr><td><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2308.09687">GoT</a></td><td>Spark/Airflow 那种 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Directed_acyclic_graph">DAG</a></td><td>多路结果汇聚进下游节点</td></tr>
+      <tr><td><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2303.11366">Reflexion</a></td><td><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Postmortem_documentation">故障复盘</a>入库</td><td>失败写教训，重试时带着</td></tr>
+      <tr><td><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.04091">Plan-and-Execute</a></td><td>先评审变更单再逐步执行</td><td>长流程有主线，不迷路</td></tr>
+      <tr><td><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.18323">ReWOO</a></td><td>把逐条交互攒成批处理</td><td>减少往返，天然好并行</td></tr>
+    </table>
+    <p><b>CoT(用「心算改 runbook」想)</b>:把一长串心算改成带检查点的书面步骤。<b>哪里像</b>:都是把长流程拆成显式的中间步骤，每步结果看得见、可检查。<b>哪里不像</b>:runbook 每步有 exit code 可以失败即停，CoT 的中间步骤是自然语言，没有强校验，一步写歪它照样面不改色往下写。</p>
+    <p><b>Self-Consistency(用「三副本 quorum」想)</b>:k 条推理路径就是 k 个「副本」，多数投票就是 quorum。<b>哪里像</b>:都是拿冗余换可靠、投票收敛。<b>哪里不像</b>:存储副本是确定性复制、故障近似独立；这 k 条路径出自同一个模型的采样，撞上系统性盲区会一起错——<b>相关故障，quorum 的前提就不成立了</b>。</p>
+    <p><b>ToT / GoT(用「路径探索 + DAG 编排」想)</b>:ToT 就是迁移前把多条候选路径各自小流量验证、打分、死路回滚，活脱脱带剪枝的搜索；GoT 就是你天天看的任务 DAG,fan-out 并行探索、fan-in 汇聚进下游。<b>哪里像</b>:节点=状态、边=决策、评估=打分、回溯=回滚，机制同构。<b>哪里不像</b>:分布式系统里算子是确定性的、回滚有快照、指标客观;ToT/GoT 的「状态」是自然语言，评估器还是个会抖的 LLM,merge 这步本身可能产出幻觉，没有事务兜底。</p>
+    <p><b>Reflexion(用「postmortem 入库」想)</b>:任务失败查「日志」(执行轨迹)、写复盘、沉淀进记忆，下次带着教训重跑。<b>哪里像</b>:失败驱动学习、经验入库、重试携带，工作流一模一样。<b>哪里不像</b>:你的复盘改进的是 runbook 和告警规则，永久沉淀;Reflexion 不改模型权重，教训只活在上下文/记忆里，像打热补丁而不是升级固件，换个会话可能就忘了。</p>
+    <p><b>Plan-and-Execute / ReWOO(用「变更管理 + 攒批执行」想)</b>:先出完整操作序列、评审、再逐步执行，出岔子重新规划，就是标准变更流程；ReWOO 把「问一句-等结果-再问一句」攒成一次规划 + 批量执行，和你把 N 次同步往返改成 pipeline 是同一个念头。<b>哪里像</b>:计划与执行分离、减少往返、无依赖步骤可并行。<b>哪里不像</b>:变更单的步骤是确定性命令，P&amp;E 每步是 LLM 现生成的动作，环境一变计划可能整体作废；ReWOO 省了往返，也牺牲了「边看边调」的适应性。</p>
+    <p>做题的直觉版也留一份:CoT 是写解题过程，SC 是同一题算三遍投票，ToT 是草稿纸上留分支、死路划掉回头，GoT 是把两页草稿合并成一页。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
     <p><b>1. 为什么需要规划</b></p>
     <ul>
-      <li>复杂任务(多步推理、多工具协作、长流程)无法一步到位,LLM 一次性生成容易遗漏、跑偏、幻觉。</li>
-      <li>规划 = 把任务<b>分解</b> + 选择<b>执行路径</b> + 依据<b>反馈调整</b>。</li>
+      <li>先看 LLM 的出厂形态：它是「<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Autoregressive_model">自回归</a>逐 token 生成」的一次性函数——从第一个字吐到最后一个字，像一条<b>没有 checkpoint 的长事务</b>:中途任何一步跑偏都会无声传导到结尾，没有中间落盘点、没有回滚点。复杂任务(多步推理、多工具协作、长流程)无法一步到位，LLM 一次性生成容易遗漏、跑偏、幻觉。</li>
+      <li>它还像一台<b>无状态服务</b>:所谓「记忆」全在请求体(上下文窗口)里，请求结束什么都不留——单次请求内的 KV Cache 只是会话级加速，跨请求想要状态得靠外挂记忆。所以要像给无状态服务配编排层一样，给 LLM 配一层规划。</li>
+      <li>规划 = 把任务<b>分解</b> + 选择<b>执行路径</b> + 依据<b>反馈调整</b>。这三个动词正好框住下面全部方法：路径增强类管「选路」(CoT/SC/ToT/GoT),任务分解类管「拆」(Plan-and-Execute/ReWOO),反思类管「调整」(Reflexion)。</li>
     </ul>
-    <p><b>2. CoT 与 Self-Consistency</b></p>
+    <p><b>2. CoT 与 Self-Consistency:线性推理的两次升级</b></p>
     <ul>
-      <li><b>CoT(Chain-of-Thought)</b>:在 prompt 里给 few-shot 的"逐步推理"示例,或直接说 "Let's think step by step",把中间推理显式化(零样本版来自 Kojima 等)。</li>
-      <li><b>Self-Consistency</b>:同一问题采样 k 条推理路径,对最终答案多数投票。用"多路径"对抗单条路径的偶然错误,代价是调用次数 ×k。</li>
+      <li><b>CoT(Chain-of-Thought)</b>:在 prompt 里给 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Prompt_engineering">few-shot</a> 的「逐步推理」示例，或零样本直接说 "Let's think step by step",把中间推理显式化(零样本版来自 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2205.11916">Kojima 等</a>;few-shot 版来自 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2201.11903">Wei 等</a>)。机制：把「一步出答案」拆成「多步出答案」，每个中间 token 都是白送的额外计算空间。工程直觉：这就是把黑盒脚本改成<b>带日志输出</b>的版本——推理从模型内部一闪而过，变成你能看见、能检查的文本。免费午餐：不改模型、不训练，只改问法。</li>
+      <li><b>Self-Consistency</b>:同一问题带温度采样 k 条推理路径，对最终答案多数投票。用「多路径」对抗单条路径的偶然错误，代价是调用次数 ×k——串行做延迟直接翻 k 倍、P99 会难看，工程上通常并行采样摊回来。前提记住：投票治「偶发错」，治不了「系统性错」，模型集体盲区时 k 条一起栽。</li>
+      <li>两者的结构区别，一张图记牢：</li>
     </ul>
-    <p><b>3. ToT(树状思维)</b></p>
+    <pre class="code">CoT(单链, 一口气推到底):
+  问题 ──▶ 想一步 ──▶ 再想一步 ──▶ 再想一步 ──▶ 答案
+              └─ 中途写歪? 没有回滚点, 错误一路传导到底
+
+Self-Consistency(多链 + 多数投票):
+                问题
+                 │  同一道题, 带温度采样 k 次
+     ┌───────────┼───────────┐
+     ▼           ▼           ▼
+   路径1        路径2        路径3
+  想…想…想    想…想…想    想…想…想
+     │           │           │
+    42          42          17
+     └───────────┴─────┬─────┘
+                       ▼
+                多数投票 → 42 ✅
+             (17 那条的偶发错误被多数派淹没)</pre>
     <ul>
-      <li>把推理建模成<b>树</b>:每个节点 = 一个"思考状态",从当前状态生成 k 个候选下一步;用一个评估器(LLM 打分/启发式)给节点打分;用 BFS/DFS 搜索 + 剪枝,沿高分分支深入、回溯低分分支。</li>
-      <li>适合:需要探索多方案、可回溯的任务(24 点游戏、创意写作、解谜)。</li>
-      <li>代价:调用次数随深度指数级增长,贵且慢。</li>
+      <li>适用边界：投票要求答案可比较——数学题、选择题这类有离散答案的可以；开放式生成(写文案)没有可投票的对象，得换「LLM 当裁判打分」。别把 SC 硬套到写周报的活上。</li>
     </ul>
-    <p><b>4. GoT(图状思维)</b></p>
+    <p><b>3. ToT(树状思维):把推理变成搜索问题</b></p>
     <ul>
-      <li>把树进一步泛化成<b>图</b>:多个想法可以<b>汇聚(combine/merge)</b>成一个新想法,支持聚合、循环、引用。</li>
-      <li>比 ToT 更灵活,适合需要"综合多个线索"的推理;但编排复杂度更高。</li>
+      <li>把推理建模成<b>树</b>:每个节点 = 一个「思考状态」(到目前为止的推理进展);每一轮做三件事——① 用 LLM 从当前状态生成 k 个候选下一步；② 用一个评估器(LLM 打分/启发式)给节点打分；③ 用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Breadth-first_search">BFS</a>/<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Depth-first_search">DFS</a> 搜索 + 剪枝，沿高分分支深入、回溯低分分支，一般只保留 top-k 条活分支。浅而宽的任务(如 24 点)用 BFS,深而窄的任务(如长文写作)用 DFS。</li>
+      <li>这就是你熟悉的「探索 + 回滚」：多条恢复路径各先小规模验证(打分)，可行的才全量执行(深入)，失败的回滚(回溯)。区别：你的回滚有快照、评估有硬指标;ToT 的状态是自然语言，评估器本身是个会抖的 LLM——「打分」这步的噪声直接决定搜索质量。</li>
+      <li>适合：需要探索多方案、可回溯的任务(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/24_(puzzle)">24 点游戏</a>、创意写作、解谜)。<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.10601">ToT 论文</a>的名场面：24 点游戏上 GPT-4 用 CoT 成功率只有 4%,ToT 拉到 74%。</li>
+      <li>代价：调用次数随深度指数级增长(深度 d、每层宽度 b,最坏约 O(b^d)),贵且慢——它只配用在「单路径成功率低、且任务值这个钱」的地方。</li>
     </ul>
-    <p><b>5. 反思修正类</b></p>
+    <pre class="code">                    [问题]
+                      │  ① 从当前状态生成 k 个候选思路
+      ┌───────────────┼───────────────┐
+      ▼               ▼               ▼
+ [思路A 9分]      [思路B 3分]      [思路C 7分]
+      │               ✗ ② 分数低, 剪枝     │
+      │                            ┌────┴────┐
+      │                            ▼         ▼
+      │                        [C1 6分]   [C2 9分]
+      │                            ✗ 剪枝      │
+      │                                ┌─────┴─────┐
+      │                                ▼           ▼
+      │                            [C2a 9分]   [C2b 4分]
+      │                                │           ✗
+      │                                ▼
+      │                              [答案 ✓]
+      ▼
+ (A 支继续深挖; 若走死, ③ 回溯到还活着的分叉换路)</pre>
+    <p><b>4. GoT(图状思维):允许把两页草稿合并</b></p>
     <ul>
-      <li><b>Reflexion</b>:执行失败 → 模型生成"语言化反思"(我哪里错了、为什么)→ 存进记忆 → 带反思重试,类似"口头强化学习"。</li>
-      <li>配套还有 Self-Refine(自我纠错)、CRITIC(用外部工具校验)等。</li>
+      <li>把树进一步泛化成<b>图</b>:多个想法可以<b>汇聚(combine/merge)</b>成一个新想法，支持聚合、循环、引用。树里信息只能从父到子单向流；图里 A 分支和 B 分支的结果可以一起喂给一个新节点，产出「1+1 大于 2」的综合结论，还能对某个节点做 refine(自我改进)再往下走，甚至循环迭代。</li>
+      <li>结构上就是你天天打交道的任务 DAG:fan-out 并行探索、fan-in 汇聚进下游。哪里不一样:DAG 调度器里的算子是确定性函数，reduce 一万次结果都一致；GoT 的 merge 是让 LLM 读几段推理融合出新结论，这一步本身可能引入幻觉，没有事务兜底。论文用归并式排序、多文档合并这类任务演示 merge 的威力。</li>
+      <li>比 ToT 更灵活，适合需要「综合多个线索」的推理；但编排复杂度更高——树只要记父亲，图要维护任意拓扑和消息传递，排错也更费劲。</li>
     </ul>
-    <p><b>6. 任务分解执行类</b></p>
+    <pre class="code">[子问题1] ─推理─▶ [结论A] ──┐
+                            ├── merge ──▶ [融合 A+B 的新结论] ──┐
+[子问题2] ─推理─▶ [结论B] ──┘                                 │
+                                                              ▼
+[子问题3] ─推理─▶ [结论C] ── refine 自我改进 ──▶ [结论C+] ──▶ [最终答案]
+     ▲                                                        │
+     └────────── loop: 结果不满意, 再迭代一轮 ◀────────────────┘</pre>
+    <p><b>5. 反思修正类：给失败装一个学习回路</b></p>
     <ul>
-      <li><b>Plan-and-Execute</b>:先让模型输出一份"计划步骤列表",再逐步执行,执行中可 Replan。好处:长任务不丢目标、上下文更聚焦。</li>
-      <li><b>ReWOO</b>:把"规划"与"观察"解耦——先一次性生成完整计划(含工具调用占位),再批量执行、最后汇总,减少与环境反复交互的轮次,省 token、更可并行。</li>
+      <li><b>Reflexion</b>:执行失败 → 模型生成「语言化反思」(我哪里错了、为什么)→ 存进记忆(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Episodic_memory">episodic memory</a>)→ 带反思重试，类似「口头强化学习」——不更新权重，把教训当文本存着，下一轮拼进上下文。工作流和你写 postmortem 一模一样：任务挂了查日志(执行轨迹)、写复盘入库、下次 runbook 多一条 guard 再重跑。</li>
+      <li>像与不像：复盘改进的是文档和告警规则，永久沉淀在知识库;Reflexion 的反思通常活在会话/记忆里，上下文一翻篇可能就丢——是热补丁，不是固件升级。真要固化，得走 SFT/RL 去改参数。</li>
+      <li>配套还有 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2303.17651">Self-Refine</a>(自我纠错：生成→自评→改写循环)、<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.11738">CRITIC</a>(用外部工具校验：让代码执行器、搜索器当裁判，不只听模型自己给自己打分)等。</li>
     </ul>
-    <p><b>7. 方法对比</b></p>
+    <pre class="code">     ┌─────────▶ [执行任务] ──▶ 评估 ──通过──▶ 输出结果, 收工
+     │                │
+     │             不通过(失败 / 不达标)
+     │                ▼
+     │    [生成语言化反思: 哪一步错了? 为什么?]
+     │                │
+     │                ▼
+     │    [反思写入记忆, 下一轮拼进上下文]
+     │                │
+     └── 带着教训重试 ◀┘</pre>
+    <p><b>6. 任务分解执行类：Agent 真正干活的两件套</b></p>
+    <ul>
+      <li><b>Plan-and-Execute</b>(思想同 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.04091">Plan-and-Solve</a>,LangChain 有现成实现):先让 Planner 输出一份「计划步骤列表」，再由 Executor 逐步执行，执行中可 Replan——某步结果和预期不符，把新观察喂回 Planner 重出计划。好处：长任务不丢目标(计划钉在上下文里，像 runbook 钉在工单上)、上下文更聚焦(每步只喂当前步需要的，而不是把混乱的完整历史全塞给模型)。</li>
+      <li><b>ReWOO</b>:把「规划」与「观察」解耦——先一次性生成完整计划(含工具调用占位)，再批量执行、最后由 Solver 汇总，减少与环境反复交互的轮次。省在哪：<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a> 式交互里每步都要把「计划 + 全部历史观察」重发一遍，观察越长越贵；ReWOO 规划只做一次、观察不回灌，论文报告 token 效率约为 ReAct 的 5 倍、精度还略有提升。且无依赖步骤天然可并行——这本身就是个 DAG 调度问题。</li>
+      <li>取舍：ReWOO 快且省，但计划先于观察生成，环境一变计划里的假设可能过时(像提前生成的执行计划撞上统计信息变化)，适应性不如边看边走的 ReAct。</li>
+    </ul>
+    <pre class="code">Plan-and-Execute(先规划, 边执行边修正):
+  [Planner] ──▶ 计划: ①查库存 → ②查单价 → ③算总价 → ④写报告
+      ▲                                           │
+      │           逐步执行, 每步产生观察反馈         │
+      └── Replan: 第②步结果异常, 重出计划再继续 ◀─────┘
+
+ReWOO(一次规划, 批量执行):
+  第1步  一次性生成全量计划(带占位符):
+           E1 = 查库存(物料X)
+           E2 = 查单价(物料X)
+           E3 = 总价 = #E1 × #E2        ← "#E1"是占位符, 执行后回填
+  第2步  批量执行: E1、E2 无依赖可并行, 再算 E3
+  第3步  [Solver] 汇总全部结果 ──▶ 答案</pre>
+    <p><b>7. 方法对比与选型</b></p>
     <table>
       <tr><th>方法</th><th>结构</th><th>核心机制</th><th>代价 / 适用</th></tr>
       <tr><td>CoT</td><td>线性链</td><td>逐步推理</td><td>便宜,通用</td></tr>
@@ -57,23 +149,53 @@
       <tr><td>GoT</td><td>图</td><td>分支 + 汇聚 + 循环</td><td>更灵活,编排复杂</td></tr>
       <tr><td>Reflexion</td><td>循环 + 记忆</td><td>失败反思重试</td><td>迭代提升,需评估器</td></tr>
       <tr><td>Plan-and-Execute</td><td>计划 + 步骤</td><td>先规划后执行</td><td>长流程,可重规划</td></tr>
+      <tr><td>ReWOO</td><td>计划 + 占位批量执行</td><td>规划与观察解耦</td><td>省 token、可并行,计划易过时</td></tr>
     </table>
+    <ul>
+      <li>调用成本心里要有把尺:CoT 1 次 → Self-Consistency k 次 → Plan-and-Execute 约等于步骤数 → ToT/GoT 指数级再加编排开销。</li>
+      <li>选型不背名词，按任务结构走决策路径：</li>
+    </ul>
+    <pre class="code">拿到任务, 按顺序问自己:
+
+ ① 线性推理能搞定吗? ──── 能 ───▶ CoT(1 次调用, 先跑基线)
+        │ 不能, 或答案不稳
+        ▼
+ ② 同题多跑几次答案抖吗? ── 抖 ──▶ 加 Self-Consistency(k 次采样换稳定)
+        │ 需要探索多方案, 可能走死要回头
+        ▼
+ ③ 是搜索型难题吗? ─────── 是 ───▶ ToT(要回溯) / GoT(还要多路汇聚)
+        │ 是长流程、多工具的执行任务
+        ▼
+ ④ 要按步骤执行吗? ─────── 是 ───▶ Plan-and-Execute(要边看边调)
+                                     / ReWOO(要省 token、好并行)
+        │ 失败率高, 要自我修正
+        ▼
+ ⑤ 会反复失败吗? ──────── 会 ───▶ 叠加 Reflexion(复盘入库, 带教训重试)</pre>
+    <ul>
+      <li>落地提醒：新方法别一把梭全量，先灰度发布小流量，盯任务成功率和 token 成本两条曲线，再决定放量还是回退——和你上任何编排改动是同一套纪律。</li>
+    </ul>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:CoT 为什么有效?有共识的解释吗?</summary><div class="an">学界还没有完全统一的理论,较主流的解释是:① 中间推理步骤给模型"更多计算空间"(把一步出答案拆成多步,逐 token 自回归过程中错误更易被修正);② 训练语料里含大量带步骤的解题/推导文本,CoT 更贴合这种分布;③ 对多跳推理问题,显式中间结论减少信息丢失。诚实的说法是"经验上有效 + 机制仍在研究",别硬编一个错误理论。</div></details>
-    <details class="qa"><summary class="qu">Q:ToT 调用成本这么高,什么时候才值得用?</summary><div class="an">当任务「有明确的中间状态和可评估的候选方案」,且「单条路径容易卡死、需要回溯」时才值得,比如解谜、数学搜索、创意/规划类。日常问答、摘要、翻译这些线性任务用 ToT 纯属浪费——讲出"按任务结构选方法"的判断力比背方法名更重要。</div></details>
-    <details class="qa"><summary class="qu">Q:规划能力靠 prompt 就够了,还是需要微调?</summary><div class="an">短平快用 prompt(CoT/ToT/ReAct)零成本、可迭代;但当模型(尤其小模型)规划格式不稳定、工具选择错率高、需要高并发低延迟时,要用规划/FC 数据做 SFT,把"规划+工具调用"内化成能力。两者不互斥,通常先 prompt 验证可行性,再蒸馏微调降本。</div></details>
+    <details class="qa"><summary class="qu">Q:CoT 为什么有效？有共识的解释吗？</summary><div class="an"><b>人话:</b>学界没有定论，但有三条主流解释撑住场面：多出计算空间、贴合训练分布、显式中间结论防丢失。<b>类比:</b>像把一条没有 checkpoint 的长事务拆成多个带落盘的小事务——每步有中间结果可依赖，错误暴露在更小的粒度上，不至于无声传导到结尾。<b>技术:</b>① 自回归生成下，中间 token 相当于额外计算步骤，把「一步出答案」的急转弯拉平；② 预训练语料里海量带推导过程的文本，CoT 让模型回到熟悉的分布；③ 多跳问题中显式写下中间结论，减少远距离信息被注意力稀释。诚实的说法是「经验上有效 + 机制仍在研究」，别硬编一个错误理论。</div></details>
+    <details class="qa"><summary class="qu">Q:ToT 调用成本这么高，什么时候才值得用？</summary><div class="an"><b>人话:</b>任务「有明确中间状态、候选可评估、单路径容易卡死需要回头」才值得，比如解谜、数学搜索、创意规划；日常问答、摘要、翻译这种线性活，ToT 纯属高射炮打蚊子。<b>类比:</b>像跨机房大迁移才值得先小流量灰度验证多条路径再全量执行；日常备份任务一条脚本跑完就完了，没人给每个 job 搞全量演练。<b>技术:</b>看成本量级:CoT 1 次、SC k 次、ToT 随深度指数级。判断式是「单路径成功率低到值得搜索」：论文里 24 点游戏 GPT-4 用 CoT 成功率 4%,ToT 到 74%——这种量级的差距才配得上指数成本，讲出这个权衡比背方法名重要。</div></details>
+    <details class="qa"><summary class="qu">Q:规划能力靠 prompt 就够了，还是需要微调？</summary><div class="an"><b>人话:</b>先 prompt 后微调：prompt 验证可行性，微调把验证过的东西内化成稳定能力，两条腿走路。<b>类比:</b>先用脚本加现成工具拼一版自动化，跑稳了再固化成产品代码——prompt 是运维脚本，灵活但每次现拼；SFT 是固化成服务，稳定、便宜、扛并发。<b>技术:</b>① 短平快场景 CoT/ToT/ReAct 纯 prompt 即可，零训练成本、快速迭代；② 当小模型规划格式不稳、工具选择错率高、QPS 上来成本扛不住时，用规划轨迹和 FC 数据做 SFT;③ 常见路线是强模型生成轨迹蒸馏给小模型上线，两头的好处都要。</div></details>
+    <details class="qa"><summary class="qu">Q:Self-Consistency 投票是不是就像多副本，一定能纠错吗？</summary><div class="an"><b>人话:</b>能纠「偶然错」，纠不了「系统性错」——投票的前提是错误彼此独立。<b>类比:</b>quorum 假设副本故障独立，但三副本同批盘、同一个固件 bug 会一起挂；k 条路径来自同一个模型、同一套偏见，撞上知识盲区就集体翻车——相关故障，多数派救不了。<b>技术:</b>SC 依赖 temperature 大于 0 让路径有差异，只在「路径错误近似独立 + 答案可比较」时有效；开放式生成没有可投票的离散答案，要换 LLM-as-judge 打分；还要防「自信地错」的多数派，k 加大收益边际递减。</div></details>
+    <details class="qa"><summary class="qu">Q:ReAct 算不算规划？它和 Plan-and-Execute 什么区别？</summary><div class="an"><b>人话:</b>ReAct 是「走一步看一步」，Plan-and-Execute 是「先画路线图再上路」，一个响应式，一个先规划式。<b>类比:</b>ReAct 像交互式排障，敲一条命令看输出再敲下一条；P&amp;E 像先写完整 runbook 再批量执行——前者灵活但容易走着走着忘了目标，后者有主线但环境突变时计划容易过时。<b>技术:</b>ReAct 每轮 Thought→Action→Observation,观察实时进上下文，适应性强、轮次多、token 贵;P&amp;E 由 Planner 一次出步骤列表，Executor 逐步执行，必要时 Replan。工程上按任务长度选：短交互 ReAct,长流程 P&amp;E/ReWOO。</div></details>
+    <details class="qa"><summary class="qu">Q:这些方法在一个真实 Agent 里怎么组合使用？</summary><div class="an"><b>人话:</b>不是五选一，是分层叠加：骨架用 Plan-and-Execute,单步用 ReAct 调工具，关键判断用 SC 投票，失败叠 Reflexion,全程写记忆。<b>类比:</b>备份体系从来不是单一技术，是调度器 + 分层存储 + 重试策略 + 复盘机制的组合拳；规划方法同理，按职责组合，各管一段。<b>技术:</b>典型链路:Planner 出步骤列表 → Executor 逐步 ReAct 执行 → 难点子任务上 ToT/SC → 失败触发反思重试 → 结果与反思沉淀进记忆供下次检索。上线先灰度发布小流量，盯成功率与 token 成本两条曲线再放量。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>CoT</b>:Chain-of-Thought,逐步推理提示。</div>
-      <div class="term-item"><b>Self-Consistency</b>:采样多条推理路径并投票。</div>
-      <div class="term-item"><b>ToT</b>:Tree of Thoughts,树状搜索推理。</div>
-      <div class="term-item"><b>GoT</b>:Graph of Thoughts,图结构推理(支持汇聚)。</div>
-      <div class="term-item"><b>Reflexion</b>:语言化反思 + 重试的自我改进。</div>
-      <div class="term-item"><b>Plan-and-Execute</b>:先规划步骤再逐步执行。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2201.11903">CoT</a></b>:Chain-of-Thought,让模型把中间推理一步步写出来再给答案的提示方法。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2203.11171">Self-Consistency</a></b>:同一问题采样多条推理路径、对最终答案做多数投票的稳定化技巧。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.10601">ToT</a></b>:Tree of Thoughts,把推理组织成树，靠「生成候选 + 评估打分 + 剪枝回溯」做搜索。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2308.09687">GoT</a></b>:Graph of Thoughts,把树泛化成图，支持多路想法的汇聚、精炼与循环。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2303.11366">Reflexion</a></b>:失败后生成语言化反思存入记忆、带着教训重试的自我改进框架。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.04091">Plan-and-Execute</a></b>:Planner 先出步骤清单、Executor 逐步执行、必要时 Replan 的执行范式。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.18323">ReWOO</a></b>:Reasoning WithOut Observation,把规划与观察解耦、一次生成全量计划批量执行，主打省 token。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Breadth-first_search">BFS / DFS</a></b>:广度/深度优先搜索，ToT 做树搜索的两把基本工具。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Directed_acyclic_graph">DAG</a></b>:有向无环图，GoT 的结构基础，也是你熟悉的任务编排拓扑。</div>
     </div>
   </div>
 </article>

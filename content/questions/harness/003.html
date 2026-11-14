@@ -7,15 +7,35 @@
         <span class="tag">#并发控制</span><span class="tag">#Agent</span><span class="tag">#分布式</span>
       </div>
 
+      <div class="note"><b>先说人话:</b>用户问一句话,Agent 可能在后台扇出十几次 LLM 和工具调用——并发失控时,先倒下的往往不是你的服务,而是被你打挂的下游。这题问的就是一套「四层闸门」怎么设计。面试官爱考它,因为它专测有没有真扛过流量:只会背信号量 API 的人,一追问「并发数怎么定」「多实例怎么办」就露馅。</div>
+
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-        <p>"分层控制,每层管一类资源:入口<b>令牌桶限流</b>(保住系统不被打穿)→ <b>队列缓冲削峰</b>(超量请求排队而非拒绝)→ Worker <b>信号量限并发</b>(同时跑的 LLM/工具调用数)→ 下游按配额保护(向量库、LLM 网关、业务 API 各自设限额)。Agent 特有的坑:<b>一个用户请求扇出十几个工具调用</b>,放大效应必须在设计时就按'扇出系数'算容量;死锁靠无状态设计+超时释放根除,分布式并发用 Redis 原子操作实现信号量。"</p>
+        <p>"分四层设闸门,每层只管一类资源。入口用<b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Token_bucket">令牌桶</a>限流</b>保住系统不被打穿,超量请求进<b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Queue_(abstract_data_type)">有界队列</a>削峰</b>,队满就快速失败。Worker 层用<b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/信号量">信号量</a></b>卡住同时在途的 LLM/工具调用数,下游(向量库、LLM 网关、业务 API)再各自设配额保护。Agent 特有的坑是<b>扇出放大</b>:一个用户请求能扇出十几个下游调用,容量必须按「请求量×扇出系数」提前算,否则先压垮的往往是下游而不是自己。<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/死锁">死锁</a>靠无状态设计+统一加锁顺序+超时释放根除。多实例部署时单机信号量会失效,必须搬到 <a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/Redis">Redis</a> 上用原子操作实现分布式信号量。"</p>
       </div>
 
       <div class="block ana"><span class="badge b-ana">通俗类比</span>
-        <p><b>景区管理</b>:门口限售每小时 1000 张票(令牌桶限流);排队区让游客等而不是轰走(队列缓冲);每个导游最多带 30 人(信号量);溶洞一次只放 20 人进去(下游容量保护);黄金周人太多时提前发"请错峰"(背压提示上游);绝不能让 A 团等 B 团、B 团等 A 团(死锁)——景区管理靠"所有团队都朝一个方向走"(无状态、单向依赖)根除死锁。</p>
+        <p><b>整套方案(用你天天打交道的备份调度系统想)</b>:备份软件从来不会让几千个客户端直接怼到介质服务器上——任务提交有速率闸门,中间有调度队列,介质服务器有并发作业上限,存储后端有自己的 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/IOPS">IOPS</a>/吞吐配额。Agent 并发控制就是同一张「四层闸门」图:把「备份作业」换成「LLM/工具调用」,把「介质服务器」换成「LLM 网关」,骨架一模一样。</p>
+        <p><b>令牌桶限流(想成客户端 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Quality_of_service">QoS</a> 限速)</b>:令牌以固定速率掉进桶里,请求拿到令牌才放行,桶里攒下的令牌允许短时突发通过。<b>哪里像</b>:和客户端限速一样,核心都是「上游再猛,进门的速率我说了算」。<b>哪里不像</b>:客户端限速限的是字节/秒,令牌桶限的是请求个数/秒;LLM 网关还多一个 TPM(每分钟 token 数)维度——同一个请求,长上下文和短上下文的「重量」能差几十倍,字节限速从来没有「同样一兆字节、成本天差地别」的烦恼。</p>
+        <p><b>有界队列(想成调度队列,但有一个致命区别)</b>:排队是缓冲,不是无限停车场,队列深度设上限,满了就拒。<b>哪里像</b>:都是「来不及处理先排队,别把上游直接轰走」。<b>哪里不像</b>:备份是离线批处理,任务排一晚上没人在乎;Agent 是在线交互,用户盯着屏幕等——让他排 10 分钟队再收答案,等于白给。所以 Agent 的队列必须有界,满了立刻 <a target="_blank" rel="noopener" href="https://developer.mozilla.org/zh-CN/docs/Web/HTTP/Status/429">429</a> 让客户端稍后再来。这是从备份转 Agent 最容易带错的直觉:离线系统的队列越深越「安全」,在线系统的队列越深越危险。</p>
+        <p><b>信号量(想成介质服务器的并发作业上限)</b>:它就是个计数器——进去一个减一,出来一个加一,减到零,后来的在门口等。<b>哪里像</b>:和「介质服务器同时最多跑 20 个备份作业」完全同构,第 21 个排队,有人跑完放一个进来。<b>哪里不像</b>:LLM 调用是长时延纯网络 IO,等着的<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/协程">协程</a>挂起即可、几乎不耗资源,单实例开几十上百并发很轻;备份作业是 CPU+IO 双料负载,并发要精打细算。也正因为一次调用动辄几秒到几十秒,长尾请求会长时间「占坑」,定并发数时必须把它算进去。</p>
+        <p><b>扇出系数(想成一条策略保护 500 台虚拟机)</b>:备份世界里,一个策略触发瞬间放大成 500 个客户端子任务,调度器容量从来按「策略数×每策略机器数」算;Agent 一个请求扇出 N 次工具/检索调用,是同一种放大。<b>哪里像</b>:都是「上游一个动作,下游 N 倍压力」,容量公式里都必须乘上这个系数。<b>哪里不像</b>:备份的扇出数写在配置里、事先已知;Agent 的扇出由模型运行时临时决定,只能按历史峰值估、靠下游配额兜底。</p>
+        <p><b>背压(想成存储池写满时暂停上游作业)</b>:「下游忙」这个信号一级级往上传,让每一层自己减速。<b>哪里像</b>:存储后端饱和→介质服务器降并发→调度器少派任务→客户端限速,和 Agent 的「信号量等待变长→队列堆积→入口收紧→提示用户稍后再试」是同一根传导链,方向都是自下游向上游。<b>哪里不像</b>:备份的背压可以慢到「下个窗口再跑」;交互式 Agent 的背压必须在秒级落到用户界面上,传导要快得多。</p>
+        <p><b>死锁(想成磁带库里的资源互等)</b>:作业 A 占着驱动器等存储池配额,作业 B 占着配额等驱动器,谁也动不了——这就是死锁的经典形状。<b>哪里像</b>:Agent 里一样有:Agent A 等工具锁,工具等数据库连接池,连接又被 A 的另一步占着,环就闭上了。<b>哪里不像</b>:备份系统靠「按固定顺序申请驱动器→介质→池」的资源排序纪律根治;Agent 更幸运,任务大多无状态+单向依赖(Agent→工具,不回头),天然构不成环,守住「每把锁设超时+加锁顺序全局统一」两条纪律即可。</p>
       </div>
 
       <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>0. 先认清敌人:并发压力为什么在 Agent 这里被放大</b></p>
+        <p>普通 Web 服务里,一个请求大约就是一次查库/写库,压力约等于入口 QPS;Agent 的一次问答会被模型拆成「规划→检索→调工具→总结」的多步流程,每步还可能并行发多个调用——容量估算的乘法里凭空多了一个乘数。先用一张图把这个差异钉在脑子里,后面每一层的设计都由它驱动:</p>
+        <pre class="code">普通 Web 服务:              Agent 服务:
+1 个用户请求                 1 个用户请求
+   │                            │
+   ▼                            ├──► LLM 调用×2(规划+总结)
+1 个下游调用                    ├──► 向量检索×3(并行)
+(几十毫秒返回)                  └──► 业务工具×4(并行)
+
+压力 = 入口 QPS               压力 = 入口 QPS × 扇出系数(本例≈9)
+                             扇出数由模型运行时动态决定、事先未知:
+                             容量只能按历史峰值估,再用下游配额兜底</pre>
         <p><b>1. 分层控制架构</b></p>
         <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 684 96" role="img" aria-label="Agent 并发控制分层架构">
   <rect class="sd-box-rose" x="10" y="16" width="90" height="64" rx="10"/>
@@ -38,10 +58,28 @@
   <text class="sd-t" x="604" y="42" text-anchor="middle">L4 下游配额</text>
   <text class="sd-ts" x="604" y="60" text-anchor="middle">连接池·RPM·限速</text>
 </svg></div>
+        <p>这张图从左到右就是请求的一生,四层各把一道关,每层只对一种「满」负责。任何一层被绕过(比如有人写脚本裸调 LLM、不走信号量),整条防线就漏了。逐层对照职责与实现:</p>
+        <table>
+<tr><th>层</th><th>管什么</th><th>典型实现</th><th>满了/超了怎么办</th><th>映射到备份世界</th></tr>
+<tr><td><b>L1 入口限流</b></td><td>请求进入的速率</td><td>令牌桶(全局桶+用户桶两本账)</td><td>直接 429,不进系统</td><td>备份客户端 QoS 限速</td></tr>
+<tr><td><b>L2 排队</b></td><td>短时峰值缓冲</td><td>有界队列(深度设上限)</td><td>满则 429+建议等待时间</td><td>调度队列——但必须「有界」</td></tr>
+<tr><td><b>L3 信号量</b></td><td>同时在途的 LLM/工具调用数</td><td>asyncio.Semaphore / 分布式信号量</td><td>阻塞排队,等释放</td><td>介质服务器并发作业上限</td></tr>
+<tr><td><b>L4 下游配额</b></td><td>每个下游的真实容量</td><td>连接池、RPM/TPM 限速、<a target="_blank" rel="noopener" href="https://martinfowler.com/bliki/CircuitBreaker.html">熔断</a></td><td>排队/降级/熔断</td><td>存储后端 IOPS/吞吐配额</td></tr>
+</table>
         <p><b>2. 各层实现要点</b></p>
         <ul>
-          <li><b>令牌桶 vs 漏桶</b>:令牌桶允许突发(攒的令牌一次用),漏桶匀速出口;API 网关普遍用令牌桶。<b>按用户隔离</b>:单用户突发不能吃掉全局配额。</li>
-          <li><b>有界队列 + 满了快速失败</b>:队列不是越长越好——排 10 分钟队,不如立刻 429 让客户端稍后重试;返回建议等待时间。</li>
+          <li><b>令牌桶 vs <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Leaky_bucket">漏桶</a></b>:令牌桶允许突发(攒的令牌一次用),漏桶匀速出口;API 网关普遍用令牌桶。</li>
+        </ul>
+        <table>
+<tr><th></th><th>令牌桶</th><th>漏桶</th></tr>
+<tr><td>放行节奏</td><td>平均速率恒定,允许突发</td><td>严格匀速,出口恒定</td></tr>
+<tr><td>突发流量</td><td>先吃库存令牌,短时超速通过</td><td>一律进桶排队,出去永远匀速</td></tr>
+<tr><td>典型位置</td><td>API 网关主流选择</td><td>需要严格平滑下游压力的场景</td></tr>
+<tr><td>备份世界对应</td><td>作业开跑允许先冲一波</td><td>客户端全程恒速 50MB/s 传输</td></tr>
+</table>
+        <p><b>按用户隔离</b>:单用户突发不能吃掉全局配额——全局桶保系统不死,用户桶保公平。一个疯狂重试的用户,不该有权把别人的请求全部挤成 429;两本账分开记,「系统稳」和「体验公平」才能同时成立。</p>
+        <ul>
+          <li><b>有界队列 + 满了快速失败</b>:队列不是越长越好——排 10 分钟队,不如立刻 429 让客户端稍后重试;返回建议等待时间,标准做法是带上 <a target="_blank" rel="noopener" href="https://developer.mozilla.org/zh-CN/docs/Web/HTTP/Headers/Retry-After">Retry-After</a> 响应头。这是从备份/批处理转在线服务最容易带错的直觉:离线系统的队列越深越「安全」,在线系统的队列越深越危险——加深队列只是把「立刻失败」推迟成「很久之后超时」,资源被白占,用户体感反而更差。</li>
           <li><b>信号量</b>(代码级):</li>
         </ul>
         <pre class="code">sem = asyncio.Semaphore(20)  <span class="c"># 单实例最多 20 个在途 LLM 调用</span>
@@ -50,31 +88,74 @@ async def call_llm(prompt):
         return await llm.chat(prompt)
 <span class="c"># 并发数经验值:LLM 是长时延IO,单实例并发几十~几百都行,</span>
 <span class="c"># 但要绑下游限制:20并发×扇出10 = 向量库200QPS,别把它打挂</span></pre>
+        <p>读码四点:① <a target="_blank" rel="noopener" href="https://docs.python.org/3/library/asyncio-sync.html">asyncio.Semaphore</a> 是协程级排队,拿不到的协程直接挂起、几乎不耗线程——LLM 调用是长时延纯 IO,「等待不占资源」正好匹配(备份作业那种 CPU+IO 双料负载就没这个福利);② 每个在途调用都要设超时,防止一个 60 秒的长尾请求把坑占到天荒地老;③ 注释里那行乘法(20 并发×扇出 10=向量库 200 QPS)就是容量估算的灵魂,对应第 0 节的公式;④ 别指望流式输出能省并发——它改善的是用户看到首字的延迟,LLM 仍在逐 token 生成,信号量的坑照占,体感优化和容量优化是两件事。</p>
         <ul>
-          <li><b>扇出放大系数</b>(Agent 特有):一个用户请求可能触发 10+ 次工具/检索调用,容量估算按"请求 QPS × 平均扇出数"算下游压力——这是 Agent 并发和普通 Web 并发最大的差异点。</li>
+          <li><b>扇出放大系数</b>(Agent 特有):一个用户请求可能触发 10+ 次工具/检索调用,容量估算按"请求 QPS × 平均扇出数"算下游压力——这是 Agent 并发和普通 Web 并发最大的差异点。实操上用链路追踪统计扇出数的分布,按 P95 估容量、按 P99 设兜底限流。</li>
         </ul>
         <p><b>3. 死锁避免</b></p>
-        <ul>
-          <li>Agent 任务大多无状态+单向依赖(Agent→工具),天然无环;要警惕的是<b>循环等待</b>:Agent A 等工具锁,工具等数据库连接池,连接池等一个被 A 占的资源——解法:所有资源获取<b>设超时+失败释放</b>,加锁顺序全局统一,连接池设上限并监控排队长度。</li>
-        </ul>
+        <p>死锁成立需要同时凑齐四个条件:互斥、持有并等待、不可剥夺、循环等待——打破任意一个,环就断。Agent 任务大多无状态+单向依赖(Agent→工具),天然无环;要警惕的是<b>循环等待</b>:Agent A 等工具锁,工具等数据库连接池,连接池等一个被 A 占的资源——解法:所有资源获取<b>设超时+失败释放</b>,加锁顺序全局统一,连接池这类资源池设上限并监控排队长度。</p>
+        <pre class="code">经典成环(两个执行流 + 两把锁):
+
+Agent A: 拿到 锁1(工具T1) ──► 想要:数据库连接(池空,全被占)
+Agent B: 拿到 锁2(数据库连接) ──► 想要:工具T1(被A持有)
+          A 等 B 放连接,B 等 A 放工具 ──► 环成立,永久卡死
+
+备份世界同款:作业A占驱动器等存储池配额,作业B占配额等驱动器
+
+破环三板斧:
+① 单向依赖不回头(无状态:Agent→工具→资源,永不反向索取)
+② 每把锁/每个池都设超时,拿不到就地失败、释放已持有的
+③ 加锁顺序全局统一(比如一律按资源名排序),想成环都难</pre>
+        <p>这套「按固定顺序申请资源」的纪律,和你熟悉的磁带库/存储池管理是同一条:所有作业都先申请驱动器、再申请介质、最后进池,环从源头上就构不成。</p>
         <p><b>4. 分布式并发(多实例)</b></p>
+        <p>先看清问题有多严重:单机 asyncio.Semaphore(20) 只看得见自己进程里的 20 个在途调用;部署 3 个实例,LLM 网关和向量库看到的是最多 60 个并发——单机闸门在集群里形同虚设。</p>
         <ul>
-          <li>信号量跨机器失效 → 用 <b>Redis 原子操作实现分布式信号量/限流</b>(Lua 脚本保证原子性),或网关统一限流;<b>全局限流</b>绝不能单机算。</li>
+          <li>信号量跨机器失效 → 用 <b>Redis 原子操作实现分布式信号量/限流</b>(<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/Lua">Lua</a> 脚本保证原子性),或网关统一限流;<b>全局限流</b>绝不能单机算。</li>
           <li>同一会话的任务串行(锁会话 key),不同会话并行——防状态竞争。</li>
         </ul>
+        <pre class="code">-- Redis 分布式信号量(核心逻辑示意,Lua 单线程执行=天然原子)
+local held = redis.call('llen', KEYS[1])       -- 当前占坑数
+if held &lt; tonumber(ARGV[1]) then               -- ARGV[1] = 总并发上限
+  redis.call('rpush', KEYS[1], ARGV[2])        -- ARGV[2] = 持有者ID,占坑
+  redis.call('expire', KEYS[1], 30)            -- 兜底TTL:进程挂了,坑也会过期
+  return 1                                     -- 拿到坑
+end
+return 0                                       -- 满了:去排队或稍后重试
+-- 释放 = lrem 移除自己的持有者ID
+-- 关键:查余量+占坑必须在一个脚本里完成,拆成两步就是竞态</pre>
+        <p>示意代码的要点只有一句话:「查余量+占坑」必须在一次原子操作里完成。如果先 llen 再 rpush 分两步,两个实例会在同一毫秒都查到「还有 1 个坑」,双双占坑,上限瞬间被击穿——这就是经典的 check-then-act 竞态。更严谨的实现(Redis 官方推荐模式)用有序集合存「持有者+时间戳」,每张票独立过期,还能识别持有者进程是否已死。会话级串行同理:同一个会话两步并发写对话状态,会把上下文写花,所以按 session key 加锁串行;不同会话零共享,放心并行——对应备份里「同一客户端同一时刻只跑一个全量,不同客户端随便并行」。</p>
         <p><b>5. 背压传导</b>:L3 排队变长 → 上游降低接收速率(或提示"当前繁忙")→ 一直传到客户端的"稍后再试"。优雅降速比硬崩好。</p>
+        <pre class="code">减速信号传导链(Agent 版 ↔ 存储版):
+
+下游变慢 ─► L3信号量等待变长 ─► L2队列堆积 ─► L1收紧放行/返回繁忙 ─► 客户端退避重试
+(根因)      (第一报警点)       (缓冲在消耗)     (主动减速)            (用户体感)
+
+存储版:后端写满 ─► 介质服务器降并发 ─► 调度器少派任务 ─► 客户端限速/暂停作业
+
+两条链一一对应,方向都是「从下游往上游传」,谁离根因近,谁先知道</pre>
+        <p>传导链上还有一条铁律:客户端重试必须走<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/指数退避">指数退避</a>+随机抖动。否则下游刚喘过气,积压的重试在同一秒一起杀回来,把它二次打死——像容灾切换完成后所有业务瞬间回涌,恢复动作本身变成事故。</p>
+        <p><b>6. 上线之后:用指标养参数,而不是一次定终身</b></p>
+        <p>并发控制配完只是开始。日常盯四个数:信号量等待时长(它涨,就是 P99 变差的第一现场)、队列深度(持续打满=容量不足,该扩 Worker 而不是加队列长度)、429 率(过高说明限流参数和真实容量不匹配)、下游 P99(你有没有打挂别人,看这里最诚实)。参数调整走灰度发布,先放小流量验证,再全量铺开。</p>
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:并发数怎么定?</summary><div class="an">压测定:逐步加压,找到延迟 SLO 破线(如 P99&gt;5s)或下游错误率抬升的拐点,拐点的 70~80% 作为日常上限;并留监控指标(信号量等待时长)指导动态调。</div></details>
-        <details class="qa"><summary class="qu">Q:多 Agent 并发调用同一工具产生写冲突?</summary><div class="an">写操作按资源 key 分布式锁串行化(同一订单的修改排队);或改设计:写操作收敛到单一 Coordinator,子 Agent 只产出"意图"。</div></details>
+        <details class="qa"><summary class="qu">Q:并发数怎么定?</summary><div class="an"><b>人话:</b>不拍脑袋,靠压测找到系统拐点,再打七到八折当日常上限。<b>类比:</b>和给介质服务器定并发作业数是同一套流程:逐步加客户端,直到备份窗口开始破线或存储时延抬升,那个拐点就是真实容量;日常水位留在七八成,是给全量备份这种突发留的余量。<b>技术:</b>阶梯加压,盯两个破线信号——自身延迟(如 P99&gt;5s)和下游错误率/被限流率;取拐点的 70~80% 定为上限,并与 SLA 承诺对齐。上线后持续观察信号量等待时长,常态化走高就是该扩容或调参的信号。</div></details>
+        <details class="qa"><summary class="qu">Q:限流(令牌桶)和并发控制(信号量)是一回事吗?</summary><div class="an"><b>人话:</b>不是。限流管「进来的速率」,信号量管「同时在里面的数量」,一个看节奏,一个看水位。<b>类比:</b>客户端限速(每小时最多提交 100 个任务)和介质服务器并发上限(同时最多跑 20 个作业)——前者是节奏闸,后者是容量池,备份系统向来两个都要。<b>技术:</b>只有限流防不住长请求堆积:每秒放 10 个请求进来,但每个 LLM 调用要跑 60 秒,6 分钟后在途就有 3600 个,下游照样被打挂;只有信号量又会让瞬时洪峰全部变成排队超时。两层各管一个维度,谁也替代不了谁。</div></details>
+        <details class="qa"><summary class="qu">Q:单机的 asyncio.Semaphore(20),部署 3 个实例,总并发会失控吗?</summary><div class="an"><b>人话:</b>会。单机信号量只看得见自己进程里的 20 个,三台加起来,下游看到的是 60。<b>类比:</b>三台介质服务器各限 20 个作业,但共享同一个存储后端——后端认的是总量,不认每台机器的本位账。<b>技术:</b>把信号量搬到所有实例都看得见的地方:Redis+Lua 把「查余量+占坑」做成一次原子操作(分开做就是 check-then-act 竞态,两个实例同时以为还有坑),持有者带 TTL 防进程挂掉后坑被死占;或更省事的架构解——入口网关统一限流,后端实例只留本地信号量兜底。全局的量,必须在全局视角的地方算。</div></details>
+        <details class="qa"><summary class="qu">Q:队列满了,该扩队列长度还是拒绝?</summary><div class="an"><b>人话:</b>拒绝,而且要带上建议等待时间地拒绝;持续打满该做的是扩容,不是加深度。<b>类比:</b>备份任务可以排到下个窗口,因为没人盯着它等;Agent 用户 30 秒没动静就走人了——排 10 分钟队端出来的答案毫无价值,排队期间还占着内存和连接。<b>技术:</b>有界队列+满则 429,响应带 Retry-After 头;队列深度本身是背压指标,持续打满说明容量不足,正确动作是扩 Worker 或收紧入口限流。加长队列只是把「失败」推迟成「超时」,把成本转嫁给用户,体感更差。</div></details>
+        <details class="qa"><summary class="qu">Q:多 Agent 并发调用同一工具产生写冲突?</summary><div class="an"><b>人话:</b>同一资源的写,要么按资源排队,要么改架构,让全系统只有一个地方有资格写。<b>类比:</b>多个备份作业抢同一台磁带驱动器——物理独占资源,系统的做法从来都是按资源加锁串行,不同资源互不阻塞。<b>技术:</b>① 按资源 key 上<a target="_blank" rel="noopener" href="https://redis.io/topics/distlock">分布式锁</a>(Redis SETNX+TTL),同一订单的写串行化,锁粒度到资源级,别锁成全局串行;② 更彻底的是收敛写路径:子 Agent 只产出「意图」,由单一 Coordinator 顺序消费落库,把并发写变成单线程消费问题;③ 配<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/幂等">幂等</a>设计,锁超时重试不会造成双写。</div></details>
       </div>
 
       <div class="block term"><span class="badge b-term">术语卡</span>
         <div class="terms-grid">
-          <div class="term-item"><b>有界队列</b>:有上限的排队区,满了就拒绝。</div>
-          <div class="term-item"><b>扇出系数</b>:一个请求放大出的下游调用数。</div>
-          <div class="term-item"><b>背压</b>:下游忙时向上游传导减速。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Token_bucket">令牌桶</a></b>:以固定速率生成令牌、拿到令牌才放行的限流算法,攒下的令牌允许短时突发通过。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Leaky_bucket">漏桶</a></b>:无论进来多猛、出去永远匀速的整形算法,适合必须严格平滑下游压力的场景。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/信号量">信号量</a></b>:保护资源的计数器——进入减一、离开加一,减到零后后来的阻塞排队。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Queue_(abstract_data_type)">有界队列</a></b>:容量设上限的排队缓冲,满了必须拒绝,在线系统里队列宁短勿深。</div>
+          <div class="term-item"><b>扇出系数</b>:一个上游请求放大出的下游调用数,Agent 容量公式里最容易被漏乘的乘数。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Back_pressure">背压</a></b>:下游过载时逐级向上游传导减速信号、让生产端主动慢下来的机制。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/指数退避">指数退避</a></b>:重试间隔按倍数增长并叠加随机抖动,防止恢复瞬间被重试风暴二次打死。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://redis.io/topics/distlock">分布式锁</a></b>:跨进程/跨机器的互斥锁,典型实现是 Redis 单键原子操作加 TTL 过期兜底。</div>
         </div>
       </div>
 </article>

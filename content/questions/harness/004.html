@@ -7,12 +7,16 @@
         <span class="tag">#状态管理</span><span class="tag">#持久化</span><span class="tag">#Agent</span>
       </div>
 
+      <div class="note"><b>先说人话:</b>Agent 跑到一半崩了——工具超时、或人工审批卡了三天——怎么让它从断点接着跑而不是从头重来。面试官爱考,因为这是「玩过 demo」和「上过生产」的分水岭;答错的暴露点是只会说「存进数据库」,讲不清何时存、存什么、怎么恢复——你天天在用的备份 checkpoint 思路搬过来,就是高分答案。</div>
+
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-        <p>"状态 = <b>执行位置(跑到图哪个节点)+ 共享 State(对话/中间产物)+ 外部引用(大对象指针)</b>。每个节点执行完做一次<b>序列化快照</b>(JSON/protobuf),热存 Redis(亚毫秒恢复,给断点续传用)、冷存数据库(审计回放);恢复流程:定位最后 checkpoint → 反序列化 → 从该节点继续;两个必聊的深水区:<b>状态 schema 版本化</b>(代码升级后老状态还能恢复)和<b>LLM 的不确定性</b>(重放时生成内容会变,恢复策略要幂等)。"</p>
+        <p>"状态 = <b>执行位置(跑到图哪个节点)+ 共享 State(对话/中间产物)+ 外部引用(大对象指针)</b>。每个节点执行完做一次<b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/序列化">序列化</a>快照</b>(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/JSON">JSON</a>/protobuf),热存 <b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Redis">Redis</a></b>(亚毫秒恢复,给断点续传用)、<b>冷存数据库</b>(审计回放)——就是备份系统「生产副本 + 备份副本」的分级存储;恢复流程:<b>定位最后 checkpoint → 反序列化 → 从该节点继续</b>。两个必聊的深水区:<b>状态 schema 版本化</b>(代码升级后老状态还能恢复)和<b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/大型语言模型">LLM</a> 的不确定性</b>(重放时生成内容会变,恢复策略要幂等)——这第二个,正是它和你做惯的备份最不一样的地方。"</p>
       </div>
 
       <div class="block ana"><span class="badge b-ana">通俗类比</span>
-        <p><b>游戏存档</b>:每过一关自动存档(checkpoint);游戏崩了,读档从最近关卡继续(断点续传),不用从第一关重打;存档文件格式升级了,老存档也得能读(schema 兼容);换台电脑(另一个 Worker 实例)登录,进度照样在(状态外置);只是重新打时,关卡里的敌人随机刷新可能不太一样(LLM 重放的不确定性)。</p>
+        <p><b>Agent 的 checkpoint(用备份作业的断点续传想)</b>:Agent 本质是一个<b>跑得久、环节多的长作业</b>——几十个节点、几十次工具调用,中间还可能挂起等人工审批,和备份软件里一个跑几小时、必须支持断点续传的大作业没有区别。每过一关存一次档,就是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Application_checkpointing">checkpoint</a>(检查点);作业崩了从最近的检查点续跑,就是<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/断点续传">断点续传</a>;状态放在 Redis/数据库而不放进程内存,就是<b>存算分离</b>——档在外部,Worker 随便换随便扩,谁读同一份档都能接着干。没做过备份的读者,把它想成游戏存档也一样:每过一关自动存档,崩了读档,不用从第一关重打。</p>
+        <p><b>哪里像</b>:checkpoint ↔ 备份作业的检查点;热存 Redis / 冷存 DB ↔ 生产副本放 SSD、备份副本下沉磁盘的<b>分级存储</b>,访问频率决定介质;TTL ↔ 备份保留策略,过保留期自动清理;schema 版本化 ↔ 老版本备份集必须能在新版本软件里恢复——做过备份产品升级的人最懂的痛。</p>
+        <p><b>哪里不像</b>:备份恢复是<b>确定性还原</b>——位级一致,恢复完和原来一模一样;Agent 从 checkpoint 重放是<b>非确定性</b>的——LLM 重新生成的内容可能不一样,已经发生的工具副作用也不能无脑重放。所以 Agent 的恢复必须配<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/幂等">幂等</a>和「跳过已完成的副作用」,不能照搬备份「恢复完直接跑」的直觉。这是全题最值钱的一个「不像」,答到它,你就甩开八成候选人。</p>
       </div>
 
       <div class="block det"><span class="badge b-det">详细拆解</span>
@@ -45,39 +49,135 @@
   <text class="sd-t" x="184" y="310" text-anchor="middle">DB(冷)</text>
   <text class="sd-ts" x="184" y="328" text-anchor="middle">审计·回放·TTL</text>
 </svg></div>
-        <p><b>2. 存储选型</b></p>
+        <p>为什么这么拆,不塞一坨?<b>执行位置</b>(graph_id/node_id/next_step)回答「恢复后从哪儿继续」,它是恢复的索引,相当于备份作业记录里的「作业断点」;<b>State</b> 是工作现场——输入、对话历史、中间产物、各种计数器(retry 次数、审批状态);<b>引用</b> 是最关键的设计克制:大对象(抓回来的网页、生成的文档、工具返回的大 JSON)<b>不搬进状态本体</b>,上传<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Object_storage">对象存储</a>,状态里只存 URL。</p>
+        <p>这和备份系统「catalog 只记元数据,数据块放后端存储」是同一个思路:元数据小,快照才写得快、恢复才读得快,真要用大对象时再按引用回源取。把状态本体控制在几 KB~几十 KB,后面序列化、双写、增量 diff 的所有开销都跟着小。<b>元数据</b>里最不能省的是 schema 版本号——没有它,第 5 节的深水区直接无解。</p>
+        <p><b>2. 存储选型:分级存储的翻版</b></p>
         <table>
           <tr><th>存储</th><th>存什么</th><th>理由</th></tr>
-          <tr><td><b>Redis</b></td><td>最新 checkpoint(热)</td><td>亚毫秒读写,断点续传秒级;TTL 24h~7天</td></tr>
-          <tr><td><b>PostgreSQL/MongoDB</b></td><td>历史 checkpoint(冷)</td><td>审计、回放、时间旅行调试;按 thread_id 索引</td></tr>
-          <tr><td><b>对象存储</b></td><td>大对象原文</td><td>状态本体保持小,序列化快</td></tr>
+          <tr><td><b>Redis</b></td><td>最新 checkpoint(热)</td><td>亚毫秒读写,断点续传秒级恢复;TTL 24h~7天,过期自动清理——就是 SSD 缓存层,最新一档常驻</td></tr>
+          <tr><td><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/PostgreSQL">PostgreSQL</a>/<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/MongoDB">MongoDB</a></b></td><td>历史 checkpoint(冷)</td><td>审计、回放、时间旅行调试全靠它;按 thread_id 建索引,一个会话的全部历史可查——备份副本层,冷而不丢</td></tr>
+          <tr><td><b>对象存储</b></td><td>大对象原文</td><td>状态本体保持小,序列化快——数据块归后端,catalog 只存指针</td></tr>
         </table>
-        <p><b>3. 何时存 & 恢复流程</b></p>
+        <p>分层逻辑和你熟悉的冷热分层一模一样:<b>访问频率决定介质</b>。断点续传只关心最新一份,放 Redis;审计回放关心全历史,放 DB;大对象几乎只在最终汇总时读一次,放对象存储。反过来要记住一条铁律:<b>Redis 不是 source of truth</b>——它挂了,冷存兜底,恢复慢一点但数据不丢(追问里细讲)。</p>
+        <p><b>3. 何时存 &amp; 恢复流程:WAL 思想</b></p>
+        <pre class="code">Agent 执行图: 每个节点执行完, 打一份档
+
+  开始 → [A 检索资料] → [B 生成查询] → [C 调工具] → [D 汇总作答] → 结束
+           │               │              │             │
+           ▼               ▼              ▼             ▼
+        ┌────────────────────────────────────────────────────────┐
+        │ ckpt1 {node:A, next:B, state:{...}, ver:2}             │
+        │ ckpt2 {node:B, next:C, state:{...}, ver:2}     ← 双写  │
+        │ ckpt3 {node:C, next:D, state:{...}, ver:2}             │
+        └──────────────────┬──────────────────┬──────────────────┘
+                           ▼                  ▼
+                    Redis(热, TTL 24h)    DB(冷, 全量历史)
+                           ▲
+   D 执行中 Worker 崩了!  │
+   新 Worker 读最新档 ────┘ → 拿到 ckpt3: A/B/C 不用重跑, 从 D 继续</pre>
         <ul>
-          <li>写入时机:每个<b>节点执行完、副作用提交前</b>(WAL 思想:先记状态再执行副作用,顺序要对,防"做了事但没记档")。</li>
-          <li>恢复:load 最新 checkpoint → 反序列化 → 校验 schema 版本 → 从记录的 next_step 重新调度。人工审批流:节点挂起 = 存档 + 计时器,批完 invoke 恢复。</li>
+          <li>写入时机:每个<b>节点执行完、副作用提交前</b>。这是全题最容易答错的顺序——<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Write-ahead_logging">WAL</a>(预写日志)的思想:先记状态再执行副作用,顺序要对,防"做了事但没记档"。反过来(先执行副作用再存档)会制造「副作用已发生但 checkpoint 不知道」的窗口,恢复后重放就会重复执行副作用。</li>
         </ul>
-        <p><b>4. 序列化细节</b></p>
+        <pre class="code">单个节点内的正确顺序: 先记档, 再动手(WAL 思想)
+
+  节点开始
+    │
+    ├─ ① 执行纯计算(拼 prompt、整理 state, 无副作用)
+    ├─ ② 写 checkpoint {node:B, next:C, state:最新}   ★ 必须在③之前
+    ├─ ③ 执行副作用(调工具、发消息、写外部系统)
+    └─ ④ 收到副作用成功回执(可选: 结果补记进 state)
+
+  崩在 ①② → 副作用没发生, 重放绝对安全
+  崩在 ③④ → 副作用可能已发生但没回执 → 恢复时靠幂等键兜底(见第 5 节)</pre>
         <ul>
-          <li>JSON 人类可读易调试,但要注意:datetime/枚举/自定义对象的编码约定;protobuf 性能好但要维护 schema。进阶做法:<b>状态 schema 用 Pydantic 定义</b>,序列化和校验一步到位。</li>
+          <li>恢复四步:<b>load 最新 checkpoint → 反序列化 → 校验 schema 版本 → 从记录的 next_step 重新调度</b>。整个过程对 Worker 无感——任何一台新起的实例读同一份档就能续跑,这正是状态外置带来的容灾能力:实例是可替换的,状态是资产,实例挂了状态不丢。</li>
         </ul>
+        <pre class="code">崩溃后的恢复决策流(新 Worker 视角)
+
+  Worker 启动, 拿到 thread_id
+        │
+        ▼
+  读 Redis 最新 checkpoint ──miss──▶ 读 DB, 按 thread_id 倒序取最新
+        │                                   │
+        ▼◀─────────── 二者取其一 ───────────┘
+  反序列化(宽容模式: 未知字段忽略, 缺字段给默认值)
+        │
+        ▼
+  schema 版本对不上? → 跑迁移函数逐级升版 v1→v2→v3
+        │
+        ▼
+  查 next_step 的副作用是否已完成(幂等键查询)
+        │  已完成 → 直接引用上次结果, 不重执行
+        │  未完成 → 正常执行
+        ▼
+  从 next_step 继续调度, 后续节点照常打档</pre>
+        <ul>
+          <li>人工审批流:节点挂起 = 存档 + 计时器,批完 invoke 恢复。注意审批可能跨天跨周,这份档必须落 DB 而不能只放 Redis(TTL 到期就没了);计时器用延迟队列/定时任务实现,到期检查审批状态,决定继续推进还是升级提醒。</li>
+        </ul>
+        <p><b>4. 序列化细节:格式与 schema</b></p>
+        <ul>
+          <li>JSON 人类可读、易调试,但要约定好 datetime/枚举/自定义对象的编码(时间统一 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/ISO_8601">UTC ISO 8601</a>,枚举存名字不存数值);<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Protocol_Buffers">protobuf</a> 性能好、体积小,但要维护 .proto 的 schema。进阶做法:<b>状态 schema 用 <a target="_blank" rel="noopener" href="https://docs.pydantic.dev/">Pydantic</a> 定义</b>,序列化和校验一步到位——字段类型错、缺字段,在写档时就报错,而不是等恢复那天才炸。</li>
+        </ul>
+        <pre class="code">from pydantic import BaseModel
+
+class AgentState(BaseModel):
+    messages: list[dict]        # 对话历史(给模型看的)
+    artifacts: dict[str, str]   # 中间产物: 名字 → 对象存储 URL, 状态只存指针
+    retry_count: int = 0        # 缺字段自动补默认值, 宽容模式的一半
+
+class Checkpoint(BaseModel):
+    thread_id: str              # 会话 ID, 冷存按它建索引
+    graph_id: str
+    node_id: str                # 最后完成的节点
+    next_step: str              # 恢复后从这里继续
+    state: AgentState
+    schema_version: int = 2     # 没有它, 深水区一直接无解
+
+ckpt = Checkpoint.model_validate(raw)   # 反序列化+校验一步到位</pre>
+        <p>读档时类型错/缺字段当场报错,而不是等恢复那天现场爆炸;未知字段默认忽略,新代码读老状态不崩——「早失败」在持久化场景里永远是美德。</p>
         <p><b>5. 两个深水区(拉开差距)</b></p>
         <ul>
-          <li><b>Schema 演化</b>:checkpoint 带版本号,加载时跑迁移函数(v1→v2 补默认值);反序列化用宽容模式(未知字段忽略不炸,缺字段给默认值)。</li>
-          <li><b>恢复的不确定性</b>:从 checkpoint 重放,LLM 重新生成的内容和之前<b>不会完全一样</b>。策略:① 恢复点选择"最后完成的节点"而非"生成到一半的 token";② 已成功的工具调用(副作用已发生)标记为"跳过重执行"(结果直接引用),只重跑未完成部分——配合幂等,双保险。</li>
+          <li><b>Schema 演化</b>:代码每周都在改,状态里的字段会增删改。checkpoint 带<b>版本号</b>,加载时跑<b>迁移函数</b>(v1→v2 补默认值、搬字段);反序列化用<b>宽容模式</b>(未知字段忽略不炸,缺字段给默认值)。这就是备份软件「老备份集在新版本可恢复」的同款问题:升级链路 v1→v2→v3 必须逐级可走,断一环,线上还躺着的旧状态就成了读不出来的死档。</li>
+        </ul>
+        <pre class="code">def migrate(raw: dict) -&gt; dict:
+    """逐级迁移: v1 → v2 → v3, 每一级只管相邻两版"""
+    ver = raw.get("schema_version", 1)
+    if ver == 1:
+        raw["artifacts"] = {k: upload_to_oss(v) for k, v in raw.pop("big_blobs").items()}
+        raw["schema_version"] = ver = 2    # v1→v2: 大对象内联改成只存对象存储 URL
+    if ver == 2:
+        raw.setdefault("retry_count", 0)   # v2→v3: 新增字段补默认值
+        raw["schema_version"] = 3
+    return raw
+
+ckpt = Checkpoint.model_validate(migrate(raw))   # 加载: 先迁移再校验, 顺序不能反</pre>
+        <ul>
+          <li><b>恢复的不确定性</b>:从 checkpoint 重放,LLM 重新生成的内容和之前<b>不会完全一样</b>——这是它和备份最大的区别:备份是确定性还原,Agent 重放是「换个走法再走一遍」。对策两条:① 恢复点选择「最后完成的节点」而非「生成到一半的 token」——半截生成没有干净语义,直接丢弃,从上个完整节点重来;② 已成功的工具调用(副作用已发生)<b>标记为「跳过重执行」</b>(结果直接引用上次输出),只重跑未完成部分——再给每个副作用配<b>幂等键</b>(比如 checkpoint_id+node_id 做去重键,思想同备份的重复数据删除:同一份内容提交几次,落库只有一份),双保险。</li>
+        </ul>
+        <p><b>6. 上生产前的 checklist(备份人的肌肉记忆)</b></p>
+        <ul>
+          <li><b>恢复演练</b>:每天随机抽历史 checkpoint 走一遍完整恢复流水线(load→migrate→validate→空跑到下一节点),验证迁移链路没断——<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Disaster_recovery">灾难恢复</a>领域的铁律「没做过恢复演练的备份等于没备份」,Agent 原样继承。</li>
+          <li><b>监控</b>:checkpoint 写入延迟、写失败率、恢复成功率,以及「迁移欠账」——线上还剩多少 v1 老状态没升上来,清零前不能下线老迁移代码。</li>
+          <li><b>清理</b>:TTL/保留策略只清冷存历史,别误删活跃 thread 的最新档——清理任务永远跳过 status=running 的 thread。</li>
         </ul>
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:状态很大(几 MB),每个节点存一次开销不小?</summary><div class="an">增量 checkpoint:只存和上次的 diff + 基线指针,恢复时回放合并;高频小状态全量存,低频大状态增量存,按对象大小自适应。</div></details>
-        <details class="qa"><summary class="qu">Q:为什么不用直接把状态塞进对话历史交给模型?</summary><div class="an">① 状态是给程序用的(结构化、确定性),历史是给模型用的(自然语言);② 塞历史费 token 且模型可能不忠实执行;③ 结构化状态才能做校验、迁移和审计。LangGraph 的 State 独立于 messages 的设计正是这个思路。</div></details>
+        <details class="qa"><summary class="qu">Q:状态很大(几 MB),每个节点存一次开销不小?</summary><div class="an"><b>人话:</b>别每次全量存——学备份系统,「定期全量 + 平时增量」,按状态大小自适应。<b>类比:</b>周日打全量备份、工作日打增量,恢复 = 全量 + 按序回放增量;这里基线指针就是全量备份 ID,每个节点的 diff 就是增量链,同一个作业模型原封不动搬过来。<b>技术:</b>增量 checkpoint 只存和上次的 diff + 基线指针,恢复时从基线回放 diff 合并出完整状态;高频小状态(几 KB)直接全量存反而省——diff 的元数据开销比本体还贵;低频大状态走增量;再大就引用外置,大对象放对象存储,状态本体只留 URL,怎么存都只有几 KB;极端场景再上内容寻址做去重,相同 chunk 只存一份。</div></details>
+        <details class="qa"><summary class="qu">Q:为什么不用直接把状态塞进对话历史交给模型?</summary><div class="an"><b>人话:</b>状态是给程序看的账本,对话历史是给模型看的说明书,两本账混在一起迟早出事。<b>类比:</b>备份 catalog 是结构化元数据,程序能校验、能迁移、能建索引;把元数据写进自由文本的日志,人读得懂,程序没法可靠解析——状态塞进 prompt,就是把 catalog 写进日志。<b>技术:</b>① 状态是给程序用的,要结构化、确定性;历史是给模型用的,是自然语言,两者消费者不同;② 塞历史费 token,而且模型可能不忠实执行——你在 prompt 里写 retry_count=3 别再调了,模型未必照办;③ 只有结构化状态才能做 schema 校验、版本迁移和审计回放。LangGraph 把 State 和 messages 分开建模,就是这个设计判断。</div></details>
+        <details class="qa"><summary class="qu">Q:热存的 Redis 挂了、或最新 checkpoint 被驱逐,会怎样?</summary><div class="an"><b>人话:</b>性能降级,数据不丢——因为 Redis 从来就不该被当成唯一一份。<b>类比:</b>缓存层掉了就回源磁盘,慢一点但业务照跑;这正是分层容灾的意义——热层是加速器,冷层才是权威副本,思路同备份的 3-2-1 原则:本地加速副本之外,永远还有一份兜底。<b>技术:</b>① 设计上冷存 DB 是 source of truth,Redis 只是读加速,miss 就回源,恢复路径从读 Redis 退化为读 DB,亚毫秒变几十毫秒,可接受;② Redis 自身开 AOF/RDB 持久化加副本,缓存层自己也有「备份」;③ TTL 只作用于热层,冷存保留策略独立配置互不干扰;④ 把 Redis 不可用纳入演练,别让降级路径成为从没跑过的死代码。</div></details>
+        <details class="qa"><summary class="qu">Q:两个 Worker 同时恢复同一个 thread(重复调度/脑裂)怎么办?</summary><div class="an"><b>人话:</b>同一时刻只允许一个 Worker 跑同一个 thread,抢不到锁的那个直接退出。<b>类比:</b>备份系统里同一个卷不能被两个作业同时写——抢锁、独占、做完释放,分布式调度里的老规矩。<b>技术:</b>① thread 级租约锁:Worker 启动时用 SETNX+TTL 抢租约,持锁期间心跳续期,锁到期才允许别人接管,这样 Worker 本身挂掉也不会把任务永久卡死;② checkpoint 写入带递增版本号,按 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Compare-and-swap">CAS</a> 提交,版本冲突说明有别人在写,本次退出;③ 就算锁临时失效真的双跑了,还有幂等键保证副作用不重复执行——锁是性能优化,幂等才是正确性底线。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么证明你的恢复方案真的能恢复?</summary><div class="an"><b>人话:</b>定期做恢复演练,没验证过的恢复能力等于不存在。<b>类比:</b>备份行业的铁律——没做过恢复演练的备份等于没有备份;Agent 的 checkpoint 同理,写档路径天天在跑,恢复路径可能一个月都碰不上一次,恰恰是最容易悄悄烂掉的那条路。<b>技术:</b>① 定时任务随机抽历史 checkpoint 走完整恢复流水线(load→migrate→validate→空跑到下一节点),统计成功率;② 监控迁移欠账:线上还剩多少 v1 老状态没升上来,清零前不能下线老迁移代码;③ 混沌演练:测试环境随机杀 Worker,验证断点续传和租约接管真的能自动发生;④ 把恢复成功率、恢复耗时(RTO)纳入 SLA 报表,而不是出事那天才知道。</div></details>
       </div>
 
       <div class="block term"><span class="badge b-term">术语卡</span>
         <div class="terms-grid">
-          <div class="term-item"><b>Checkpoint</b>:状态快照,恢复依据。</div>
-          <div class="term-item"><b>WAL</b>:先写日志再执行,崩溃可恢复。</div>
-          <div class="term-item"><b>时间旅行调试</b>:回放历史状态重跑。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Application_checkpointing">Checkpoint</a></b>:状态快照,恢复的唯一依据,每个节点执行完落一份。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Write-ahead_logging">WAL</a></b>:先写日志再执行动作,崩溃后按日志安全重放。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/幂等">幂等</a></b>:同一操作执行一次和执行多次结果相同,安全重放的基石。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/断点续传">断点续传</a></b>:从最近检查点继续执行,不从头再来,备份作业的老朋友。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://rr-project.org/">时间旅行调试</a></b>:回放历史 checkpoint 重跑任意时刻,排查「当时到底发生了什么」。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Time_to_live">TTL</a></b>:生存时间,到期自动删除,热存层的保留策略。</div>
         </div>
       </div>
 </article>

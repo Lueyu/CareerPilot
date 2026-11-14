@@ -7,21 +7,42 @@
     <span class="tag">#Agent</span><span class="tag">#A2A</span><span class="tag">#前沿技术</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题在问:"造车的"和"修路的"是不是一类东西——框架(LangChain 们)负责把单个 Agent 造出来,A2A 负责让不同厂商的 Agent 互相发现、派活、回话。面试官爱考,因为它最能区分"只会用框架"和"看懂生态分层"的人;典型错答是把 A2A 张口说成"又一个框架"——名词背了、层次没懂,基本出局。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"了解。A2A(Agent2Agent)是 Google 2025 年提出的<b>开放互操作协议</b>,解决"不同厂商、不同框架的 Agent 之间怎么互相发现、互相协作"。它和普通 Agent 框架(LangChain/AutoGen)根本不是一类东西:<b>框架管"单个 Agent 内部怎么做",A2A 管"Agent 与 Agent 之间怎么对话"</b>。最关键的一个不同点:框架是<b>构建 Agent 的 SDK</b>,A2A 是<b>Agent 之间的通信标准</b>——用 Agent Card 描述能力、用 JSON-RPC 2.0 over HTTP 传任务与消息,与具体框架无关,相当于"Agent 世界的 HTTP"。"</p>
+    <p>"了解。<b>A2A(Agent2Agent)是 Google 2025 年发布的开放互操作协议</b>,管的是"不同厂商、不同框架的 Agent 之间怎么互相发现、怎么协作"——它和普通 Agent 框架(LangChain/AutoGen)<b>根本不在同一层</b>:框架管"单个 Agent 内部怎么做",A2A 管"Agent 与 Agent 之间怎么对话"。最关键的不同点一句话:<b>框架是构建 Agent 的 SDK,A2A 是 Agent 之间的通信标准</b>——就像备份服务内部用什么语言、什么架构随你,对外的接口走 HTTP。机制上四个词:<b>Agent Card</b>(发"名片"自描述能力)、<b>Task</b>(带状态机的任务)、<b>Message</b>(多轮内容)、<b>JSON-RPC 2.0 over HTTP</b>(传输),与具体框架完全解耦,可以理解为<b>"Agent 世界的 HTTP"</b>。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>框架是给一个人配的<b>"内部工作方法"</b>(怎么拆任务、怎么用工具);A2A 是人与人之间的<b>"通讯录 + 通话标准"</b>(对方是谁、会什么、任务怎么发、结果怎么回)。一个人再强,和陌生人协作也得先有"自我介绍 + 统一通话协议"——A2A 就是这个:它不管你内部怎么干活,只规定你们怎么对接。</p>
+    <p><b>A2A(用"对象存储圈的 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Amazon_S3">S3 接口</a>"来想)</b>:各家对象存储内部实现千差万别,但只要对外都说 S3 这套"方言",任何备份软件都能即插即用对接,不用一厂一适配。<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Agent2Agent">A2A</a> 就是 Agent 圈的这套方言:不管 Agent 内部用什么框架、什么模型实现,对外互相发现、派任务、传结果都走同一套协议。<b>哪里像</b>:都是"异构系统靠公开标准即插即用",价值在省掉 N×M 私有适配。<b>哪里不像</b>:S3 定义的是无状态的数据读写(PUT/GET 一次完事),A2A 定义的是"会思考的服务"之间的任务协作——有状态机、有多轮消息、有长任务,复杂一个量级。</p>
+    <p><b>普通 Agent 框架(用"单个服务的内部脚手架"来想)</b>:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/LangChain">LangChain</a> 之于 Agent,就像你写备份调度服务时选 <a target="_blank" rel="noopener" href="https://microsoft.github.io/autogen/">AutoGen</a> 还是 Flask——纯内部事务:任务怎么拆、模型怎么调、状态怎么管,外面的人看不见也不关心。<b>哪里像</b>:都只回答"这一个系统内部怎么干活"。<b>哪里不像</b>:框架写完,别人并不知道你暴露了什么能力、怎么调用你——就像 Flask 服务没有路由文档等于不存在;这层"对外的自我介绍+通话规则",正是 A2A 补的位。</p>
+    <p><b>Agent Card(用"服务注册中心的元数据"来想)</b>:微服务往注册中心登记时写明"我叫什么、监听哪个端口、要不要鉴权";<a target="_blank" rel="noopener" href="https://github.com/a2aproject/A2A">Agent Card</a> 是 Agent 放在约定路径下的 JSON 名片,写清能力、端点、鉴权方式,任何陌生 Agent 拉到就能直接调。<b>哪里像</b>:都是"让陌生调用方不认识你也能找到你"。<b>哪里不像</b>:服务注册描述的是地址和健康度,Agent Card 还得描述"会干什么"——因为派活的不是负载均衡器,是另一个要做能力匹配决策的 Agent(甚至读卡的就是一个 LLM)。</p>
+    <p><b>MCP(用"给服务器接外设的 USB 标准"来想)</b>:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Model_Context_Protocol">MCP</a> 让 Agent 连工具、连数据源,像 USB 让服务器长出"手";A2A 让 Agent 互相通话,像网线把机器连成网。<b>哪里像</b>:都是标准化接口,消灭点对点适配。<b>哪里不像</b>:USB 外设不会思考、不会讨价还价,而 A2A 那头是一个同样会推理、可能反问你、任务一跑半小时的"同事"——所以 A2A 需要任务状态机和流式回话,USB/S3 不需要。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
     <p><b>1. A2A 是什么(先厘清定位)</b></p>
+    <p>先把词咬准,这题 80% 的失分都死在定位上:<b>"框架"是你写代码时 import 的库,藏在你的进程里;"协议"是通信双方事先签好的约定,摆在两台机器之间</b>。LangChain 换成 AutoGen,是你的内部代码重写;而协议接口不变,内部随便换实现——框架是"墙里的电线",协议是"墙上的插座"。</p>
     <ul>
-      <li>全称 <b>Agent2Agent</b>,Google 主导的开源协议,目标是让<b>异构 Agent(不同厂商、不同框架、不同语言)能即插即用地互操作</b>,避免每个 Agent 都要为别人写一套私有适配。</li>
-      <li>它解决的是一类新问题:<b>Agent 生态互联互通</b>——类似"HTTP 之于 Web 服务"。而普通框架解决的是"如何快速搭出一个 Agent"。</li>
+      <li>全称 <b>Agent2Agent</b>,Google 2025 年 4 月发布的开源协议,随后捐赠给 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Linux_Foundation">Linux Foundation</a> 做中立治理——这一步本身就是信号:它想当全行业的公共标准,不是某家的私有生态武器。目标是让<b>异构 Agent(不同厂商、不同框架、不同语言)能即插即用地互操作</b>,避免每个 Agent 都要为别人写一套私有适配。</li>
+      <li>它解决的是一类新问题:<b>Agent 生态互联互通</b>——类似"HTTP 之于 Web 服务";而普通框架解决的是"如何快速搭出一个 Agent"。两个问题不在同一层,所以 A2A 和框架从来不是竞争关系,这道题也就没有"二选一"的答法。</li>
     </ul>
+    <p>为什么必须有协议?想想你对接多家存储的日子:每家一套私有 API,每接入一家新存储,备份软件都要新写一份适配、联调、维护——<b>N 个调用方 × M 个被调方 = N×M 套适配代码</b>。Agent 生态一模一样,而且更糟:Agent 是运行时动态派活的,对接需求会随机产生,靠人肉约定私有接口根本追不上。</p>
+    <pre class="code">没有 A2A:点对点私有适配,组合爆炸(N×M 地狱)
+
+   A ←────→ B            4 个 Agent 两两互通 = 6 条私有适配线
+   ↕  ╲    ╱  ↕          每条线 = 私有 API + 鉴权 + 联调 + 维护
+   ↕    ╲╱    ↕          再接 1 个新 Agent → 4 个老成员都要加线
+   C ←────→ D            (你对接多家存储私有 API 的滋味,就是这个)
+
+有了 A2A:共同方言,实现一次,任意互通(N+M)
+
+   A ─┐
+   B ─┼─→ 都说 A2A ─→ 任意组合互调
+   C ─┤                   新成员接入 = 只需自己实现 1 次协议
+   D ─┘                   老成员零改动,N×M 压成 N+M</pre>
     <p><b>2. 核心机制(记住四个词)</b></p>
+    <p>先看全景骨架,再逐个拆——每个机制都给你配一个备份/分布式圈的对照物:</p>
     <div class="svgwrap">
 <svg class="sdiagram" viewBox="0 0 720 150" role="img" aria-label="A2A 协议四大核心机制">
   <rect class="sd-layer" x="6" y="8" width="708" height="120"/>
@@ -40,30 +61,91 @@
   <text class="sd-ts" x="610" y="90" text-anchor="middle">JSON-RPC 2.0 / SSE</text>
 </svg>
 </div>
+    <ul>
+      <li><b>① Agent Card:发现层,机器可读的"名片"</b>。一个 JSON 文件,放在约定俗成的 well-known 路径(如 /.well-known/agent-card.json)——和 Let's Encrypt 的 /.well-known/acme-challenge 一个思路:想找你名片的人,永远知道该去哪敲门。核心字段:name/description(给人和 LLM 看)、url(端点)、capabilities(streaming/pushNotifications 等开关)、skills(结构化能力清单)、securitySchemes(鉴权方式,<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/OAuth">OAuth 2.0</a>/API key/mTLS)。调用方拉到卡片,就知道"能不能派活给你、怎么调你"——把"读接口文档"这一步变成了机器可执行。</li>
+      <li><b>② Task:任务层,一台带状态机的"备份作业"</b>。一次派活对应一个 Task,状态机:submitted → working → input-required(缺参数,反问你) → completed / failed / canceled。你天天看的备份 Job(排队 → 运行 → 等待介质 → 成功/失败)就是这个思路。<b>哪里像</b>:都有生命周期、可随时查状态、可中途取消;<b>哪里不像</b>:备份 Job 跑起来不说话,A2A 的 Task 能边跑边流式汇报进度,还能中途反问你要参数——本质是"可对话的作业"。</li>
+      <li><b>③ Message / Artifact:内容层,"过程"和"交付物"分开建模</b>。Message 是对话轮次(role 标明 user 还是 agent),每个 Part 可以是文本、文件或结构化 data——像备份过程中的日志与心跳;Artifact 是最终交付物——像跑完落盘的备份集。<b>哪里像</b>:都是"过程记录"与"最终产出"的分离;<b>哪里不像</b>:日志是给人看的,Message 的结构化 data 是给对面 Agent(往往是 LLM)消费的,语义比日志严格得多。</li>
+      <li><b>④ 传输:JSON-RPC 2.0 / SSE / webhook</b>。请求走 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/JSON-RPC">JSON-RPC 2.0</a> over HTTP(S):message/send 发任务、tasks/get 查状态、tasks/cancel 取消;流式进度用 <a target="_blank" rel="noopener" href="https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events">SSE</a>(message/stream);长任务可配置 webhook,有进展主动推通知,不用挂着连接干等——和你用 REST API 提交备份作业、轮询+回调拿结果的成熟套路如出一辙,A2A 只是把这套套路标准化了。</li>
+    </ul>
+    <pre class="code">一次完整的 A2A 交互:发现 → 派活 → 执行 → 交付
+
+  调用方 Agent                    服务方 Agent(别家的)
+     │                                │
+     │ ① 拉取 Agent Card(well-known 路径)
+     │ ──────────────────────────────→ │  发现:先拿"名片"
+     │                                │  (会什么/端点/怎么鉴权)
+     │ ② message/send(JSON-RPC 2.0)
+     │ ──────────────────────────────→ │  派活:创建 Task,状态 submitted
+     │                                │
+     │ ③ SSE 流式回传:working + 进度
+     │ ←────────────────────────────── │  执行:边干边汇报,像实时备份日志
+     │                                │
+     │ ④ input-required:反问补充参数
+     │ ──────────────────────────────→ │  协商:长任务中途可以"要东西"
+     │                                │
+     │ ⑤ completed + Artifact(交付物)
+     │ ←────────────────────────────── │  交付:过程在 Message,结果在 Artifact
+     │                                │  超长任务不占连接,完事 webhook 回调</pre>
     <p><b>3. 与 MCP 的关系(面试常被一起问)</b></p>
     <table>
       <tr><th></th><th>MCP</th><th>A2A</th></tr>
       <tr><td><b>解决什么</b></td><td>Agent ↔ 工具/数据源 的连接</td><td>Agent ↔ Agent 的连接</td></tr>
       <tr><td><b>类比</b></td><td>给 Agent 接"手"(USB 外设标准)</td><td>让 Agent 互相"通话"(网络协议)</td></tr>
       <tr><td><b>发起方</b></td><td>Anthropic</td><td>Google</td></tr>
+      <tr><td><b>连接对象</b></td><td>工具/数据源——资源,不会思考</td><td>另一个 Agent——会推理、可协商</td></tr>
+      <tr><td><b>典型交互</b></td><td>一次调用为主(查库、执行函数)</td><td>长任务、多轮消息、带状态机</td></tr>
+      <tr><td><b>发布时间</b></td><td>2024 年 11 月</td><td>2025 年 4 月(后捐 Linux Foundation)</td></tr>
     </table>
+    <p>口诀记法:<b>MCP 纵向"长手",A2A 横向"组网"</b>。官方对两者的定位本来就是互补:一个 Agent 完全可以左手用 MCP 连数据库,右手用 A2A 接收别家 Agent 的派活。面试时主动把这层关系讲出来,比被动等追问要稳得多。</p>
     <p><b>4. 最关键的不同点(只挑一个讲透)</b></p>
-    <p><b>框架是"构建 Agent 的内部脚手架",A2A 是"Agent 之间的外部接口标准"</b>。普通框架抽象的是<b>单个 Agent 内部</b>的模型调用、工具执行、状态流转;A2A 完全不碰这些,它抽象的是<b>跨 Agent 的发现、寻址、任务协商与结果回传</b>。所以一个 A2A 兼容的 Agent 完全可以用 LangChain 实现——<b>框架决定它"怎么想、怎么做",A2A 决定它"怎么被别的 Agent 找到、派活"</b>,两者正交、可叠加。</p>
+    <table>
+      <tr><th></th><th>普通 Agent 框架(LangChain/AutoGen)</th><th>A2A 协议</th></tr>
+      <tr><td><b>回答的问题</b></td><td>怎么"造"出一个 Agent</td><td>Agent 之间怎么"协作"</td></tr>
+      <tr><td><b>抽象对象</b></td><td>单 Agent 内部:模型调用/工具执行/状态流转</td><td>跨 Agent:发现/寻址/任务协商/结果回传</td></tr>
+      <tr><td><b>作用范围</b></td><td>进程内——换了框架,内部代码重写</td><td>系统间——换了内部实现,对外接口不变</td></tr>
+      <tr><td><b>存储圈的对应物</b></td><td>各家阵列的内部软件栈</td><td>对外的标准接口(S3/NFS)</td></tr>
+    </table>
+    <pre class="code">分层看:框架在"墙内",协议在"墙上",互不干涉
+
+  Agent 甲(内部用 LangChain 写)
+  ├── MCP ──→ 工具/数据库/文件系统        ← 纵向:长"手",够资源
+  │
+  ═══════════ A2A(Task/Message)══════════ ← 横向:找"同事",跨组织
+  │
+  └──→ Agent 乙(内部用 AutoGen 写)
+         └── MCP ──→ 它自己的工具/数据
+
+  记法:框架决定"墙里的电线怎么走"(随便换,外面看不见)
+       A2A 决定"插座长什么样"(全行业统一,才能互相插)</pre>
+    <p><b>框架是"构建 Agent 的内部脚手架",A2A 是"Agent 之间的外部接口标准"</b>。普通框架抽象的是<b>单个 Agent 内部</b>的模型调用、工具执行、状态流转;A2A 完全不碰这些,它抽象的是<b>跨 Agent 的发现、寻址、任务协商与结果回传</b>。所以一个 A2A 兼容的 Agent 完全可以用 LangChain 实现——<b>框架决定它"怎么想、怎么做",A2A 决定它"怎么被别的 Agent 找到、派活"</b>,两者正交、可叠加。用备份圈的话收尾:框架决定这台"存储阵列"内部怎么实现,协议决定它对外的标准端口长什么样——阵列内部换代升级,备份软件一行代码不用改,这就是"正交、可叠加"的工程含义。</p>
+    <p><b>5. 答题骨架(照这个顺序张口,把追问提前消化)</b></p>
+    <ul>
+      <li>第一步给定位:"A2A 是开放协议不是框架——一个管 Agent 间协作,一个管单 Agent 内部实现,不在同一层,谈不上替代";</li>
+      <li>第二步给类比:"相当于备份圈里的 S3:异构系统靠公开标准即插即用,省掉 N×M 私有适配";</li>
+      <li>第三步给细节:四个词 Agent Card / Task / Message / JSON-RPC,顺一句"Task 状态机和备份作业生命周期一个思路";</li>
+      <li>第四步主动收口:"和 MCP 互补不竞争——MCP 纵向长手,A2A 横向组网",把最高频追问提前拆掉。</li>
+      <li>三个雷区别踩:把 A2A 说成"又一个框架";说 A2A 和 MCP 二选一;说 A2A 是 Google 私有协议(它已捐 Linux Foundation 中立治理)。</li>
+    </ul>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:A2A 和 MCP 是什么关系,二选一还是都要?</summary><div class="an">不冲突,解决不同问题:MCP 给 Agent 接工具和数据(context),A2A 让 Agent 之间互相对接(communication)。一个要"用好工具"的 Agent 用 MCP,一个要"跟别的 Agent 协作"的系统用 A2A,很多场景两者同时用:MCP 管单个 Agent 的能力,A2A 管 Agent 群的协作。</div></details>
-    <details class="qa"><summary class="qu">Q:A2A 的 Agent Card 里最关键的是什么?</summary><div class="an">最关键的是<b>能力的机器可读描述 + 安全/认证信息</b>:别人靠它判断"这个 Agent 能干什么、我能不能调用、怎么鉴权"。能力描述要足够结构化(而非一句自由文本),否则发现机制无法可靠路由——这直接决定互操作能不能真的落地。</div></details>
-    <details class="qa"><summary class="qu">Q:为什么选 JSON-RPC 2.0 over HTTP 这种"老"技术?</summary><div class="an">因为它<b>成熟、无状态、跨语言、基础设施全兼容</b>(网关/代理/观测都好接)。协议的价值在"低门槛被广泛实现",不在"技术炫";用现有标准能让异构 Agent 最快接入,而不是再造一套没人会实现的重协议。</div></details>
+    <details class="qa"><summary class="qu">Q:A2A 和 MCP 是什么关系,二选一还是都要?</summary><div class="an"><b>人话:</b>都要用,二者互补不是二选一:MCP 让 Agent"长手"去够工具和数据,A2A 让 Agent"找同事"去协作。<b>类比:</b>备份系统既要 NFS/S3 去读写介质,也要站点间协商机制才能做容灾联动——你不会用 NFS 跟另一个数据中心"商量"要不要切换,两个协议各管一段,谁也替不了谁。<b>技术:</b>MCP:Agent↔工具/数据源,client 在 Agent 侧;A2A:Agent↔Agent,双方互为 client 和 server。一个 LangChain 写、经 MCP 接了数据库的 Agent,再暴露一个 A2A 端点,三件事互不冲突、可同时成立。</div></details>
+    <details class="qa"><summary class="qu">Q:A2A 的 Agent Card 里最关键的是什么?</summary><div class="an"><b>人话:</b>两样命根子:能力的机器可读描述 + 安全/鉴权信息,它们决定"发现"这步能不能真落地。<b>类比:</b>像服务注册中心的元数据再叠加访问策略:光有地址和健康检查不够,调用方还得判断"它到底会不会这件事、我有没有权限调它、走什么鉴权"。<b>技术:</b>关键字段:name/description(给人和 LLM 读)、url(端点)、capabilities(streaming/pushNotifications 等开关)、skills(结构化能力清单)、securitySchemes(OAuth 2.0/API key/mTLS)。skills 写成一句"我啥都会"的自由文本等于没写——结构化程度直接决定对端 Agent 能否可靠路由。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么选 JSON-RPC 2.0 over HTTP 这种"老"技术?</summary><div class="an"><b>人话:</b>互操作协议拼的是"人人都能低成本实现",不是技术新不新。<b>类比:</b>S3 成为事实标准靠的不是炫,恰恰因为它是朴素的 HTTP+XML,谁都会实现、什么基础设施都认——备份软件接它不用新学协议栈。A2A 同理:网关、LB、代理、监控、鉴权全兼容,异构系统的接入成本最低。<b>技术:</b>JSON-RPC 2.0 是 2009 年定稿的成熟规范,无状态 HTTP 可穿透现有网络设施;流式进度用 SSE,长任务用 webhook 推送,状态随时 tasks/get 查询。零新造轮子——协议的胜负手在实现门槛,不在先进性。</div></details>
+    <details class="qa"><summary class="qu">Q:两个 Agent 直接互调 REST API 不就行了,为什么还要 A2A?</summary><div class="an"><b>人话:</b>两个 Agent 私下点对点对接当然行,但生态里几十上百个 Agent 互通时,缺的不是"能调",而是标准化的发现、任务语义和安全约定。<b>类比:</b>两家厂商私有对接一直能干活,但没有标准前,每家备份软件都要为每家存储写私有适配,集成成本 N×M;标准把它压成 N+M——存储圈吃过的苦和甜,Agent 圈正在原样重演。<b>技术:</b>裸 REST 缺三样:统一的能力发现(得靠人读文档)、标准的长任务状态机(每个 API 自己发明一套)、统一的鉴权声明与流式约定。A2A 把这三件标准化后,调用方(常是 LLM)读到 Agent Card 就知道怎么调,不用人肉写胶水代码。</div></details>
+    <details class="qa"><summary class="qu">Q:A2A 现在生产可用吗?实际落地是什么形态?</summary><div class="an"><b>人话:</b>协议本身已趋稳定(捐给 Linux Foundation 治理),生产落地还在早期,目前多是组织内部跨团队、跨技术栈先把 Agent 打通。<b>类比:</b>像容灾早期都是自家两个机房先互相练手,跨厂商大规模互通要等生态长出来;但标准的价值一定在跨部门、跨厂商时爆发,方向没变。<b>技术:</b>典型形态:各团队把既有 Agent(框架各异)包一层 A2A server、把 Agent Card 登记到目录服务,调用方读卡路由。生产要抓三件事:鉴权(OAuth 2.0/mTLS)、卡片声明与真实能力一致(防"虚假名片")、任务级审计——能主动讲这三点,面试官会认你真想过落地。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>A2A</b>:Agent2Agent,Agent 间互操作协议。</div>
-      <div class="term-item"><b>Agent Card</b>:Agent 的能力/端点/认证自描述。</div>
-      <div class="term-item"><b>MCP</b>:Model Context Protocol,连接工具与数据源的协议。</div>
-      <div class="term-item"><b>JSON-RPC 2.0</b>:轻量的远程调用协议,A2A 的传输基础。</div>
-      <div class="term-item"><b>互操作性</b>:异构系统无需私有适配即可协作。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Agent2Agent">A2A</a></b>:Agent2Agent,Google 2025 年发起、后捐 Linux Foundation 治理的 Agent 间互操作协议。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://github.com/a2aproject/A2A">Agent Card</a></b>:Agent 的机器可读 JSON"名片",写明能力、端点、鉴权,放在约定路径供发现。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Model_Context_Protocol">MCP</a></b>:Model Context Protocol,Anthropic 2024 年推出,标准化 Agent 与工具/数据源的连接。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/JSON-RPC">JSON-RPC 2.0</a></b>:轻量的远程调用协议,以 JSON 编码请求与响应,A2A 的传输基础。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events">SSE</a></b>:Server-Sent Events,HTTP 长连接上的服务端单向推送,A2A 用它回传流式进度。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/LangChain">LangChain</a></b>:最流行的 Agent 开发框架之一,"普通 Agent 框架"的典型代表。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/OAuth">OAuth 2.0</a></b>:开放授权标准,Agent Card 里声明服务方鉴权方式的常见选项。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Interoperability">互操作性</a></b>:异构系统无需为彼此写私有适配即可协作的能力,协议标准的核心目标。</div>
     </div>
   </div>
 </article>

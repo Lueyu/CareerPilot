@@ -8,22 +8,46 @@
     <span class="company">所有公司（必考）</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>Agent 方向的开卷第一题，考的就是「定义 + 四大组件 + 为啥缺一不可」。面试官爱用它分层：只会背组件名的是看过科普，能讲出「自主循环」这个灵魂才算入门。答错的暴露点：把 Agent 说成「LLM + Prompt」,等于自曝只做过单轮调用。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"一句话定义:<b>Agent 是一个「以大模型为大脑、能自主感知环境并采取行动完成目标的系统」</b>。核心四件套:① <b>LLM 大脑</b>,负责推理与决策;② <b>规划(Planning)</b>,把大任务拆解、分步执行;③ <b>记忆(Memory)</b>,短期记当前对话、长期沉淀事实偏好;④ <b>工具使用(Tool Use)</b>,调用外部 API/搜索/代码补足模型没有的能力。它们被一个「观察→思考→行动→观察」的循环串起来,反复迭代直到达成目标。业内经典框架(Lilian Weng 提出)几乎都是这个拆法,LangGraph、AutoGen 也都照此组织。"</p>
+    <p>"一句话定义:<b>Agent 是一个以 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Large_language_model">LLM</a> 为大脑、在「观察→思考→行动」循环里自主调用工具、直到完成目标的系统</b>。核心四件套:① <b>LLM 大脑</b>，负责推理与决策；② <b>规划</b>,把大任务拆成可执行的小步，错了会反思重来；③ <b>记忆</b>,短期记当前对话、长期沉淀可检索的事实和偏好；④ <b>工具使用</b>,调用 API、执行代码，补上模型没有的实时数据和行动能力。四件套被一个<b>执行循环</b>串起来：观察环境→思考决策→执行工具→看反馈→继续，直到达成目标。这套拆法来自 <a target="_blank" rel="noopener" href="https://lilianweng.github.io/posts/2023-06-23-agent/">Lilian Weng 的经典框架</a>,<a target="_blank" rel="noopener" href="https://langchain-ai.github.io/langgraph/">LangGraph</a>、<a target="_blank" rel="noopener" href="https://microsoft.github.io/autogen/">AutoGen</a> 等主流框架都照此组织。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>把 Agent 想象成一个<b>新来的实习生</b>:他的<b>大脑</b>(LLM)聪明但没经验、也不懂公司业务;得有人教他<b>拆任务</b>(规划:先做什么、后做什么);他需要一本<b>笔记本</b>(记忆:刚才老板说了啥、客户是谁)随时翻;还要给他<b>工具和权限</b>(能查数据库、能发邮件、能搜索)——否则光有脑子什么也干不了。所谓 Agent 系统,就是给这个实习生配齐「脑子 + 计划 + 笔记本 + 工具箱」,并让他在"干活 → 看结果 → 调整"的循环里自己把事情办成。</p>
+    <p><b>Agent(用「智能化的备份编排系统」想)</b>:你熟悉的备份系统里有个调度中枢，按写死的规则触发任务；Agent 就是把这套系统的「决策中枢」从规则引擎换成 LLM 这个概率推理引擎——它不再照本宣科跑固定流水线，而是看现场、自己决定下一步。<b>哪里像</b>:都是「中枢 + 外围组件 + 循环干活」的结构；<b>哪里不像</b>:规则引擎确定性可测，LLM 的决策是概率性的，同样的输入可能给出不同的行动。</p>
+    <p><b>规划 Planning(用「备份任务编排」想)</b>:一次全量备份要拆成「发现→快照→传输→校验→清理」的子任务链，失败了还得重排——Planning 干的就是这件事。<b>哪里像</b>:都是任务分解 + 失败重规划；<b>哪里不像</b>:备份编排的拆解逻辑是人写死的，Agent 的拆解由模型现场推理生成，灵活但可能拆错，所以要有校验和回退。</p>
+    <p><b>记忆 Memory(用「冷热分层存储」想)</b>:短期记忆是内存——当前对话的上下文，快但容量有限；长期记忆是磁盘/归档——事实与偏好沉淀成可检索的记录，需要时再捞回来。<b>哪里像</b>:都在「贵的快介质放热的、便宜的慢介质放冷的」之间做权衡；<b>哪里不像</b>:存储分层按访问频率静态迁移，记忆的写入和淘汰要看「对当前任务有没有用」，语义相关性比访问频率更关键。</p>
+    <p><b>工具 Tool Use(用「阵列快照 API」想)</b>:备份软件自己不会造快照，靠调用存储阵列的接口；Agent 自己查不了实时数据，靠调用搜索、数据库、代码执行器。<b>哪里像</b>:都是把外部能力标准化成「中枢可调用的接口」；<b>哪里不像</b>:传统调用的参数是代码写死的，Agent 的调用参数由 LLM 现场生成——所以要加 schema 校验，防它「传错参数」。</p>
+    <p><b>执行循环(用 Kubernetes 的调谐循环想)</b>:<a target="_blank" rel="noopener" href="https://kubernetes.io/docs/concepts/architecture/controller/">controller 的 reconcile 循环</a>是「观察实际状态→与期望比对→采取行动→再观察」，Agent Loop 一模一样，只是「比对和决策」那一步交给了 LLM。<b>哪里像</b>:都靠反馈闭环一步步逼近目标；<b>哪里不像</b>:reconcile 的期望状态是人定义的、收敛路径可预期，Agent 的目标常是模糊的自然语言，还可能越跑越偏——所以必须外加停止条件和预算上限。</p>
+    <p><b>一句话收束</b>:Agent 就是「把写死规则的中枢换成会推理的大脑，并配上任务拆解、分层记忆、外部工具和一个反馈循环」的自治系统。设计它的心态要像设计分布式系统:<b>不假设大脑永远正确</b>，就像不假设网络永远可靠。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
     <p><b>1. 定义与本质:Agent = LLM + 环境交互能力</b></p>
     <ul>
-      <li>传统 LLM 是「一问一答的百科全书」:输入文本、输出文本,无状态、无副作用。</li>
-      <li>Agent 多了两个关键能力:① 能<b>行动</b>(调用工具/写代码/改数据);② 能在<b>循环</b>中根据环境反馈自我修正。</li>
-      <li>判断标准:如果只是把 prompt 丢给 LLM 再返回,那是「应用」;只有当系统自主决定"下一步做什么、要不要调工具、结果不行就换策略"时,才叫 Agent。</li>
+      <li>传统 LLM 调用像<b>无状态的纯函数</b>:文本进、文本出，不碰外部世界、不留副作用，两次调用之间互相不认识——没有会话，像无连接的请求一样用完即弃。</li>
+      <li>Agent 在此之上加了两个关键能力:① 能<b>行动</b>(调用工具/执行代码/读写数据，产生真实副作用);② 能在<b>循环</b>中根据环境反馈自我修正——这一轮干砸了，下一轮换个策略再来。</li>
+      <li>判断标准看「控制流在谁手里」:如果每一步做什么都是你的代码写死的，那只是 LLM 应用；只有当<b>「下一步做什么」由模型自己决定</b>——要不要调工具、调哪个、参数填什么、失败要不要重试——才叫 Agent。</li>
     </ul>
+    <p>一张表看清分界线:</p>
+    <table>
+      <tr><th>维度</th><th>LLM 应用(单次调用)</th><th>Agent(循环系统)</th></tr>
+      <tr><td>调用模式</td><td>一次请求、一次响应，结束</td><td>多轮循环，每轮由模型决定下一步</td></tr>
+      <tr><td>状态</td><td>无状态，上下文靠外部拼接</td><td>有记忆，跨轮累积、可跨会话沉淀</td></tr>
+      <tr><td>副作用</td><td>只产生文本</td><td>能执行真实操作(查库/写数据/发消息)</td></tr>
+      <tr><td>失败处理</td><td>一次生成定成败</td><td>可观察结果、反思、自我修正</td></tr>
+    </table>
     <p><b>2. 核心组件(四大件 + 一个循环)</b></p>
+    <p>先给一张「翻译表」——四大件在你熟悉的基础设施世界里各对应什么，后面逐个展开:</p>
+    <table>
+      <tr><th>Agent 组件</th><th>基础设施世界的对应物</th><th>本质职责</th></tr>
+      <tr><td>LLM 大脑</td><td>调度中枢的决策模块:规则引擎 → 推理引擎</td><td>决定「下一步做什么」</td></tr>
+      <tr><td>Planning 规划</td><td>任务编排:大任务拆子任务、失败后重排计划</td><td>决定「先后怎么走」</td></tr>
+      <tr><td>Memory 记忆</td><td>冷热分层存储 + catalog 索引</td><td>决定「记得什么、何时取回」</td></tr>
+      <tr><td>Tool Use 工具</td><td>阵列快照 API、磁带库接口等外部能力</td><td>决定「能对外干什么」</td></tr>
+      <tr><td>Agent Loop</td><td>调谐循环 / 作业轮询控制循环</td><td>用反馈闭环逼近目标</td></tr>
+    </table>
     <div class="svgwrap">
 <svg class="sdiagram" viewBox="0 0 560 284" role="img" aria-label="LLM Agent 核心组件架构">
   <rect class="sd-box-amber" x="185" y="14" width="190" height="60" rx="10"/>
@@ -48,37 +72,70 @@
 </svg>
 </div>
     <ul>
-      <li><b>LLM 大脑</b>:推理、决策、生成,是一切智能的源头。</li>
-      <li><b>Planning(规划)</b>:任务分解(CoT/ToT)+ 反思(Reflexion),决定"先做什么、怎么走"。</li>
-      <li><b>Memory(记忆)</b>:短期(上下文/滑动窗口/摘要)+ 长期(向量库/知识图谱),决定"我记得什么"。</li>
-      <li><b>Tool Use(工具)</b>:Function Calling / API / 代码解释器,决定"我能干什么"。</li>
-      <li><b>执行循环(Agent Loop)</b>:把这四者串起来——观察环境 → 规划 → 选择行动 → 执行工具 → 观察结果 → 更新记忆 → 继续,直到达成目标或触发停止条件。</li>
+      <li><b>LLM 大脑</b>:一切智能的源头，负责理解目标、推理决策、生成下一步行动指令。它相当于把传统系统里「人写死的决策逻辑」换成「预训练出来的通用推理能力」——能力上限高了一个量级，但也引入了不确定性：同样的输入不保证同样的输出。这个「不可靠的大脑」是后面所有兜底设计(校验/重试/预算)的根源，就像分布式系统设计从「网络会丢包」这个假设出发一样。</li>
+      <li><b>Planning(规划)</b>:决定"先做什么、怎么走"。两条腿:① <b>任务分解</b>——<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2201.11903">CoT(Chain-of-Thought)</a> 让模型把推理过程一步步写出来，<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.10601">ToT(Tree of Thoughts)</a> 把推理组织成可回溯的树、同时探索多条路线再择优;② <b>反思修正</b>——<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2303.11366">Reflexion</a> 让模型把失败原因写成文字存进记忆，下一轮带着教训重来，像极了备份任务失败后「先根因分析、再重排计划」的动作。</li>
+      <li><b>Memory(记忆)</b>:决定"我记得什么"。短期记忆就是<b>上下文窗口</b>里的当前对话，容量有限，装不下时用<b>滑动窗口</b>(丢最老的)或<b>滚动摘要</b>(把旧内容压成摘要)腾地方；长期记忆把事实、偏好、历史结论落到外部库(常用向量库或知识图谱)，需要时靠 Embedding 算出语义向量、向量检索召回 top-k 相关条目再拼回上下文。这就是你熟悉的冷热分层：热数据放「内存」(上下文)，冷数据落「磁盘」(外部库)，按需读取。</li>
+      <li><b>Tool Use(工具)</b>:决定"我能干什么"。主流实现是 <a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function Calling</a>:你把每个工具的名字、用途、参数 schema 描述给模型，模型输出「我要调 X 工具、参数是 Y」的结构化指令，<b>真正执行的是你的运行时代码</b>——模型只负责点菜，后厨是你的代码，所以参数校验、超时、重试都攥在你手里。常见工具:搜索/知识库检索、数据库查询、代码解释器(让模型写段代码跑出结果)。</li>
+      <li><b>执行循环</b>:把四件套串起来的主循环——观察环境→规划→选择行动→执行工具→观察结果→更新记忆→继续，直到达成目标或触发停止条件。最经典的实现是 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a>:模型交替输出「思考+ 行动」，运行时执行行动、把结果作为「观察」拼回上下文，再触发下一轮思考。</li>
     </ul>
+    <p>把这套循环跑一遍，长这样(用一个你天天见的场景):</p>
+<pre class="code">
+一次 Agent 干活的完整轨迹(任务:「排查线上备份任务为何失败」)
+
+ 用户目标 ──► [观察] 拿到目标与环境(可用工具:任务查询 / 日志检索 / 工单系统)
+                 │
+                 ▼
+   ╔══════════════ Agent Loop ══════════════╗
+   ║ [思考] 先查有哪些任务失败,再深挖日志   ║
+   ║ [行动] 调用 任务查询(status=failed)    ║
+   ║ [观察] 3 个失败任务,错误码 E_TIMEOUT   ║
+   ║ [思考] 超时?怀疑被限流,去日志找证据    ║
+   ║ [行动] 调用 日志检索(keyword=429)      ║
+   ║ [观察] 命中:上游确实返回了 429         ║
+   ║ [思考] 证据链完整 → 输出结论(停止条件) ║
+   ╚═══════════════════╤════════════════════╝
+                       ▼
+   最终答案:根因是限流,建议错峰重试 + 调大超时
+
+ 注:每轮的[观察]都会写回短期记忆,成为下一轮[思考]的输入
+</pre>
+    <p>注意轨迹里的关键细节:每轮的「观察」都会写回短期记忆，成为下一轮「思考」的输入。这就是 Agent 与单次调用最大的不同——它有<b>过程</b>，能在过程中纠偏。</p>
     <p><b>3. 为什么必须要有这四块(缺一不可)</b></p>
     <table>
       <tr><th>缺了哪块</th><th>后果</th></tr>
-      <tr><td>没有 Tool Use</td><td>知识静态、过时,不能查实时数据、不能执行操作(下单/发邮件)</td></tr>
-      <tr><td>没有 Memory</td><td>多轮对话"失忆",无法个性化、无法跨会话延续</td></tr>
+      <tr><td>没有 Tool Use</td><td>知识静态、过时，不能查实时数据、不能执行操作(下单/发邮件)</td></tr>
+      <tr><td>没有 Memory</td><td>多轮对话"失忆"，无法个性化、无法跨会话延续</td></tr>
       <tr><td>没有 Planning</td><td>复杂任务(研究课题、订多段行程)一次生成容易跑偏、遗漏</td></tr>
-      <tr><td>没有执行循环</td><td>输出一次就结束,错了也不会自我纠正</td></tr>
+      <tr><td>没有执行循环</td><td>输出一次就结束，错了也不会自我纠正</td></tr>
+      <tr><td>没有停止条件(循环的一部分)</td><td>循环停不下来，token 成本与延迟失控，属于生产事故级隐患</td></tr>
     </table>
-    <p><b>4. 设计 trade-off</b>:组件越多,链路越长,失败点、成本、延迟都上升。设计原则是「够用就好」——简单任务一个 LLM + 一个工具就够,不必上全套;复杂度要跟着任务复杂度走,而不是炫技。</p>
+    <p>按「短板效应」理解这张表：任何一块缺失，整个系统的能力上限就被钉死在那一块上——跟分布式系统里「任一单点组件决定整体可用性」是同一个道理。所以面试时别只背四件套的名字，能对着这张表讲出「缺了会死在哪」，才证明你真理解。</p>
+    <p><b>4. 设计 trade-off</b>:组件越多，链路越长，失败点、成本、延迟都上升。每一轮循环都是一次完整的 LLM 调用，N 轮循环就是 N 倍的 token 费用与响应延迟；任何一个工具超时都会卡住整个循环，链路里每多一个组件就多一个故障域——跟你做备份编排时的链路分析是同一门课。所以设计原则是「够用就好」——知识问答类需求，一次检索 + 一次生成(即 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Retrieval-augmented_generation">RAG</a>)就够，不必上 Agent;只有任务真的需要多步决策、动态选路、根据反馈调整时才值得。复杂度要跟着任务复杂度走，而不是炫技。面试里主动说出这句话，比背十个框架名字更加分。</p>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:Agent 和「LLM + Prompt」的本质区别是什么?</summary><div class="an">区别在于「自主循环 + 行动能力」。Prompt 应用是单次输入输出的映射,LLM 不感知环境、不产生副作用;Agent 把 LLM 放进观察-思考-行动的循环里,由它自己决定调不调工具、调哪个、结果不满意就换策略,直到目标完成。另一个判据是「是否有外部副作用」:Agent 能改数据、发消息、执行代码,纯生成没有。</div></details>
-    <details class="qa"><summary class="qu">Q:为什么说 LLM 是"大脑"而不是"Agent 本身"?</summary><div class="an">LLM 只提供推理和生成,它自己没有手(不能执行)、没有眼睛(不能感知)、没有记忆(无状态)。是外围的规划器、记忆库、工具运行时和环境共同构成了 Agent。所以 Agent 是「以 LLM 为核心的一个系统」,而非模型本身——这也是为什么换个更强的模型只是升级了大脑,Agent 架构能力(循环/记忆/工具治理)仍要自己建。</div></details>
-    <details class="qa"><summary class="qu">Q:你项目里会选哪些现成框架来实现?</summary><div class="an">分场景:需要复杂状态图和可恢复的工作流用 <b>LangGraph</b>(checkpoint + 条件边);多角色协作/对话用 <b>AutoGen</b>;轻量单 Agent 用 LangChain Agent + tool。决策依据是「是否需要图/状态持久化、是否需要多人协作」,而不是框架名气。</div></details>
+    <details class="qa"><summary class="qu">Q:Agent 和「LLM + Prompt」的本质区别是什么？</summary><div class="an"><b>人话:</b>差别在「自主循环 + 行动能力」。Prompt 应用是一次请求一次回答，问完即散场；Agent 把模型放进循环里，由它自己决定调不调工具、结果不满意就换策略，直到目标达成。<b>类比:</b>就像「跑一次性脚本」和「跑常驻编排进程」的区别——脚本执行完就退出，编排进程持续观察、决策、行动；前者是工具，后者才是干活的人。<b>技术:</b>两个硬判据:① 控制流归属——Agent 的下一步动作由模型输出决定(输出结构化行动指令，由运行时执行);② 有无副作用——能查库、写数据、发消息才算「行动」，纯文本生成再长也只是应用。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么说 LLM 是"大脑"而不是"Agent 本身"？</summary><div class="an"><b>人话:</b>LLM 只会「想」和「说」:不能执行动作(没有手)、不能感知环境(没有眼)、对话结束就失忆(没有记性)。是外围的循环、记忆、工具运行时把「想法」变成「结果」。<b>类比:</b>CPU 不等于计算机——没有内存、磁盘、网卡和操作系统，算得再快也只是颗芯片；LLM 之于 Agent,正是 CPU 之于整机。<b>技术:</b>LLM 本质是无状态推理服务，每次调用只依赖传入的上下文；状态管理、工具治理、失败恢复全在外围系统。所以换更强的模型只是升级大脑，循环架构、记忆设计、权限控制仍要自己建——这正是面试官想听的工程视角。</div></details>
+    <details class="qa"><summary class="qu">Q:你项目里会选哪些现成框架来实现？</summary><div class="an"><b>人话:</b>按任务形态选，不看名气:流程复杂、要可中断恢复选 LangGraph;多角色协作选 AutoGen;轻量单 Agent 用 LangChain 或干脆自己写个百行循环。<b>类比:</b>跟选存储后端一个逻辑——先看访问模式(块/对象/文件)再选介质，而不是先看哪个牌子响；框架选型先问「要不要状态图持久化」「要不要多角色协作」。<b>技术:</b>LangGraph 核心是状态图 + checkpoint,每个节点可持久化、可恢复，类似工作流引擎的断点续跑；AutoGen 面向多 Agent 对话协作编排；自研循环的好处是完全掌控工具权限、预算上限和观测埋点，量小时反而更稳。</div></details>
+    <details class="qa"><summary class="qu">Q:Agent 的记忆系统你会怎么设计？</summary><div class="an"><b>人话:</b>分两层:短期记忆放当前任务的上下文，长期记忆放跨会话可复用的事实与偏好；用到时从长期库检索回来拼进上下文。<b>类比:</b>就是存储冷热分层——热数据放内存(上下文窗口)，冷数据落盘(外部记忆库)按需读取；窗口装不下就像内存不够，要么淘汰旧页(滑动窗口)，要么压缩(滚动摘要)。<b>技术:</b>短期用滑动窗口 + 摘要控制 token 预算；长期把事实/偏好/历史结论写成记录，经 Embedding 入向量库，用时向量检索召回 top-k 拼回 prompt;另一个设计重点是「何时写回长期记忆」——不是每句话都值得落盘，要有筛选。</div></details>
+    <details class="qa"><summary class="qu">Q:如果 Agent 陷入死循环、或者乱调工具，怎么治理？</summary><div class="an"><b>人话:</b>上三道闸:预算闸(轮数/成本上限)、权限闸(工具白名单 + 高危操作人工审批)、行为闸(超时熔断 + 连续失败降级)。<b>类比:</b>跟防备份任务风暴一个思路——限流、配额、熔断、告警全套伺候；区别是这次不可靠的组件是「大脑」本身，还得在它的输出侧做校验。<b>技术:</b>① 循环上限 + token/费用预算，超限强制终止并汇报半成品结论；② 工具分级授权，写操作走 human-in-the-loop 审批；③ 每步校验工具返回(schema 校验/结果断言)，连续失败 N 次降级或转人工；④ 全链路 trace,事后可回放归因。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
       <div class="term-item"><b>LLM Agent</b>:以大模型为核心、可自主行动完成目标的系统。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://lilianweng.github.io/posts/2023-06-23-agent/">Lilian Weng 四件套</a></b>:大脑+规划+记忆+工具的经典 Agent 拆解框架，业内通用语言。</div>
       <div class="term-item"><b>Agent Loop</b>:观察→思考→行动→观察的循环执行结构。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a></b>:让模型交替输出「思考+行动」、把工具结果拼回上下文的经典 Agent 协议。</div>
       <div class="term-item"><b>Planning</b>:任务的分解、推理路径搜索与反思修正。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2201.11903">Chain-of-Thought</a></b>:让模型把推理过程一步步写出来再下结论，是规划能力的地基。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2303.11366">Reflexion</a></b>:失败后生成文字反思存入记忆、下轮参考，实现自我修正。</div>
       <div class="term-item"><b>Memory</b>:短期(上下文)与长期(可检索事实)记忆系统。</div>
       <div class="term-item"><b>Tool Use</b>:模型通过结构化指令调用外部 API 的能力。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function Calling</a></b>:模型按预定义 schema 输出结构化调用指令、由运行时代码执行的工具调用机制。</div>
       <div class="term-item"><b>Environment</b>:Agent 交互的外部世界(网页/API/代码/数据库)。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://langchain-ai.github.io/langgraph/">LangGraph</a></b>:以状态图 + checkpoint 组织 Agent 流程的主流框架，支持断点恢复。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Human-in-the-loop">Human-in-the-loop</a></b>:高危操作交人工审批再执行的安全机制。</div>
     </div>
   </div>
 </article>

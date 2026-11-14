@@ -8,21 +8,34 @@
     <span class="company">所有公司（高频）</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>LLM 本质是个「接话机器」，没手、没网、没 shell，凭什么能替你查天气、查订单、触发备份？这题问的就是这条「指挥链」怎么搭。面试官爱考，是因为一句「模型自己执行了 API」就能筛掉一批人——干过的人都知道：模型只出工单，干活的一直是你的代码；答不出这层，暴露的就是没亲手写过 Agent 执行循环。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"关键认知:模型<b>并不真正「执行」工具,它只「生成调用意图」</b>。Function Calling 的流程:把每个工具用 JSON Schema 描述(名称、作用、参数类型)传给模型 → 模型判断「要不要调、调哪个、参数填什么」,输出一个结构化的 <b>tool_call</b> → 由<b>程序</b>去执行并把结果回填 → 模型基于结果继续生成最终回答。能力来自训练阶段的 instruction tuning(教它何时调用、格式如何),推理阶段靠 schema + 执行循环保证稳定。相比 ReAct 的纯文本,FC 结构化、可校验、支持并行多工具,是生产首选。"</p>
+    <p>"关键认知：模型<b>并不真正「执行」工具，它只「生成调用意图」</b>——这句话是整道题的题眼。<a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function Calling</a> 的流程：把每个工具用 <a target="_blank" rel="noopener" href="https://json-schema.org/">JSON Schema</a> 描述(名称、作用、参数类型)随请求传给模型 → 模型判断「要不要调、调哪个、参数填什么」，输出一个结构化的 <b>tool_call</b> → 由<b>程序</b>解析校验后执行真实函数/API，并把结果作为新消息回填 → 模型基于结果继续生成，可能再来一轮，直到给出最终回答。能力来自训练阶段的 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2304.14354">instruction tuning</a>(指令微调：教它何时调用、格式如何)，推理阶段靠 schema + 执行循环保证稳定。相比 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a> 的纯文本约定，FC 结构化、可校验、支持并行多工具，是生产首选。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>像<b>餐厅点菜</b>:菜单(工具 Schema)写清楚每道菜的名字、配料、辣度(参数);顾客(模型)说"我要宫保鸡丁,微辣"(生成 tool_call,而不是自己去后厨炒);服务员(程序)下单、后厨(真实 API)做菜,再把菜端回来(结果回填);顾客尝一口决定要不要加菜(继续生成)。模型从头到尾只是"点单",真正动手的是后厨——这就是"模型学会了调用工具"的真相。</p>
+    <p><b>Function Calling(用备份系统里「中央调度器 + 执行代理」的分工想)</b>:把 LLM 想成那个<b>只下工单、从不亲手碰存储的中央调度器</b>。作业模板库就是工具的 JSON Schema(每张模板写死作业名、必填字段、取值范围)；它读一眼需求(用户问题)，挑一张合适的模板，把卷名、时间窗填进去——开出的那张<b>作业单就是 tool_call</b>;真正挂卷、读写数据的是各节点的执行代理，也就是<b>你的程序 + 真实 API</b>;执行完的回执(工具结果)交回调度器，它看一眼：要追加作业就再开单，信息够了就出<b>排障报告(最终回答)</b>。整个 Function Calling,就是这套「调度 → 执行 → 回执 → 再决策」循环的 LLM 版。教科书里更常见的讲法是餐厅点菜：顾客(模型)照菜单(schema)点菜但不进后厨，服务员(程序)下单传菜，顾客尝一口再决定加不加菜——同一套循环，换个行业皮肤而已。</p>
+    <p><b>哪里像</b>:① 调度器只决策不执行，LLM 也只生成 tool_call、从不真正调 API——这是最重要的对应关系；② 作业模板必须预先注册、字段写死，工具 schema 也是提前声明、随请求传入，模型填不出 schema 之外的字段；③ 拿到回执决定下一步(备份失败 → 追加一张「查日志」的作业单)，对应模型看到工具结果后决定是否再调用；④ 模板库里没有的作业类型，调度器想下也下不出来——模型同样只能在 tools 列表里选。<b>哪里不像</b>:① 传统调度器的决策是人写死的规则/状态机，永远确定；LLM 的决策是从海量样本学出来的统计模式，同一个问题两次填单可能不一样，所以执行前<b>必须校验</b>;② 传统系统里模板只是注册信息，FC 里 schema 的 description 会直接拼进模型输入——<b>说明书写得糊，选错率立刻上升</b>,「文档质量影响系统行为」在这里是字面成立的；③ 传统调度器不会越权，LLM 却可能幻觉出模板里没有的参数值(编一个不存在的卷名)，所以要白名单校验 + 最小权限。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 本质澄清</b></p>
+    <p><b>1. 本质澄清：模型是「出单的」，不是「干活的」</b></p>
+    <p>先把最容易答错的一点钉死：LLM 无法直接执行任何东西，它只会预测 token。给它一段对话，它续写一段文本，仅此而已——没有网络权限、没有 shell、没有文件系统，就像调度器没有手。所谓"调用工具"，实际是模型生成一段符合约定的调用指令(JSON)，由应用层解析后去执行真实函数/API，再把执行结果作为新消息回填。整条链路里，模型的位置永远是「出单」，「干活」的始终是你的代码。</p>
     <ul>
-      <li>LLM 无法直接执行任何东西,它只会预测 token。所谓"调用工具",实际是模型生成一段符合约定的调用指令(JSON),由应用层解析后去执行真实函数/API,再把执行结果作为新消息回填。</li>
-      <li>所以"学会调用工具" = 学会两件事:① 什么时候该调、调哪个(<b>意图判断</b>);② 参数怎么填、格式对不对(<b>结构化生成</b>)。</li>
+      <li>所以"学会调用工具" = 学会两件事：① 什么时候该调、调哪个(<b>意图判断</b>);② 参数怎么填、格式对不对(<b>结构化生成</b>)。这两件事都是训练阶段练出来的肌肉记忆，不是推理时的魔法。</li>
+      <li>反过来，模型<b>不会</b>做的事也记牢：它不会执行任何代码、不会自己上网、调不到你没在 tools 里声明的工具(幻觉除外，见追问)。</li>
     </ul>
-    <p><b>2. 三步循环</b></p>
+    <table>
+      <tr><th>常见误解</th><th>实际机制</th></tr>
+      <tr><td>「模型自己执行了 API」</td><td>模型只生成 tool_call(一张 JSON 工单)，解析和执行都发生在你的程序里</td></tr>
+      <tr><td>「开了 FC 模型就联网了」</td><td>推理过程没有任何网络/磁盘权限，外部信息只能由你执行后回填</td></tr>
+      <tr><td>「每接一个新工具都要重新训练」</td><td>FC 是通用能力，接新工具只需写一份 schema，零训练零微调</td></tr>
+      <tr><td>「FC 是个开关，一开就稳」</td><td>稳定性来自 instruction tuning 的功底，弱模型开了 FC 也照样频繁吐坏 JSON</td></tr>
+    </table>
+
+    <p><b>2. 三步循环：出单 → 干活 → 回执，循环往复</b></p>
+    <p>流程上记住五个动作：<b>带单进(请求里带上 tools schema)→ 模型出单(tool_call)→ 程序干活(解析、校验、执行)→ 回执进单(tool 结果回填)→ 模型看回执，决定出下一张单还是收工</b>。下面这张图是单轮视图，真正值得注意的是图上那条虚线回环——它才是生产环境的常态：</p>
     <div class="svgwrap">
 <svg class="sdiagram" viewBox="0 0 850 124" role="img" aria-label="Function Calling 工具调用流程">
   <rect class="sd-box-rose" x="10" y="44" width="140" height="64" rx="10"/>
@@ -48,43 +61,173 @@
   <text class="sd-ts" x="420" y="20" text-anchor="middle">可能需第二轮 tool_call</text>
 </svg>
 </div>
-    <p><b>3. 能力从哪来(训练)</b></p>
+    <p>换成「你的程序」这个视角，把循环展开长这样——注意所有兜底分支最后都汇回「再调一次 LLM」:</p>
+    <pre class="code">用户问题
+  │
+  ▼
+① 组装请求: messages(对话历史) + tools(工具 schema 清单)──→ 调用 LLM
+  │
+  ▼
+② 看模型返回的 finish_reason
+  │
+  ├── "stop" ──────────→ 流式输出最终回答,循环结束
+  │
+  └── "tool_calls" ─┐
+                    ▼
+③ 解析 tool_call(工具名 + 参数)
+   校验:工具在白名单里?参数类型合法?
+   ├── 不合法 → 把报错当 tool 消息回填 ──→ 回到 ② 让模型重出单
+   └── 合法 ↓
+④ 执行真实函数 / API(外部依赖三件套:超时 · 限流 · 熔断)
+   ├── 超时/报错 → 错误信息回填 ──→ 回到 ②
+   └── 成功 ↓
+⑤ 结果太长先截断/摘要 → 追加 role:"tool" 消息 ──→ 回到 ②,带着回执再调 LLM</pre>
+    <p>再落到消息序列上看一遍(OpenAI 风格，各家字段大同小异)。重点是：<b>模型返回 tool_call 时并不认为自己「答完了」，它只是在等回执</b>:</p>
+    <pre class="code">【第 1 轮:你发给模型的】
+messages = [
+  {"role": "user", "content": "vol-7f3a 昨天的备份为什么失败?"}
+]
+tools = [query_backup_status 的 schema]      ← 工具说明书随请求一起给
+
+【模型返回:注意不是答案,是一张工单】
+{
+  "role": "assistant",
+  "finish_reason": "tool_calls",
+  "tool_calls": [{
+      "id": "call_001",
+      "function": {"name": "query_backup_status",
+                   "arguments": "{\"volume_id\": \"vol-7f3a\", \"date\": \"yesterday\"}"}
+  }]
+}
+
+【你的程序执行完,把回执追加进历史,发起第 2 轮】
+messages += [
+  {"role": "assistant", "tool_calls": [ ...上面那张工单原样追加... ]},
+  {"role": "tool", "tool_call_id": "call_001",
+   "content": "{\"status\": \"failed\", \"error\": \"snapshot timeout\"}"}
+]
+
+【第 2 轮模型返回:信息够了,给出最终回答】
+{"role": "assistant", "content": "vol-7f3a 昨天备份失败,原因是快照超时…"}</pre>
     <ul>
-      <li><b>闭源 API</b>(OpenAI/Claude/国产):厂商在 instruction tuning 阶段用大量 <code>(query → tool_call → tool_result → answer)</code> 数据训练,推理时用 <code>tools</code> 字段传入 schema。</li>
-      <li><b>开源模型</b>(Qwen / Hermes / Llama 3.1 等):用各自 chat template 里约定的 FC 格式,内置 FC 能力;能力弱的可用 FC 数据 SFT 增强。</li>
-      <li>推理侧零成本的关键是 <b>schema 写得好</b>:描述里写清"何时该用/何时不该用",直接决定选工具的准确率。</li>
+      <li><b>finish_reason 是 "tool_calls" 而不是 "stop"</b>:程序靠这个标记区分「该去执行工具」和「该把回答吐给用户」。</li>
+      <li><b>assistant 的 tool_calls 要原样追加进历史</b>:回执靠 tool_call_id 对回工单，否则模型不知道这条结果对应哪次调用。</li>
+      <li><b>循环不是一趟跑完</b>:用户问「vol-7f3a 昨天的备份为什么失败」——第 1 轮模型调 query_backup_status 查到 status=failed;第 2 轮它自己决定再调 get_backup_log 拿错误详情，发现「快照超时」；第 3 轮不再出单，输出结论。执行循环的价值就在这：<b>模型能基于中间结果决定下一步</b>，像运维排障一样迭代。</li>
     </ul>
-    <p><b>4. Schema 设计要点</b></p>
+    <table>
+      <tr><th>消息角色</th><th>谁写入</th><th>装什么</th><th>调度系统类比</th></tr>
+      <tr><td>user</td><td>用户/上游系统</td><td>原始问题</td><td>故障工单</td></tr>
+      <tr><td>assistant(tool_calls)</td><td>模型</td><td>要调哪个工具、参数是什么</td><td>调度器开出的作业单</td></tr>
+      <tr><td>tool</td><td>你的程序</td><td>执行结果或报错，靠 tool_call_id 对回工单</td><td>作业回执</td></tr>
+      <tr><td>assistant(最终)</td><td>模型</td><td>面向用户的自然语言回答</td><td>排障报告</td></tr>
+    </table>
+
+    <p><b>3. 能力从哪来(训练)：教出来的，不是推理时悟出来的</b></p>
     <ul>
-      <li>名称 + 描述(含正反例)、参数 JSON Schema(类型/必填/枚举/默认值)。</li>
-      <li>允许模型返回多个 tool_call 实现<b>并行</b>(如同时查天气 + 查订单)。</li>
-      <li>权限最小化:只给任务需要的工具,减少选错面。</li>
+      <li><b>闭源 API</b>(OpenAI/Claude/国产)：厂商在 instruction tuning 阶段用大量 <code>(query → tool_call → tool_result → answer)</code> 样本训练，把「何时调、调哪个、参数怎么填、结果怎么用」整套行为压进权重；推理时你只需在请求的 <code>tools</code> 字段传入 schema。一条训练样本长这样：</li>
     </ul>
-    <p><b>5. 工程细节</b></p>
+    <pre class="code">一条 FC 训练样本(instruction tuning 数据)
+——本质是教模型「在正确时机填出正确的标准工单」
+{
+  "messages": [
+    {"role": "user",      "content": "帮我看看订单 8899 发了没"},
+    {"role": "assistant", "tool_calls": [{
+        "function": {"name": "query_order",
+                     "arguments": "{\"order_id\": \"8899\"}"}}]},
+    {"role": "tool",      "name": "query_order",
+     "content": "{\"status\": \"已发货\", \"eta\": \"明天送达\"}"},
+    {"role": "assistant", "content": "订单 8899 已发货,预计明天送达。"}
+  ]
+}
+几十万条这种样本喂进去,模型就学会四件事:
+何时调 / 调哪个 / 参数怎么填 / 结果怎么组织成回答</pre>
     <ul>
-      <li><b>JSON 解析容错</b>:模型偶发非法 JSON → 重试、带纠错提示重问、或宽松解析。</li>
-      <li><b>超时/限流</b>:工具是外部依赖,防慢调用拖垮链路。</li>
-      <li><b>结果截断</b>:工具返回超长要截断/摘要,否则挤爆上下文。</li>
-      <li><b>流式 + FC</b>:先等 tool_call 完整、执行完再继续流式生成,处理好衔接。</li>
+      <li><b>开源模型</b>(Qwen / Hermes / Llama 3.1 等)：各家 <a target="_blank" rel="noopener" href="https://huggingface.co/docs/transformers/chat_templating">chat template</a> 里约定了 FC 的特殊格式，能力内置；能力弱的模型可以用 FC 数据做 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Fine-tuning_(deep_learning)">SFT</a> 增强。把开源模型的 FC 输出打出来看，它其实也是「特殊标记包起来的文本生成」：</li>
     </ul>
-    <p><b>6. 为什么优于文本 ReAct</b>:结构化(天然可解析校验)、稳定(格式由 schema 约束)、可并行(一次声明多个调用)。但 FC 也"更刚性",需要模型支持;ReAct 文本协议更通用。</p>
+    <pre class="code">Qwen/Hermes 风格:FC = 特殊 token 包起来的文本,并没有什么黑魔法
+&lt;|im_start|&gt;user
+vol-7f3a 昨天的备份为什么失败?&lt;|im_end|&gt;
+&lt;|im_start|&gt;assistant
+&lt;tool_call&gt;
+{"name": "query_backup_status", "arguments": {"volume_id": "vol-7f3a", "date": "yesterday"}}
+&lt;/tool_call&gt;&lt;|im_end|&gt;</pre>
+    <ul>
+      <li><b>推理侧零成本的关键是 schema 写得好</b>:描述里写清“何时该用/何时不该用”，直接决定选工具的准确率——工具说明书本身就是 prompt 的一部分。</li>
+    </ul>
+    <table>
+      <tr><th></th><th>闭源 API</th><th>开源模型</th></tr>
+      <tr><td>能力来源</td><td>厂商 instruction tuning，FC 行为已进权重</td><td>chat template 约定格式，内置或自行 SFT</td></tr>
+      <tr><td>接入方式</td><td>请求体 tools 字段传 schema</td><td>按模板拼特殊 token，框架代劳</td></tr>
+      <tr><td>格式自由度</td><td>厂商定死，最稳定</td><td>可自定义，但要自己保证一致性</td></tr>
+    </table>
+
+    <p><b>4. Schema 设计要点：说明书就是半个 prompt</b></p>
+    <ul>
+      <li>名称 + 描述(含正反例：什么时候用、什么时候别用)、参数 JSON Schema(类型/必填/枚举/默认值)。</li>
+      <li>允许模型一次返回多个 tool_call 实现<b>并行</b>(如同时查天气 + 查订单)。</li>
+      <li>权限最小化：只给任务需要的工具，减少选错面——给调度器的作业模板库越精简，开错单的概率越低。</li>
+    </ul>
+    <p>一份合格的 schema 长这样(拿备份域举例，注意 description 里那句「何时不用」往往比「何时用」更值钱)：</p>
+    <pre class="code">{
+  "type": "function",
+  "function": {
+    "name": "query_backup_status",
+    "description": "查询指定卷某天的备份状态与耗时。当用户问'某卷备份成功没/最近备份时间/为什么失败'时使用;查恢复任务请改用 get_restore_job,不要用本工具。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "volume_id": {"type": "string",
+                      "description": "卷唯一标识,如 vol-7f3a"},
+        "date":      {"type": "string",
+                      "enum": ["latest", "yesterday"],
+                      "description": "查哪一天的备份,默认 latest"}
+      },
+      "required": ["volume_id"]
+    }
+  }
+}</pre>
+
+    <p><b>5. 工程细节：把「出单-干活」当分布式依赖治理来做</b></p>
+    <ul>
+      <li><b>JSON 解析容错</b>:模型偶发非法 JSON → 重试、带纠错提示重问、或宽松解析(修引号/尾逗号/截断)，兜底是降级为不调工具直接回答。这套分层降级跟容灾设计一个思路：主路径 → 重试 → 纠错重放 → 降级服务 → 人工兜底。</li>
+      <li><b>超时/限流</b>:工具是外部依赖，防慢调用拖垮链路。每个工具设独立超时和并发上限，再加熔断——否则一个 P95 都正常、却被工具超时拖出长尾请求的接口，P99 直接打穿 SLA。治理方式跟备份系统防介质库雪崩完全同构。</li>
+      <li><b>结果截断</b>:工具返回超长(全量日志、大 JSON)要截断/摘要，或 chunk 化分批处理，否则挤爆上下文——等价于告警里只放日志摘要，而不是把全量日志塞进短信。</li>
+      <li><b>流式 + FC</b>:先等 tool_call 完整、执行完再继续流式输出，处理好衔接：首包别傻等(保护 TTFT),执行期间可以先把「正在查询…」推给用户。</li>
+      <li><b>灰度接工具</b>:新工具上线先灰度发布小流量，观察选中率、准确率、耗时再全量——工具也是一种「发布」。</li>
+    </ul>
+
+    <p><b>6. 为什么优于文本 ReAct:结构化带来的确定性</b></p>
+    <p>ReAct 是「用纯文本约定 Thought/Action/Observation」的早期方案，FC 可以理解为它的结构化升级版：</p>
+    <table>
+      <tr><th>维度</th><th>ReAct(文本协议)</th><th>Function Calling(结构化)</th></tr>
+      <tr><td>调用表达</td><td>自由文本 "Action: search[...]",靠正则抽</td><td>原生 JSON tool_call,天然可解析</td></tr>
+      <tr><td>校验</td><td>几乎没法校验，格式漂移只能整段重试</td><td>schema 约束，参数可逐字段校验</td></tr>
+      <tr><td>并行</td><td>难(文本里塞多个 Action 很脆)</td><td>一次声明多个 tool_call,应用层并发执行</td></tr>
+      <tr><td>模型要求</td><td>任何会写文本的模型都能跑</td><td>需要模型经过 FC 训练/模板适配</td></tr>
+      <tr><td>适用场景</td><td>快速原型、弱模型兜底</td><td>生产环境首选</td></tr>
+    </table>
+    <p>一句话:FC 用结构化换来了可校验、可并行、可观测，代价是协议更「刚性」、对模型有要求；ReAct 胜在万能通用。生产上主用 FC、文本协议留兜底是常见组合。至于 N 个 Agent × M 个工具的接入爆炸，由 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Model_Context_Protocol">MCP</a> 标准化解决，追问里展开。</p>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:模型真的"理解"工具吗?还是只背了格式?</summary><div class="an">严格说它没有语义理解,是学到了"语言-调用格式"的统计映射。它判断"该不该调、填什么参数"来自训练数据里学到的模式,所以对没见过的专有工具、模糊的 schema 会出错。工程上我们靠 schema 写清楚、few-shot、以及微调把它约束在正确行为上——别把 FC 当魔法。</div></details>
-    <details class="qa"><summary class="qu">Q:模型返回的 JSON 不合法怎么办?</summary><div class="an">分层兜底:① 重试(同请求再生成一次);② 带纠错提示重问("你上一条不是合法 JSON,请重新输出");③ 宽松解析(修引号/尾逗号/截断);④ 仍失败则降级为不调工具、直接回答或转人工。若某模型非法率持续高,说明它 FC 能力不足,该换模型或微调。</div></details>
-    <details class="qa"><summary class="qu">Q:需要并行调多个工具时怎么处理?</summary><div class="an">让模型一次性输出多个 tool_call;应用层并发执行(线程池/异步),等全部(或按依赖顺序)返回后一起回填。注意依赖关系:如果工具 B 依赖工具 A 的输出,必须串行,不能盲目并行。</div></details>
-    <details class="qa"><summary class="qu">Q:工具太多(几十上百个)模型会选错吗?</summary><div class="an">会,这是真实痛点。对策:① 按场景/路由拆 Agent,每个 Agent 只带少量相关工具;② schema 里写清"何时用/何时不用";③ 用检索式工具选择(先按意图检索出 top-k 工具再给模型);④ 需要时用 FC 数据微调提升选工具准确率。</div></details>
+    <details class="qa"><summary class="qu">Q:模型真的"理解"工具吗？还是只背了格式？</summary><div class="an"><b>人话：</b>它学会的是「看到什么话、该填什么单」的统计规律，不是真懂工具原理。热门工具、清晰需求，它填得很准；冷门工具、含糊的 schema，它就开始瞎猜。<b>类比：</b>像一个把作业手册背得滚瓜烂熟的值班调度员：手册覆盖的工单秒填，手册没写的新型故障只能凭感觉填单。跟传统备份系统里人写死的调度规则最大的不同是——这位值班员会联想，也会想歪。<b>技术：</b>FC 能力来自 instruction tuning 的海量样本，学到的是「语言→调用格式」的条件映射，并没有真正的语义理解。工程上要靠三件事把它摁住：schema 写清正反例、<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Few-shot_learning">few-shot</a> 示范、必要时 FC 数据微调；没见过的专有工具，别指望零样本就稳。</div></details>
+    <details class="qa"><summary class="qu">Q:模型返回的 JSON 不合法怎么办？</summary><div class="an"><b>人话：</b>偶发坏 JSON 很正常，备一套降级链：先重试，再带着报错让它重写，再宽松修复，最后放弃调工具、直接回答或转人工。<b>类比：</b>这就是容灾设计的多级降级：主路径失败 → 原地重试 → 纠错重放 → 降级服务 → 人工兜底；备份作业失败也是先重试、再换介质、最后告警人工，同一个哲学。<b>技术：</b>① 同参数重试一次；② 把坏输出和报错一起回填，让模型自纠错，成功率不低；③ 宽松解析，修引号/尾逗号/截断；④ 仍失败则降级为不调工具直接回答。根治靠约束解码(<a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/structured-outputs">JSON mode/结构化输出</a>),从采样层面保证合法。某模型非法率持续高，说明它 FC 底子不行，该换模型或微调。</div></details>
+    <details class="qa"><summary class="qu">Q:需要并行调多个工具时怎么处理？</summary><div class="an"><b>人话：</b>让模型一次吐出多张互不依赖的工单，程序并发执行，结果凑齐后一起回填；如果 B 要用 A 的结果，必须排队。<b>类比：</b>备份调度器同时把多个卷的作业分发到不同代理并行跑，但「先查卷列表、再按列表下发」这种有依赖的步骤天然串行——本质就是分布式任务调度的 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Directed_acyclic_graph">DAG</a>。<b>技术：</b>① 开启 parallel tool call;② 模型返回 tool_calls 数组，应用层用线程池/异步并发执行；③ 按依赖关系建调用图，独立节点并行、依赖节点等前置完成；④ 全部回填后再进下一轮。注意失败隔离：单个工具挂了只回填错误信息，别让一个慢工具把整批的 SLA 拖成长尾请求。</div></details>
+    <details class="qa"><summary class="qu">Q:工具太多(几十上百个)模型会选错吗？</summary><div class="an"><b>人话：</b>会，这是真实痛点：选项一多，模型就「挑花眼」，选错、漏选都常见。核心思路是别让它一次看全仓库。<b>类比：</b>把几百个运维脚本一次性拍在新值班员桌上，他必然懵；按场景分组、每次只给相关的十来个，准确率立刻回来。<b>技术：</b>① 按场景/路由拆 Agent，每个只挂 5~15 个工具；② schema 写清「何时用/何时不用」；③ 检索式工具选择：对工具名+描述建索引(BM25、向量检索皆可)，按用户意图召回 top-k、必要时 Rerank 再交给模型——本质是「先检索后选择」，和 RAG 同构；④ 高频场景用 FC 数据微调。经验值：单请求挂 20+ 工具，选择准确率明显下滑。</div></details>
+    <details class="qa"><summary class="qu">Q:Function Calling 和 MCP 是什么关系？</summary><div class="an"><b>人话：</b>FC 管「模型怎么表达要调工具」，MCP 管「工具那一侧怎么统一接入」。一个是点单语言，一个是后厨标准插座，互补不互斥。<b>类比：</b>过去每接一个新工具，Agent 都要为它写一遍胶水代码——像每接一种新存储阵列就要写一遍适配层。MCP 把工具接口标准化：工具方实现一次，所有支持协议的 Agent 都能挂载，消掉 N×M 的适配爆炸。<b>技术：</b>MCP(Model Context Protocol)是 2024 年开放的协议，规范了工具的发现、描述与调用报文。落到链路：MCP server 暴露工具 → 宿主把 schema 转成模型的 tools 参数 → 模型照常生成 tool_call → 宿主经 MCP 执行。MCP 不取代 FC，它标准化的是 FC 下游的工具接入层。</div></details>
+    <details class="qa"><summary class="qu">Q:模型会不会编造不存在的工具或参数？怎么防？</summary><div class="an"><b>人话：</b>会。它可能编一个你没注册的工具名，或者瞎填参数(比如一个根本不存在的卷 ID)。防线就一句话：执行前校验、执行时鉴权、全程留痕——它说什么都别直接信。<b>类比：</b>调度单上写了个卷名，你不能拿着单子直接去挂载生产卷：先查配置库里有没有这个卷、这位值班员有没有权限，单子不合法就打回重填。<b>技术：</b>① 白名单校验：工具名+参数先过 schema/枚举校验，不合法就把报错作为 tool 消息回填，让模型重出单；② ID 类参数先查存在性再执行；③ 权限最小化，删除类危险操作加二次确认或人工审批；④ 全链路审计日志。幻觉没法根除，只能用校验把风险挡在产生真实副作用之前。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>Function Calling</b>:模型输出结构化调用指令、由程序执行的能力。</div>
-      <div class="term-item"><b>JSON Schema</b>:描述工具名称、用途、参数的结构。</div>
-      <div class="term-item"><b>tool_call</b>:模型生成的"工具名 + 参数"结构化调用。</div>
-      <div class="term-item"><b>Instruction Tuning</b>:用指令/工具数据微调,让模型学会遵循约定格式。</div>
-      <div class="term-item"><b>Parallel Tool Call</b>:一次生成多个可并行执行的工具调用。</div>
-      <div class="term-item"><b>执行循环</b>:生成→执行→结果回填→再生成的闭环。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function Calling</a></b>:模型输出结构化调用指令、由程序代为执行的能力，是 Agent 使用工具的主流机制。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://json-schema.org/">JSON Schema</a></b>:用 JSON 描述「一份合法 JSON 长什么样」的规范，FC 里用来声明工具的参数结构。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://platform.openai.com/docs/api-reference/chat">tool_call</a></b>:模型生成的「工具名 + 参数」结构化工单，模型只出单、不执行。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2304.14354">Instruction Tuning</a></b>:用「指令 → 期望输出」数据微调，教模型遵循约定的时机与格式。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a></b>:用纯文本 Thought/Action/Observation 约定实现工具调用的早期方案，FC 的前身。</div>
+      <div class="term-item"><b>Parallel Tool Call</b>:一次生成多个互不依赖的 tool_call，由应用层并发执行。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Model_Context_Protocol">MCP</a></b>:把工具的发现/描述/调用标准化的开放协议，解决 N 个 Agent × M 个工具的适配爆炸。</div>
+      <div class="term-item"><b>执行循环</b>:生成 → 执行 → 回填 → 再生成的闭环，Agent 迭代排障的骨架。</div>
     </div>
   </div>
 </article>

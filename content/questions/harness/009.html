@@ -8,16 +8,28 @@
     <span class="company">字节、阿里（高频）</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题问的是:什么时候该把一个 Agent 拆成一队,拆了赚什么、又赔什么。面试官爱考,是因为它天然分两层——吹优势人人会,主动讲代价、还能说出"什么时候坚决不拆"的才是真养过 Agent 的人。答错的暴露点:只喊"多 Agent 更强",讲不出误差级联与状态一致性,约等于没上过生产。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"多智能体系统(MAS)是<b>让多个各司其职的 LLM Agent 通过消息或共享状态协作完成任务</b>的架构,典型是 Supervisor 调度多个专家 Agent。相对单 Agent 有四个优势:<b>任务专注</b>(每个 Agent 上下文小、工具少,准确率更高)、<b>并行执行</b>、<b>独立迭代</b>(模块化)、<b>故障隔离</b>。但代价也很明确:<b>协作开销、状态一致性、误差级联、调试与成本</b>都更复杂。结论:任务可拆、各子任务工具差异大才值得上多 Agent,简单线性任务单 Agent 更稳——能说出这个 trade-off 才是加分项。"</p>
+    <p>"多智能体系统(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Multi-agent_system">MAS</a>)就是<b>把一个什么都会一点的 Agent 拆成多个各司其职的小 Agent,由 <a target="_blank" rel="noopener" href="https://langchain-ai.github.io/langgraph/tutorials/multi_agent/agent_supervisor/">Supervisor</a> 统一调度,靠共享状态或消息协作完成任务</b>——本质是 Agent 世界的"单体拆微服务"。优势四条:<b>上下文专注</b>(每个 Agent 提示词精、工具少,选工具更准)、<b>并行执行</b>(总延迟从串行求和变成取最长一条)、<b>独立迭代</b>(改谁灰度谁,互不拖累)、<b>故障与权限隔离</b>(爆炸半径框死在职责内)。代价也是四条:<b>协作开销</b>(每多一跳就多几次 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Large_language_model">LLM</a> 调用)、<b>状态一致性</b>(并发写同一份 State 要有合并规则)、<b>误差级联</b>(上游错一级、下游错一串)、<b>调试与评估成本翻倍</b>。结论:任务可拆、各子任务工具差异大才值得上多 Agent;线性小任务单 Agent 更稳——能主动说出这个 trade-off 才是加分项。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>就是<b>医院分诊台</b> vs <b>全科医生</b>:分诊台(Supervisor)把病人派给各科专家,专家设备更精(工具更专)、看得更准(上下文更聚焦)、还能同时看几位病人(并行);但代价是<b>挂号、转科、会诊</b>这些协调成本,以及信息在科室间传递时<b>可能传错、传丢</b>。小毛病找全科医生反而又快又便宜——<b>不是越拆越好</b>。</p>
+    <p>教科书爱用"医院分诊台+各科专家"打比方,但对分布式/存储背景的你,更贴身的映射是你维护了多年的<b>备份集群和微服务体系</b>。下面把每个关键概念都拿它对一遍。</p>
+    <p><b>多智能体系统(用"单体应用拆微服务"想)</b>:单 Agent 就是一个<b>单体应用</b>(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Monolithic_application">Monolith</a>)——全部职责、全部工具说明、全部分支逻辑塞进一个进程、一份提示词;多 Agent 就是按职责拆成若干<b>微服务</b>(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Microservices">Microservices</a>),每个服务代码少、依赖少、独立部署,顶上再加一层编排负责路由。</p>
+    <p><b>哪里像</b>:拆的理由一模一样——塞的东西越多越牵一发动全身,只是微服务拆的是<b>代码依赖</b>,Agent 拆的是<b>上下文和工具集</b>;换来的东西也一样:独立迭代、并行扩展、故障域隔离。<b>哪里不像</b>:微服务之间传的是确定性调用,参数错了会抛异常、fail fast;Agent 之间传的是自然语言,错误是"软"的——没有异常可抛,会静默流向下游。记住这条"不像",它是多 Agent 一半新复杂性的根源。</p>
+    <p><b>Supervisor(用备份系统的调度主节点想)</b>:就是你天天打交道的那台编排器:解析策略 → 拆作业 → 下发给各执行节点 → 收结果 → 决定下一步。Supervisor Agent 干的就是这个活,只不过它拆任务靠的是 LLM 的理解和规划,不是写死的规则。</p>
+    <p><b>哪里像</b>:全局流程只有主节点知道,子节点只领活干活,天然防止互相推诿;主节点要轻,重活下沉 worker。<b>哪里不像</b>:传统调度器是"可靠组件",不会理解错策略;Supervisor 自己就是 LLM,自己就会路由错——调度层从零故障假设变成了会犯错的组件,它的路由逻辑反而要重点测试和评测。</p>
+    <p><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Cascading_failure">误差级联</a>(用损坏的增量备份链想)</b>:全量备份坏了,挂在它后面的每一级增量看起来都"备份成功",直到恢复演练那天才发现整条链全废——错误沿依赖链逐级传播,还被"成功"层层掩盖。</p>
+    <p><b>哪里像</b>:上游 Agent 输出错了,下游拿着错误输入继续推理,每一步都推理得"很对",最后结果错得离谱还极难定位。<b>哪里不像</b>:备份链可以靠校验和、定期全量校验及时发现;Agent 输出的是自然语言,没有"校验和"可算,只能靠结构化输出加校验、下游断言、评测集兜底——所以多 Agent 的每个交接点都得设计"验伤"动作。</p>
+    <p><b>共享状态(用多人并发写同一份元数据想)</b>:多个 Agent 读写同一个 State 对象,就像多个进程同时改一张元数据表——不定义合并规则,后写的会覆盖先写的,这是<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Concurrency_control">并发控制</a>里的经典丢失更新问题。</p>
+    <p><b>哪里像</b>:解法同款——锁、版本号,或者干脆把"怎么合并"写成显式函数(<a target="_blank" rel="noopener" href="https://github.com/langchain-ai/langgraph">LangGraph</a> 里叫 reducer:列表字段追加合并,标量字段约定覆盖规则)。<b>哪里不像</b>:元数据冲突是确定性的,谁覆盖谁看时间戳;State 里存的是上下文文本,还可能出现<b>语义冲突</b>——两边都写成功了,内容却互相矛盾,需要 Supervisor 或校验逻辑做语义仲裁,这是传统并发控制里没有的题型。</p>
+    <p><b>并行执行(用多卷并行备份想)</b>:三个卷各 2 小时,并行跑备份窗口是 2 小时而非 6 小时;同理,三个无依赖子任务并行,总延迟≈最长那条+调度开销。<b>哪里像</b>:前提都是子任务相互独立,有依赖就得按 DAG 排队。<b>哪里不像</b>:备份任务时长可预估,LLM 调用延迟方差大得多,P99 长尾请求会把"取最长"拖得很难看,并行收益要打折算。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
     <p><b>1. 是什么:多 Agent 的典型结构</b></p>
+    <p>先补两句外行背景,做过后台的你半分钟就能对上号:LLM 本身只会"读文本、生文本";<b>工具</b>是给它接的外挂接口(查数据库、调搜索、跑代码);Agent = LLM + 工具 + 一份告诉它"你是谁、能干什么"的 system prompt。单 Agent 就是一个揣着全套工具的通才,<b>多智能体系统就是把通才拆成一队专才,再给队伍配一套协作结构</b>。</p>
     <div class="svgwrap">
 <svg class="sdiagram" viewBox="0 0 560 290" role="img" aria-label="Supervisor 多智能体架构">
   <rect class="sd-box-amber" x="160" y="16" width="240" height="64" rx="10"/>
@@ -44,43 +56,131 @@
   <text class="sd-l" x="280" y="253" text-anchor="middle">通信：共享状态 State 中转 或 消息 Message 传递</text>
 </svg>
 </div>
+    <p>上面这张就是最主流的<b>Supervisor(主管)模式</b>:主管 Agent 负责意图理解、任务拆解、结果汇总;子 Agent 各配自己的工具集(Ta/Tb/Tc),彼此不直接对话,信息走底部通信层——<b>共享状态 State 中转</b>或<b>消息 Message 传递</b>。翻译成你熟悉的分布式语言:Supervisor ≈ 调度主节点/编排器,子 Agent ≈ worker,State ≈ 共享元数据,Message ≈ MQ 上的结构化任务。你在分布式里早已信奉的原则在这里全部适用:编排器要轻、worker 重活、通信走显式协议。</p>
+    <p>星型之外还有三种常见拓扑,一张表看全:</p>
+    <table>
+      <tr><th>拓扑</th><th>长什么样</th><th>适合</th><th>主要风险</th></tr>
+      <tr><td>Supervisor 星型</td><td>主管统一路由+汇总,子 Agent 互不直连</td><td>绝大多数生产场景</td><td>主管是单点,路由错全盘错</td></tr>
+      <tr><td>流水线 Pipeline</td><td>A 的输出直接作为 B 的输入,固定顺序</td><td>翻译→审校→排版这类线性工序</td><td>上游一错下游全错,级联最狠</td></tr>
+      <tr><td>去中心化/群聊式</td><td>Agent 之间自由对话、自主协商</td><td>头脑风暴、原型探索</td><td>跑题、踢皮球、轮次失控</td></tr>
+      <tr><td>层级式</td><td>主管下再挂子主管,层层下发</td><td>任务规模大到一层管不过来</td><td>链路更长,调试成本再上一档</td></tr>
+    </table>
+    <p>再看一次请求在 Supervisor 模式里的<b>完整旅程</b>,顺便把"协作开销"具象化:</p>
+    <pre class="code">用户:"把这批工单分类、统计高频问题、再写一份周报摘要"
+   │
+   ▼
+┌──────────────┐   ① Supervisor:理解意图、拆出 3 个子任务       约 1k token
+│  Supervisor  │
+└──────────────┘
+   │       │       │
+   ▼       ▼       ▼   ② 三个子 Agent 并行执行(各挂各的工具集)  各约 2k token
+ 分类Agent  统计Agent  写作Agent
+   │       │       │
+   └───────┼───────┘
+           ▼
+┌──────────────┐   ③ Supervisor:汇总、检查、生成最终回答        约 1.5k token
+│  Supervisor  │
+└──────────────┘
+   │
+   ▼
+ 用户拿到答案     ← 单 Agent 也许 1~2 次调用干完,这里至少 5 次
+</pre>
+    <p>从这张图先带走一个直觉:<b>每多一跳,就多一次 LLM 调用,多一份 token 和延迟</b>。这个直觉是第 3 部分"复杂性"的地基。</p>
     <p><b>2. 相比单 Agent 的优势(为什么值得拆)</b></p>
+    <p>一句话总纲:优势全部来自"<b>把一个大问题切成几个小问题,让每个小问题的搜索空间更小</b>"——与拆微服务的动机同源。逐条看机制:</p>
     <ul>
-      <li><b>上下文专注</b>:单 Agent 要把所有工具说明、全部职责塞进一个 system prompt,工具一多(30+)选错率明显上升;拆开后每个 Agent 提示词更精、工具更少,单点准确率更高。</li>
-      <li><b>并行执行</b>:多个独立子任务同时跑,总延迟从"串行累加"变"取最长的一条"。</li>
-      <li><b>独立迭代</b>:各 Agent 独立开发、评估、回滚,团队也好分工。</li>
-      <li><b>故障与权限隔离</b>:某个 Agent 挂掉或被注入攻击,影响被限制在自己的职责和工具范围内。</li>
+      <li><b>上下文专注</b>:单 Agent 要把所有职责和工具说明塞进一份 system prompt,工具一多(30+),相近工具(比如"查订单"和"查历史订单")的选择错误率明显上升;而且上下文越长,中间的关键信息越容易被模型忽略(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2307.03172">lost in the middle</a> 现象)。拆开后每个 Agent 只有 3~5 个工具、职责单一,提示词可以写得极精确,单点准确率反而更高。类比:单体里的万能大类 vs 一个工程师能完整看懂的小服务。</li>
+      <li><b>并行执行</b>:三个无依赖子任务,单 Agent 串行是 2s+2s+2s=6s;多 Agent 并行是 max(2s,2s,2s)+调度开销,约 2~4s——多卷并行备份把备份窗口从"求和"压成"取最长",同一个道理。前提照旧:子任务无依赖,有依赖就按 DAG 排队,这是你调度器里的家常便饭。</li>
+      <li><b>独立迭代</b>:每个 Agent 独立改 prompt、独立跑评测、独立灰度发布,改 A 不用全局回归 B;团队也能按 Agent 分工。类比:微服务独立部署 vs 单体全量发布。</li>
+      <li><b>模型分级</b>:拆开之后才好"看菜下饭"——路由、汇总这类轻活交给小模型,专业推理留给大模型,钱花在刀刃上。单 Agent 只能一份 prompt 通吃一个档位。</li>
+      <li><b>故障与权限隔离</b>:某个子 Agent 超时或挂掉,Supervisor 可以单独重试或降级,不至于全军覆没;权限按 Agent 最小化分配——能查订单的 Agent 不配删除权限,即使某个 Agent 被<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Prompt_injection">提示注入</a>攻击,攻击者也只拿到它那一把钥匙。类比:存储故障域隔离,一个机架断电不传染另一个机架。</li>
     </ul>
+    <p>一张对照表收拢优势面:</p>
+    <table>
+      <tr><th>维度</th><th>单 Agent</th><th>多 Agent(Supervisor)</th></tr>
+      <tr><td>上下文</td><td>一份大而全,长文本稀释注意力</td><td>各自小而精,互不干扰</td></tr>
+      <tr><td>工具选择</td><td>工具越多越容易选错</td><td>每个 Agent 工具少,准确率高</td></tr>
+      <tr><td>延迟</td><td>子任务串行累加</td><td>无依赖子任务并行,总延迟取最长</td></tr>
+      <tr><td>token 成本</td><td>调用次数少,但单次上下文大</td><td>单次小,但调用次数多,总量常常更高</td></tr>
+      <tr><td>迭代</td><td>改一处,全局回归</td><td>各 Agent 独立评测、独立灰度</td></tr>
+      <tr><td>故障影响</td><td>一处崩,整体崩</td><td>隔离在单个子 Agent,可重试可降级</td></tr>
+      <tr><td>调试</td><td>单进程日志基本够用</td><td>必须全链路 trace</td></tr>
+      <tr><td>适用</td><td>线性流程、工具个位数</td><td>子任务可拆、工具异质、需要并行</td></tr>
+    </table>
     <p><b>3. 引入的新复杂性(必须主动讲,这是本题的"第二半")</b></p>
+    <p>题目问"又会引入哪些复杂性",就是在等这半份答卷——只答优势最多拿一半分。六个坑,做过微服务治理的人会觉得其中五个眼熟;真正新的那个是:模型会犯错,而且错得悄无声息。</p>
     <ul>
-      <li><b>协作开销</b>:多一次"调度→执行→汇总"就多几次 LLM 调用,token 成本和延迟都会上升。</li>
-      <li><b>状态一致性</b>:共享状态谁来改、怎么合并、并发时会不会互相覆盖——需要 reducer/锁/版本控制。</li>
-      <li><b>误差级联</b>:上游 Agent 输出错,下游基于错误输入继续,错误会<b>逐级放大</b>,比单 Agent 更难定位。</li>
-      <li><b>通信协议设计</b>:Agent 之间自由对话难以收敛(踢皮球、跑题),一般要靠 Supervisor 中转或强约束收敛。</li>
-      <li><b>调试与可观测</b>:链路变长,出问题要跨多个 Agent 追踪,单步埋点和 trace 是刚需。</li>
-      <li><b>评估更复杂</b>:除了端到端,还要拆到每个 Agent 单独评估,否则不知道是哪个环节掉链子。</li>
+      <li><b>协作开销</b>:回看第 1 部分的旅程图——拆解 1 次 + 执行 3 次 + 汇总 1 次,token 与延迟都涨;Supervisor 还常要"复读"子 Agent 的结果再转述,同一份信息被生成两遍。类比:进程内函数调用升级成跨网络 RPC,序列化、往返、重试的开销一个都躲不掉。</li>
+      <li><b>状态一致性</b>:多个子 Agent 并发写同一个 State,不定义合并规则就会互相覆盖(丢失更新)。解法是给字段配 reducer:列表字段追加合并、标量字段约定覆盖规则,或带版本号仲裁——本质就是共享元数据的并发控制。坑点:文本状态还可能语义冲突(两边都写成功但内容矛盾),要 Supervisor 仲裁,这是传统系统里没有的题型。</li>
+      <li><b>误差级联</b>:上游输出错,下游把它当"事实"继续推理,错误逐级放大,且每一步都"看起来很对":
+<pre class="code">Agent A: 把"清理 7 天前的日志"理解成"清理全部日志"     ← 第 1 级:理解错
+   │
+   ▼    错误结论被当作可靠输入下传
+Agent B: 严谨地基于"日志已清空"生成容量报告           ← 第 2 级:推理对,前提已错
+   │
+   ▼
+Supervisor: 汇总出一份自洽的"成功"周报               ← 第 3 级:整体错,且无异常可抓
+</pre>
+        更狠的是<b>连乘效应</b>:端到端成功率≈各环节成功率之积。路由 95% × 子 Agent 90% × 汇总 95% ≈ 81%;三个 90% 连乘只剩 72.9%——<b>链拆得越长,端到端越脆</b>。缓解:交接用结构化输出+schema 校验;下游对关键前提做断言(相当于备份完成后做一次恢复演练);关键交接点单独进评测集。</li>
+      <li><b>通信协议设计</b>:Agent 自由对话很难收敛——互相客气地来回确认就是踢皮球,轮次爆炸还可能一起跑题。生产做法:① Supervisor 中转,子 Agent 不直连;② 用结构化消息协议(如 <a target="_blank" rel="noopener" href="https://github.com/a2aproject/A2A">A2A</a>)显式传递任务,像给 RPC 定 schema 一样给 Agent 间通信定 schema,思路与 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Actor_model">Actor 模型</a>同源;自由对话式(<a target="_blank" rel="noopener" href="https://github.com/microsoft/autogen">AutoGen</a> 群聊)留给原型探索。</li>
+      <li><b>调试与可观测</b>:单 Agent 看 console 日志基本够;多 Agent 链路一长,"结果不对"时连先看谁都不知道。必须上<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Distributed_tracing">分布式追踪</a>:每次 LLM 调用一个 span,记 prompt、输出、token、延迟,串成全链路——单体日志进化成全链路 trace 这套你闭眼都会,只是这里的"节点"是会犯错的模型。</li>
+      <li><b>评估更复杂</b>:除端到端指标外,还要拆到每个 Agent 单独评估——否则端到端 81%,你分不清是 95%×90%×95% 还是 95%×95%×90%,差的那一环节,优化方向完全不同。单元测试(单 Agent 评测)+ 集成测试(端到端)两套都得有。</li>
     </ul>
+    <p>六个坑一张表收拢,顺便标出分布式里的同款解法:</p>
+    <table>
+      <tr><th>复杂点</th><th>单 Agent 时代</th><th>多 Agent 时代</th><th>分布式里的同款解法</th></tr>
+      <tr><td>状态管理</td><td>一个变量顺序改</td><td>并发写同一 State</td><td>锁 / 版本号 / reducer</td></tr>
+      <tr><td>错误传播</td><td>哪步错当场就知道</td><td>逐级放大且被掩盖</td><td>校验和 / 断言 / 重试</td></tr>
+      <tr><td>失效定位</td><td>单进程日志</td><td>跨多个 Agent 追踪</td><td>全链路 trace</td></tr>
+      <tr><td>成本</td><td>调用少但单次大</td><td>调用多、总量翻倍</td><td>预算封顶 / 熔断</td></tr>
+      <tr><td>收敛性</td><td>不存在这个问题</td><td>踢皮球 / 死循环</td><td>轮次上限 / 超时熔断</td></tr>
+    </table>
     <p><b>4. 什么时候该用(决策标准)</b></p>
-    <ul>
-      <li>任务能<b>自然切分成职责边界清晰的子任务</b>,且各子任务需要的工具/知识差异大 → 适合多 Agent。</li>
-      <li>任务线性、工具 &lt; 10 个、流程简单 → 单 Agent 更简单可靠,别为了"看起来高级"硬拆。</li>
-    </ul>
+    <p>面试里最加分的往往不是优势背得熟,而是决策说得干脆。先看信号表:</p>
+    <table>
+      <tr><th>信号</th><th>倾向</th></tr>
+      <tr><td>流程线性、工具少于 10 个、上下文装得下</td><td>单 Agent,别硬拆</td></tr>
+      <tr><td>工具 20+ 且明显异质(检索类 / DB 类 / 写作类混在一起)</td><td>考虑拆</td></tr>
+      <tr><td>子任务天然可并行(多源调研、多文件处理)</td><td>拆,吃并行红利</td></tr>
+      <tr><td>不同环节想用不同档位的模型(省钱或提准)</td><td>拆,顺手模型分级</td></tr>
+      <tr><td>多人团队要分工维护</td><td>拆,按 Agent 划边界</td></tr>
+      <tr><td>只是想让系统"看起来更高级"</td><td>不拆,这是最差的理由</td></tr>
+    </table>
+    <pre class="code">决策流:
+任务能切成边界清晰的子任务吗?
+   │是                     │否
+   ▼                       └────→ 单 Agent
+子任务需要的工具 / 知识差异大吗?
+   │是                     │否
+   ▼                       └────→ 单 Agent(流程内分步就够)
+现在真的痛吗:选错工具率上升 / 上下文装不下 / 延迟不达标?
+   │是                     │否
+   ▼                       └────→ 先单 Agent 建基线,拿数据说话
+上多 Agent —— 同步上全链路 trace、单 Agent 评估、token 预算熔断
+</pre>
+    <p>经验法则与"先单体后微服务"完全一致:<b>先单 Agent 跑通、量化痛点(选错工具率、上下文溢出、延迟),拆分是数据驱动的重构,不是架构信仰</b>。任务线性、工具 &lt; 10 个、流程简单,单 Agent 更简单可靠,别为了"看起来高级"硬拆。</p>
+    <p><b>5. 怎么答才有层次</b></p>
+    <p>四步走:① 一句定义 + 点出 Supervisor 典型结构;② 优势按"机制+类比"讲,不报名词;③ 代价主动讲,重点压在<b>误差级联的连乘效应</b>与<b>状态一致性</b>上,这两个最显生产经验;④ 收在决策标准,最好带一个自己会拆/不拆的具体例子。全程把多 Agent 讲成"Agent 界的微服务化",面试官立刻知道你有系统底子。</p>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:多个 Agent 之间怎么通信?是自由对话吗?</summary><div class="an">生产里不推荐自由对话式(易跑题、难收敛),更常用两种:① <b>共享状态 + Supervisor 中转</b>——子 Agent 写结果到 State,Supervisor 决定下一步(可控、好调试);② <b>消息/任务协议</b>——结构化消息(如 A2A 协议)显式传递任务。自由对话(AutoGen 风格)适合原型探索。</div></details>
-    <details class="qa"><summary class="qu">Q:怎么防止多 Agent 互相踢皮球或死循环?</summary><div class="an">路由职责集中在 Supervisor,子 Agent 只执行不转发;设最大调度轮次和 token 预算;Supervisor 路由置信度低时主动反问用户或转人工;状态无变化则判定死循环熔断。</div></details>
-    <details class="qa"><summary class="qu">Q:多 Agent 一定会比单 Agent 效果好吗?</summary><div class="an">不一定。多 Agent 的收益来自"职责切分",代价是协作开销和误差级联。如果任务本身是单一路径,拆开反而引入额外的调度误差和成本。正确做法是<b>用任务特性决定架构</b>,并用端到端指标做 AB 对照,而不是默认"越多越好"。</div></details>
-    <details class="qa"><summary class="qu">Q:怎么评估一个多 Agent 系统?</summary><div class="an">两层:端到端(任务成功率、延迟、成本、转人工率)+ 单 Agent(各自的任务成功率、工具调用准确率)。配合全链路 trace,把"整体失败"定位到"具体某个 Agent 的某一步",再针对性优化。</div></details>
+    <details class="qa"><summary class="qu">Q:多个 Agent 之间怎么通信?是自由对话吗?</summary><div class="an"><b>人话:</b>生产里基本不让 Agent 自由聊天,主流就两条路:要么走共享状态由 Supervisor 中转,要么用结构化消息协议显式传任务。<b>类比:</b>和微服务通信一个道理——要么过网关/总线,要么走带 schema 的 RPC 或消息队列;没有 schema 的自由对话,等于两个服务靠口述传参,迟早对不上。<b>技术:</b>① 共享状态+Supervisor 中转:子 Agent 结果写回 State,Supervisor 决定下一步,可控、可回放、好调试;② 消息/任务协议:如 A2A,把任务与结果结构化封装;③ 自由对话(AutoGen 群聊式)收敛性差,只适合原型探索,生产必须加轮次与预算限制。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么防止多 Agent 互相踢皮球或死循环?</summary><div class="an"><b>人话:</b>六个字:收权、限次、熔断。<b>类比:</b>就是给备份编排器上那套护栏——重试有上限、超时会熔断、任务状态必须推进,否则一个卡死的作业能占住整个资源池。<b>技术:</b>路由权集中在 Supervisor,子 Agent 只执行不转发,从结构上消灭"互相转单";设最大调度轮次和 token 预算硬顶;State 连续 N 轮无变化判定死循环,直接熔断;Supervisor 路由置信度低时反问用户或转人工,不硬猜。</div></details>
+    <details class="qa"><summary class="qu">Q:多 Agent 一定会比单 Agent 效果好吗?</summary><div class="an"><b>人话:</b>不一定,架构跟着任务特性走,不跟流行走。<b>类比:</b>不是所有单体都值得拆微服务——内部小系统的单体能安稳跑十年,硬拆只会多出一堆分布式事务和运维成本;拆是为了解决真实痛点,不是为了简历好看。<b>技术:</b>任务线性、工具个位数时单 Agent 更稳;任务可拆、工具异质、或需要并行与模型分级时,多 Agent 才有净收益。正确姿势:先用单 Agent 建基线,端到端指标做 AB 对照,收益盖不住协作开销和级联风险就退回。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么评估一个多 Agent 系统?</summary><div class="an"><b>人话:</b>两层看:整体行不行,和队里每个人行不行——只看整体,永远找不到掉链子的那一个。<b>类比:</b>就是分布式全链路追踪的思路:只有总成功率,你永远不知道丢包在哪一跳;每一跳都得有自己的 span 和指标。<b>技术:</b>端到端层:任务成功率、P95/P50 延迟、单任务成本、转人工率;单 Agent 层:各自的任务成功率、工具调用准确率、路由正确率。再配全链路 trace,把"整体失败"定位到"哪个 Agent 的哪一步",针对性优化,而不是全队一起改 prompt。</div></details>
+    <details class="qa"><summary class="qu">Q:Supervisor 会不会成为单点?挂了怎么办?</summary><div class="an"><b>人话:</b>有这个风险,所以原则是:把主管做轻、做成无状态、随时可替换。<b>类比:</b>就是备份软件调度主节点的老问题——主节点一挂,全盘作业停摆;解法你也熟:主节点只调度不干活、状态外置、多副本接管。<b>技术:</b>Supervisor 只做路由和汇总,重活全部下沉子 Agent;运行状态 checkpoint 到外部存储,进程无状态,崩溃后从最近检查点恢复;子 Agent 调用设计成幂等,支持安全重放;要高可用就多副本加选主(或分布式锁)防双主。</div></details>
+    <details class="qa"><summary class="qu">Q:多 Agent 的成本和延迟怎么控?</summary><div class="an"><b>人话:</b>先测量再优化,大头通常是调度轮数太多、上下文被反复复读。<b>类比:</b>备份窗口管理同款思路——并发、重试、保留期都得有预算封顶,不能无限烧资源。<b>技术:</b>① 压轮数:能一次并发下发的就别来回;② 裁上下文:子 Agent 只拿必需字段,不传全量历史;③ 模型分级:路由汇总用小模型,专家推理用大模型;④ 缓存重复子任务的中间结果;⑤ token/成本预算熔断,超限直接降级返回。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>MAS</b>:Multi-Agent System,多智能体系统。</div>
-      <div class="term-item"><b>Supervisor 模式</b>:主管 Agent 统一调度子 Agent 的星型架构。</div>
-      <div class="term-item"><b>误差级联</b>:上游错误沿链路逐级放大。</div>
-      <div class="term-item"><b>共享状态</b>:多个 Agent 通过同一 State 对象交换信息。</div>
-      <div class="term-item"><b>上下文隔离</b>:各 Agent 只拿自己需要的上下文,更小更准。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Multi-agent_system">MAS</a></b>:Multi-Agent System,多智能体系统,多个能自主决策的 Agent 分工协作完成单个 Agent 撑不住的复杂任务。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://langchain-ai.github.io/langgraph/tutorials/multi_agent/agent_supervisor/">Supervisor 模式</a></b>:主管 Agent 统一理解、拆解、路由、汇总,子 Agent 只执行的星型编排结构。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Cascading_failure">误差级联</a></b>:上游的错误输出被下游当作可靠输入继续消费,沿链路逐级放大、层层掩盖。</div>
+      <div class="term-item"><b>共享状态</b>:多个 Agent 读写同一个 State 对象交换信息,必须配 reducer/锁等合并规则防并发覆盖。</div>
+      <div class="term-item"><b>上下文隔离</b>:每个 Agent 只装载自己职责所需的提示词与工具,上下文更小更准,互不稀释。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://github.com/a2aproject/A2A">A2A</a></b>:Agent-to-Agent 开放协议,用结构化的"任务"对象规范 Agent 之间的请求与结果交换。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Distributed_tracing">分布式追踪</a></b>:给跨服务/跨 Agent 的每次调用记 span 并串成完整链路,用来定位是哪一跳出的问题。</div>
     </div>
   </div>
 </article>
