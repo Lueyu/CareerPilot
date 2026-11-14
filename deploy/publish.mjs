@@ -82,7 +82,7 @@ function deploy() {
     process.exit(1);
   }
   run('node', ['deploy-oss.mjs']);
-  const v = spawnSync('node', ['verify.mjs'], { stdio: 'inherit' });
+  const v = spawnSync('node', ['verify.mjs'], { stdio: 'inherit', cwd: __dirname });
   if (v.status !== 0) rollbackAndExit();
   console.log('[publish] 发布完成且 verify 通过 ✔');
 }
