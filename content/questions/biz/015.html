@@ -8,15 +8,39 @@
     <span class="company">所有公司（通用）</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题问的是两个最火的 Agent 框架各管哪摊活、新项目怎么选。面试官爱考选型题,因为它最能筛掉“只看过教程的人”:会背对比表的很多,一追问“你项目里用哪个、为什么”就露馅。答错的暴露点:把两者当二选一的竞品,或只背参数不看场景。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"这两个<b>不是二选一的竞品,而是定位不同</b>:LangChain 是<b>通用 LLM 应用框架</b>——链条、工具调用、多步编排的"全家桶";LlamaIndex 是<b>数据/RAG 专精框架</b>——文档接入、索引、检索最细。一句话结论:要做<b>带工具调用、多步推理的对话/Agent 应用</b>选 LangChain(复杂编排直接用它的内核 LangGraph);要围绕<b>私有知识库做检索问答</b>、把检索做到极致选 LlamaIndex。生产里常见的是组合:用 LlamaIndex 搭数据管道,用 LangGraph 做编排。"</p>
+    <p>"这两个<b>不是二选一的竞品,而是定位不同</b>:<a target="_blank" rel="noopener" href="https://github.com/langchain-ai/langchain">LangChain</a> 是<b>通用 LLM 应用框架</b>,管链条、工具调用、多步编排,像个全家桶;<a target="_blank" rel="noopener" href="https://github.com/run-llama/llama_index">LlamaIndex</a> 是<b>数据框架、<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Retrieval-augmented_generation">RAG</a> 专精</b>,管文档接入、切块、索引和检索,把“找资料”这一段做到最深。一句话结论:做<b>带工具调用、多步推理的对话/<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Intelligent_agent">Agent</a> 应用</b>选 LangChain,复杂编排直接上它家内核 <a target="_blank" rel="noopener" href="https://github.com/langchain-ai/langgraph">LangGraph</a>;围绕<b>私有知识库做检索问答</b>、要把检索质量拉满,选 LlamaIndex。生产里更常见的是<b>组合拳</b>:LlamaIndex 当数据管道和检索引擎,LangGraph 当流程编排——两者是上下游,不是对手。加分句:两家<b>边界正在模糊</b>,LlamaIndex 也补上了 Agent 能力,LangChain 也能做 RAG,只是看家本领不同。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>LangChain 像<b>瑞士军刀</b>——刀、剪、锯一应俱全,啥都能干一点;LlamaIndex 像<b>专业图书馆管理系统</b>——只专注一件事:把海量书分类、编目、快速查到。你要野营带军刀,你要经营图书馆就上专业系统;真要开大型图书馆,往往是"军刀开路、专业系统管书"——两者配合用,不是二选一。</p>
+    <p><b>LangChain(用你熟悉的“作业编排器”想)</b>:备份软件最核心的一层不是存数据,而是调度——今晚先备哪个客户端、失败重试几次、介质不够了怎么办。LangChain 干的就是 LLM 应用里的调度:Chain 是预定义的作业流,Agent 是“会自己决定下一步干什么”的作业流,Tool 是被调度的插件,LLM 是那个值班大脑,负责决策。<b>哪里像</b>:都只管“流程”,不碰数据本身——数据在向量库、在业务系统,框架只负责按步骤搬运和交接。<b>哪里不像</b>:传统调度器的 DAG 是写死的,分支提前定好;Agent 的“下一步”是 LLM 现场推理决定的,同一个输入可能走出不同路径——所以 LangChain 后来干脆推出 LangGraph,把流程建成“状态机+循环”才镇得住这种不确定性。</p>
+    <p><b>LlamaIndex(用你熟悉的“数据接入层+catalog”想)</b>:一套备份系统最值钱的两块,一是各种数据源接入——VM、数据库、NAS 都能接;二是 catalog(编目)——哪个文件在哪个备份集,查询秒回。LlamaIndex 就是知识库领域的“接入+编目”:上百种 Data Connector 把 PDF/数据库/网页读进来,切块,建索引(向量/关键词/树/知识图谱),查询时先从索引召回相关片段,再交给 LLM 合成答案。<b>哪里像</b>:“接入异构源→归一化→建可查询索引→快速定位”这个思路和备份 catalog 一模一样,数据一次接入、索引一次建成,查询反复受益。<b>哪里不像</b>:备份 catalog 查的是<b>精确匹配</b>(文件路径、时间点);向量索引查的是<b>语义相似</b>——“怎么申请年假”和“休假制度”字面不同也能命中,靠的是 Embedding 把文本变成向量再算距离。这是语义索引和传统索引的分水岭,也是 RAG 能“模糊地找到对的资料”的根基。</p>
+    <p><b>两者的关系(用“NAS 和备份软件”想)</b>:NAS 管存取,备份软件管流程,谁也不替代谁,生产里经常一起用。<b>哪里像</b>:LangChain 和 LlamaIndex 同样是互补的上下游——一个占“流程”,一个占“接入与索引”。<b>哪里不像</b>:NAS 和备份软件共享同一份数据面;这两个框架不共享数据面,组合方式是“LlamaIndex 当检索引擎,被 LangGraph 当成众多工具之一来调用”——注意是<b>调用</b>关系,不是平级共存,升级时可以各动各的,互不拖累。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>1. 先看全景:一条请求拆开,两家各占哪段</b></p>
+    <p>任何“企业知识库问答”类的请求,不管用什么框架,拆开都只有两大段。先看清地盘,后面的选型逻辑就自然了:</p>
+    <pre class="code">一条“企业知识库问答”请求,拆开只有两大段:
+
+  用户提问
+     │
+     ▼
+ [检索段:找资料] ─────────────────── ★ LlamaIndex 的家当全在这
+     文档接入 → 切块 → 建索引 → 召回top-k → 精排
+     (LangChain 也能做,封装到“能用”为止)
+     │
+     ▼
+ [编排段:走流程] ─────────────────── ★ LangChain/LangGraph 的家当全在这
+     拼Prompt → 调LLM → (需要就调工具/再检索) → 循环 → 输出
+     (LlamaIndex 也有 Workflow,但编排是后补的)
+
+  简单 RAG = 两段各走一遍就出答案,谁都能做;
+  Agent  = 编排段循环几十圈、还向外调系统 —— 分水岭在这。</pre>
+
+    <p><b>2. 五个维度逐行拆解</b></p>
     <table>
       <tr><th>维度</th><th>LangChain</th><th>LlamaIndex</th></tr>
       <tr><td><b>定位</b></td><td>通用 LLM 应用开发框架</td><td>数据框架 / RAG 专精</td></tr>
@@ -25,12 +49,88 @@
       <tr><td><b>弱项</b></td><td>抽象层多、Debug 像剥洋葱;版本破坏性变更多</td><td>非 RAG 的通用编排能力弱;Agent 能力是后来补的</td></tr>
       <tr><td><b>一句话选型</b></td><td>以"对话/工具/流程"为中心</td><td>以"数据/检索"为中心</td></tr>
     </table>
-    <p><b>核心场景差异(面试要讲到点子上)</b></p>
+    <p><b>逐行注解(面试时哪几行最值得展开):</b></p>
     <ul>
-      <li>LangChain 的回答单元是<b>"链/Agent"</b>:LLM 决策 + 工具调用 + 步骤编排,关键词是 orchestration。</li>
-      <li>LlamaIndex 的回答单元是<b>"索引 + 查询引擎"</b>:先把数据建索引,再对索引做检索与合成,关键词是 retrieval。</li>
-      <li>两者其实<b>有交集且会互相渗透</b>:LlamaIndex 现在也有 Agent/Workflow,LangChain 也能做 RAG,只是"看家本领"不同——能说出"框架边界在模糊"比背表格更显水平。</li>
+      <li><b>「定位」行是全表的题眼</b>:看官方自我介绍就懂——LangChain 自称"a framework for developing applications powered by LLMs"(面向应用),LlamaIndex 自称"the data framework for your LLM application"(面向数据)。一个修饰词的差别,决定了两家全部组件的设计方向,这也就是后面追问里说的"抽象视角不同"。</li>
+      <li><b>「核心强项」行:一个拼宽度,一个拼深度</b>。LangChain 的强项是“全”:Chain/Agent/Tool/Memory 四件套抽象最全、集成生态最大,再配上 <a target="_blank" rel="noopener" href="https://www.langchain.com/langsmith">LangSmith</a> 看调用链。LlamaIndex 的强项是“深”:Data Connector 上百种量级;索引结构一层就有向量索引(底层就是 HNSW 这类 ANN 结构)、关键词索引(BM25/TF-IDF 那一路的倒排索引)、树索引、<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Knowledge_graph">知识图谱</a>索引;查询侧还有 Router 路由、Sub-Question 拆问、混合检索再 RRF 融合、Rerank 精排(常用 Cross-Encoder)。检索链每个环节都是可替换的旋钮——这就是它 RAG 天花板高的原因。</li>
+      <li><b>「弱项」行是有体感的坑</b>:"Debug 像剥洋葱"说的是 LangChain 一屏日志里全是框架的中间包装对象,像调一条被多层代理包住的 RPC 调用链,你得层层 unwrap 才看到真正发给模型的 prompt;版本破坏性变更是社区长期抱怨点,升级必须配回归评测。LlamaIndex 则反过来:非 RAG 的编排控制力弱,Agent/Workflow 是后补的,复杂流程不如专门的状态机编排顺手。</li>
+      <li><b>「一句话选型」行</b>:把“以什么为中心”翻译成操作——先写下你产品里最重的那段链路是“找资料”还是“走流程”,最重的段决定主力框架,另一家降级为可替换组件。这跟存储选型一个逻辑:IO 密集型和元数据密集型,选型自然不同。</li>
     </ul>
+
+    <p><b>3. 组件对照:翻译成你熟悉的后端概念</b></p>
+    <p>两个框架的组件名都不难,难的是知道“这玩意儿相当于我系统里的什么”。直接上对照表:</p>
+    <table>
+      <tr><th>你熟悉的概念(存储/备份)</th><th>LangChain 世界</th><th>LlamaIndex 世界</th></tr>
+      <tr><td>多数据源接入(VM/数据库/NAS agent)</td><td>Document Loader(量大,但通常浅)</td><td>Data Connector/Reader(看家本领,带解析清洗)</td></tr>
+      <tr><td>备份目录 catalog</td><td>VectorStore 封装(能查,不深究怎么查)</td><td>Index+Retriever(索引结构、召回策略、精排整套体系)</td></tr>
+      <tr><td>作业调度 DAG</td><td>Chain → LangGraph 的节点/边/状态</td><td>—(不主打流程,<a target="_blank" rel="noopener" href="https://docs.llamaindex.ai/">Workflow</a> 是后补的)</td></tr>
+      <tr><td>作业 checkpoint(断点续跑)</td><td>LangGraph Checkpointer(状态逐步落盘,崩溃可恢复)</td><td>Workflow 的事件流与状态</td></tr>
+      <tr><td>值班大脑(决策下一步)</td><td>Agent:LLM 按 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a> 循环决策</td><td>Agent 抽象(后补,围绕 QueryEngine 组合)</td></tr>
+      <tr><td>介质/格式归一化</td><td>Document 抽象(page_content+metadata)</td><td>Document → Node(chunk)两层抽象</td></tr>
+      <tr><td>消息/会话状态</td><td>Memory(多种存储后端)</td><td>ChatMemoryBuffer</td></tr>
+    </table>
+    <p>再把两家的看家本领各画一张小图,你会发现和自己的老本行惊人地像:</p>
+    <pre class="code">LlamaIndex 的看家本领:把“找资料”做成流水线,每段都能换零件
+(≈备份系统里的 接入层 + catalog)
+
+  数据源(PDF/DB/网页)             用户提问
+      │                               │
+      ▼                               ▼
+  Connector 接入(≈多数据源agent)   Router:这个问题该问哪个索引
+      │                               │
+      ▼                               ▼
+  切块 chunk(≈格式归一化)         Retriever 召回 top-k 片段
+      │                               │
+      ▼                               ▼
+  建索引(≈建 catalog,一次建成,   Rerank 精排
+  反复查询):向量索引/关键词索引…      │
+      └──────────────┬────────────────┘
+                     ▼
+     QueryEngine:拼上下文 → 调 LLM → 带引用出处的答案
+
+LangGraph 的看家本领:把“流程”画成状态机,每步可恢复
+(≈带 checkpoint 的作业流)
+
+  START ─► LLM 决策 ──要资料?──► 调工具(查知识库/查业务库)
+              ▲                         │
+              └──── 结果写回 State ─────┘
+              │
+              ├─ 每步状态经 Checkpointer 落盘(断点续跑)
+              ▼
+          状态满足 → END(输出最终答案)</pre>
+
+    <p><b>4. 核心场景差异(面试要讲到点子上)</b></p>
+    <ul>
+      <li>LangChain 的回答单元是<b>"链/Agent"</b>:LLM 决策 + 工具调用 + 步骤编排,关键词是 orchestration。展开讲:一次请求跑的是一个可能循环多轮的“作业流”,在这个世界观里,“查知识库”只是流程上的一个节点、一个工具,和“查工单系统”“发邮件”平级。</li>
+      <li>LlamaIndex 的回答单元是<b>"索引 + 查询引擎"</b>:先把数据建索引,再对索引做检索与合成,关键词是 retrieval。展开讲:一次请求是对索引的一次“查库+合成”,默认单轮进出、没有循环;要循环、要调外部系统,得靠它后来补的 Agent/Workflow。</li>
+      <li>两者其实<b>有交集且会互相渗透</b>:LlamaIndex 现在也有 Agent/Workflow,LangChain 也能做 RAG,只是"看家本领"不同——能说出"框架边界在模糊"比背表格更显水平。展开讲:再补一句“选型看的是当前生态成熟度和自己的重心”更是加分,因为这句话只有真搭过系统的人说得出来。</li>
+    </ul>
+
+    <p><b>5. 生产组合套路:一份数据管道 + 一个编排大脑</b></p>
+    <p>生产里最常见的形态不是二选一,而是“拼积木”:LlamaIndex 做数据管道(接入→切块→嵌入→向量库),对外暴露成一个工具;LangGraph 做编排大脑,决定什么时候查知识库、什么时候查业务系统、什么时候停下来。先看检索栈(LlamaIndex 三件套,读文档即建索引,取自官方文档常见写法,API 细节随版本变动):</p>
+    <pre class="code">from llama_index.core import VectorStoreIndex
+from llama_index.core.tools import QueryEngineTool
+
+index = VectorStoreIndex.from_documents(docs)    #接入→切块→Embedding→建向量索引
+kb_engine = index.as_query_engine()              #检索+合成一体,答案带引用出处
+kb_tool = QueryEngineTool.from_defaults(         #把引擎再包成“工具”
+    query_engine=kb_engine,
+    description="回答公司制度/考勤/报销类问题",
+)</pre>
+    <p>再看编排栈(LangGraph 把上面包好的知识库工具,当成众多工具之一来调度):</p>
+    <pre class="code">from langgraph.prebuilt import create_react_agent
+
+agent = create_react_agent(
+    model,
+    tools=[kb_tool,             #查知识库(LlamaIndex 包的工具)
+           query_hr_system,     #查业务库(自研接口)
+           submit_approval],    #写操作(受控工具)
+    checkpointer=postgres_saver,    #每步状态落盘,崩了从最近一步恢复
+)</pre>
+    <p>这个组合里有个备份工程师一听就懂的点:LangGraph 的 <b>Checkpointer 就是 Agent 的“作业 checkpoint”</b>——每走完一步把对话状态、工具结果落盘(内存/SQLite/Redis/Postgres 都行),进程崩了从最近的 checkpoint 恢复,而不是从头再烧一遍几十次模型调用。多步 Agent 一次运行可能几十秒、几十次工具调用,没有持久化就是裸奔——和作业系统没有 checkpoint 不敢跑长任务是同一条工程铁律。</p>
+
+    <p><b>6. 选型决策压成一张图</b></p>
+    <p>把前面所有讨论收拢:先问“产品的重心是流程还是数据”,再定主力框架;两头都重,直接上组合方案:</p>
     <div class="svgwrap">
 <svg class="sdiagram" viewBox="0 0 680 370" role="img" aria-label="LangChain 与 LlamaIndex 选型决策">
   <rect class="sd-box2" x="250" y="14" width="200" height="56" rx="10"/>
@@ -60,21 +160,27 @@
   <text class="sd-ts" x="437" y="270" text-anchor="middle">两者都重</text>
 </svg>
 </div>
+    <p>最后一句防身话:选型题的满分答案从来不是“哪个好”,而是“我的场景重心在哪、谁当主力、谁当组件、未来怎么演进”。把这条线说清楚,面试官就知道你不是背表格来的。</p>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:两个都用过吗?实际项目里你选哪个、为什么?</summary><div class="an">给一个具体场景佐证立场。例:做一个"企业制度问答"产品,核心是私有文档检索,我先用 LlamaIndex 的 Data Connector + 索引快速出效果;后来加了"多步审批/查多系统"的 Agent 需求,编排层就换到 LangGraph,检索仍复用 LlamaIndex 的组件。结论:按"链路里谁占主导"来定主力框架,而不是认死一家。</div></details>
-    <details class="qa"><summary class="qu">Q:它们底层有本质区别吗,还是只是 API 风格不同?</summary><div class="an">底层调用的是同一个 LLM,真正的差异在<b>抽象视角</b>:LangChain 把问题抽象成"节点和边组成的执行图",LlamaIndex 把问题抽象成"数据怎么被索引、怎么被查询"。视角决定了一整套组件设计方向,所以不是换个 API 那么简单。</div></details>
-    <details class="qa"><summary class="qu">Q:能直接说"我们生产不用框架"吗?</summary><div class="an">可以说,但要补上理由和平衡点:核心链路(检索→拼 Prompt→调模型)其实很短,自研可控;但完全不用框架也会重复造轮子。更稳的说法是"<b>用它的组件(数据连接器、向量库封装),不用它的编排</b>",并准备一个真实踩坑故事支撑。</div></details>
+    <details class="qa"><summary class="qu">Q:两个都用过吗?实际项目里你选哪个、为什么?</summary><div class="an"><b>人话:</b>别站队,按“链路里谁占主导”选主力,另一个降级成可借用组件。<b>类比:</b>备份领域的老规矩——介质管理强的产品做归档层,编排强的套件做调度层,生产里两家协同很常见,没人规定全家桶必须绑死一家。<b>技术:</b>给具体场景:做企业制度问答,核心是私有文档检索,先用 LlamaIndex 的 Data Connector+VectorStoreIndex 快速出效果;后来加了多步审批、跨系统查询的 Agent 需求,把编排层迁到 LangGraph,query_engine 包成一个工具,检索链路一行不改。能说出“检索栈和编排栈分开选型、独立升级”,就是干过活的信号。</div></details>
+    <details class="qa"><summary class="qu">Q:它们底层有本质区别吗,还是只是 API 风格不同?</summary><div class="an"><b>人话:</b>底层调的是同一批模型、同一批向量库,真正的区别在“把问题抽象成什么”。<b>类比:</b>同一个机房,一家按“作业流”组织一切,万物皆流程上的节点;另一家按“数据”组织一切,万物皆索引和编目。世界观不同,长出来的组件就完全不同。<b>技术:</b>LangChain 的核心抽象是 Runnable 和 LangGraph 的节点/边/状态,一切围绕流程;LlamaIndex 的核心抽象是 Index/Retriever/QueryEngine,一切围绕数据怎么被组织与查询。抽象视角决定天花板:调流程复杂度去前者,调检索深度去后者,互相模仿都只做到对方浅层——不是换个 API 风格那么简单。</div></details>
+    <details class="qa"><summary class="qu">Q:能直接说"我们生产不用框架"吗?</summary><div class="an"><b>人话:</b>能说,但要给边界:核心链路自研,外围组件借用,再配一个踩坑故事支撑。<b>类比:</b>备份引擎的关键读写路径都自研,但驱动适配、介质协商这类“脏活”能借就借——自研的是关键路径,不是所有轮子。<b>技术:</b>检索→拼 Prompt→调模型这条主干就几十行,自研可控、好调试、不被框架升级绑架;但数据连接器、向量库封装、观测埋点直接用两家的松耦合组件。再补一个真实踩坑:某次框架大版本破坏性变更导致召回质量悄悄回退,靠评测集才兜住——故事一讲,“不用框架但用组件”就立体了。</div></details>
+    <details class="qa"><summary class="qu">Q:两个框架都能做 RAG,真到抠检索质量时差距在哪?</summary><div class="an"><b>人话:</b>都能跑通 demo,但检索质量的可调旋钮差一个量级,深度优化时见真章。<b>类比:</b>都是“查目录”:一个只支持按路径精确查,另一个支持按时间点、按类型、多条件组合查——demo 都能过,压 Recall@k、MRR 这类指标时差距就出来了。<b>技术:</b>LlamaIndex 给了全套:多种切块策略、向量+关键词混合检索再 RRF 融合、Rerank 精排、Router 路由、子问题引擎、引用出处,每一环都能单独换实现;LangChain 做 RAG 主要是把向量库和检索器封装好,深度策略要自己拼。对召回质量要求高的知识库,重心自然偏向 LlamaIndex。</div></details>
+    <details class="qa"><summary class="qu">Q:LangGraph 的 Checkpointer 到底解决什么问题?为什么生产 Agent 离不开它?</summary><div class="an"><b>人话:</b>它把“跑到一半崩了”从灾难变成“从上一步接着跑”。<b>类比:</b>就是备份作业的 checkpoint+断点续跑语义:每步完成把状态落盘,作业失败不整条重跑,恢复后跳过已完成步骤。<b>技术:</b>LangGraph 的 Checkpointer 把图的 State(消息历史、工具结果、循环计数)持久化到内存/SQLite/Redis/Postgres,支撑长任务容错和 human-in-the-loop 的中断恢复。多步 Agent 单次运行可能几十次工具调用、几十秒耗时,没有状态持久化,一次超时或重启就前功尽弃——和作业系统没有 checkpoint 不敢跑长任务是同一条工程铁律。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>LangChain</b>:通用 LLM 应用框架,重编排与生态。</div>
-      <div class="term-item"><b>LlamaIndex</b>:数据/RAG 框架,重索引与检索。</div>
-      <div class="term-item"><b>LangGraph</b>:LangChain 家的图编排引擎,做复杂 Agent 流程。</div>
-      <div class="term-item"><b>Data Connector</b>:LlamaIndex 的数据接入组件。</div>
-      <div class="term-item"><b>Query Engine</b>:LlamaIndex 里"检索+生成"的封装单元。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://github.com/langchain-ai/langchain">LangChain</a></b>:通用 LLM 应用开发框架,以链/Agent/工具的编排为中心,生态最全。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://github.com/run-llama/llama_index">LlamaIndex</a></b>:面向 LLM 的数据框架,以文档接入、索引与检索为中心,RAG 深度最好。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://github.com/langchain-ai/langgraph">LangGraph</a></b>:LangChain 家的图编排引擎,把 Agent 流程建成状态机,自带 Checkpointer 断点续跑。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://docs.llamaindex.ai/">Data Connector</a></b>:LlamaIndex 的数据接入组件,把 PDF/数据库/网页等异构源读成统一结构。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://docs.llamaindex.ai/">Query Engine</a></b>:LlamaIndex 里"检索+合成"的封装单元,对索引提一个问题、拿一个带引用的答案。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Retrieval-augmented_generation">RAG</a></b>:检索增强生成——先检索相关资料再让 LLM 作答,降低幻觉、接入私域知识。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a></b>:让 LLM 交替"推理+行动"的 Agent 范式,是工具调用循环的理论源头。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://www.langchain.com/langsmith">LangSmith</a></b>:LangChain 配套的观测/评测平台,追踪每次 LLM 与工具调用的调用链。</div>
     </div>
   </div>
 </article>

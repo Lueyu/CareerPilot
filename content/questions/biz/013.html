@@ -7,16 +7,22 @@
         <span class="tag">#隐私</span><span class="tag">#安全</span><span class="tag">#合规</span>
       </div>
 
+      <div class="note"><b>先说人话:</b>用户数据从进 Agent 到被删除,全程怎么保证不漏。面试官爱考,因为隐私出事不是故障是事故——挂了能修,泄露上新闻、吃罚单。只答"我们加密了"直接出局:加密只守住存储一段,LLM 却把数据复制进 prompt、日志、Memory、向量库。做备份的人最懂:数据复制到哪,防线就得跟到哪。</div>
+
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-        <p>"按<b>数据生命周期</b>设防:采集端<b>数据最小化</b>(能不收就不收);处理端<b>PII 实时脱敏</b>(NER 识别后替换/掩码再进 LLM);存储端<b>传输 TLS + 落盘加密 + 分级访问控制</b>;共享端选<b>不用于训练的企业 API 条款</b>或私有化模型;治理端<b>合规映射(个保法/GDPR)+ 用户权利实现(查询/更正/删除)+ 审计</b>。LLM 特有的一点:除了传统脱敏,<b>对话日志和 Memory 里的 PII 也要治理</b>——这是新系统最容易漏的口子。"</p>
+        <p>"按<b>数据生命周期</b>设防,五个阶段五道闸:采集端<b>数据最小化</b>(能不收就不收);处理端<b>PII 实时脱敏</b>(NER 识别后替换/掩码/令牌化,再进 LLM);存储端<b>传输 TLS+落盘加密+分级访问控制</b>;共享端选<b>不用于训练的企业 API 条款</b>或干脆私有化模型;治理端<b>合规映射(个保法/GDPR)+用户权利实现(查询/更正/删除)+审计</b>。主动点破 LLM 特有的坑:<b>对话日志和 Memory 里的 PII 也要治理</b>——这是新系统最容易漏的口子,也是这题的加分点。"</p>
       </div>
 
       <div class="block ana"><span class="badge b-ana">通俗类比</span>
-        <p>像<b>医院的病历管理</b>:挂号只收必要信息(<b>最小化</b>);病历本上身份证号印成 330**********(<b>脱敏</b>);病历柜上锁、只有主治医生能开(<b>分级访问</b>);外包检验科时签"样本不得留存他用"(<b>API 不训练条款</b>);病人有权复印、修改、要求销毁病历(<b>用户权利</b>);所有查阅留痕(<b>审计</b>)。</p>
+        <p><b>生命周期设防(用备份体系的全流程防护想)</b>:教科书爱用"医院病历管理"打比方——挂号只收必要信息、病历掩码、柜子上锁、外包签协议、查阅留痕;你是存储出身,直接记更贴身的版本:数据从采集→处理→存储→共享→销毁,每段一道闸,像备份体系的精简备份、传输加密、落盘加密、出库审计、<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Data_retention">retention</a> 到期销毁。<b>哪里像</b>:都沿数据流向逐环节设防,靠流程不靠单点,一环裸奔全盘皆输。<b>哪里不像</b>:备份防的是"整卷数据被偷",隐私防的是"<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Personally_identifiable_information">PII</a>(个人可识别信息)藏在自然语言句子里"——手机号夹在用户一句话中间,你得先认出它,才谈得上防护。</p>
+        <p><b>令牌化(用"密文与密钥分离"想)</b>:把"张三 13800001111"换成"用户A TOK_9f3a",<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Tokenization_(data_security)">令牌化</a>的映射表单独加密另存——就像加密备份:磁带(密文)可以放异地库,密钥留在 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Key_management">KMS</a>,拿走磁带也读不出明文。<b>哪里像</b>:敏感值本身离开上下文,可逆性被单独锁住。<b>哪里不像</b>:加密是整块、格式无关的变换,脱敏得先"认出哪段敏感"(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Named-entity_recognition">NER</a> 命名实体识别/正则),识别漏了就全漏;且掩码、替换不可逆,令牌化才可逆。</p>
+        <p><b>日志与 Memory 治理(用"副本蔓延"想)</b>:主库删了数据,快照、缓存、日志、备份里还有 N 份副本;LLM 系统里 prompt、对话日志、Memory(Agent 的长期记忆库)、向量库(存 Embedding、做向量检索的库)就是隐私的 N 份副本,每份都是泄露面。<b>哪里像</b>:都要能回答"数据有几份、在哪、谁能删干净"。<b>哪里不像</b>:备份副本结构化、有 retention 策略可管;对话日志是自由文本,PII 散落句中,只能靠识别+打标+<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Time_to_live">TTL</a>(存活时间)兜底。</p>
+        <p><b>被遗忘权(用"从备份里删一条数据"想)</b>:用户要求删除,要级联删对话、Memory、向量库、缓存、备份——正是备份工程师的老大难:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Write_once_read_many">不可变保留</a>与删除令的冲突。<b>哪里像</b>:删除是全局级联操作,不是单表 DELETE。<b>哪里不像</b>:备份副本可以"下个保留周期消除";向量库和缓存是活数据,随时会被检索翻出来,必须立即物理删。</p>
       </div>
 
       <div class="block det"><span class="badge b-det">详细拆解</span>
         <p><b>1. 按生命周期设防(框架)</b></p>
+        <p>这题的标准答法是先给框架再给细节:数据走到哪,闸门修到哪。下面这张总图就是整份答案的目录——上排五个阶段,下排是每段的抓手;面试时先报框架、再挑两三个阶段展开,立刻和"上来就背加密算法"的候选人拉开段位。</p>
         <div class="svgwrap">
 <svg class="sdiagram" viewBox="0 0 792 206" role="img" aria-label="数据隐私按生命周期设防">
   <text class="sd-l" x="10" y="22">数据生命周期 · 分阶段设防</text>
@@ -64,40 +70,117 @@
   <text class="sd-ts" x="713" y="181" text-anchor="middle">Memory清除</text>
 </svg>
 </div>
+        <p>逐阶段翻译成你熟悉的存储语言:</p>
+        <table>
+          <tr><th>阶段</th><th>不设防的后果</th><th>核心手段</th><th>你熟悉的对应物</th></tr>
+          <tr><td>采集</td><td>收一堆用不上的 PII,泄露面白送</td><td><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Data_minimization">数据最小化</a>+匿名化选项</td><td>精简备份:只备必要数据</td></tr>
+          <tr><td>处理</td><td>prompt 携带 PII 明文发给第三方</td><td>入口实时脱敏+出口过滤</td><td>数据出域前的 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Data_loss_prevention_software">DLP</a> 过滤网关</td></tr>
+          <tr><td>存储</td><td>日志/DB 裸奔,一拖库全泄</td><td>TLS+落盘加密+行级权限</td><td>传输加密+静态加密+<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Role-based_access_control">RBAC</a></td></tr>
+          <tr><td>共享/委托</td><td>供应商拿你的数据训自己的模型</td><td>不训练条款/私有化/出境评估</td><td>外包异地保管的合同约束</td></tr>
+          <tr><td>销毁</td><td>只删了主库,副本全在</td><td>级联删除+日志 TTL+Memory 清除</td><td>retention 到期销毁+全副本覆盖</td></tr>
+        </table>
+
         <p><b>2. PII 脱敏(LLM 场景的核心手段)</b></p>
+        <p>先讲清楚为什么 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Large_language_model">LLM</a>(大语言模型)系统比传统 CRUD 危险:传统系统里 PII 老老实实待在数据库,边界清楚;LLM 系统里,用户每句话都会被拼进 prompt(拼好发给模型的输入)送去推理——模型是第三方 API 时,等于把明文用户数据寄出了公司,你不知道对方存多久、拿去干什么。所以"进 LLM 之前"是整条链路性价比最高的一道闸:</p>
+        <pre class="code">用户输入: "帮我查下张三 13800001111 的订单"
+   │
+   ▼
+┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│ ① 识别        │───▶│ ② 脱敏       │───▶│ ③ 进 LLM      │
+│ 正则:手机号/   │    │ 替换/掩码/    │    │ prompt 里只剩  │
+│ 身份证/银行卡  │    │ 令牌化        │    │ "用户A"       │
+│ NER:姓名/住址 │    └──────────────┘    └──────────────┘
+└──────────────┘                              │
+                                              ▼
+                                ④ 出口过滤:模型输出若回带
+                                敏感内容,再脱敏一次再给用户</pre>
         <ul>
-          <li><b>识别</b>:NER 模型/正则识别姓名、手机号、身份证、银行卡、住址;识别后按用途处理:<b>替换</b>("用户A")、<b>掩码</b>(138****5678)、<b>令牌化</b>(双向映射表单独加密保存,需要时可反查)。</li>
-          <li><b>过滤位置</b>:入口处(进 LLM 前最关键)——prompt 里的 PII 不脱敏就等于把数据发给了第三方;<b>出口也要脱敏</b>(模型输出回带的敏感内容)。</li>
-          <li>和效果的平衡:有些场景 PII 是任务必需(给用户查自己的订单)——<b>按数据流向区分</b>:进自家私有化模型=可;出去到第三方 API=脱敏或签 DPA。</li>
+          <li><b>识别</b>:NER 模型/正则识别姓名、手机号、身份证、银行卡、住址——正则兜底格式固定的字段,NER 抓格式不固定的开放字段,再叠一份内部自定义词典(客户名单、员工工号)。识别后按用途三选一处理:<b>替换</b>("用户A",不可逆)、<b>掩码</b>(138****5678,不可逆)、<b>令牌化</b>(换成 TOK_9f3a,双向映射表单独加密保存,需要时可反查——就是类比里说的"密文与密钥分离")。</li>
         </ul>
+        <p>三种处理方式摆在一起看:</p>
+        <table>
+          <tr><th>方法</th><th>效果示例</th><th>可逆性</th><th>什么时候用</th></tr>
+          <tr><td>替换(假名化)</td><td>张三 → 用户A</td><td>不可逆</td><td>日志、统计、训练语料——永远不需要还原</td></tr>
+          <tr><td>掩码</td><td>13800001111 → 138****5678</td><td>不可逆</td><td>展示与审计——留"这是手机号"的线索但不出全文</td></tr>
+          <tr><td>令牌化</td><td>13800001111 → TOK_9f3a</td><td>可逆(映射表加密另存)</td><td>任务需要还原真实值——如模型查完订单要回填真单号</td></tr>
+        </table>
+        <p>脱敏流水线本身不复杂,难的是放对位置——必须在"拼 prompt"之前:</p>
+        <pre class="code">def guard(text: str) -&gt; str:
+    ents = regex_scan(text) + ner_model(text)     # 双通道识别:正则+NER,宁多勿漏
+    for e in ents:
+        text = text.replace(e.raw, vault.tokenize(e))  # 令牌化:映射表进加密库
+    return text   # 只有脱敏后的 text 才允许拼进发给 LLM 的请求</pre>
+        <ul>
+          <li><b>过滤位置</b>:入口处(进 LLM 前最关键)——prompt 里的 PII 不脱敏就等于把数据发给了第三方;<b>出口也要脱敏</b>(模型输出回带的敏感内容):用户说"把我刚才发的身份证号再打一遍",模型真的会原样复述,出口这道闸就是挡它的。</li>
+          <li><b>和效果的平衡</b>:有些场景 PII 是任务必需(给用户查自己的订单)——<b>按数据流向区分</b>:流向自家私有化模型=可;流向第三方 API=先脱敏,或签 DPA(数据处理协议)把用途在合同里锁死。</li>
+        </ul>
+
         <p><b>3. 存储与访问</b></p>
+        <p>这段你最熟,按纵深防御记四层:传输态、静态、密钥、权限——任何单层都不充分,缺一层就是裸奔:</p>
+        <pre class="code">用户 ──TLS──▶ Agent/LLM 服务 ──AES-256──▶ 对话日志 / DB / 向量库
+                 │                              │
+                 │ 申请数据密钥 DEK               ├─ 行级权限:user_id 维度
+                 ▼                              │   (谁能读哪个用户的记忆)
+           KMS:根密钥 KEK,定期轮换              └─ 日志 TTL 到期自动销毁
+               (KEK 不出 KMS,                    (=retention 策略)
+                业务机只拿加密的 DEK)</pre>
         <ul>
-          <li>传输 TLS、落盘加密(KMS 管密钥)、密钥轮换;<b>对话日志是隐私重灾区</b>(用户会聊一切),日志里 PII 自动识别打标,超期自动删除(TTL),查询走审批。</li>
-          <li>分级:公开/内部/机密三级 + 行级权限(谁能看哪个用户的记忆)。</li>
+          <li>传输 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Transport_Layer_Security">TLS</a>、落盘加密(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Data_at_rest">静态加密</a>,常见 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Advanced_Encryption_Standard">AES-256</a>)、KMS 管密钥、密钥轮换——推荐信封加密:根密钥 KEK 只待在 KMS 里不出来,数据密钥 DEK 由 KEK 加密后下发,轮换只换 DEK,数据不用整体重写;这套你在备份加密里八成见过,一模一样的思路。</li>
+          <li><b>对话日志是隐私重灾区</b>(用户会聊一切):日志里 PII 自动识别打标,超期自动删除(TTL——本质是给日志配 retention 策略),人工查日志走审批留痕。</li>
+          <li>分级:公开/内部/机密三级+行级权限(谁能看哪个用户的记忆)——行级权限就是存储里的 ACL/RBAC 思路,按 user_id/租户划隔离边界。</li>
         </ul>
+
         <p><b>4. 第三方模型的合规(必聊)</b></p>
+        <p>用第三方大模型,本质是把一段用户数据委托给外部处理——和你把备份磁带送异地保管库是同一类法律关系,所以主战场在合同与数据流向:</p>
         <ul>
-          <li>选<b>企业 API 且合同明确"不用于训练"</b>;敏感行业干脆<b>私有化部署模型</b>(金融/医疗常态)。</li>
-          <li>跨境注意:调用境外模型 = 数据出境,需过安全评估(个保法框架下);"模型在哪、日志在哪、备份在哪"三个都要答上。</li>
+          <li>选<b>企业 API 且合同明确"不用于训练"</b>;个人版/免费版 API 的默认条款常常写着"可用你的数据改进服务",这是最常见的暗坑;<b>敏感行业干脆私有化部署模型</b>(金融/医疗常态)。</li>
+          <li>跨境注意:调用境外模型=数据出境,需过安全评估(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Personal_Information_Protection_Law_of_the_People%27s_Republic_of_China">个保法</a>框架下,路径是安全评估/保护认证/标准合同备案三选一);"模型在哪、日志在哪、备份在哪"三个都要答上——常见翻车是模型本身合规了,厂商却把请求日志存在境外。</li>
+          <li>容易漏的点:query 进 LLM 前往往要先过 Embedding 接口向量化——若 Embedding 也是境外第三方 API,同样构成出境,别只盯大模型。</li>
         </ul>
+        <table>
+          <tr><th>方案</th><th>数据是否出域</th><th>代价与适用</th></tr>
+          <tr><td>境外模型企业 API(不训练条款+DPA)</td><td>出域,靠合同约束</td><td>效果最好、接入最快;必须先过出境合规</td></tr>
+          <tr><td>境内厂商 API</td><td>不出境</td><td>免出境评估,效果略有让步</td></tr>
+          <tr><td>私有化部署(本地推理)</td><td>不出机房</td><td>GPU 采购+运维成本高;金融/医疗的常态选择</td></tr>
+        </table>
+
         <p><b>5. 用户权利与治理</b></p>
+        <p>合规的终点不是"我不泄露",而是"用户能行使权利"。这里也最容易答浅——你只要把删除的级联影响画出来,面试官就知道你真上过线:</p>
+        <pre class="code">用户行使删除权(被遗忘权)
+   │
+   ├─▶ 对话记录      按 user_id 物理删除
+   ├─▶ Memory 存储   按租户标签批量删
+   ├─▶ 向量库        metadata filter(user_id=?)→ 批量物理删除+碎片回收
+   ├─▶ 缓存          含语义缓存:按用户维度失效,防旧答案残留
+   ├─▶ 备份/归档     在线数据立即删;备份副本按保留策略到期覆盖消除
+   └─▶ 审计          删除动作本身留痕:删了什么/何时/谁批准/回执号</pre>
         <ul>
-          <li>实现"查询/导出/更正/<b>删除(被遗忘权)</b>"的工单化通道;删除是<b>级联</b>的:对话、Memory、向量库(该用户的所有 chunk)、缓存、备份策略都要覆盖。</li>
-          <li>隐私政策里如实披露"AI 如何处理你的数据";上线前过法务评审,日常做审计留痕。</li>
+          <li>实现"查询/导出/更正/<b>删除(被遗忘权,<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/General_Data_Protection_Regulation">GDPR</a> 第 17 条/个保法第 47 条)</b>"的工单化通道;删除是<b>级联</b>的:对话、Memory、向量库(该用户的所有 chunk)、缓存、备份策略都要覆盖——漏掉任何一份,向量检索就能把"已删除"的数据再翻出来。备份副本与删除令的冲突,监管通行的解法是:在线系统(库/索引/缓存)立即物理删;不可变备份按"到期消除"处理并写进隐私政策——这一点你的备份背景就是主场。</li>
+          <li>隐私政策里如实披露"AI 如何处理你的数据"(用什么模型、数据去哪、存多久);上线前过法务评审,日常做审计留痕,审计日志本身防篡改。</li>
         </ul>
+        <p>收尾可以补一句:隐私不是成本项,是准入门槛——这套体系做备份的人其实已经练过大半,LLM 只是把"数据会被复制到哪"这个问题变得更尖锐而已。</p>
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:用户要求删除 Memory 里的数据,向量库怎么删?</summary><div class="an">记忆写入时带 user_id 元数据,删除时按 metadata filter 批量物理删除+重建索引碎片回收;同时清缓存(语义缓存可能残留答案);提供删除回执。这就是为什么 Memory 设计一开始就要带租户/用户标签——删除才能执行得下去。</div></details>
-        <details class="qa"><summary class="qu">Q:怎么平衡"模型效果好(需要更多数据)"和隐私?</summary><div class="an">分级数据策略:脱敏后用于改进(统计/评估)、原始数据最小授权;用"差分隐私/聚合"思路做分析;采集时征得<b>明确同意</b>(opt-in 而非默认勾选)。</div></details>
+        <details class="qa"><summary class="qu">Q:用户要求删除 Memory 里的数据,向量库怎么删?</summary><div class="an"><b>人话:</b>能删的前提是写入时打了标签——每条记忆都带 user_id 元数据,删除时按标签过滤批量物理删,再清缓存、回收索引碎片,最后出删除回执。<b>类比:</b>这就是分布式存储里按租户批量下线对象——先按元数据定位,再批量物理删,最后跑一次 compaction 回收碎片,否则空间和索引里全是尸体。<b>技术:</b>Memory 写入时带 user_id 元数据,删除时按 metadata filter 批量物理删除+重建索引碎片回收;同时清缓存(语义缓存可能残留含 PII 的旧答案);提供删除回执。所以 Memory 设计一开始就要带租户/用户标签——否则删除根本执行不下去。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么平衡"模型效果好(需要更多数据)"和隐私?</summary><div class="an"><b>人话:</b>数据分级使用:脱敏后的数据拿去改进产品,原始数据最小授权、能不碰就不碰,采集前先拿用户明确同意,不做默认勾选。<b>类比:</b>备份系统的分级存储——生产库要明文高权限,测试和分析环境只给脱敏副本,介质与权限按场景分配,不是所有环境都配得上生产数据。<b>技术:</b>①分级数据策略:脱敏后用于统计/评估,原始数据最小授权;②用<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Differential_privacy">差分隐私</a>/聚合做分析,单条记录不可还原;③采集时 opt-in 明确同意;④要进训练集的语料先过脱敏流水线再入库。</div></details>
+        <details class="qa"><summary class="qu">Q:手机号、订单号都脱敏了,用户问"我刚才那个订单到哪了",模型还答得上来吗?</summary><div class="an"><b>人话:</b>答得上来——关键在用可逆的令牌化:发给模型的是假名,模型按假名检索出结果,出口网关再换回真实值,只给用户本人看。<b>类比:</b>容灾演练里全程用资源代号代替真实主机名,指令只认代号,最后一步才由受权系统把代号换回真实地址——代号对照表本身是最高密级资产。<b>技术:</b>双向映射表(令牌与原文)单独加密存 KMS;prompt 里只有 TOK_9f3a,检索和推理都在假名空间完成;出口按映射表反查回填,且回填只发生在面向该用户本人的响应里;映射表要有独立访问控制和定期轮换。</div></details>
+        <details class="qa"><summary class="qu">Q:用户聊天内容五花八门,NER 和正则不可能 100% 认全 PII,漏掉的怎么办?</summary><div class="an"><b>人话:</b>不指望识别 100%,要按"一定会漏"来设计——多层过滤叠加,再用短 TTL 压缩漏网数据的存活时间。<b>类比:</b>备份从来不赌磁带不坏,而是假设它一定坏,所以有校验、有副本、有恢复演练;隐私同理,不赌识别全中,赌的是漏了也兜得住。<b>技术:</b>①正则兜底高格式字段(证件/手机号/卡号),NER 抓开放字段(姓名/住址),再叠内部词典;②出口二次过滤,模型回显的 PII 也掩码;③日志端 PII 打标+短 TTL,漏网的超期自动销毁;④抽样人工审计,漏识别案例回流迭代规则与词典。</div></details>
+        <details class="qa"><summary class="qu">Q:效果最好的模型在境外,调用它算数据出境吗?怎么合规?</summary><div class="an"><b>人话:</b>算出境——prompt 发到境外模型那一刻,数据就离开了境内,没有灰色选项:要么换境内/私有化模型,要么走正式的出境合规路径。<b>类比:</b>相当于把明文生产数据寄到境外机房处理;做过存储的人都懂,数据的物理位置本身就是合规属性,和加没加密无关。<b>技术:</b>个保法框架下出境三条路——监管部门安全评估、保护认证、标准合同备案,按数据量与敏感级选;"模型在哪、日志在哪、备份在哪"三个位置都要核实,常见翻车是模型合规了、日志却被厂商存在境外;金融/医疗的稳妥答案是直接私有化部署。</div></details>
       </div>
 
       <div class="block term"><span class="badge b-term">术语卡</span>
         <div class="terms-grid">
-          <div class="term-item"><b>PII</b>:个人可识别信息。</div>
-          <div class="term-item"><b>令牌化</b>:敏感值替换为可逆的假名。</div>
-          <div class="term-item"><b>KMS</b>:密钥管理系统。</div>
-          <div class="term-item"><b>被遗忘权</b>:用户要求删除其数据的权利。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Personally_identifiable_information">PII</a></b>:个人可识别信息,能定位到具体个人的任何字段(姓名、手机号、身份证、住址)。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Tokenization_(data_security)">令牌化</a></b>:敏感值替换为可逆的假名,映射表单独加密保存。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Key_management">KMS</a></b>:密钥管理系统,集中保管加密密钥并控制其访问与轮换。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Right_to_be_forgotten">被遗忘权</a></b>:用户要求删除其个人数据的权利,GDPR 第 17 条确立。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Named-entity_recognition">NER</a></b>:命名实体识别,从文本中自动找出人名、地名、机构名等实体。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Pseudonymization">假名化</a></b>:用假名替换直接标识符,数据仍可能间接关联到个人。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Differential_privacy">差分隐私</a></b>:在统计结果中注入噪声,使单条个体记录无法被反推。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/General_Data_Protection_Regulation">GDPR</a></b>:欧盟通用数据保护条例,全球隐私合规的事实基准。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Personal_Information_Protection_Law_of_the_People%27s_Republic_of_China">个保法</a></b>:《个人信息保护法》,中国版 GDPR,同意、出境、删除权的主要依据。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Transport_Layer_Security">TLS</a></b>:传输层安全协议,防止数据在网络传输途中被窃听篡改。</div>
         </div>
       </div>
 </article>

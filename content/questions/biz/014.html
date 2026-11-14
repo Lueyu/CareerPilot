@@ -7,15 +7,32 @@
         <span class="tag">#ROI</span><span class="tag">#业务价值</span><span class="tag">#成本收益</span>
       </div>
 
+      <div class="note"><b>先说人话:</b>你的 Agent 上线了,老板只问一句:这玩意值多少钱、多久回本——这题考的就是这笔 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Return_on_investment">ROI</a> 账怎么算得让人信。面试官爱问它,因为它一刀分开「只会做技术」和「能扛业务结果」的人;典型翻车是拿总咨询量×单价硬算收益,等于声称 100% 替代,一眼假。</div>
+
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-        <p>"公式先行:<b>ROI =(年化收益 − 年化成本)/ 年化成本</b>,其中收益四件套:<b>人力替代节省</b>(被 Agent 解决的会话量 × 人工单成本)、<b>效率增益</b>(响应提速带来的转化/处理量提升)、<b>收入增长</b>(转化率提升 × 客单价)、<b>满意度留存</b>(折算);成本三件套:研发人力、推理/GPU、运维。两个最容易高估的坑主动声明:<b>替代率不能按 100% 算</b>(要乘实际承接率和解决率),<b>隐性成本别漏</b>(bad case 处理、监控、迭代团队是持续投入)。"</p>
+        <p>"公式先行:<b>ROI =(年化收益 − 年化成本)/ 年化成本</b>。收益拆四件套:<b>人力替代</b>(被真实解决的会话量 × 人工单成本)、<b>效率增益</b>(处理提速 → 同人力多消化量)、<b>收入增长</b>(转化率提升 × 客单价)、<b>满意度留存</b>(能折算才计入)。成本记三件套:<b>研发 + 推理 + 持续运维</b>。两个最容易翻车的坑要主动声明:<b>替代率绝不能按 100% 算</b>,必须乘上承接率、解决率两个折扣;<b>隐性成本别漏</b>——bad case 补救、监控、迭代团队都是持续烧钱。一句收尾:<b>账算得糙可以,算得假不行</b>。"</p>
       </div>
 
       <div class="block ana"><span class="badge b-ana">通俗类比</span>
-        <p>像<b>论证"买洗碗机值不值"</b>:不能说"洗碗机=解放了一个洗碗工"(它洗不了锅);要算:每天省 30 分钟 × 时薪 = 每年省多少钱(<b>替代率折算</b>),水电耗材费(<b>运行成本</b>),加上"再也不为谁洗碗吵架"的<b>隐性幸福收益</b>(满意度,尽量折算,折算不了就如实标注)。最后诚实一句:"半年回本"——<b>账算得糙可以,算得假不行</b>。</p>
+        <p><b>Agent 的 ROI 账(用「新备份一体机采购论证」想)</b>:给 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Large_language_model">LLM</a> Agent 算钱,就是你干熟了的那件事——向公司论证「买台<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Data_deduplication">去重</a>一体机替换磁带库值不值」:省多少管理员换带巡检时间、备份窗口从 8 小时压到 1 小时、<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Recovery_time_objective">RTO</a> 从 24 小时缩到 4 小时避免多少停机损失,再对着采购价 + 电费维保一减一除。科目换了名字,算法一模一样。</p>
+        <p><b>哪里像</b>:① 收益必须拆科目逐项算,不存在「大概很强」这种汇报;② 成本必须分「一次采购」和「月月流的电费维保」两本账;③ 最核心的像——<b>备份的成功不是「作业跑完」而是「恢复得出来」,Agent 的替代不是「机器人接待了」而是「问题真解决了、没转人工」</b>,所以收益必须乘承接率 × 解决率,就像有效容量要乘作业成功率;④ 厂商 PPT 写去重比 20:1、你的数据实测只有 3:1,拿厂商数字汇报等于给自己埋雷——同理,拿「总咨询量 × 单价」算收益等于声称 100% 替代。</p>
+        <p><b>哪里不像</b>:磁带库买回来第 365 天和第 1 天一样能干活,能力是死的;Agent 的解决率会随模型版本、Prompt 改动、流量结构漂移而波动,所以这笔账不是立项时算一次交差,而是要像盯 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Recovery_point_objective">RPO</a>/RTO 一样持续重测、按季度刷新——从「交付一个项目」切换到「运营一项资产」,这是算 Agent 账最需要的心态转变。</p>
       </div>
 
       <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>0. 开算之前:把公式钉在墙上</b></p>
+        <p>ROI 的教科书定义是「(收益 − 成本)÷ 成本」,公式本身不难;难的是把「收益」「成本」两筐科目钉死——哪项能进公式、哪项只能定性列出,先立规矩再动笔:</p>
+        <pre class="code">Agent ROI =(年化收益 − 年化成本)÷ 年化成本
+
+年化收益 ─┬─ ① 人力替代:被真实解决的会话量 × 人工单成本
+          ├─ ② 效率增益:处理提速 → 同人力多消化量
+          ├─ ③ 收入增长:转化率提升 × 客单价
+          └─ ④ 满意度留存:能折算的部分才计入
+
+年化成本 ─┬─ 研发:初期 + 持续迭代团队(← 最容易漏算的一项)
+          ├─ 推理:token 单价 × 会话量 + GPU 摊销
+          └─ 运维与风险:监控 / 人工审核 / bad case / 合规审计</pre>
+        <p>三条口径纪律:<b>① 一律年化</b>——月度 ×12、日度 ×365,两侧周期对齐才配相减;<b>② 分母用总成本</b>,不能只用研发投入,因为推理和迭代是月月流的钱;<b>③ 每个数字必须能指到一个数据源</b>(工单系统、AB 报表、账单),指不到的降级为「定性列出」,不许进公式。这三条是防做假的护栏,后面所有计算都在护栏里跑。</p>
         <p><b>1. 收益侧四件套(逐项给公式)</b></p>
         <table>
           <tr><th>收益项</th><th>计算公式(示例)</th><th>数据来源</th></tr>
@@ -25,12 +42,31 @@
           <tr><td><b>满意度</b></td><td>CSAT +5 → 投诉工单成本下降 + 续费率折算(标注"保守未计入"更稳)</td><td>NPS/续费数据</td></tr>
         </table>
         <p class="note">注意上面公式里的精髓是<b>承接率 × 解决率</b>——很多汇报直接拿"总咨询量×单价"算,等于声称 100% 替代,一眼假。敢打折的账才可信。</p>
+        <p>四件套逐个人话一遍:<b>人力替代</b>是「机器人把人工的活干了,省下的直接是钱」,最直观也最容易被夸大;<b>效率增益</b>是「没替代人,但人变快了」——像备份窗口从 8 小时压到 1 小时,不是少备了数据,而是同一个窗口塞下了三倍的作业(算钱用平均处理时长,汇报体验还得看 P99 长尾);<b>收入增长</b>是「不省钱但挣钱」,典型是售前 Agent 把转化率抬起来;<b>满意度</b>链条最长、最难折算,所以表里才写「保守未计入更稳」。「数据来源」列则是证据链:最硬的是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/A/B_testing">AB 实验</a>——同质流量随机一半走 Agent、一半走人工,两组的处理时长、转化率、<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Customer_satisfaction">CSAT</a> 差值就是 Agent 的净贡献,满意度相关的 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Net_promoter_score">NPS</a> 与续费数据同理;没条件分流时退而求其次做上线前后对比,但必须声明「未控变量」。</p>
+        <p>回到那两个折扣系数——它们是整笔账的诚信所在,画成漏斗一目了然:</p>
+        <pre class="code">日咨询量 10,000 单
+ │
+ ├─ 40% 未进机器人,直接人工 ──→ 4,000 单(与 Agent 无关,不计收益)
+ │
+ └─ 60% Agent 承接 ──────────→ 6,000 单(机器人接待了)
+       │
+       ├─ 70% 真正解决 ──────→ 4,200 单 ★ 唯一能全额计入「人力替代」
+       │
+       └─ 30% 转人工 ────────→ 1,800 单(只能按「人机协同提效」部分计入)</pre>
+        <p>翻译成你的母语:这 4,200 单才是「恢复成功的备份」,那 1,800 单是「作业跑完了但恢复失败、仍需人工兜底」的——备份行业从不把后者算进保护率,Agent 的账同理。10,000 × 60% × 70% = 4,200,两个折扣一乘,收益只剩吹牛口径的 42%:敢把这个数字摆上桌,账才开始可信。</p>
         <p><b>2. 成本侧三件套</b></p>
+        <p>成本侧的本质,是把 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Capital_expenditure">Capex</a>(一次性资本支出)和 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Operating_expense">Opex</a>(经常性运营支出)分开记账——采购存储设备时你天天做的动作:</p>
         <ul>
-          <li><b>研发</b>:初期 + 持续迭代团队(Prompt 工程师、评估、标注)× 人力成本——<b>迭代团队最容易被漏算</b>,LLM 应用是持续运营不是一次性交付。</li>
-          <li><b>推理</b>:单会话 token 成本 × 量,加上 GPU 摊销/网关费用。</li>
-          <li><b>运维与风险</b>:监控、人工审核成本、bad case 补救、合规审计。</li>
+          <li><b>研发</b>:初期 + 持续迭代团队(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Prompt_engineering">Prompt</a> 工程师、评估、标注)× 人力成本——<b>迭代团队最容易被漏算</b>,LLM 应用是持续运营不是一次性交付。对应到备份世界:买完一体机还得有人调备份策略、跟版本升级,这笔钱不批,系统会慢慢烂掉。</li>
+          <li><b>推理</b>:单会话 token 成本 × 量,加上 GPU 摊销/网关费用。这笔是纯 Opex——像一体机的电费 + 维保合同,月月流、随调用量线性涨。</li>
+          <li><b>运维与风险</b>:监控、人工审核成本、bad case 补救、合规审计——bad case 主要来自长尾请求,且对业务方承诺的 SLA 越严,兜底审核的人力越贵;类比失败作业的人工重跑和介质巡检:单看不起眼,乘上频率就是整份 headcount。</li>
         </ul>
+        <table>
+          <tr><th>成本项</th><th>备份世界的对应物</th><th>支付节奏</th><th>常见漏算姿势</th></tr>
+          <tr><td>研发(含迭代团队)</td><td>一体机采购 + 集成实施 + 驻场调优</td><td>Capex + 持续投入</td><td>只算初期,把迭代团队划到别的部门头上</td></tr>
+          <tr><td>推理 / GPU</td><td>电费 + 维保合同</td><td>纯 Opex,随调用量线性涨</td><td>拿低峰时段的单价外推满负荷账单</td></tr>
+          <tr><td>运维与风险</td><td>失败作业重跑 + 介质巡检 + 演练</td><td>Opex,随 bad case 率波动</td><td>假设「上线之后不用管了」</td></tr>
+        </table>
         <p><b>3. 一个能背下来的示例账(面试现场算给面试官)</b></p>
         <div class="svgwrap">
 <svg class="sdiagram" viewBox="0 0 570 350" role="img" aria-label="Agent ROI 测算示例账">
@@ -60,23 +96,52 @@
   <text class="sd-ts" x="280" y="318" text-anchor="middle">研发 100 万投入 → ROI ≈ 10 倍</text>
 </svg>
 </div>
+        <p>面试现场,这张图要能脱口而出。把数字掰开验一遍:</p>
+        <ul>
+          <li><b>人力替代</b>:10,000 × 60% × 70% = 4,200 单/天,4,200 × 8 元 × 365 ≈ <b>1,226 万/年</b>;</li>
+          <li><b>推理</b>:6,000 × 0.3 元 × 365 ≈ <b>66 万/年</b>——注意按 6,000 单(承接全量)算而非 4,200 单:转人工的会话同样烧了 token,钱花了就得计,<b>收益打折、成本不打折</b>,是账可信的另一半;</li>
+          <li><b>持续投入</b>:2 人迭代 + 人工审核 ≈ <b>120 万/年</b>;</li>
+          <li><b>净收益与 ROI</b>:1,226 − 66 − 120 ≈ <b>1,040 万/年</b>,再扣一次性研发 100 万,ROI ≈ 9.4 倍,汇报口径取整说「约 10 倍」。</li>
+        </ul>
+        <p>这套「一次性 vs 经常性」的拆法,顺手就回答了老板必问的 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Payback_period">回本周期</a>问题:</p>
+        <pre class="code">第 0 月              第 1.2 月               第 12 月
+   │                    │                      │
+   ▼                    ▼                      ▼
+[研发投入 −100 万]   [累计现金流由负转正]     [年末累计 ≈ +940 万]
+  一次性 Capex          回本点                 87 × 12 − 100
+
+月净收益 ≈ (1226 − 66 − 120) ÷ 12 ≈ 87 万
+回本周期 = 100 ÷ 87 ≈ 1.2 个月(悲观档:解决率 60% 时约 1.4 个月)</pre>
         <p><b>4. 汇报的两个高级细节</b></p>
         <ul>
-          <li><b>分阶段叙事</b>:工具期(给客服提效 20%)→ 协助期(人机协同,替代 50%)→ 自主期(端到端,替代 80%)——比"直接替代人工"的叙事可信且可执行。</li>
-          <li><b>敏感性分析</b>:解决率 60%/70%/80% 三档下的 ROI 区间——展示"我算过账,且知道哪些假设最脆弱",这是和只会说"AI 很强"的候选人的区别。</li>
+          <li><b>分阶段叙事</b>:工具期(给客服提效 20%)→ 协助期(人机协同,替代 50%)→ 自主期(端到端,替代 80%)——比"直接替代人工"的叙事可信且可执行。这就是备份迁移的老三样:试点业务组 → 灰度发布 → 全量切换,每个阶段有独立验收指标和回退方案——老板敢签字,是因为每一步都停得下来。</li>
+          <li><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Sensitivity_analysis">敏感性分析</a></b>:解决率 60%/70%/80% 三档下的 ROI 区间——展示"我算过账,且知道哪些假设最脆弱",这是和只会说"AI 很强"的候选人的区别。对应你做容量规划时按三档增长率出方案的老习惯,摊开就是:</li>
         </ul>
+        <table>
+          <tr><th>解决率假设</th><th>日替代单量</th><th>年人力节省</th><th>年净收益</th><th>ROI(研发 100 万)</th></tr>
+          <tr><td>60%(悲观)</td><td>3,600 单</td><td>1,051 万</td><td>865 万</td><td>≈ 7.7 倍</td></tr>
+          <tr><td>70%(基准)</td><td>4,200 单</td><td>1,226 万</td><td>1,040 万</td><td>≈ 9.4 倍</td></tr>
+          <tr><td>80%(乐观)</td><td>4,800 单</td><td>1,402 万</td><td>1,216 万</td><td>≈ 11.2 倍</td></tr>
+        </table>
+        <p>结论的推荐写法是「悲观口径下仍有 7.7 倍 ROI」而不是「预计 10 倍」——区间比单点诚实,还顺手告诉了老板:这笔账最脆弱的假设是解决率,他就算要挑战,也只能挑战到你提前备好弹药的地方。</p>
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:间接价值(员工体验、知识沉淀)怎么算?</summary><div class="an">能用代理指标折算就折算(客服离职率、培训周期缩短);折不了就定性列出并标注"未计入,构成额外上行空间"——严禁把无法度量的东西塞进主公式凑数。</div></details>
-        <details class="qa"><summary class="qu">Q:老板问"什么时候回本"?</summary><div class="an">把成本拆成"一次性(研发) vs 经常性(推理+运营)",一次性投入 ÷ 月净收益 = 回本周期;示例账里研发 100 万 ÷ 月净收益 87 万 ≈ 1.2 个月,给区间给假设,不给假精确。</div></details>
+        <details class="qa"><summary class="qu">Q:间接价值(员工体验、知识沉淀)怎么算?</summary><div class="an"><b>人话:</b>能折算的用代理指标折算,折不了的单列一页「未计入的上行空间」,绝不塞进主公式凑数。<b>类比:</b>像论证容灾预算——没人能说「没出事所以省了 500 万」,只能用行业年均停机损失 × 故障概率下降给个区间;员工离职率下降同理可折。<b>技术:</b>员工体验→客服离职率 × 单人替换成本(招聘 + 带教,约 3-6 个月工资);知识沉淀→新人上手周期缩短 × 培训成本;品牌口碑折不了的,定性列出并标注「保守未计入」——给老板留上行空间,比把账做虚安全得多。</div></details>
+        <details class="qa"><summary class="qu">Q:老板问"什么时候回本"?</summary><div class="an"><b>人话:</b>把成本切成「一次性」和「经常性」两本账,一次性投入 ÷ 月净收益 = 回本周期,给区间、给假设,不给假精确。<b>类比:</b>就是存储采购的 Capex/Opex 视角——买阵列的钱一次性掏,电费维保月月流,回本看「攒下的运营节省什么时候填平采购的坑」。<b>技术:</b>示例账:研发 100 万 ÷ 月净收益(1226 − 66 − 120)÷12 ≈ 87 万,约 1.2 个月回本;补一句敏感性——解决率跌到 60% 时约 1.4 个月,并声明假设「流量稳定、解决率不下滑」。回本快是因为收益基数大,不代表没风险。</div></details>
+        <details class="qa"><summary class="qu">Q:解决率 70% 这个数怎么测出来的,拍脑袋吗?</summary><div class="an"><b>人话:</b>不拍,用「用户事后有没有再找人工」反推,再加人工抽检校准,三个口径互相印证。<b>类比:</b>备份行业铁律——备份成功率不算数,恢复演练才算数;同理「机器人说解决了」不算数,用户没再回来才算数。<b>技术:</b>① 转人工率:会话内升级直接判未解决;② 24h 复访率:同用户同问题再来,判未解决;③ 每周抽 200 单人工标注,校准前两个自动口径。汇报写法:「解决率 70%(口径:无转人工且 24h 无复访,人工抽检 ±5pct)」——带口径的数字比裸数字可信十倍。</div></details>
+        <details class="qa"><summary class="qu">Q:如果 ROI 算出来是负的,这个项目还要不要上?</summary><div class="an"><b>人话:</b>先看负在哪——「暂时负」可以分阶段上,「结构负」就该止损,两种负要分开回答。<b>类比:</b>第一年建容灾几乎必然纯投入:灾备中心 + 演练人力,收益是「没发生的停机」,没人因此砍容灾预算;但恢复成功率上不去还年年追加投入的方案,是结构负,该换。<b>技术:</b>拆三个问题:① 成本会不会摊薄——推理单价逐年下探是大趋势;② 收益会不会爬坡——解决率半年从 50% 到 70% 是常见轨迹,对应分阶段叙事;③ 有没有战略期权——流程线上化、数据资产。三者皆否的负 ROI 是真负,敢说「不上」也是量化能力的一部分。</div></details>
       </div>
 
       <div class="block term"><span class="badge b-term">术语卡</span>
         <div class="terms-grid">
-          <div class="term-item"><b>承接率</b>:Agent 实际接待的流量占比。</div>
-          <div class="term-item"><b>敏感性分析</b>:关键假设变动对结论的影响。</div>
-          <div class="term-item"><b>回本周期</b>:一次性投入/月净收益。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Return_on_investment">ROI</a></b>:投资回报率,(收益 − 成本)÷ 成本,衡量一笔投入值不值的通用标尺。</div>
+          <div class="term-item"><b>承接率</b>:Agent 实际接待的流量占比,收益的第一个折扣系数。</div>
+          <div class="term-item"><b>解决率</b>:Agent 接到的会话中真正解决(未转人工)的比例,第二个折扣系数。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/A/B_testing">AB 实验</a></b>:流量随机分流对照,收益归因的最硬证据。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Sensitivity_analysis">敏感性分析</a></b>:关键假设变动对结论的影响。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Payback_period">回本周期</a></b>:一次性投入/月净收益。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Customer_satisfaction">CSAT</a></b>:客户满意度评分,满意度收益的度量口径。</div>
         </div>
       </div>
 </article>
