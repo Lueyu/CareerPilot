@@ -7,64 +7,105 @@
         <span class="tag">#推理优化</span><span class="tag">#吞吐量</span><span class="tag">#LLM</span>
       </div>
 
+      <div class="note"><b>先说人话:</b>这题问的是:模型和卡都定了,怎么让推理服务每秒多吐几倍的 token——吞吐就是单卡产能,省的都是真金白银。面试官爱考,因为它最能分清「背名词的」和「扛过生产流量的」。两个露怯点:不问场景就开方子(在线重延迟、离线重吞吐,方向相反);把「加 batch」当免费午餐——一句话暴露没做过容量规划。</div>
+
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
         <p>"私有化部署场景下,首选直接上 <b>vLLM</b>:PagedAttention 解决 KV Cache 内存碎片 + <b>continuous batching</b> 迭代级调度,两者合计吞吐提升一个数量级;然后按序:<b>前缀缓存</b>复用共享 Prompt 的 KV、<b>量化</b>(INT8/FP8/AWQ)省显存多塞并发、多卡 <b>tensor parallel</b>、激进一点上<b>投机解码</b>。同时要提醒:吞吐和延迟是 trade-off,离线批量场景重吞吐,在线对话重 TTFT,优化目标先讲清楚。"</p>
       </div>
 
       <div class="block ana"><span class="badge b-ana">通俗类比</span>
-        <p>像<b>出租车 vs 公交</b>:传统推理是出租车,一个乘客跑一趟,就算拼车也要等满一车才发车(静态 batch);<b>continuous batching 是地铁</b>——到站就上人、到站就下人,车厢永远满载在跑。KV Cache 优化则是"探过的路修成近道"(已算过的部分不用重算);量化是"车厢改双层"(同样显存塞更多请求)。</p>
+        <p><b>先对齐「吞吐量」这个词(用备份窗口想)</b>:吞吐量问的不是「一个用户等多久」,而是「整套服务单位时间总共能搬多少活」。你做备份天天在算这笔账:夜间备份窗口拼的是「一晚能吞多少 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Throughput">吞吐量</a>意义上的数据量」,白天用户点单条恢复拼的是「这一单等多久」(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Recovery_time_objective">RTO</a>)。LLM 推理同理:<b>吞吐 = 所有并发请求每秒加起来吐出多少 token</b>,<b>延迟 = 单个用户等多久</b>。这道题的所有招数都在抬第一个数,但每抬一下都要回头看第二个数有没有被牺牲——两者经常打架。</p>
+        <p><b>为什么 LLM 推理天生跑不满</b>:文字生成是自回归的——一次只吐一个 token,吐下一个之前必须把前文全部看一遍。更反直觉的是,这一步的大头开销不在计算,而在<b>把几十 GB 的模型权重从显存搬进计算单元</b>。你排查过太多这种现场:「CPU 利用率 10%,进程全在等磁盘」——LLM 的生成阶段在 GPU 上原样重演:算力大量闲着,卡在搬运上。所以整道题的底层逻辑就一句:<b>瓶颈既然是搬运(显存带宽),就想办法让一次搬运服务更多请求</b>——这正是 batch 类优化的本质,和加深磁盘队列深度把 IOPS 顶上去,是同一个思路。</p>
+        <p><b>static batch 是机场摆渡车,continuous batching 是地铁</b>:传统推理像摆渡车——凑满一车才发车,而且全车必须一起回到站,短途乘客全程陪长途乘客耗到终点;<b>continuous batching 是地铁</b>——每站都有人下、有人上,车厢永远满载在跑,这就是吞吐能翻好几倍的原因。<b>哪里像</b>:都在拼「满载率」,让每个座位(显存)在时间轴上没有空窗。<b>哪里不像</b>:地铁不挑乘客、上下车几乎不占运力;LLM 换请求要受显存余量约束——能塞几个请求由「车厢还剩多少座位」(KV Cache 空闲页)决定,而且车越长、每个乘客的单程时间(延迟)越长——这是后面 trade-off 的伏笔。整个施工像<b>扩一个备份集群</b>,顺序按 ROI 排:先把现有硬件跑满(调度优化,零硬件成本)→ 上重删(前缀缓存)→ 上压缩(量化)→ 真不够再加机器(并行/多实例)→ 最后才动奇招(投机解码)。</p>
       </div>
 
       <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>第 0 步:认清瓶颈——LLM 生成阶段卡在显存带宽,不是算力</b></p>
+        <p>LLM 推理分两阶段:<b>prefill</b>(读入整段 Prompt,一次性并行算完,算力密集)和 <b>decode</b>(之后一次吐一个 token 直到结束)。decode 阶段每步的计算量其实很小,却都要把整个模型权重从显存搬一遍——算术强度极低,本质是带宽瓶颈,像极了你排备份作业时「CPU 闲着、瓶颈全在 I/O」的现场。带宽瓶颈的正解是提高并发流数量把带宽喂饱,后面一切 batching 技术都建立在这上面。</p>
+        <pre class="code">decode 阶段:每生成 1 个 token,模型权重都要从显存完整搬运一遍
+  1 个请求:  搬一遍权重 → 只产出 1 个 token   (搬运费 1 家独担,算力大量闲置)
+  32 个并发: 搬一遍权重 → 产出 32 个 token   (同一笔搬运费 32 家分摊)
+                      ↑ 这就是「加并发涨吞吐」前期近乎白赚的原因
+                        直到显存带宽被吃满,收益才开始递减</pre>
         <p><b>1. Continuous Batching(吞吐之王,先讲这个)</b></p>
         <ul>
-          <li>传统静态 batch:凑一批一起进、一起出——短答案的请求干等长答案的, GPU 大量空转。</li>
-          <li>Continuous batching:<b>迭代级调度</b>,每生成一个 token 检查一次,完成的立刻退出、新请求立刻插入,GPU 永远满载。实测吞吐 3~10 倍。</li>
+          <li>传统静态 batch:凑一批一起进、一起出——整批必须等<b>最长的那个答案</b>生成完才能收下一批,短答案的请求全程陪跑干等,GPU 大量空转。</li>
+          <li>Continuous batching(也叫迭代级调度,思想来自 <a target="_blank" rel="noopener" href="https://www.usenix.org/conference/osdi22/presentation/yu">Orca 论文</a>):调度粒度从「一批」细化到「一个 token」——<b>每生成一个 token 检查一次</b>,完成的请求立刻退出、排队的新请求立刻插入,GPU 永远满载。实测吞吐 3~10 倍。再用你熟的类比补一刀:静态 batch 像「批处理时代等整批作业跑完才提交下一批」,continuous batching 像「线程池——干完一个立刻从队列捞下一个」。</li>
         </ul>
+        <pre class="code">静态 batch(凑齐一车,一起进、一起出):
+  A ██████░░░░░░░░░░░░░░░░   A 早就答完,被按在车上等全车
+  B █████████████████████   B 是话痨,全车陪它耗到最后
+  C ████░░░░░░░░░░░░░░░░   C 三句话就完了,也在陪跑
+  └─────── 整批结束才收下一批 ───────┘ → 下一批
+                              (GPU 大段空窗期)
+
+continuous batching(每步都有人下、有人上):
+  t0   A████ B████ C████ D████         车厢(显存)永远满载
+  t1   A████ B████      D████ E████    C 完成 → E 立刻补位
+  t2        B████ D████ E████ F████    A 完成 → F 立刻补位
+  → 没有「等满一车」的空窗,GPU 一直有活干</pre>
         <p><b>2. PagedAttention(vLLM 的核心创新)</b></p>
-        <ul>
-          <li>KV Cache(每个请求的中间计算缓存)传统按最大长度预留连续显存,<b>碎片率 60%~80%</b>。</li>
-          <li>PagedAttention 借操作系统分页思想:KV Cache 切成固定 block 按需分配,碎片 &lt; 4%——同样一张卡并发容量翻几倍。</li>
-        </ul>
+        <p>先说清 <a target="_blank" rel="noopener" href="https://blog.vllm.ai/2023/06/20/vllm.html">KV Cache</a>(每个请求的中间计算缓存):生成第 N 个 token 时,注意力要回看前文所有 token 的 Key/Value 中间结果;把每步算出的 K/V 存下来供下一步直接复用,就是 KV Cache。像你的<b>增量备份</b>:第一次全量扫描后把状态记下来,之后每步只算增量,不回头重扫。<b>哪里像</b>:都是「不重复干已干过的活」;<b>哪里不像</b>:增量备份要长期保留、会滚动失效,KV Cache 是会话级即用即弃,请求结束就释放。</p>
+        <p>传统做法的问题:每个请求的 KV Cache 按「可能的最大长度」预留一整块<b>连续</b>显存——这就是存储里的<b>厚配置(thick provisioning)</b>:100GB 的厚卷只写了 8GB,剩下的也死死占着。结果是<b>碎片率 60%~80%</b>:总量看着还有,却凑不出一块完整的连续空间,新请求想进都进不来。</p>
+        <pre class="code">传统预留(厚配置):按"最坏长度"整块预留连续显存
+  请求A [██░░░░░░░░░░░░░░░░]   预留一大块,实际只用零头
+  请求B [███░░░░░░░░░░░░░░]
+  剩余空间碎成渣,凑不出请求C要的"整块" → C 被拒之门外
+
+PagedAttention(精简配置 + 分页):KV 切成固定小页,按需领取
+  请求A [p3][p7][p12]          用几页占几页,物理不连续也行(页表映射)
+  请求B [p1][p5][p9][p14]
+  空闲页池 → 随时拼给新请求;碎片 &lt; 4%,同卡并发翻几倍</pre>
+        <p>PagedAttention 借操作系统分页思想——就是你天天打交道的虚拟内存那套:KV Cache 切成固定 block(页)按需分配、逻辑连续物理离散,碎片 &lt; 4%——<b>同样一张卡的并发容量翻几倍</b>(论文见 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2309.06180">Efficient Memory Management for LLM Serving</a>)。OS 课的知识在 GPU 上复活,这话说出来面试官会点头。</p>
         <p><b>3. KV Cache 相关的其他优化</b></p>
         <ul>
-          <li><b>前缀缓存(prefix caching)</b>:系统提示词相同的请求共享同一份 KV——Agent 场景每轮都带同一大段系统提示词,命中后<b>输入计算几乎免单</b>,TTFT 大幅下降。vLLM 开 enable_prefix_caching 即用。</li>
-          <li>MQA/GQA:模型架构层面减少 KV 头数(选型时留意,新模型基本都支持)。</li>
+          <li><b>前缀缓存(prefix caching)</b>:多个请求的开头相同——Agent 场景每轮都带同一段几千 token 的系统提示词加历史,这些前缀的 KV 只算一次,后续请求直接引用同一份。这是推理版的<b>重复数据删除(dedup)</b>:相同数据块全局只存/只算一份,后来者指针引用;命中后<b>输入计算几乎免单</b>,TTFT 大幅下降。vLLM 开 enable_prefix_caching 即用。<b>哪里像</b>:和备份重删一样,赚的都是「重复出现的那部分」;<b>哪里不像</b>:重删数据越攒越值钱,前缀缓存通常按 LRU 淘汰,价值集中在会话存续期间。</li>
+          <li><b>MQA/GQA</b>:模型架构层面减少 KV 头数——原来每个注意力头各存一套 K/V,现在多个查询头共享一套,像虚机的<b>链接克隆</b>:十个克隆机共享同一块基础盘,只有差异各自落盘。KV Cache 直接缩小数倍,等于同卡能塞更多并发。选型时留意,新一代模型基本都支持(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.13245">GQA 论文</a>)。</li>
         </ul>
         <p><b>4. 量化</b></p>
         <ul>
-          <li>INT8/FP8(W8A8)权重量化:显存减半、吞吐 +30~50%,精度损失 &lt; 1%,<b>工程上基本白赚</b>;AWQ/GPTQ 4bit 更省但速度看情况;优先试 FP8(新卡原生支持)。</li>
+          <li><b>INT8/FP8(W8A8)</b> 权重量化:权重从 16bit 压到 8bit——显存减半;更妙的是,因为 decode 是带宽瓶颈,要搬的权重体积减半,搬运时间也近似减半,所以<b>吞吐 +30~50%、精度损失 &lt; 1%,工程上基本白赚</b>。</li>
+          <li>类比备份压缩:压缩不光省磁带(显存),还让同样的带宽一晚上多搬几倍的数据(吞吐)。<b>哪里像</b>:都是拿「表示的位数」换容量和运力;<b>哪里不像</b>:备份压缩必须无损,少一个比特就是事故;量化是有损的,但损失可测量、工程上可控。</li>
+          <li><b>AWQ/GPTQ 4bit</b>(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.00978">AWQ</a>/<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.17323">GPTQ</a>)更省显存但速度看情况(极端量化可能反而要付反量化开销);<b>优先试 FP8</b>(新卡原生支持)。</li>
         </ul>
         <p><b>5. 并行与调度</b></p>
         <ul>
-          <li><b>Tensor parallel</b>:单请求大模型拆多卡(显存不够时的选择,通信开销换容量)。</li>
-          <li>请求级并行:多实例 + 负载均衡,最朴素最有效。</li>
+          <li><b>Tensor parallel</b>:单请求大模型拆多卡——把每层的权重矩阵切开铺到多张卡上,是 <b>RAID 0 条带化</b>的思路:一块放不下的大卷,切条带分布到多块盘。<b>哪里像</b>:都是把「单设备放不下的东西」摊到多设备;<b>哪里不像</b>:RAID 0 的盘各干各的,一笔 I/O 只碰一两个盘;TP 每算完一层,所有卡都要 all-reduce 对一次中间结果——通信是每层都收的持续税,所以必须有 NVLink 级互连才划算(经典方案见 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1909.08053">Megatron-LM</a>)。</li>
+          <li><b>请求级并行</b>:多实例 + 负载均衡,最朴素最有效——像备份集群横向加节点。别小看它:很多「推理慢」的现场,根因就是实例数不够。</li>
+          <li><b>算子层优化</b>:<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2205.14135">FlashAttention</a>、CUDA Graph 这类 kernel 优化,主流框架已内置——选对框架约等于白拿。</li>
         </ul>
         <p><b>6. 投机解码(激进选项)</b></p>
         <ul>
-          <li>小模型先草拟 k 个 token,大模型一次并行验证,对了一起收下——<b>数学上结果无损</b>(还是大模型分布),速度 2~3 倍。适合容易"猜中"的任务(格式化输出、代码)。</li>
+          <li>机制:小模型先快速草拟 k 个 token,大模型把这几个<b>当成一个 batch 一次并行验证</b>——猜对的部分一起收下,猜错的位置起用大模型自己的结果重来。<b>数学上结果无损</b>(最终仍严格服从大模型分布,保证来自拒绝采样,见<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2211.17192">投机解码论文</a>),速度 2~3 倍。</li>
+          <li>类比存储的<b>预读(prefetch)</b>:提前猜接下来要读的块并提前读出,猜中白赚,猜错丢弃重读,不会产生错误数据。<b>哪里像</b>:赌的都是「接下来的事」,错了都能安全回退;<b>哪里不像</b>:预读猜错只浪费一点 I/O,投机解码猜错浪费一次大模型 forward——所以<b>命中率决定成败</b>:格式化输出、代码这类「好猜」的任务赚 2~3 倍,开放创作这类难猜的任务可能倒贴。</li>
         </ul>
         <p><b>7. 别忘目标声明(体现工程判断)</b></p>
+        <p>动手前先把优化目标钉死——这和你说不清「优化的是备份窗口还是恢复 RTO」就没法开方案,是一回事。面试里先反问场景再开方子,本身就是加分项。</p>
         <table>
           <tr><th>场景</th><th>优化目标</th><th>侧重</th></tr>
           <tr><td>在线对话</td><td>TTFT 低</td><td>前缀缓存、小模型、限制并发保延迟</td></tr>
           <tr><td>离线批量(评估/摘要)</td><td>吞吐高、成本低</td><td>满血 continuous batching、Batch API、大 batch</td></tr>
+          <tr><td>Agent 多轮会话</td><td>轮次间 TTFT 低</td><td>前缀缓存 + 会话亲和调度(同一会话路由到同实例)</td></tr>
         </table>
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:为什么不用更高 batch 就完了?</summary><div class="an">batch 提升吞吐但推高单请求延迟(排队+计算分片);在线场景有 SLO(如 TTFT&lt;500ms),要在 SLO 约束下求最大吞吐——vLLM 的调度就是在做这个平衡。</div></details>
-        <details class="qa"><summary class="qu">Q:量化掉精度怎么发现?</summary><div class="an">量化前后跑同一套评估集(困惑度+任务指标),差异在阈值内才上线;灰度切流量观察质量指标。</div></details>
-        <details class="qa"><summary class="qu">Q:了解 SGLang/TensorRT-LLM 吗?</summary><div class="an">SGLang:RadixAttention 把前缀缓存做到极致+结构化输出快;TensorRT-LLM:NVIDIA 官方,深度_kernel 优化,极致性能但部署门槛高;vLLM 生态最通用——按团队运维能力选。</div></details>
+        <details class="qa"><summary class="qu">Q:为什么不用更高 batch 就完了?</summary><div class="an"><b>人话:</b>加 batch 前期近乎白赚,过了甜点区就是双输——吞吐见顶,单请求延迟照涨,在线场景还会撞 SLO 超时。<b>类比:</b>像磁盘队列深度:加深队列 IOPS 一路涨,过了饱和点再加深,IOPS 不动、单个 I/O 延迟却在涨;摆渡车也一样,车厢越长满载率越高,但运力封顶后纯粹让乘客多等。<b>技术:</b>decode 阶段算力闲置,加 batch 是拿闲着的算力换吞吐;显存带宽吃满后收益递减、延迟上升。在线场景有 SLO 约束(如 TTFT&lt;500ms),正确姿势是「SLO 之内求最大吞吐」——vLLM 的调度器(max_num_seqs、max_num_batched_tokens 两个旋钮)就是在自动做这个平衡。</div></details>
+        <details class="qa"><summary class="qu">Q:量化掉精度怎么发现?</summary><div class="an"><b>人话:</b>量化一定掉一点精度,工程做法是「先体检、再上岗、上岗后持续随访」,不许裸奔上线。<b>类比:</b>像备份链路换新压缩算法:先在隔离环境做全量恢复演练、逐文件比对校验,全过了才敢进生产——绝不能等用户发现文件打不开。<b>技术:</b>①上线前:同一套评估集量化前后对比(困惑度 + 下游任务指标),差异超阈值就不上;②上线时灰度切流量小比例观察;③上线后监控质量信号(负反馈率、重写率);④bit 数越少越谨慎:FP8 → INT8 → 4bit,一步一测。</div></details>
+        <details class="qa"><summary class="qu">Q:了解 SGLang/TensorRT-LLM 吗?</summary><div class="an"><b>人话:</b>三个主流引擎定位不同:vLLM 通用、生态最大;SGLang 把前缀缓存和结构化输出做到极致;TensorRT-LLM 性能上限最高、门槛也最高。<b>类比:</b>像备份产品选型——通用备份软件、专攻数据库的专用工具、深度绑定某硬件厂商的定制件:性能上限和运维成本永远在博弈,没有免费午餐。<b>技术:</b>SGLang 的 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2312.07104">RadixAttention</a> 把前缀缓存组织成全局基数树,跨请求、跨会话共享 KV,Agent 多轮场景优势巨大;TensorRT-LLM(<a target="_blank" rel="noopener" href="https://github.com/NVIDIA/TensorRT-LLM">GitHub</a>)是 NVIDIA 官方,深度 kernel 调优榨干自家硬件,但部署与迭代成本高;vLLM 模型覆盖最广、社区最活——按团队运维能力选,别只看榜单数字。</div></details>
+        <details class="qa"><summary class="qu">Q:并发把显存打满、KV Cache 快撑爆时,服务会挂吗?</summary><div class="an"><b>人话:</b>不会当场挂,但会触发「抢占」——调度器把一部分请求请下车腾显存,代价转嫁给被请下去的人。<b>类比:</b>和 OS 内存吃紧时的换页一模一样:冷页先被扫地出门;vLLM 的抢占有两种:把 KV Cache 换出到主机内存(swap),或干脆丢弃、轮到它时从头重算(recompute)——一个费 PCIe 带宽,一个费算力。<b>技术:</b>抢占是兜底不是常态,每次抢占都意味着某个用户白等;治本靠容量规划:PagedAttention 治碎片、量化省显存、选 GQA 类模型天生 KV 小——把「显存里能同时住下多少请求」规划好,抢占率才低。</div></details>
       </div>
 
       <div class="block term"><span class="badge b-term">术语卡</span>
         <div class="terms-grid">
-          <div class="term-item"><b>KV Cache</b>:生成过程的中间缓存,避免重复计算。</div>
-          <div class="term-item"><b>Continuous batching</b>:迭代级动态拼车。</div>
-          <div class="term-item"><b>PagedAttention</b>:KV Cache 分页管理,消灭碎片。</div>
-          <div class="term-item"><b>投机解码</b>:小模型打草稿大模型批改。</div>
-          <div class="term-item"><b>TP</b>:张量并行,模型拆卡。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://blog.vllm.ai/2023/06/20/vllm.html">KV Cache</a></b>:生成时缓存的注意力中间结果,推理显存与带宽的大头——一切显存优化的靶心。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://www.usenix.org/conference/osdi22/presentation/yu">Continuous batching</a></b>:迭代级调度,每步让完成的请求下车、新请求补位,把 GPU 从「等满一车」里解放出来。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2309.06180">PagedAttention</a></b>:把 KV Cache 像操作系统内存一样分页管理,碎片从 60%+ 压到 4% 以内,同卡并发翻几倍。</div>
+          <div class="term-item"><b>前缀缓存</b>:开头相同(如系统提示词)的请求共享同一份 KV,推理版的「重复数据删除」,Agent 多轮场景的 TTFT 神器。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.00978">量化</a></b>:把权重从 16bit 压到 8/4bit——显存省、带宽省、吞吐涨,代价是拿评估集测得出来的可控精度损失。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2211.17192">投机解码</a></b>:小模型打草稿、大模型并行批改,拒绝采样保证输出分布不变——数学上无损的 2~3 倍提速。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1909.08053">TP</a></b>:张量并行,把大模型像 RAID 0 条带一样拆到多张卡,拿通信开销换单卡放不下的容量。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Time_to_first_byte">TTFT</a></b>:Time To First Token,首字时间;在线场景用户真正感知的指标,和总吞吐常常是对手戏。</div>
         </div>
       </div>
 </article>

@@ -7,62 +7,140 @@
         <span class="tag">#API设计</span><span class="tag">#适配器模式</span><span class="tag">#统一接口</span>
       </div>
 
+      <div class="note"><b>先说人话:</b>系统要接多个大模型,每家 API 都长得不一样,这题问的是怎么加一层适配层,让业务代码换模型时零改动。面试官爱考它,因为这是工程成熟度的照妖镜:答错的现场就开始 if/else 枚举厂商,暴露的是接口抽象和故障归一意识的缺失——而这恰是后台基础设施人的送分点。</div>
+
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-        <p>"标准<b>适配器模式</b>:定义统一抽象层(chat/ stream/ embed/ 工具调用接口),每个供应商一个 Adapter 做参数翻译、响应翻译和<b>错误码归一化</b>;<b>OpenAI 的请求格式当事实标准</b>(业内通用,新供应商基本都兼容它,适配成本最低);能力差异不做'假统一'而是<b>能力协商</b>——不支持 function calling 的模型自动降级 ReAct 文本协议;加健康检查和路由,新模型接入≈写一个 Adapter + 注册配置。"</p>
+        <p>"标准做法是<b>适配器模式</b>:先定义统一抽象层——chat(同步)、stream(流式输出)、embed(向量化)和工具调用,返回结构字段固定;然后<b>每个供应商写一个 Adapter</b>,干三件事:请求参数翻译、响应结构翻译、<b>错误码归一化</b>。<b>以 OpenAI 格式为基准</b>最省力——它是 LLM 界的事实标准,绝大多数推理框架和国产模型原生提供 OpenAI 兼容端点。能力差异不做'假统一',做<b>能力协商</b>:Adapter 声明能力矩阵,不支持 function calling 的模型自动降级为 ReAct 文本协议。最后工厂注册 + 按用途/成本/可用性路由 + 健康检查——新模型接入 ≈ 写一个 Adapter + 一条配置,业务代码零改动。"</p>
       </div>
 
       <div class="block ana"><span class="badge b-ana">通俗类比</span>
-        <p>就是<b>万能转接头</b>(出国旅行插头转换器):你的电器插头(业务代码)永远是中国标准(统一接口),到不同国家插不同转接头(Adapter)——回国不用换电器,新去一个国家只要新买一个转接头。最忌讳每个国家单独买一套电器(每个供应商写一套业务代码)。</p>
+        <p><b>大局:这就是备份软件的"异构设备适配层",你的老本行</b>。成熟的备份产品要适配各种数据库、虚拟化平台、存储阵列,各家快照/恢复 API 千差万别,但你绝不会为每个厂商重写一遍策略引擎——业界做法是定义统一设备抽象(创建快照/查询状态/执行恢复),<b>每个厂商各写一个驱动</b>(即 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Adapter_pattern">适配器模式</a>里的 Adapter),上层完全不知道自己在驱动谁。跨模型统一 API 是同一招搬进 LLM 世界,概念可以一一同桌对齐:</p>
+        <table>
+          <tr><th>LLM 世界</th><th>备份/存储世界(你熟悉的那套)</th></tr>
+          <tr><td>统一接口 chat/stream/embed</td><td>设备抽象层:创建快照/查询状态/执行恢复</td></tr>
+          <tr><td>每厂商一个 Adapter</td><td>每厂商一个设备驱动/适配器</td></tr>
+          <tr><td>工厂 + 配置注册</td><td>驱动注册表:新阵列接入 = 新驱动 + 注册</td></tr>
+          <tr><td>错误码归一化</td><td>各家故障码归一成统一故障分类</td></tr>
+          <tr><td>能力协商与降级</td><td>设备不支持快照,自动回退主机侧备份</td></tr>
+        </table>
+        <p><b>为什么拿 OpenAI 格式当基准(想想 S3 兼容 API)</b>:为什么所有存储厂商的接口手册都写着"<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Amazon_S3">S3</a> 兼容"?因为 S3 API 成了事实标准,客户端一套代码连遍各家,后来者主动向它看齐。<a target="_blank" rel="noopener" href="https://platform.openai.com/docs/api-reference">OpenAI API 格式</a>就是 LLM 界的"S3":vLLM、Ollama、大多数国产模型都提供 OpenAI 兼容端点。<b>哪里像</b>:标准一旦立住,生态、工具链、文档全绕着它转,适配成本断崖式下降。<b>哪里不像</b>:S3 是规格文档摆在那、多年稳定;OpenAI API 是厂商主导、仍在迭代(参数不断新增),所以你依赖的是"格式"而非某个第三方 SDK 的版本——这也正是要在它外面包一层自己抽象的原因。</p>
+        <p><b>错误码归一化(想想故障码归一)</b>:各家设备报故障的码和语义五花八门,管理平台必须先归一成统一故障分类,上层"什么重试、什么告警、什么自动恢复"才只需写一份逻辑。LLM 也一样:A 家的 400 是参数错、B 家的 400 是超长,不归一的话上层得挨家挨户认门牌;而且坑在"同码不同义",所以 Adapter 必须解析响应体,不能只看状态码。<b>哪里不像</b>:设备故障是"真坏了"的确定性事件,而模型侧有一类错误是动态的——内容过滤放行与否跟输入相关,限流窗口在滚动,归一时要单列 CONTENT_FILTERED 这类"动态错误",对它盲目重试只会再被拦一次。</p>
+        <p><b>能力协商(想想异构备份的能力差异)</b>:备份软件遇到不支持硬件快照的库,自动降级成主机装 Agent 走日志的备份方式;遇到不支持去重的阵列,策略自动绕开。同理,没有 function calling 的模型,自动降级成 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct 文本协议</a>——把工具格式写进提示词教模型,输出后自己用正则解析再执行。<b>哪里像</b>:都是"硬件能力没有,软件方案顶上",优雅降级同一个思路。<b>哪里不像</b>:设备能力矩阵基本是静态的,填一次管一两年;模型能力会随厂商升级动态变化(这个月没有 FC,下个月升级就有了),所以能力声明必须做成 Adapter 的可配置项,而不是硬编码。</p>
       </div>
 
       <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p>动手前先把分层摆正,看这层适配器在整个系统里的位置:</p>
+        <pre class="code">业务代码(Agent / 应用 / 评估脚本)    ← 只依赖统一接口,代码里不出现厂商名
+    │
+    ▼
+统一接口 LLMClient                  ← chat / stream / embed,返回结构固定(即"契约")
+    │
+    ▼
+工厂 + 路由                         ← 按用途 / 成本 / 可用性 / 健康度选 Adapter
+    │
+    ├─→ Adapter-OpenAI    (参数翻译 / 响应翻译 / 错误归一)
+    ├─→ Adapter-Claude    (参数翻译 / 响应翻译 / 错误归一)
+    └─→ Adapter-vLLM      (OpenAI 兼容,几乎可以直接透传)
+    │
+    ▼
+各厂商 HTTP API                     ← 真实世界:格式不兼容、错误不统一、能力有差异</pre>
         <p><b>1. 抽象层设计(接口定义)</b></p>
+        <p>统一接口是全系统的"契约",要覆盖业务用模型的全部姿势——同步问答、流式输出、向量化、工具调用;返回结构的字段必须固定,上层才有统一的取数位置。Python 里通常用 <a target="_blank" rel="noopener" href="https://docs.python.org/3/library/abc.html">ABC(抽象基类)</a>实现,子类漏实现方法会在<b>实例化时</b>直接报错,而不是上线三天后在生产里炸:</p>
         <pre class="code">class LLMClient(ABC):
-    def chat(messages, tools=None, **params) -> LLMResponse     <span class="c"># 同步</span>
-    def stream(messages, tools=None, **params) -> Iterator[LLMDelta] <span class="c"># 流式</span>
-    def embed(texts) -> list[Vector]
+    def chat(messages, tools=None, **params) -&gt; LLMResponse     <span class="c"># 同步</span>
+    def stream(messages, tools=None, **params) -&gt; Iterator[LLMDelta] <span class="c"># 流式</span>
+    def embed(texts) -&gt; list[Vector]
     <span class="c"># 统一返回:content / tool_calls / usage{in,out} / finish_reason</span></pre>
+        <p>把统一返回结构拆开看,每个字段都对应上层的一种动作:</p>
+        <table>
+          <tr><th>字段</th><th>装什么</th><th>上层拿它干嘛</th></tr>
+          <tr><td>content</td><td>模型生成的文本</td><td>展示、拼进对话历史</td></tr>
+          <tr><td>tool_calls</td><td>模型想发起的结构化工具调用(名称+参数)</td><td>执行工具→结果拼回对话→再调一次模型</td></tr>
+          <tr><td>usage{in,out}</td><td>输入/输出 token 计数</td><td>成本核算与监控依据——LLM 按 token 计费,角色同存储按容量计费</td></tr>
+          <tr><td>finish_reason</td><td>stop(正常结束)/ tool_calls(要调工具)/ length(被 max_tokens 截断)</td><td>上层据此分支决定下一步;被截断时补发或压缩</td></tr>
+        </table>
         <ul>
-          <li>统一参数:<b>通用的直接传,特有的放 extra</b>(如某家的 top_k)——别为了统一丢掉特色能力。</li>
-          <li><b>以 OpenAI 格式为基准</b>的好处:绝大多数国产模型/推理框架(vLLM、Ollama)都提供 OpenAI 兼容端点,一层 Adapter 通吃,甚至很多供应商零成本接入。</li>
+          <li>统一参数:<b>通用的直接传,特有的放 extra</b>(如某家的 top_k)——别为了统一丢掉特色能力。代码里的 <b>**params</b> 就是 extra 的入口,由 Adapter 决定转发、翻译还是丢弃。</li>
+          <li><b>以 OpenAI 格式为基准</b>的好处:绝大多数国产模型/推理框架(<a target="_blank" rel="noopener" href="https://github.com/vllm-project/vllm">vLLM</a>、<a target="_blank" rel="noopener" href="https://github.com/ollama/ollama">Ollama</a>)都提供 OpenAI 兼容端点,一层 Adapter 通吃,甚至很多供应商零成本接入。</li>
         </ul>
+        <p>但"兼容 OpenAI 格式"≠天下同一种方言。看看"同一个东西"两家的叫法差多远,就知道翻译层为什么必须有:</p>
+        <table>
+          <tr><th>同一个概念</th><th>OpenAI 的叫法</th><th>Claude 的叫法</th></tr>
+          <tr><td>系统提示词</td><td>role="system" 的 message</td><td>顶层 system 参数</td></tr>
+          <tr><td>工具调用</td><td>assistant 消息里的 tool_calls</td><td>content block type=tool_use</td></tr>
+          <tr><td>回传工具结果</td><td>role="tool" 的 message</td><td>user 消息里的 tool_result block</td></tr>
+          <tr><td>流式增量</td><td>delta.content</td><td>content_block_delta 事件</td></tr>
+          <tr><td>结束原因</td><td>finish_reason: stop / tool_calls</td><td>stop_reason: end_turn / tool_use</td></tr>
+        </table>
         <p><b>2. 错误码归一化(比参数映射更容易被漏掉,却更重要)</b></p>
+        <p>为什么"更重要":参数映射错了立刻炸、立刻修;错误归一没做好,演示时一切正常,等生产出事才发现重试、告警、降级全都打在错误的位置上——性质同备份软件把故障码翻译错,延迟起爆、炸在关键时刻。归一化枚举长这样:</p>
         <table>
           <tr><th>统一错误枚举</th><th>OpenAI</th><th>Claude</th><th>处理建议</th></tr>
           <tr><td>RATE_LIMITED</td><td>429</td><td>429</td><td>退避重试</td></tr>
           <tr><td>CONTEXT_OVERFLOW</td><td>400 (max tokens)</td><td>400 (prompt too long)</td><td>截断/压缩后重发</td></tr>
           <tr><td>CONTENT_FILTERED</td><td>content_policy</td><td>refusal</td><td>不重试,改写或降级</td></tr>
           <tr><td>AUTH_FAILED</td><td>401</td><td>401</td><td>告警,不重试</td></tr>
+          <tr><td>TIMEOUT</td><td>超时无响应</td><td>超时无响应</td><td>超时+重试,反复超时切备用模型</td></tr>
+          <tr><td>SERVER_ERROR</td><td>500 / 503</td><td>500 / 529 overloaded</td><td>退避重试,多次失败移出路由</td></tr>
         </table>
-        <p>把"上下文超长"归一化特别有价值:上层可以统一实现"自动摘要压缩后重试"的通用逻辑。</p>
-        <p><b>3. 能力协商与降级兼容</b></p>
         <ul>
-          <li>每个 Adapter 声明能力矩阵:支持 system role?支持 tools?最大上下文?支持 JSON mode?</li>
-          <li>运行时按能力自动降级:不支持 system → 拼进首条 user;不支持 FC → 切换 <b>ReAct 文本协议</b>(Prompt 里教模型输出工具调用格式,正则解析);不支持 JSON mode → 修复性解析+重试。</li>
-          <li>能力变化只改 Adapter 声明,业务代码零改动。</li>
+          <li><b>两个设计要点</b>:归一枚举给程序分支用(if err == RATE_LIMITED → 退避重试);同时保留 <b>raw_error</b> 存原始报错与厂商字段,给排障和找厂商开工单用——机读人读分离,和日志结构化是同一条原理。</li>
+          <li>重试按<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Exponential_backoff">指数退避</a>来,429 时必须尊重 <a target="_blank" rel="noopener" href="https://developer.mozilla.org/zh-CN/docs/Web/HTTP/Headers/Retry-After">Retry-After</a> 响应头——人家明说"30 秒后再来",无脑连击只会被拉黑。</li>
         </ul>
+        <p>把"上下文超长"归一化特别有价值:上层可以统一实现"自动摘要压缩后重试"的通用逻辑。这条逻辑只写一份,放统一的异常处理器里;各家 Adapter 只负责"认出自家报错并翻译出来"。</p>
+        <p><b>3. 能力协商与降级兼容</b></p>
+        <p>每个 Adapter 声明能力矩阵:支持 system role?支持 tools?最大上下文?支持 JSON mode?声明做成配置,不硬编码:</p>
+        <table>
+          <tr><th>能力项</th><th>A 厂商</th><th>B 厂商</th><th>缺失时 Adapter 的自动降级</th></tr>
+          <tr><td>system role</td><td>✅</td><td>❌</td><td>把 system 拼进首条 user 消息</td></tr>
+          <tr><td>Function Calling</td><td>✅</td><td>❌</td><td>切 ReAct 文本协议,正则解析调用</td></tr>
+          <tr><td>JSON mode</td><td>✅</td><td>❌</td><td>修复性解析+失败重试一次</td></tr>
+          <tr><td>最大上下文</td><td>128k</td><td>32k</td><td>自动摘要压缩历史再发</td></tr>
+        </table>
+        <p>运行时按能力自动降级:不支持 system → 拼进首条 user;不支持 FC → 切换 <b>ReAct 文本协议</b>(Prompt 里教模型输出工具调用格式,正则解析);不支持 JSON mode → 修复性解析+重试。降级的实感长这样:</p>
+        <pre class="code">ReAct 降级:模型没有原生 function calling?那就把工具写成文本协议教它 ——
+
+系统提示词里加:
+  "可用工具:search_weather(参数: {"city": ...})、...
+   需要调用工具时,严格按此格式输出:
+   Thought: 我需要先查天气
+   Action: search_weather
+   Action Input: {"city": "深圳"}"
+
+Adapter 用正则从模型输出里抓出 Action / Action Input,解析出工具名和参数,
+执行工具,把结果追加回对话再调模型,循环直到模型输出"Final Answer: ..."。</pre>
+        <p>能力变化只改 Adapter 声明,业务代码零改动——这就是<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Open%E2%80%93closed_principle">开闭原则</a>:对扩展开放(加声明、加 Adapter),对修改关闭(业务代码不动),和给新阵列加驱动不动策略引擎是同一条纪律。</p>
         <p><b>4. 工厂 + 配置路由</b></p>
         <ul>
-          <li>注册表:model_name → Adapter 实例(带连接池);新增供应商 = 实现 Adapter + 配置注册,<b>业务代码一行不动</b>。</li>
-          <li>路由策略挂在工厂之上:按用途/成本/可用性选实例(和 LLM Gateway 配合,见第一部分 Q6)。</li>
+          <li>注册表:model_name → Adapter 实例(带连接池);新增供应商 = 实现 Adapter + 配置注册,<b>业务代码一行不动</b>。连接池的账和数据库连接池一样:高并发下 TLS 握手 + TCP 建连不能每次请求都付一遍,HTTP keep-alive 复用是基本盘。</li>
+          <li>路由策略挂在工厂之上:按用途/成本/可用性选实例(和 LLM Gateway 配合,见第一部分 Q6)。典型策略:简单问题走便宜小模型、复杂推理走强模型;主厂商 429 自动切备用 Adapter。</li>
+          <li>健康检查:定期给每个 Adapter 发个极轻量的探活请求,不健康实例移出路由、恢复后自动回归——负载均衡健康检查的同款逻辑,你想必写过。</li>
         </ul>
         <p><b>5. 测试与质量</b></p>
         <ul>
-          <li>契约测试:同一批请求过所有 Adapter,断言统一响应结构一致(字段齐全、语义一致)。</li>
-          <li>黄金用例集:工具调用、多轮、长文本、中文等各一,新 Adapter 必须全绿。</li>
+          <li><a target="_blank" rel="noopener" href="https://martinfowler.com/bliki/ContractTest.html">契约测试</a>:同一批请求过所有 Adapter,断言统一响应结构一致(字段齐全、语义一致)。断言不止"字段存在",还要"语义一致"——比如 finish_reason=tool_calls 时 tool_calls 必非空,否则 Agent 循环会拿着空指针空转。</li>
+          <li>黄金用例集:工具调用、多轮、长文本、中文等各一,新 Adapter 必须全绿。这些用例是刻意挑的"差异放大器":工具调用跨 chunk 分片、中文引号与转义、长文本截断,全是厂商差异的重灾区。</li>
+          <li>故障注入:mock 429 / 超时 / 5xx / 拦截响应,验证错误归一、退避重试、降级路径真的会走——容灾演练的逻辑,平时练,不能等真故障上线才第一次验证。</li>
         </ul>
+        <p><b>能随口讲出"错误码归一化之后,上层可以统一实现截断压缩重试",面试官就知道你不是背设计模式,是真维护过多厂商系统。</b></p>
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:统一会不会抹平各家优势功能?</summary><div class="an">核心接口统一,特色能力通过 extra 参数和能力协商暴露(比如 Claude 的 prefill、思考模式),不搞"削足适履"的假统一;判断标准:80% 场景纯统一,20% 高级能力可按模型寻址。</div></details>
-        <details class="qa"><summary class="qu">Q:流式响应的适配有什么坑?</summary><div class="an">各家的 chunk 结构差异大:增量内容字段不同、工具调用可能跨多个 chunk 分片(要聚合)、finish_reason 语义不一;统一 LLMDelta 结构 + Adapter 内做聚合缓冲,坑基本都能填。</div></details>
+        <details class="qa"><summary class="qu">Q:统一会不会抹平各家优势功能?</summary><div class="an"><b>人话:</b>不会,也不许会——接口是语言不是天花板,最忌讳"取最小公倍数",把全家拖到最弱厂商的能力集。<b>类比:</b>备份平台的统一接口从没禁止你用某阵列独有的去重加速,"标准功能集+厂商扩展参数透传"在异构存储里早就这么干了。<b>技术:</b>核心接口覆盖 80% 场景,剩下 20% 的高级能力(如 Claude 的 prefill、思考模式)通过 extra 机制+能力查询暴露——Adapter 声明了这个能力,业务代码才能寻址到,否则自动走兜底路径。验收标准:80% 场景纯统一,20% 高级能力可按模型寻址。</div></details>
+        <details class="qa"><summary class="qu">Q:流式响应的适配有什么坑?</summary><div class="an"><b>人话:</b>流式适配三个经典坑:增量字段叫法不同、工具调用被切片、结束原因语义不一致。<b>类比:</b>像增量备份——各家发的都是"本轮变化",但"一笔变化"的定义各家不同,有的把一次工具调用拆成五笔增量,Adapter 必须先聚合回完整一笔再往外吐,和恢复端要先把增量日志拼对齐是一个道理。<b>技术:</b>定义统一 LLMDelta(delta 文本/工具调用增量/finish_reason/usage),Adapter 内做聚合缓冲:跨 chunk 分片的 tool_calls 攒齐再 yield;注意 usage 通常只在最后一个 chunk 里,delta 与 finish_reason 也可能只在末包出现——这些正是黄金用例要覆盖的点。</div></details>
+        <details class="qa"><summary class="qu">Q:OpenAI 格式既然是事实标准,直接拿 OpenAI SDK 当统一接口,零成本不好吗?</summary><div class="an"><b>人话:</b>OpenAI 格式可以当请求的"线上格式"基准,但自己那层 Adapter 省不掉。<b>类比:</b>存储厂商都支持 S3 兼容 API,不代表备份平台就能省掉自己的抽象层——凭据管理、故障归一、路由、能力差异仍然要有人管;标准只帮你省了格式翻译,不帮你省治理。<b>技术:</b>三个省不掉的理由:①错误码归一与 Retry-After 处理得有落点;②能力协商和 ReAct 降级得有落点;③厂商"兼容"往往只兼容八成,流式 chunk 结构、工具调用字段细节仍要靠契约测试拦。OpenAI SDK 只解决"和一家厂商对话",统一 API 解决"对多家厂商用同一份契约"。</div></details>
+        <details class="qa"><summary class="qu">Q:某厂商宣称 OpenAI 兼容,实际细节行为不一致,怎么防它溜进生产?</summary><div class="an"><b>人话:</b>不信文档,只信演练结果。<b>类比:</b>容灾的规矩:厂商白皮书承诺得再好,上线前也要自己跑一遍完整恢复演练——兼容性缺陷要靠自己的兼容测试流程兜住,真故障是最贵的测试。<b>技术:</b>新 Adapter 上线四步:①黄金用例(工具调用、多轮、长文本、中文、流式分片)全绿;②契约测试断言统一响应结构;③故障注入验证错误归一和重试;④灰度发布切小流量观察,稳定后再全量。上线后持续看分厂商错误码分布指标,错误率异动就是"隐性不兼容"的暴露信号。</div></details>
+        <details class="qa"><summary class="qu">Q:这层是所有模型共用的,它一挂全挂——适配层本身会不会是单点/瓶颈?</summary><div class="an"><b>人话:</b>会,所以要按基础设施的规格养它:无状态、多实例、负载均衡、带自身健康检查。<b>类比:</b>它在 LLM 系统里的定位,和备份平台里存储网关层一模一样——纯转发翻译的东西,绝不把状态落在单点上。<b>技术:</b>Adapter 是纯翻译逻辑,天然无状态(流式聚合缓冲跟着请求走,请求结束即释放),横向扩容即可;按实例采集 QPS、超时率、分厂商错误分布等指标;客户端侧设超时加<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Circuit_breaker_design_pattern">熔断</a>,防单个厂商拖慢拖死整条链路;多副本跨可用区部署,就是分布式系统的基本盘姿势。</div></details>
       </div>
 
       <div class="block term"><span class="badge b-term">术语卡</span>
         <div class="terms-grid">
-          <div class="term-item"><b>Adapter 模式</b>:接口翻译层,桥接不同实现。</div>
-          <div class="term-item"><b>ReAct</b>:用文本协议模拟工具调用,兼容无 FC 模型。</div>
-          <div class="term-item"><b>契约测试</b>:验证所有实现符合同一契约。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Adapter_pattern">适配器模式</a></b>:接口翻译层——在不兼容的接口之间插一个中间层,让上层永远不感知下层的方言。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a></b>:Reason+Act 文本协议,用提示词教模型输出工具调用格式再正则解析,是没有 function calling 时的"软件兜底"。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://martinfowler.com/bliki/ContractTest.html">契约测试</a></b>:断言所有 Adapter 实现都符合同一份响应契约——新厂商上线前的"恢复演练"。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function Calling</a></b>:模型输出结构化外部工具调用的机制,Agent 的"手脚"。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Exponential_backoff">指数退避</a></b>:重试间隔逐次翻倍,收到 429 时的标准姿势,还得看 Retry-After 的脸色。</div>
+          <div class="term-item"><b>能力协商</b>:Adapter 主动声明自己的能力矩阵,上层按声明自动降级——先探测再报错,不在现场摔跟头。</div>
         </div>
       </div>
 </article>

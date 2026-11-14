@@ -7,15 +7,19 @@
         <span class="tag">#LLM</span><span class="tag">#模型选型</span>
       </div>
 
+      <div class="note"><b>先说人话:</b>这题问的是:公司要做 AI 产品,底层大模型怎么挑、怎么组合、怎么留后路。面试官爱考它,因为这是纯方法论题——最容易分清"只会背榜单"的人和真做过选型的人。答错的暴露点:张口就"GPT-4 最强",没有合规意识、不算成本账、不想换模型的后路。</div>
+
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
         <p>"我用一棵决策树:第一问<b>合规</b>(数据能不能出境/是否要私有化)——不能出境直接锁死国产(Qwen/DeepSeek/GLM);第二问<b>任务类型</b>——复杂推理/长文档/代码各有强项;第三问<b>成本结构</b>——API 按量还是自建 GPU 固定。然后<b>分级使用</b>:旗舰模型只打 10~20% 的硬仗,70% 流量给中档,简单活给小模型。选型结论永远附一个退出机制:通过统一网关接入,随时可换,不被任何一家锁定。"</p>
       </div>
 
       <div class="block ana"><span class="badge b-ana">通俗类比</span>
-        <p>像<b>公司用车队</b>:不能全买迈巴赫(旗舰模型,贵但强);也不能全买三蹦子(小模型,便宜但上不了高速)。合理车队是:高管商务接待(复杂推理)用迈巴赫,日常公务用帕萨特(中档),园区通勤用电瓶车(小模型)——<b>分级派车</b>才是成本和质量的平衡。而且车都从"租车平台"(统一网关)租,哪家服务好随时换,不跟单一车行签死。</p>
+        <p><b>整道题就是你干过的「存储后端选型」</b>:给备份系统挑介质和后端时,你的决策顺序是——先过合规红线(数据能不能出省/出境、有没有国产化硬性要求,这一问不过,后面全免谈),再看负载形态(小块随机还是大块顺序 → 对应模型世界的"复杂推理还是长文档摘要"),最后算 TCO(许可费/按量费 vs 自建摊销)。四个阵营翻译成存储世界:<b>闭源 API</b> = 进口商业高端阵列(开箱即用、能力天花板高、黑盒、按量或按许可付费);<b>开源私有化</b> = 自己攒 <a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/Ceph">Ceph</a>(完全可控、能深度改造,但容量规划、运维值守、版本升级全是你的活);<b>国产 API</b> = 本土厂商阵列(本地支持好、价格友好、合规无忧);<b>小模型</b> = 分层存储里的低速大容量层。<b>哪里像</b>:决策顺序、按负载匹配、算总账,三件套一模一样。<b>哪里不像</b>:存储选错了硬件还能折价卖掉,接口有标准兜底;模型选错的损失是隐性的——Prompt 适配、评估人力、以及"能力半年一换代"带来的快速贬值,所以模型选型里"可替换性"比单点性能更重要。</p>
+        <p><b>「分级使用」就是分层存储,「统一网关」就是设备抽象层</b>:热数据放 NVMe(旗舰模型,打 10~20% 的硬仗:复杂推理、Agent 规划),温数据放 SATA SSD(中档模型,扛 70% 常规流量),冷数据进磁带库(小模型,干分类、抽取、改写这类"读取价值低"的活)。分层存储的本质是<b>按访问价值分配成本</b>——一个请求值多少钱,就派多贵的模型,全旗舰等于拿 NVMe 存归档冷数据。而统一网关像存储栈里的多路径/设备抽象层:业务只认标准接口,后端是哪家阵列随时换。<b>cascade 策略(先小后大)就是读路径的缓存穿透逻辑</b>:先查 NVMe 缓存,miss 了才下 HDD,再 miss 去磁带取回并回填缓存——"小模型先答、置信度低再升级"和"缓存 miss 就往下一层读"是同一种省钱哲学。</p>
       </div>
 
       <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p>先把"选模型"翻译成工程题:输入是<b>合规约束 + 任务分布 + 流量画像</b>,输出是一张"哪档流量用哪个模型"的<b>路由表</b>,外加一套换模型不痛的架构。三问按顺序问,顺序本身就有讲究:合规是一票否决项,任务类型决定候选池,成本只在候选池内做取舍——先算钱后过合规,方案做出来直接被法务毙掉,等于白干。</p>
         <p><b>1. 选型决策树(按顺序问)</b></p>
         <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 546 412" role="img" aria-label="LLM 选型决策树">
   <rect class="sd-box" x="10" y="16" width="200" height="44" rx="10"/>
@@ -58,6 +62,11 @@
   <text class="sd-t" x="410" y="368" text-anchor="middle">小模型/蒸馏</text>
   <text class="sd-ts" x="410" y="386" text-anchor="middle">便宜 1~2 数量级</text>
 </svg></div>
+        <ul>
+          <li><b>第一问为什么是合规</b>:用户 query、业务文档一旦发给出海 API,就等于把生产备份数据传到境外机房——金融、政务、数据管制行业里这是直接毙掉的一票否决项,和你选异地容灾站点前先过"数据能不能出域"是同一个动作。国产化硬性要求的场景,直接锁死 <a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E9%80%9A%E4%B9%89%E5%8D%83%E9%97%AE">Qwen</a>、<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/DeepSeek">DeepSeek</a>、<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/ChatGLM">GLM</a> 的开源版自部署,或国产闭源 API,后面的问题都不用问了。</li>
+          <li><b>第二问任务类型</b>:没有全能冠军,只有任务匹配——复杂推理和 Agent 规划看旗舰与推理型模型(如 <a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/OpenAI_o1">o 系列</a>这类"想得更久换更准"的路线);代码看 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Claude_(language_model)">Claude</a> / DeepSeek;超长文档看长<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E5%A4%A7%E5%9E%8B%E8%AF%AD%E8%A8%80%E6%A8%A1%E5%9E%8B">上下文窗口</a>;中文创作/客服国产旗舰性价比最高。</li>
+          <li><b>第三问量级与成本</b>:分类、抽取、SQL 生成、意图识别这类高频简单任务,上小模型或<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E7%9F%A5%E8%AF%86%E8%92%B8%E9%A6%8F">蒸馏</a>版,单价便宜 1~2 个数量级——这笔账见下面第 5 节。</li>
+        </ul>
         <p><b>2. 主流模型特点速览(面试展示知识面,注意别背过时价格)</b></p>
         <table>
           <tr><th>阵营</th><th>代表</th><th>印象</th></tr>
@@ -67,28 +76,72 @@
           <tr><td><b>国产 API</b></td><td>Qwen / GLM / 豆包 / DeepSeek</td><td>中文强、价格低、合规无忧;旗舰能力已进入第一梯队</td></tr>
         </table>
         <p class="note">面试话术:具体排名月月在变,我聊"选择的方法论"而不是背今天的榜单——这句话本身就是加分项。</p>
+        <p>补两句显功底的:① DeepSeek 走<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E6%B7%B7%E5%90%88%E4%B8%93%E5%AE%B6%E6%A8%A1%E5%9E%8B">混合专家(MoE)</a>路线,把推理成本压了一个量级,所以"性价比突出"背后有架构原因,不是单纯降价;② 想看相对客观的能力对比,参考真人盲测的 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2403.04132">Chatbot Arena</a> 和国内的 <a target="_blank" rel="noopener" href="https://opencompass.org.cn/">OpenCompass</a> 榜单——看趋势、看档位,别背名次。</p>
         <p><b>3. 分级路由架构(把选型变成系统设计)</b></p>
         <ul>
           <li>意图/难度分类器(或先小后大的 <b>cascade</b> 策略:小模型先答,置信度低再升级)。</li>
           <li>通过统一网关路由(见第一部分 Q6),模型只是一层可替换的配置。</li>
           <li>每档模型配质量护栏:小模型答案过校验(引用存在性/格式),不过关自动升级重答。</li>
         </ul>
+        <pre class="code">分级路由全链路(选型的"落地形态"):
+
+                        ├─ 简单/高频(分类·抽取·改写)──→ 小模型/蒸馏版
+  用户请求 ──→ 统一网关 ─┤
+                        ├─ 常规问答(约 70%)──→ 中档模型
+                        └─ 硬仗(复杂推理·Agent,约 10~20%)──→ 旗舰模型
+                             │
+                             └─ 每档出口都过「校验器」:
+                                  格式对不对 / 引用存在吗 / 自检置信度
+                                  └─ 不过关 → 自动升档重答(cascade 思想)
+  另一路保护:当前档位限流/超时 → 网关自动切备选模型(降级预案,和容灾切换同构)</pre>
+        <p>校验器这个角色值得强调:<b>备份作业没过恢复校验就不算成功</b>——同样的职业习惯放到这里,小模型的"便宜"是靠护栏兜出来的,没有校验器的分级路由就是在拿质量赌运气。备胎切换(主模型限流时网关切备选)则和容灾的自动倒换同构:平时躺着,出事顶上,所以备选模型要定期拉出来跑平行测试,不能等出事才发现备胎是瘪的。</p>
         <p><b>4. 微调 vs 直接用(自然延伸)</b></p>
         <ul>
           <li>Prompt 解决不了的:格式死活不稳、领域黑话不懂、工具选择太差 → 先试 Few-shot,再微调小模型,别上来就微调旗舰。</li>
         </ul>
+        <p>展开成一个"改造阶梯",按成本从低到高爬,每级验证完再上台阶:① <b>Prompt 工程</b>(零成本);② <b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E5%B0%91%E6%A0%B7%E6%9C%AC%E5%AD%A6%E4%B9%A0">Few-shot</a> 示例</b>(给几个范例,解决大部分格式和风格问题);③ <b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E6%A3%80%E7%B4%A2%E5%A2%9E%E5%BC%BA%E7%94%9F%E6%88%90">RAG</a></b>(注意:知识过时/缺领域知识是"检索问题"不是"参数问题",微调救不了知识时效);④ <b>微调小模型</b>(格式、黑话、工具选择的性价比解);⑤ 微调旗舰——基本不干:贵、易过拟合、下一代模型出来投入就归零。类比容量规划:先加内存条,别上来就采购整机。</p>
+        <p><b>5. 成本账:API 按量 vs 自建固定</b></p>
+        <table>
+          <tr><th>接入方式</th><th>成本结构</th><th>适合谁</th><th>坑</th></tr>
+          <tr><td>闭源海外 API</td><td>纯按量(按 token 计费)</td><td>起步验证、波峰弹性、要用最强能力</td><td>单价最高、数据出境、配额限流</td></tr>
+          <tr><td>国产 API</td><td>按量,单价低一档</td><td>中文场景、合规敏感业务</td><td>极端场景能力上限略低</td></tr>
+          <tr><td>开源私有化</td><td>固定成本(GPU 摊销+电费+人力)</td><td>合规强制、规模巨大、要深度微调</td><td>运维/推理优化/升级全自己扛</td></tr>
+        </table>
+        <pre class="code">盈亏平衡点(方法示意;单价月月在变,面试讲方法别背价格):
+
+  自建:月固定成本 F ≈ 硬件摊销 + 电费机房 + 1~2 名推理运维人力
+  API :月成本 = 月 token 量 T ÷ 1,000,000 × 每百万 token 单价 p
+
+  当 T 大于 F ÷ p × 1,000,000 时,自建开始反超 API
+  例:F = 10 万/月,p = 20 元/百万 token → 平衡点 ≈ 50 亿 token/月(约每天 1.7 亿)
+
+隐性成本别忘了:自建省了 API 账单,省不掉 7×24 值守、容量规划、
+和新版本"跟不跟"的升级决策——和自建备份系统是一个道理。</pre>
+        <p><b>6. 落地节奏(把答案收口)</b></p>
+        <ul>
+          <li>第 1~2 周:接 API 起步 + 搭黄金评估集(先 100~500 条带标注的真实业务题,这是选型里最值钱的资产)。</li>
+          <li>第 3~4 周:按黄金集实测各候选模型,上分级路由 + 校验护栏,评估集进 CI 做回归。</li>
+          <li>常态化:备选模型每季度平行测试;只有合规强制或月 token 量撞破平衡点,才立项自建——网关保证那时切换不痛。</li>
+        </ul>
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:国产模型和 GPT-4 差距还大吗?</summary><div class="an">头部国产旗舰在中文场景、常见 Agent 任务上已可比肩甚至局部反超;差距主要在最前沿推理、生态工具链和极端长上下文稳定性。我的策略是按任务实测,而不是信仰品牌。</div></details>
-        <details class="qa"><summary class="qu">Q:怎么防止被单一供应商锁定?</summary><div class="an">统一 API 抽象(适配器)+ 数据可迁移(Prompt/评估集都是资产,和模型解耦)+ 每季度平行测试备选模型——换模型的工程成本应保持在"改配置"级别。</div></details>
+        <details class="qa"><summary class="qu">Q:国产模型和 GPT-4 差距还大吗?</summary><div class="an"><b>人话:</b>头部国产旗舰已经追到"必须按任务实测才知道差距"的程度,远不是"闭眼选 GPT-4"的年代了。<b>类比:</b>像国产高端存储阵列对进口旗舰:常规负载早就能打,本地化场景(中文语料之于 LLM,就像本地协议栈优化之于阵列)甚至更顺手;差距集中在极端指标和生态工具链。<b>技术:</b>中文创作、常见 Agent 任务上头部国产已可比肩、局部反超;差距主要在最前沿推理深度、超长上下文的稳定性和周边工具链成熟度。所以我的口径是:拿自家黄金集按任务实测打分,谁赢用谁,不信仰品牌。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么防止被单一供应商锁定?</summary><div class="an"><b>人话:</b>把模型当可替换零件,把 Prompt、评估集、对话日志这些资产牢牢握在自己手里,换零件就不疼。<b>类比:</b>备份行业最懂这个痛——介质用厂商私有格式,等于把恢复能力也交了出去;对应到 LLM,就是别让业务长在某家的专有能力(私有函数调用格式、专用缓存接口)上。<b>技术:</b>三层保险:①统一网关加适配器,业务只认标准接口;②评估集、Prompt 独立版本管理,和模型解耦;③备选模型每季度平行测试,主模型限流时网关一键降级切换——把换模型成本压到"改配置+跑回归"级别。</div></details>
+        <details class="qa"><summary class="qu">Q:为什么不全部用旗舰模型?质量难道不是越高越好?</summary><div class="an"><b>人话:</b>全旗舰一是贵得离谱,二是又慢又容易被限流,三是简单任务上旗舰并不更准,反而容易啰嗦发挥。<b>类比:</b>拿全闪阵列存归档冷数据,预算审计过不去——分层存储的核心就是按访问价值分配成本,模型分级是同一件事:一个请求值多少钱,就派多贵的模型。<b>技术:</b>按流量分布算账:硬仗 10~20% 给旗舰,常规 70% 给中档,分类/抽取/改写这类高频简单活给小模型,整体账单能压低一到两个数量级;旗舰 TTFT 慢、QPS 配额紧,高峰期全旗舰最先撞限流;小模型配校验器护栏,不过关自动升档重答,质量损失可控。</div></details>
+        <details class="qa"><summary class="qu">Q:什么情况下值得自建(私有化开源模型),什么时候调 API 就够?</summary><div class="an"><b>人话:</b>三种情况值得自建:合规强制数据不出域、规模大到 API 账单反超固定成本、需要深度微调;否则一律 API 起步。<b>类比:</b>自建备份系统 vs 买商业备份软件:license 钱省了,7×24 值守、容量规划、升级排期这些人力一样省不掉。<b>技术:</b>算盈亏平衡:月固定成本(硬件摊销+电费+运维人力)÷ 每百万 token 单价 = 自建划算的月 token 门槛,量级上通常要到几十亿 token/月才谈得上回本;再叠加推理优化和微调人力,结论一般是"API 验证业务、合规或规模触发自建",网关保证届时切换无痛。</div></details>
+        <details class="qa"><summary class="qu">Q:模型月月出新,选型岂不是每个月都要重做一遍?</summary><div class="an"><b>人话:</b>不用。选型沉淀的资产不是"选了谁",而是评估集、网关和路由策略——模型换代只是改配置。<b>类比:</b>存储硬件年年换代,你会重做容量规划方法论吗?不会,你有标准基准测试和采购验收流程;黄金评估集就是模型的验收基准,换模型等于新硬件跑既有基准。<b>技术:</b>黄金集(100~500 条带标注)放进 CI,新模型来了自动跑回归,主指标达标才灰度切流;标注人力不够用 LLM-as-Judge 做半自动打分加人工抽检。每次换代的成本就是一轮回归测试——这恰恰说明评估集才是整个选型里最值钱的东西。</div></details>
       </div>
 
       <div class="block term"><span class="badge b-term">术语卡</span>
         <div class="terms-grid">
-          <div class="term-item"><b>Cascade 策略</b>:先小后大逐级升级。</div>
-          <div class="term-item"><b>私有化部署</b>:模型跑在自己机房。</div>
-          <div class="term-item"><b>供应商锁定</b>:被单一厂商绑死,切换成本高。</div>
+          <div class="term-item"><b>Cascade 策略</b>:先小后大逐级升级——像读路径的缓存穿透,便宜的层先答,没把握再往下一层。</div>
+          <div class="term-item"><b>私有化部署</b>:模型跑在自己机房或专属云,数据不出域——大模型版的"本地备份"。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Vendor_lock-in">供应商锁定</a></b>:被单一厂商绑死,切换成本高到"明知吃亏也换不动"。</div>
+          <div class="term-item"><b>黄金评估集</b>:100~500 条带标注的真实业务题库,选型和换代的"验收基准",比模型本身更保值的资产。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">LLM-as-Judge</a></b>:用强模型给候选答案打分的半自动裁判,人工标注不够用时的回归测试手段。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E7%9F%A5%E8%AF%86%E8%92%B8%E9%A6%8F">知识蒸馏</a></b>:用大模型教小模型,得到"便宜但会干活"的降档版本,是分级路由里小模型档的常见来源。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2403.04132">Chatbot Arena</a></b>:真人盲测投票的模型排行榜,选型时看趋势和档位,别背名次。</div>
         </div>
       </div>
 </article>
