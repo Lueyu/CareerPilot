@@ -7,15 +7,65 @@
         <span class="tag">#向量数据库</span><span class="tag">#选型</span>
       </div>
 
+      <div class="note"><b>先说人话:</b>你的 AI 问答系统把文档切成几百万条片段,每条都要变成向量存起来,这题问的就是「仓库选哪家」。面试官爱考,因为选型最能分清「背官网参数的」和「真做过决策的」——什么规模都上 Milvus 的直接出局。答错的暴露点:脑子里没有那张按规模、运维、预算、合规排好序的决策清单。</div>
+
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-        <p>"我的选型逻辑看四个约束:<b>数据规模、运维能力、预算、混合检索需求</b>。大规模自建选 Milvus(功能全、性能强、但要运维);想要省心的托管选 Pinecone(贵,数据出境合规要过);本地开发/小项目 Chroma(嵌入式零运维);另外我一定会补一句——<b>别忽略 Postgres + pgvector 和 Elasticsearch 这两个'顺手'选项</b>,很多团队已经持有它们,千万级以下向量完全够用,少一个组件就少一份运维成本。"</p>
+        <p>"我的选型逻辑看四个约束:<b>数据规模、运维能力、预算、混合检索需求</b>。大规模自建选 <a target="_blank" rel="noopener" href="https://milvus.io/">Milvus</a>(功能全、性能强、但要运维);想要省心的托管选 <a target="_blank" rel="noopener" href="https://www.pinecone.io/">Pinecone</a>(贵,数据出境合规要过审);本地开发/小项目 <a target="_blank" rel="noopener" href="https://www.trychroma.com/">Chroma</a>(嵌入式零运维);另外我一定会补一句——<b>别忽略 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/PostgreSQL">Postgres</a> + <a target="_blank" rel="noopener" href="https://github.com/pgvector/pgvector">pgvector</a> 和 <a target="_blank" rel="noopener" href="https://www.elastic.co/elasticsearch">Elasticsearch</a> 这两个'顺手'选项</b>,很多团队已经持有它们,千万级以下向量完全够用,少一个组件就少一份备份、监控、升级的运维账单。"</p>
       </div>
 
       <div class="block ana"><span class="badge b-ana">通俗类比</span>
-        <p>像<b>存钱选择</b>:Pinecone 是<b>私人银行</b>(服务好、年费高、钱在别人家);Milvus 是<b>自购保险柜</b>(自己掌控、容量大、坏了自己修);Chroma 是<b>抽屉</b>(随手放、小额现金够用);pgvector 是<b>已有的银行账户开了个新储种</b>——不用新开账户,顺手就把钱存了。<b>很多团队的真实答案是"最后一个"</b>,能说出这点说明你真做过选型。</p>
+        <p><b>向量数据库(用你熟悉的"带索引的存储系统"想)</b>:普通数据库的 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/B-tree">B+树</a>、哈希索引回答"谁<b>等于</b> X",是精确匹配;<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Vector_database">向量数据库</a>回答"谁<b>长得最像</b> X"——每条 chunk(文档切片)先被 Embedding 模型压成几百到几千维的数字向量,查询时用 ANN 算法在海量向量里捞出 top-k 个最近邻,再回表拿原文。它就是一个把查询语义从"相等"换成"相似"的专用存储引擎。<b>哪里像</b>:容量规划、索引、副本、缓存、分片、数据迁移,一样不落,全是你管存储时操过的心。<b>哪里不像</b>:它是"近似正确"的——用一点点召回率换几百倍速度,漏掉个别本该命中的结果属于正常开销;你干备份的绝不能容忍"差不多恢复一个块",这道心智坎要先迈过去。</p>
+        <p><b>Milvus(用你搭过的 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Ceph_(software)">Ceph</a> 集群想)</b>:能力天花板最高、水平扩展到十亿级,代价是一整套分布式组件全归你养——元数据、存储底座、消息队列、工作节点,坏了都是你的事。<b>哪里像</b>:协调者/工作者分工、多副本、无状态接入层,配方和分布式存储同构,架构图你闭着眼都能画。<b>哪里不像</b>:Ceph 挂几个 OSD 副本能兜底、业务基本无感;向量库的读节点重启后要重新加载数据,冷启动期延迟尖刺,像缓存全失效——对在线检索业务,这个抖动是真实的 SLA 风险。</p>
+        <p><b>Pinecone(用公有云托管备份想)</b>:全托管 SaaS,零运维、按用量付费、SLA 厂商背书,你的数据物理上躺在别人家机房。<b>哪里像</b>:就是你熟悉的公有云服务模式——开通即用、账单随量、合规自己审。<b>哪里不像</b>:公有云存储至少接口标准、数据可自由迁走;闭源 SaaS 无法私有化、深度排障只能开工单,数据出境这道坎对多数国内业务还是一票否决——相当于把备份放在境外机房,过审难度你懂的。</p>
+        <p><b><a target="_blank" rel="noopener" href="https://weaviate.io/">Weaviate</a>(用一体化存储设备想)</b>:单个二进制,<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Docker_(software)">Docker</a> 一把起,原生内置混合检索——BM25 关键词通道和向量语义通道两路打分自动融合,不用自己拼装。<b>哪里像</b>:像一台中型一体机,集成度高、开箱即用、也能私有化。<b>哪里不像</b>:一体机的宿命是两头不极致——极限规模和生态比 Milvus 小一截,轻量省事又不如 Chroma,"中间态"既是它的定位,也是它的天花板。</p>
+        <p><b>Chroma(用单机文件/<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/SQLite">SQLite</a> 想)</b>:pip install 进你的 Python 进程,数据落本地文件,零部署零运维。<b>哪里像</b>:嵌入式、进程内、单机——开发期体验像写本地 SQLite 一样爽。<b>哪里不像</b>:没有副本、没有高可用,生产大集群从来不是它的主场,就像你不会拿单机文件系统去顶核心业务。</p>
+        <p><b>pgvector(用"在现有备份系统里开个新介质池"想)</b>:不新增系统——在现有 Postgres 上装个扩展,给向量列建 HNSW 索引,事务、主从复制、备份、监控全套复用现有体系。<b>哪里像</b>:容量没到边界前,复用现有基础设施永远是性价比第一的选项,这是存储/备份人的本能直觉。<b>哪里不像</b>:Postgres 是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Online_transaction_processing">OLTP</a> 数据库"兼职"做 ANN,高并发大规模下会被专用引擎甩开;介质池满了能继续加盘,pgvector 顶了却要整体换库——选它时就要想好退路。</p>
+        <p><b>很多团队的真实答案是"最后一个"</b>——手里已经有 PG 或 ES,千万级以下的需求顺手就消化了。能在面试里主动说出这一点,说明你真做过选型,而不是简历驱动架构。</p>
       </div>
 
       <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 第一步不是选产品,是把需求翻译成"容量规划"</b></p>
+        <p>你是做过存储容量规划的人,这一步直接把经验搬过来。一个 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Retrieval-augmented_generation">RAG(检索增强生成)</a>系统把文档切成 chunk、每条 chunk 变成一个向量,选仓库之前,先把电梯稿里的四个约束翻译成五个可量化的问题(预算折进规模与运维,合规单独拎出来一票否决):</p>
+        <ul>
+          <li><b>数据规模</b>:多少条向量、多少维?直接换算成字节——你最喜欢的一步,见下面速算表。</li>
+          <li><b>查询负载</b>:QPS 多少、P99 延迟 SLA 几毫秒?在线交互还是离线批查?读多写少还是持续写入?</li>
+          <li><b>过滤与多租户</b>:查询会带 tenant_id、权限、时间窗这类标量条件吗?过滤后剩 1% 还是 90%?这直接决定索引策略,后面有专题。</li>
+          <li><b>混合检索需求</b>:错误码、型号、专有名词这类"必须精确命中"的查询占多少?占比高就得让 BM25 关键词通道和向量语义通道并存——前者像文件名精确匹配,后者像内容指纹模糊比对,两路互补。</li>
+          <li><b>合规红线</b>:数据能否出境、是否强制私有化?和备份系统的异地合规一样,这一条放最前面问,不过审的直接出局。</li>
+        </ul>
+        <pre class="code">容量速算:像做存储规划一样,先把字节算出来
+
+原始体积 = 向量条数 × 维度 × 4 字节(float32)
+  100 万条  × 768 维 × 4B ≈   3 GB   ← 笔记本内存都装得下
+  1000 万条 × 768 维 × 4B ≈  30 GB   ← 千万级:一台大内存单机的事
+  1 亿条   × 768 维 × 4B ≈ 300 GB   ← 单机内存吃紧:分布式 or 量化
+
+内存按原始体积的 1.5~2 倍预留(图索引常驻内存+元数据+运行开销)
+结论:没碰到单机内存边界,就先别为"分布式"买单</pre>
+        <p>这张表是后面所有结论的地基:<b>千万级以下,单机方案(pgvector、Chroma)在容量上完全成立</b>;过亿才真正进入分布式刚需区。这和"备份数据没到 PB 级,先别急着上专用带库"是同一个判断框架——先算量,再谈架构。</p>
+        <p><b>2. 四个候选逐个拆(架构视角)</b></p>
+        <p><b>Milvus——分布式专建派</b>:存算分离,亿级到十亿级、<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Multitenancy">多租户</a>分区、可插拔索引(HNSW、IVF、量化全家桶)要什么有什么。它的底座配方你在容灾图里画过一百遍——<a target="_blank" rel="noopener" href="https://etcd.io/">etcd</a> 管元数据、对象存储做持久层、消息队列当预写日志:</p>
+        <pre class="code">Milvus 集群解剖(配方与分布式存储同构,对照着看)
+┌─────────────────────────────────────────────┐
+│ App/Agent → Proxy 接入层(无状态,可横向扩)     │
+├─────────────────────────────────────────────┤
+│ 协调层:RootCoord / DataCoord / QueryCoord    │
+│   ≈ Ceph 的 MON:管元数据与调度,分量轻但关键    │
+├─────────────────────────────────────────────┤
+│ 工作层:DataNode(写) IndexNode(建索引)        │
+│         QueryNode(读,缓存索引与数据)          │
+│   ≈ OSD:干重活的节点,可水平扩,坏了重拉        │
+├─────────────────────────────────────────────┤
+│ 底座三件套:etcd(元数据) + 对象存储(数据)      │
+│            + 消息队列(写入日志)               │
+│   = 你画容灾架构图时最先落笔的那三格           │
+└─────────────────────────────────────────────┘</pre>
+        <p>代价全写在图里:十几个组件,升级、扩容、故障定位都是你的活,通常还得配 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Kubernetes">Kubernetes</a> 编排——养它约等于再养一套分布式存储集群,没有专职团队就别轻易接这个活。</p>
+        <p><b>Weaviate——一体化派</b>:单个二进制,Docker 一把起;招牌是把向量检索和 BM25 打成原生混合检索,两路结果自动融合,不用自己拼组件。千万到亿级、想要"能自建私有化又开箱即用"的中型团队是它的主场。</p>
+        <p><b>Pinecone——全托管派</b>:闭源 SaaS,零运维,serverless 按读写单元计费,支持稀疏+稠密混合。代价:数据出境、账单随规模线性爬、深度排障只能开工单。适合合规无碍、想几周就上线的跨境业务。</p>
+        <p><b>Chroma——嵌入式派</b>:pip install,跑在你的 Python 进程里,数据落本地文件,也有单机 server 模式。百万级以内、POC 和开发环境的天选之子——写个 RAG demo,它比 SQLite 还省事。</p>
+        <p><b>顺手选项——pgvector 与 <a target="_blank" rel="noopener" href="https://www.elastic.co/elasticsearch">Elasticsearch</a></b>:很多团队忘了自己手里已经有仓库。PG 装上 pgvector 扩展就能建 HNSW 索引,元数据和向量同库同事务,备份恢复全走现有体系;ES 8.x 起内置 kNN(底层是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Apache_Lucene">Lucene</a> 的 HNSW 实现),再用 RRF 融合 BM25 与向量结果。千万级以下、QPS 不高的内部系统,这两个"零新增组件"的选项经常就是正确答案。</p>
+        <p><b>3. 压成一张表(面试时能默画的版本)</b></p>
         <table>
           <tr><th>维度</th><th>Milvus</th><th>Weaviate</th><th>Pinecone</th><th>Chroma</th></tr>
           <tr><td><b>部署</b></td><td>自建为主(云版 Zilliz)</td><td>自建/Docker 友好</td><td>纯 SaaS 托管</td><td>嵌入式/本地</td></tr>
@@ -23,8 +73,11 @@
           <tr><td><b>混合检索</b></td><td>向量+标量过滤强</td><td><b>原生混合(BM25+向量)</b></td><td>稀疏+稠密</td><td>基础</td></tr>
           <tr><td><b>运维成本</b></td><td>高(分布式组件多)</td><td>中</td><td>零(但贵)</td><td>零</td></tr>
           <tr><td><b>合规</b></td><td>可私有化(国产,字节/阿里在用)</td><td>可私有化</td><td>数据出境(要过审)</td><td>本地</td></tr>
+          <tr><td><b>索引方案</b></td><td>可插拔(HNSW/IVF/量化)</td><td>HNSW 内置</td><td>闭源托管(不可选)</td><td>HNSW</td></tr>
+          <tr><td><b>备份恢复</b></td><td>自管(依赖对象存储持久层)</td><td>自管</td><td>厂商责任(SLA 背书)</td><td>拷贝数据目录即可</td></tr>
           <tr><td><b>适合</b></td><td>大规模企业自建</td><td>要混合检索的中型团队</td><td>快速起步、不愿养运维</td><td>POC、开发、单机应用</td></tr>
         </table>
+        <p>读表顺序:<b>规模与运维成本是主战场</b>(决定你付出什么),<b>合规是一票否决</b>(决定谁能进候选),<b>混合检索是功能差异项</b>(决定上限)。特别看 Milvus 那格"高(分布式组件多)"——组件数=故障域数=值班表长度,这在存储团队是常识,别被官网首页的"高性能"唬住。</p>
         <p><b>决策路径(现场画出来)</b></p>
         <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 466 364" role="img" aria-label="向量数据库选型决策树">
   <rect class="sd-box" x="10" y="16" width="210" height="56" rx="10"/>
@@ -61,24 +114,43 @@
   <text class="sd-t" x="115" y="314" text-anchor="middle">Weaviate</text>
   <text class="sd-ts" x="115" y="332" text-anchor="middle">轻量·混合检索</text>
 </svg></div>
+        <p>决策树翻成人话:<b>第一问先试"能不能不加东西"</b>——已有 PG/ES、数据千万级以下,顺手用掉,赢在起点;<b>第二问合规</b>——数据不能出境,Pinecone 直接出局;<b>第三问规模与租户</b>——亿级或多租户大集群才轮到 Milvus,否则中间态的 Weaviate 常常更划算。整棵树的顺序是"由俭入奢",和存储扩容"先加盘、再换介质、最后上新阵列"完全同构。</p>
         <p><b>选型时必须实测的三件事(比看任何榜单都重要)</b></p>
         <ul>
-          <li><b>自己的数据 + 自己的 query</b>跑 Recall/QPS/延迟(榜单是别人的场景)。</li>
-          <li><b>标量过滤性能</b>:带 tenant_id/权限过滤时的真实表现(HNSW 高选择率过滤的性能坑,不同库差异大)。</li>
-          <li><b>升级与数据迁移路径</b>:索引坏了怎么恢复、扩容怎么做。</li>
+          <li><b>自己的数据 + 自己的 query</b>跑 Recall/QPS/延迟(榜单是别人的场景)。备份软件不能用厂商的"基准备份速率"给客户做承诺,向量库也一样——你的数据分布、文本长度、并发曲线都和榜单 workload 不同。用人工标注的问答对算 Recall@k,把 QPS 压到目标值后盯住 P99 和长尾请求,别只看平均值。</li>
+          <li><b>标量过滤性能</b>:带 tenant_id/权限过滤时的真实表现(HNSW 高选择率过滤的性能坑,不同库差异大)。这是最容易漏测、上线后最容易背锅的一项,展开见下面的图解。</li>
+          <li><b>升级与数据迁移路径</b>:索引坏了怎么恢复、扩容怎么做。三个必问:索引重建是全量还是增量(重建时长=你的维护窗口)、扩容是否在线(会不会触发数据再平衡)、备份恢复怎么演练——把"索引重建时长"当 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Disaster_recovery">RTO</a>(恢复时间目标)来管理,这是你比纯 AI 背景候选人占优的地方。</li>
         </ul>
+        <p>为什么过滤会变成坑?先把 HNSW 讲个大概:它是图索引,思想接近 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Skip_list">跳表</a>——从顶层入口大步贪心跨越、逐层下潜定位近邻(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/1603.09320">原论文</a>)。它快,靠的是图里预铺好的"高速公路";一旦过滤条件把大部分节点标成不可用,高速公路就塌了:</p>
+        <pre class="code">高选择率过滤:先筛还是后筛?
+
+后过滤:先在整张图搜出 k 条,再按条件筛
+  搜回 20 条 → 筛完剩 2 条 → 召回不足,被迫放大 k
+
+先过滤:先把符合条件的子集圈出来,再在子图上搜
+  子图只剩 1% 节点 → 图的"高速公路"断了 → 退化成局部乱撞
+
+工程解法:按租户/时间窗拆分区,把"过滤"变成"选对索引"
+  ≈ 备份按介质池/租户分而治之,而不是一锅烩里捞</pre>
+        <p>一句话收尾,也是整道题的答题基调:<b>能不加组件就不加,加了的每个组件都要有人为它值班</b>——这句话说出口,面试官立刻知道你是真在基础设施线上待过的人。</p>
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:为什么你会主动考虑 pgvector?</summary><div class="an">工程上"少一个组件"价值很大:事务一致性(元数据和向量同库)、备份恢复一套体系、团队已有 DBA;500 万~1000 万级、QPS 不高的内部系统,pgvector 的 HNSW 完全胜任——不当架构膨胀怪。</div></details>
-        <details class="qa"><summary class="qu">Q:Milvus 和 ES 的向量检索怎么选?</summary><div class="an">已有 ES 且需要全文+向量混合检索、团队熟 ES → ES(8.x 的 kNN + RRF);纯向量大规模、要极致性能和分区多租户 → Milvus。ES 的优势是 BM25 和向量一站式,劣势是资源吃得凶。</div></details>
+        <details class="qa"><summary class="qu">Q:为什么你会主动考虑 pgvector?</summary><div class="an"><b>人话:</b>因为"少一个组件"本身就是硬收益:元数据和向量同库同事务,备份、监控、权限全套复用现有体系;500万~1000万条、QPS 不高的内部系统完全够用,不当架构膨胀怪。<b>类比:</b>就是备份里的"先复用现有介质池"——数据量没大到必须上专用带库,就别新开库房;每新增一套系统,就多一套管理面、巡检项和故障点。<b>技术:</b>Postgres 装上 pgvector 扩展,向量列直接建 HNSW 索引,与业务表同库 JOIN、同事务写入;千万级×768维≈30GB 索引常驻内存,单实例可控;真正的坑在高并发下的共享缓冲区争用和索引构建时长,规模再涨就到天花板,到时候再迁。</div></details>
+        <details class="qa"><summary class="qu">Q:Milvus 和 ES 的向量检索怎么选?</summary><div class="an"><b>人话:</b>已有 ES、要全文+向量混合检索、团队熟 ES,就先在 ES 里做;纯向量、大规模、多租户、要极致性能,才上 Milvus。<b>类比:</b>和归档选型同思路:现有统一存储平台自带归档能力,就别单建归档系统;规模和性能超出平台能力,才值得专建一套。<b>技术:</b>ES 8.x 内置 kNN(底层是 Lucene 的 HNSW),配合 RRF 可把 BM25 与向量结果一站式融合,省一个组件;但 JVM 内存、GC、CPU 吃得凶,吞吐一高就得堆机器。Milvus 存算分离、分区与标量过滤更强、索引可插拔,亿级以上优势明显——但要算一笔账:ES 是"顺手加"的边际成本,Milvus 是"新集群"的全额成本。</div></details>
+        <details class="qa"><summary class="qu">Q:什么时候根本不需要向量数据库?</summary><div class="an"><b>人话:</b>十万条以下,向量全装内存暴力算就完事,几十毫秒出结果、精度 100%,一个库都不用上。<b>类比:</b>几 GB 的备份你不会为它建带库和调度系统,插块硬盘就存了——工具量级要配得上数据量级,这是基建工程师的本能。<b>技术:</b>10 万条×768 维×4B≈300MB,float32 全量进内存,numpy 一次矩阵乘就是完整扫描,P99 在几十毫秒量级;"先暴力、后索引"和"先能备份、再谈重删压缩"是同一个节奏——等规模真到瓶颈,那时需求也长清楚了,再上 ANN 库不迟。</div></details>
+        <details class="qa"><summary class="qu">Q:万一选错了,迁移成本有多大?</summary><div class="an"><b>人话:</b>换库不算贵,换 Embedding 模型才贵——这是向量检索迁移和普通存储迁移最大的不同点。<b>类比:</b>换库像存储迁移:适配层、双写、灰度读、一致性校验、回滚,五步一个不少;换模型像换了介质格式,所有数据要重写一遍。<b>技术:</b>①业务代码收口到统一检索接口,不直连具体 SDK;②向量可以从旧库全量导出到新库,但若 Embedding 模型升级,必须全量重算;③双写,读流量按比例灰度发布切换,对比 Recall@k 与延迟再全量;④留回滚窗口。提前埋抽象层,迁移就是一次运维活动,不是一次重构。</div></details>
+        <details class="qa"><summary class="qu">Q:Milvus 集群挂了,检索怎么容灾?</summary><div class="an"><b>人话:</b>存算分离保你"计算层随便挂":数据持久层在对象存储,节点拉起来重新加载就行;但元数据和机房级容灾要自己规划,别信"分布式=天然容灾"。<b>类比:</b>这套架构你天天见:数据落多副本底座、计算节点无状态可替换、元数据集中在 etcd——照你平时给存储集群做容灾的老套路来就行。<b>技术:</b>Milvus 2.x 写路径是消息队列→对象存储持久化,QueryNode 只是缓存与执行层,宕机后按需重新加载 segment;单点风险在 etcd,要配高可用和定期备份;跨机房要规划对象存储异地复制或双集群互备,最终 RTO/RPO 由这套设计决定。</div></details>
       </div>
 
       <div class="block term"><span class="badge b-term">术语卡</span>
         <div class="terms-grid">
-          <div class="term-item"><b>pgvector</b>:Postgres 的向量检索扩展。</div>
-          <div class="term-item"><b>Zilliz</b>:Milvus 背后公司的云服务。</div>
-          <div class="term-item"><b>高选择率过滤</b>:过滤掉绝大多数数据的查询,HNSW 性能坑。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://github.com/pgvector/pgvector">pgvector</a></b>:Postgres 的开源向量检索扩展,在现有数据库上直接建 HNSW 索引——选型清单上的"第零候选"。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://zilliz.com/">Zilliz</a></b>:Milvus 背后的商业公司,Zilliz Cloud 相当于"官方托管版 Milvus"。</div>
+          <div class="term-item"><b>高选择率过滤</b>:过滤后只剩极小比例数据的查询(比如 tenant_id 只命中 1%),HNSW 在这个场景有性能坑,是选型实测的必考项。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://github.com/facebookresearch/faiss">IVF</a></b>:倒排文件索引——先对全量向量聚类分桶,查询只扫离查询向量最近的几个桶,牺牲少量召回换速度,Milvus 索引家族之一。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Sparse_matrix">稀疏向量</a></b>:绝大多数维度为 0 的向量,常用来承载关键词信号,与稠密向量互补——Pinecone 的"稀疏+稠密"混合即指此。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Vector_quantization">向量量化</a></b>:像存储里的有损压缩——用 int8 等低精度表示向量,省内存降成本,常配合对候选重打分来保精度。</div>
         </div>
       </div>
 </article>

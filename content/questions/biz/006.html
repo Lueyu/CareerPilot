@@ -7,47 +7,173 @@
         <span class="tag">#Agent</span><span class="tag">#框架选型</span>
       </div>
 
+      <div class="note"><b>先说人话:</b>这题给你三个 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Intelligent_agent">Agent</a> 框架,考的不是"背优缺点",而是你的<b>选型方法论</b>。面试官爱考,因为框架题最能分清"跟过教程的"和"落地过生产的"——只会背对比表、说不出"先看什么需求、再付什么代价"的,基本没真上过线。答错的暴露点:把"某家最强"当结论,而不是当条件。</div>
+
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-        <p>"按<b>控制力需求</b>排序选:生产级复杂流程我选 <b>LangGraph</b>——显式图 + 共享 State + checkpoint 持久化,可控、可调试、支持人工介入,是三个里唯一把'工程化'做到位的;CrewAI 主打<b>角色协作、快速上手</b>,demo 和轻量场景舒服,但流程黑盒些;AutoGen 是<b>对话式多 Agent</b>,研究探索强,生产控制力弱。一句话:<b>要掌控选 LangGraph,要快选 CrewAI,要研究选 AutoGen</b>。"</p>
+        <p>"按<b>控制力需求</b>排序选:生产级复杂流程我选 <a target="_blank" rel="noopener" href="https://langchain-ai.github.io/langgraph/"><b>LangGraph</b></a>——显式图 + 共享 State + <a target="_blank" rel="noopener" href="https://langchain-ai.github.io/langgraph/concepts/persistence/">checkpoint 持久化</a>,可控、可调试、支持人工介入,是三个里唯一把'工程化'做到位的;<a target="_blank" rel="noopener" href="https://docs.crewai.com/">CrewAI</a> 主打<b>角色协作、快速上手</b>,demo 和轻量场景舒服,但流程黑盒些;<a target="_blank" rel="noopener" href="https://microsoft.github.io/autogen/">AutoGen</a> 是<b>对话式多 Agent</b>,研究探索强,生产控制力弱。一句话:<b>要掌控选 LangGraph,要快选 CrewAI,要研究选 AutoGen</b>——但记住,这是按需求排序的条件,不是信仰。"</p>
       </div>
 
       <div class="block ana"><span class="badge b-ana">通俗类比</span>
-        <p>像三种<b>组织形式</b>:LangGraph 是<b>流程手册驱动的公司</b>——每步谁做、怎么流转、卡住了从哪重来,白纸黑字(显式图+checkpoint);CrewAI 是<b>小团队分工</b>——"你是研究员,你是作家,你俩配合完成任务",氛围好但具体怎么配合靠默契(模型自由发挥);AutoGen 是<b>圆桌会议</b>——大家开会讨论直到出结果,idea 火花多,但会议可能跑题、没人管时间(控制力弱)。</p>
+        <p><b>先用"组织形式"垫个底</b>:LangGraph 像<b>流程手册驱动的公司</b>——每步谁做、怎么流转、卡住了从哪重来,白纸黑字;CrewAI 像<b>分工小团队</b>——"你是研究员,你是作家,你俩配合出报告",怎么配合靠默契;AutoGen 像<b>圆桌会议</b>——大家聊到出结果为止,火花多,但可能跑题、没人管时间。下面换成你天天摸的存储/备份系统,会想得更准。</p>
+        <p><b>LangGraph(用"备份作业的 DAG 编排 + 断点续传"想)</b>:它把流程画成一张<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Directed_graph">显式有向图</a>,每个节点是一步操作(调 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Large_language_model">LLM</a>、调工具、跑普通代码都行),<b>共享 State</b> 是贯穿全程的"作业上下文",每个节点跑完写一次 checkpoint,进程挂了从断点续跑。</p>
+        <p><b>哪里像</b>:它是你熟悉的三样东西的合体——<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Directed_acyclic_graph">DAG</a> 作业调度(快照→去重→复制→校验,每步谁做白纸黑字)、作业断点续传(挂了从最后 checkpoint 续跑,不用整卷重备)、高危操作二次确认(删快照前等管理员批准,即 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Human-in-the-loop">HITL</a>)。<b>哪里不像</b>:备份节点里跑的是确定性代码,LangGraph 的节点里是 LLM——同样的输入可能给你不同的输出,所以光有 DAG 不够,得是带<b>条件边</b>的<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Finite-state_machine">状态机</a>:分支往哪走、循环转几圈,由代码按 State 决定,而不是看模型心情。</p>
+        <p><b>CrewAI(用"声明式存储策略"想)</b>:你只声明角色("你是研究员")和任务("调研 X"),执行顺序框架替你排。</p>
+        <p><b>哪里像</b>:像你配数据分层策略——"热数据放 SSD,冷数据下沉磁带",你声明意图、引擎执行,半天跑通,上手成本三家最低。<b>哪里不像</b>:存储策略引擎是确定性的,同一配置跑一百次结果一致,可以靠预演和单测验证;CrewAI 的"默契"是 LLM 现场发挥,两次执行路径可能不同,排障像在没有 trace 的黑盒里找丢的请求——演示无妨,生产致命。</p>
+        <p><b>AutoGen(用"没有协调器的节点群"想)</b>:一群 Agent 围着话题互相发言,聊到有人说"完成"为止。</p>
+        <p><b>哪里像</b>:像 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Gossip_protocol">gossip 协议</a>的圆桌版——消息互传、观点互搏,头脑风暴和辩论评审常有涌现效果。<b>哪里不像</b>:gossip 有收敛保证和超时兜底,AutoGen 的对话<b>没有内建终止保证</b>——会跑题、会互相客气到天亮,必须外挂 max_round 这种<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Circuit_breaker_design_pattern">熔断</a>;也没有谁持有全局状态,崩溃后恢复现场比中心化编排难一个量级。</p>
+        <table>
+          <tr><th>你熟悉的存储/备份概念</th><th>对应的 Agent 概念</th></tr>
+          <tr><td>备份作业的 DAG 调度(快照→去重→复制→校验)</td><td>LangGraph 显式图(节点 + 条件边)</td></tr>
+          <tr><td>作业断点续传 / 恢复点</td><td>checkpoint(按 thread_id 存取)</td></tr>
+          <tr><td>删快照前的管理员二次确认</td><td>HITL(interrupt 挂起等审批)</td></tr>
+          <tr><td>无限重试烧资源 → 重试上限/熔断</td><td>recursion_limit / max_round</td></tr>
+          <tr><td>声明式数据分层策略(引擎执行)</td><td>CrewAI 角色委派</td></tr>
+          <tr><td>无协调器的 gossip 节点群</td><td>AutoGen 对话循环</td></tr>
+        </table>
       </div>
 
       <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 先掰开"编排模型":三家是三种完全不同的作业调度方式</b></p>
+        <p>为什么选型主轴是<b>控制力</b>?生产事故排查时,你必须秒答三问:<b>流程此刻停在哪一步?为什么走了这条边?挂了之后从哪恢复?</b>能从代码<b>静态</b>回答的,控制力强;只能翻运行日志反推的,on-call 的夜里会很长。编排模型决定了控制力上限——有点像把 <a target="_blank" rel="noopener" href="https://airflow.apache.org/">Airflow</a> 的 DAG 哲学搬进 LLM 应用,只不过每一步都可能是一次"不确定的 LLM 调用"。三家的答案分别是:<b>画图、排班、开会</b>。</p>
+        <pre class="code">LangGraph 的世界:每一步、每条线都白纸黑字(显式图 + 状态机)
+
+ [START] ──▶ [分类意图] ──┬─(普通问题)──▶ [检索并回答] ──▶ [END]
+                         │
+                         └─(用户要退款)──▶ [金额校验]
+                                                 │ 金额超限:节点内调 interrupt()
+                                                 v
+                                          [挂起:等待人工审批]
+                                                 │ 审批通过,从 checkpoint 恢复继续
+                                                 v
+                                            [执行退款] ──▶ [END]
+
+ · 每个 [...] 是一个节点:装一次 LLM 调用,或一段普通 Python 代码
+ · 每条线是"边":分支走哪、循环转圈,全部由你定义(条件边按 State 分流)
+ · 每个节点跑完写一次 checkpoint:进程挂了从断点续跑
+ · 想循环必须显式画"回边",recursion_limit(默认 25 步)是防死循环的看门狗</pre>
+        <p>看这张图：节点、边、挂起点，全部能在 code review 时肉眼审查——图本身就是文档；人工审批不是外挂 hack,而是流程里的一等节点。这就是"可控、可调试"的来源。</p>
+        <pre class="code">CrewAI 的世界:你声明"角色 + 任务",框架替你排班
+
+ 你写的(声明式):                  框架自动决定的(半黑盒):
+ Agent(role=研究员, goal=查资料)     · 谁先执行?
+ Agent(role=作家,   goal=写报告)     · 上一步输出怎么传给下一步?
+ Task(调研X, 期望产出=要点)          · 串行还是并行(process 参数选)
+ Task(成文Y, 期望产出=报告)          · 有没有绕路?——要翻日志才知道
+
+ 实际执行(大概率是这条流水线):
+ [研究员完成 Task1] ──▶ [作家完成 Task2] ──▶ 产出报告</pre>
+        <p>心智负担小、出活快；但“为什么走了这条路径”要翻日志反推——POC 无所谓，生产 on-call 时会想哭。</p>
+        <pre class="code">AutoGen 的世界:圆桌会议,主持人点名
+
+ [研究员 Agent] ──"我查到了这些..."──▶ [作家 Agent]
+        ▲                                  │
+        └────────"帮我再确认这点?"◀───────┘
+
+ 主持人 GroupChatManager:每轮挑一个人发言,共享群聊上下文
+ 停止条件:有人说出 TERMINATE,或跑满 max_round(这个必须设!)
+
+ 风险:聊嗨了停不下来 → token 烧钱;没有谁持有"全局状态",恢复现场难</pre>
+        <p>互搏的涌现质量是真的，但没有谁持有全局状态、终止靠关键词或轮数兜底——研究利器，上生产要自己补一层治理。</p>
+        <p><b>2. LangGraph 为什么配得上生产：“四件套”逐个拆</b></p>
+        <p>生产要四样：<b>断点恢复、人工审批、循环防护、逐步观测</b>。LangGraph 全部原生给，而且每样你都有现成的心智模型。</p>
+        <pre class="code">checkpoint = 把"作业跑到哪、State 装了什么"定期落盘
+
+ t0 ──▶ [节点1 完成] ──写 cp1 ──▶ [节点2 完成] ──写 cp2 ──▶ 进程挂了!
+                                                                     │
+ 恢复：按 thread_id 读最新 cp2 ──▶ 从“节点3”继续 ──────────────────────┘
+ (等价于备份作业断点续传，而不是整卷重备一遍)</pre>
+        <ul>
+          <li><b>断点恢复</b>:每个节点跑完把整个 State 写入 checkpointer,按 <b>thread_id</b>(会话号,类比作业 ID)隔离;生产后端用 SQLite/Postgres(官方包)或 Redis(社区实现),内存后端只配开发用——道理同"备份元数据不能只放内存"。还支持 <b>time-travel</b>:回放任意历史 checkpoint,等于把作业拉回某个恢复点、换个分支再跑。先落盘再推进,哲学与 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Write-ahead_logging">WAL(预写日志)</a> 同宗。</li>
+          <li><b>人工审批</b>:节点里调 <b>interrupt()</b> 挂起,State 落盘等人;人工批完带结果恢复,从断点继续——"删快照前的管理员二次确认",且确认结果会写回 State 接着跑。</li>
+          <li><b>循环防护</b>:Agent 会犯轴("我再查一次吧"),死循环等价于备份作业无限重试烧资源。两道闸:循环必须<b>显式画回边</b>(代码可见),加上 <b>recursion_limit</b> 看门狗(默认 25 步,超了直接报错);再配<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Idempotence">幂等</a>的节点设计,重放不会退两次款——与作业重入的要求一致。</li>
+          <li><b>逐步观测</b>:图结构静态可审查(评审时流程一目了然),运行时“一个 span = 一个节点”，配 <a target="_blank" rel="noopener" href="https://smith.langchain.com/">LangSmith</a> 能看每步输入输出、token 花销、耗时——查“哪个节点把 P99 拖长”和查“哪一步把备份窗口拖长”是同一种活。</li>
+        </ul>
+        <p><b>把上面的机制落到代码</b>:还是那条“退款审批”流程，LangGraph 的画法长这样——注意，<b>图是编译出来的应用对象，不是运行时魔法</b>:</p>
+        <pre class="code">from typing import TypedDict
+from langgraph.graph import StateGraph, START, END
+
+class JobState(TypedDict):          ← 共享 State:作业上下文一路携带
+    query: str                        (类比:备份作业的 job 元数据)
+    refund_amount: float
+    approval: str                   ← 人工审批的结果也经 State 流转
+
+g = StateGraph(JobState)
+g.add_node("classify", classify_intent)   ← 节点:里面装一次 LLM 调用
+g.add_node("check", check_amount)         ← 节点:也可以是普通 Python 代码
+g.add_node("refund", do_refund)
+
+g.add_edge(START, "classify")             ← 边:怎么流转你说了算
+g.add_conditional_edges("classify", route_by_intent,
+                        {"normal": END, "refund": "check"})  ← 条件边:按 State 分流
+g.add_conditional_edges("check", after_check,
+                        {"pass": "refund", "blocked": END})  ← 审批不过直接结束
+g.add_edge("refund", END)
+
+app = g.compile(checkpointer=checkpointer)  ← 注入 checkpoint 后端(生产用持久化存储)</pre>
+        <p>注意 compile 那行：<b>编译出来的应用对象无状态,State 全在 checkpointer 后端</b>——计算与存储分离，服务可以随便重启、水平扩容，作业现场丢不了。这是它最像你熟的分布式架构的一点；“check” 节点里调 interrupt() 即挂起等审批，审批通过后从断点恢复继续。</p>
+        <p><b>3. CrewAI:甜蜜点是“半天出 demo”,代价是“流程半黑盒”</b></p>
+        <p>三件套：<b>Agent</b>(role / goal / backstory,给模型稳定人设)、<b>Task</b>(description + expected_output,把交付物写清楚)、<b>Crew</b>(process 选 sequential 串行或 hierarchical 层级，层级模式会自动生成一个“经理 Agent”管分派)。它把“提示词工程”产品化得很聪明：角色感清晰、任务粒度明确，是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Proof_of_concept">POC</a> 阶段几乎最快的一条路。</p>
+        <p>坑也在“聪明”上：执行顺序和上下文传递由框架接管，细节偏黑盒；输出受模型发挥影响，回归测试难写；失败重试和断点恢复只有基础能力。一个佐证：官方后来补了确定性、事件驱动的 <b>Flows</b>——等于亲口承认，纯角色委派撑生产吃力。</p>
+        <p><b>4. AutoGen:研究模式的天花板，生产的坑</b></p>
+        <p>机制：多个 Agent 进 <b>GroupChat</b>,GroupChatManager 当主持人，每轮挑人发言，共享全量对话历史；直到有人说出 TERMINATE,或跑满 <b>max_round</b>(必设)。<b>human_input_mode</b> 三挡(ALWAYS / TERMINATE / NEVER)控制人工插入密度；代码执行可以丢进 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Docker_(software)">Docker</a> 隔离，对“让 Agent 写代码再运行”的实验很友好。</p>
+        <p>甜蜜点：Agent 之间真的会<b>互搏</b>——辩论、挑错、互补盲区，辩论式评审和头脑风暴的质量是另外两家给不了的。坑：每轮全量上下文乘以 Agent 数,<b>token 成本随人数和轮数爆炸</b>;终止依赖关键词或轮数兜底，不设就聊嗨；对话日志难结构化，翻 trace 费劲。所以：研究场景的正确工具，生产上几乎每次都要自己补一层治理。</p>
+        <p><b>5. 全维度对比表</b></p>
+        <p>读法：前两行(编排模型、控制力)是<b>因</b>,其余是<b>果</b>——面试按因果讲，别按行背。</p>
         <table>
           <tr><th>维度</th><th>LangGraph</th><th>CrewAI</th><th>AutoGen</th></tr>
-          <tr><td><b>编排模型</b></td><td>显式有向图 + 状态机</td><td>角色(Role)+ 任务(Task)委派</td><td>Agent 对话循环</td></tr>
+          <tr><td><b>编排模型</b></td><td>显式有向图 + 状态机</td><td>角色+ 任务委派</td><td>Agent 对话循环</td></tr>
           <tr><td><b>控制力</b></td><td><b>最强</b>(每个分支/循环你定义)</td><td>中(框架管流程,细节偏黑盒)</td><td>弱(对话自组织)</td></tr>
           <tr><td><b>状态与持久化</b></td><td><b>Checkpoint 一等公民</b>,断点恢复/HITL</td><td>基础</td><td>基础</td></tr>
-          <tr><td><b>调试</b></td><td>图结构清晰,LangSmith 配套</td><td>中等</td><td>对话日志翻起来费劲</td></tr>
+          <tr><td><b>调试</b></td><td>图结构清晰，LangSmith 配套</td><td>中等</td><td>对话日志翻起来费劲</td></tr>
           <tr><td><b>上手成本</b></td><td>陡(要自己想清楚图)</td><td>缓(半天出 demo)</td><td>中</td></tr>
           <tr><td><b>适合</b></td><td><b>生产级复杂工作流</b></td><td>轻量协作、POC</td><td>多 Agent 模式研究</td></tr>
+          <tr><td><b>出品方</b></td><td><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/LangChain">LangChain</a> 团队，生态一体化</td><td>社区开源起家(独立项目)</td><td>微软研究院</td></tr>
+          <tr><td><b>人机协同</b></td><td>interrupt() 挂起/恢复是一等公民</td><td>human_input 按任务开关</td><td>human_input_mode 三挡(ALWAYS/TERMINATE/NEVER)</td></tr>
+          <tr><td><b>终止保证</b></td><td>显式 END + recursion_limit(默认25)看门狗</td><td>任务列表跑完即止</td><td>TERMINATE 关键词或 max_round 兜底</td></tr>
         </table>
-        <p><b>我的实战选择路径</b></p>
+        <p><b>6. 我的实战选择路径(面试官想听的段落)</b></p>
         <ul>
-          <li>POC 阶段:CrewAI 快速验证"这个任务多 Agent 值不值得做"。</li>
-          <li>生产阶段:把验证过的流程<b>翻译成 LangGraph 的显式图</b>(或直接自研状态机)——因为生产要的是:循环防护、断点恢复、人工审批、每步可观测,这四样 LangGraph 都原生给。</li>
-          <li>特别场景(需要 Agent 间自由讨论的,如辩论式评审):AutoGen 的对话模式反而是对的工具。</li>
+          <li><b>POC 阶段:CrewAI 快速验证"这个任务多 Agent 值不值得做"</b>——半天出 demo,验证的是任务可拆性和角色边界，不是框架本身。</li>
+          <li><b>生产阶段:把验证过的流程翻译成 LangGraph 的显式图(或直接自研状态机)</b>——生产要的四样(循环防护、断点恢复、人工审批、每步可观测)它都原生给；把 POC 的“角色”压成“节点 + 条件边”，黑盒变白盒，出事能定位到边。</li>
+          <li><b>特别场景(需要 Agent 间自由讨论的，如辩论式评审)：AutoGen 的对话模式反而是对的工具</b>——但要配 max_round 熔断和 token 预算，别让研究预算烧在互相客气上。</li>
         </ul>
-        <p><b>反过来想:什么时候不选 LangGraph?</b></p>
+        <p><b>7. 反过来想：什么时候不选 LangGraph?</b></p>
         <ul>
-          <li>流程是纯线性的(RAG 问答):普通代码/管道就够,上图框架纯属过度设计。</li>
-          <li>团队完全不想学新抽象:自研 300 行状态机 + 自由定制,比学框架划算——<b>能说出"不选"的条件,说明你真理解选型</b>。</li>
+          <li><b>流程是纯线性的(典型:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Retrieval-augmented_generation">RAG</a> 问答):普通代码/管道就够,上图框架纯属过度设计</b>——就像单条备份作业不需要整台调度引擎；一条 for 循环调一次 LLM,谁都看得懂、谁都敢改。</li>
+          <li><b>团队完全不想学新抽象：自研 300 行状态机 + 自由定制，比学框架划算</b>——状态机、断点、恢复你闭着眼写得出来，框架卖的是“生态打包”(流式、trace、恢复件)，买不买取决于你缺时间还是缺人。</li>
+          <li>再补一条：<b>如果公司已有统一的工作流/作业编排平台</b>,LangGraph 往往只是多一层胶水——在现有平台里加一个“LLM 节点”，通常比引入第二套编排更顺。</li>
         </ul>
+        <p><b>能说出“不选”的条件，才说明你真理解选型</b>——这句话本身，面试时可以原样说出口。</p>
+        <pre class="code">选型决策树:先问需求,再谈框架
+
+ 你的流程长什么样?
+ ├─ 纯线性 / 单 Agent(典型:RAG 问答)
+ │    └─▶ 什么都别选:普通代码或管道就够,上图框架 = 过度设计
+ │
+ ├─ 有分支循环,还要"生产四件套"(断点恢复 / 人工审批 / 循环防护 / 逐步观测)
+ │    └─▶ LangGraph(POC 期可先用 CrewAI 验证"值不值得多 Agent")
+ │
+ └─ 核心价值在 Agent 之间自由互搏(辩论、评审、头脑风暴)
+      └─▶ AutoGen(研究利器,但必设 max_round 熔断 + token 预算)</pre>
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:LangGraph 的 checkpoint 怎么用在你的场景?</summary><div class="an">例:客服 Agent 走到"退款审批"节点挂起 → checkpoint 存 Redis → 人工在后台审批 → invoke 恢复继续;再加一个例子:长任务跑一半进程重启,从最后 checkpoint 恢复,不用用户重新说一遍需求。</div></details>
-        <details class="qa"><summary class="qu">Q:三个框架的流式输出和可观测性呢?</summary><div class="an">LangGraph 节点粒度对齐 trace(每个 span=一个节点),观测最清晰;CrewAI 靠日志;AutoGen 对话式 trace 要自己拼——可观测性是生产的硬指标,这也是我生产偏 LangGraph 的主要原因之一。</div></details>
+        <details class="qa"><summary class="qu">Q:LangGraph 的 checkpoint 怎么用在你的场景?</summary><div class="an"><b>人话:</b>把“流程跑到哪一步、State 装了什么”整体落盘：进程挂了从断点续跑，人工审批中途插一杠再回来。<b>类比:</b>作业断点续传——跑一半进程重启，从最后一个 checkpoint 恢复，而不是让用户重说一遍需求(整卷重备)；高危节点挂起等审批，就是删快照前的管理员二次确认。<b>技术:</b>两个用法：① 客服 Agent 走到“退款审批”节点 interrupt() 挂起，checkpoint 落 Redis/Postgres,人工后台批准后 invoke 携带结果从断点恢复；② 长任务跨进程重启，按 thread_id 读最新 checkpoint 续跑，消息历史不丢。生产要点：后端必须持久化，内存版重启即丢，只配开发用。</div></details>
+        <details class="qa"><summary class="qu">Q:三个框架的流式输出和可观测性呢?</summary><div class="an"><b>人话:</b>三家都能“边生成边吐字”，但排障体感差很远：LangGraph 按节点切段，另两家更像一锅粥。<b>类比:</b>LangGraph 的 trace 天然对齐 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Application_performance_management">APM</a> 的 span 粒度(一个 span = 一个节点)，走到哪、卡在哪一目了然；AutoGen 的日志像没结构化的聊天记录，CrewAI 居中、靠框架日志。<b>技术:</b>LangGraph 的 stream 支持 values / updates / messages 等模式，流式粒度与 trace 粒度天然一致，配 LangSmith 每步输入输出、token、时延可查；CrewAI 靠 verbose 日志和 callback 拼流式；AutoGen 有 ChatHistory 但缺结构化 trace。可观测性是生产硬指标，这也是我生产偏 LangGraph 的主因之一。</div></details>
+        <details class="qa"><summary class="qu">Q:自研 300 行状态机也能做,为什么还要上 LangGraph?</summary><div class="an"><b>人话:</b>两条路都成立，看哪些轮子你愿意重复造：一两个固定流程、已有编排基建，自研划算；多条 Agent 流水线、要跨团队协作，框架省的是长期维护成本。<b>类比:</b>跟“备份系统要不要自研调度引擎”一模一样——单机跑两个作业，crontab 足够；几十条流水线要断点、审批、审计时，成熟引擎的价值才兑现。<b>技术:</b>自研的账单：状态持久化 schema、崩溃恢复语义、审批挂起、并发控制、token 级流式、trace 埋点——单项不难，合计数周起步；LangGraph 把这些打包成公共层，代价是学图抽象、跟版本演进。我的经验：POC 自研最快，生产里“顺手的轮子”最值钱。</div></details>
+        <details class="qa"><summary class="qu">Q:多 Agent 一定比单 Agent 好吗?什么时候才值得拆?</summary><div class="an"><b>人话:</b>不一定。多数场景“单 Agent + 好工具 + 好提示词”更便宜、更稳；值得拆的信号就三个：任务能按角色清晰拆分、子任务能并发、上下文需要隔离。<b>类比:</b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Microservices">微服务</a>的老道理——不为拆而拆：单体没坏就硬拆，只是把复杂度从代码搬去运维；拆分标准也一致——边界清晰、独立伸缩、故障隔离。<b>技术:</b>三个硬理由：① 上下文隔离，各 Agent 带小上下文，避免单条 prompt 塞爆；② 并行，独立子任务并发跑、压时延；③ persona 稳定，一个 Agent 管一件事比超级 prompt 好调。代价是每加一个 Agent,多一份 token 钱和延迟、多一分编排失败面，所以先单后多、拿数据说话再拆。</div></details>
       </div>
 
       <div class="block term"><span class="badge b-term">术语卡</span>
         <div class="terms-grid">
-          <div class="term-item"><b>显式图</b>:节点和边全部明确定义的流程图。</div>
-          <div class="term-item"><b>黑盒编排</b>:框架自动决定执行顺序。</div>
-          <div class="term-item"><b>HITL</b>:人工介入节点。</div>
+          <div class="term-item"><b>显式图</b>:节点和边全部明确定义的流程图,路径可静态审查、可画在白板上。</div>
+          <div class="term-item"><b>黑盒编排</b>:框架自动决定执行顺序，你声明意图，不写路径。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Human-in-the-loop">HITL</a></b>:人工介入节点，Agent 在关键决策前挂起，等审批或补充信息再继续。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Finite-state_machine">状态机</a></b>:一组状态加跳转规则的模型;LangGraph 的图本质上是让 LLM 参与跳转决策的状态机。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Directed_acyclic_graph">DAG(有向无环图)</a></b>:数据/备份管道最爱的流程结构；LangGraph 更进一步——允许显式画环，用 recursion_limit 防死循环。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a></b>:让 LLM 边推理边调工具的经典范式,现代 Agent 的思想源头之一。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Circuit_breaker_design_pattern">熔断</a></b>:超阈值强制中断的兜底机制——AutoGen 的 max_round、LangGraph 的 recursion_limit 都是它的变体。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Write-ahead_logging">WAL(预写日志)</a></b>:先落盘日志再改数据的持久化套路,与 checkpoint 同属"为故障预留恢复点"的家族。</div>
         </div>
       </div>
 </article>

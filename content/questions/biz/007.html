@@ -7,15 +7,29 @@
         <span class="tag">#文档解析</span><span class="tag">#RAG</span>
       </div>
 
+      <div class="note"><b>先说人话:</b>你的知识库里堆着 PDF/Word/扫描件,<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Retrieval-augmented_generation">RAG</a> 得先把它们嚼成干净文本——这活就是解析,这题考的就是三个工具里怎么挑。面试官爱问它,是因为它最容易区分"看过演示的人":只背各家长处、不谈成本隐私许可证取舍的,说明没落过地——这三点恰恰是真实项目必踩的坑。</div>
+
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-        <p>"看<b>文档复杂度</b>分路:简单文 PDF 用 <b>PyMuPDF</b>(快、免费、本地);格式多样要开源自部署选 <b>Unstructured</b>(格式全家桶);复杂表格/双栏/扫描件用 <b>LlamaParse</b>(LlamaIndex 的云端解析,质量天花板,按页收费)。<b>工程上我会做解析路由</b>:先判断文档类型和复杂度再选引擎,90% 走便宜通道,10% 硬骨头交给贵的——比一把梭全用 LlamaParse 省一大半。"</p>
+        <p>"按<b>文档复杂度 + 格式广度 + 隐私约束</b>分路:简单文 PDF 用 <a target="_blank" rel="noopener" href="https://pymupdf.readthedocs.io/">PyMuPDF</a>(C++ 底、本地、毫秒级、免费);格式杂(Office/HTML/邮件)开源自部署选 <a target="_blank" rel="noopener" href="https://github.com/Unstructured-IO/unstructured">Unstructured</a>(格式全家桶);复杂表格/双栏/扫描件这类硬骨头给 <a target="_blank" rel="noopener" href="https://docs.llamaindex.ai/en/stable/module_guides/loading/llama_parse/">LlamaParse</a>(<a target="_blank" rel="noopener" href="https://www.llamaindex.ai/">LlamaIndex</a> 的云端解析,质量天花板,按页收费,敏感文档注意合规)。<b>工程上我不会一把梭全用 LlamaParse,而是做解析路由</b>:先探测文档类型、文本层、表格密度再选引擎——90% 走本地便宜通道,10% 硬骨头走付费专道,敏感文档永不离机;对比一把梭,成本省下大半,隐私风险也一并躲掉。"</p>
       </div>
 
       <div class="block ana"><span class="badge b-ana">通俗类比</span>
-        <p>像<b>洗衣服务</b>:普通 T 恤自己洗衣机搞定(PyMuPDF,快且免费);各种面料混着的送社区洗衣店(Unstructured,啥都接,效果中规中矩);高级西装定制干洗(LlamaParse,贵但处理得了最讲究的)。<b>聪明的管家按衣服分拣</b>(解析路由),而不是把袜子也送定制干洗。</p>
+        <p><b>文档解析(想成备份的源端扫描阶段)</b>:备份系统得先认清楚源端有哪些文件、哪些数据,才能往介质上写;同理 RAG 也得先把一堆 PDF/Word/扫描件嚼成"干净文本+结构",后面 chunk 切分、Embedding 向量化才有得玩,这一步在前头,质量出岔子,下游检索全是白干。<b>哪里像</b>:两条流水线的"质量瓶颈都在头部"——备份漏扫文件,恢复时找不到东西;解析毁掉表格,检索时处处答错,garbage in garbage out 两边都是铁律。<b>哪里不像</b>:备份扫描失败会大声报错退出,任务日志里一片红;解析的失败往往是静默的——它不报错,只默默吐出一堆乱码碎文,到 QA 阶段才发现,所以解析工程必须补一层校验(相当于备份的恢复演练)。</p>
+        <p><b>三个框架(想成备份的三条接入通道)</b>:PyMuPDF 是本地直连快通道——C++ 内核、每页毫秒级、免费,但只认 PDF;Unstructured 是全协议通用网关——Office/HTML/邮件几十种格式都接、开源自部署,效果中规中矩;LlamaParse 是付费专线——云服务、按页计费,复杂表格、双栏版式、扫描件是它的地盘。<b>哪里像</b>:"覆盖-速度-成本"的三角取舍和"协议支持-备份速度-介质成本"一模一样,没有一条通道三项全赢,只能按源端类型分流。<b>哪里不像</b>:备份通道只是"读法"不同,内容落库后 bit 级一致;同一份 PDF 走不同解析器,文本质量能差出一个数量级,表格可能完美还原也可能散成一锅粥——解析是有损转码,不像备份那样一个校验和就能交差,最终都体现在下游 Recall@k 上。</p>
+        <p><b>解析路由(想成备份的策略引擎/存储分层)</b>:按特征给数据找去处是备份人的日常——热数据放 SSD、冷数据下磁带、数据库走专用代理通道;文档解析同理,先低成本探一下三个信号(格式、文本层、表格密度),简单文档走 PyMuPDF,格式大杂烩走 Unstructured,硬骨头送 LlamaParse。<b>哪里像</b>:都是"用便宜的探测决策,省昂贵的执行",90% 流量走便宜通道,总成本降一个数量级,和冷热分层的省钱逻辑完全同源。<b>哪里不像</b>:备份策略写在目录/负载元数据上,相对静态;文档特征必须读到内容才知道,而且文档群体会漂移(新部门丢进一堆合同扫描件,规则就失效),所以路由还得加质量分反馈闭环,更像"策略+反馈"的迭代系统,而不是一张写死的策略表。</p>
       </div>
 
       <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p>先定个位:解析是 RAG 流水线的第一站——文档不解析成干净文本,后面 chunk 切分、Embedding 向量化、检索增强全是沙上盖楼。下面分四步:先摆正工具的层次,再上对比表,再讲路由的系统化做法,最后是生产级要点。</p>
+        <p><b>1. 先分清"库、框架、服务"——层次选错,全盘皆输</b></p>
+        <p>PyMuPDF 是个<b>库</b>:C 内核(MuPDF)加 Python 包装,只管 PDF 读取、抽文本、渲染——像直接调本地 C SDK,极快,但流水线要自己搭;Unstructured 是个<b>框架</b>:开源自部署,partition 接口按格式自动分区,内部编排一堆检测组件——像开源备份套件,格式全支持,运维自己扛;LlamaParse 是个<b>云服务</b>:底层是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Large_language_model">LLM</a> 加版式模型,质量天花板,但文档要出你的机器——像按量付费的商业云服务,开箱即用,代价是按页掏钱和数据出域。层次摆正,下面的对比表就好看三倍。</p>
+        <table>
+          <tr><th>层次</th><th>例子</th><th>备份领域类比</th><th>流水线和运维归谁</th></tr>
+          <tr><td>库</td><td>PyMuPDF</td><td>本地 C SDK</td><td>全归你:自由度最高,活也最多</td></tr>
+          <tr><td>框架</td><td>Unstructured</td><td>开源备份套件自部署</td><td>你部署运维,框架编排组件</td></tr>
+          <tr><td>云服务</td><td>LlamaParse</td><td>商用备份云服务</td><td>厂商搞定,你只管调 API 和买单</td></tr>
+        </table>
+        <p><b>2. 对比表:隐私和成本排在质量前面</b></p>
         <table>
           <tr><th>维度</th><th>PyMuPDF</th><th>Unstructured</th><th>LlamaParse</th></tr>
           <tr><td><b>形态</b></td><td>本地库(C++,飞快)</td><td>开源自部署 + API</td><td>云端 API</td></tr>
@@ -23,7 +37,13 @@
           <tr><td><b>质量</b></td><td>文本层好的 PDF 很可靠;复杂版式弱</td><td>中规中矩,表格一般</td><td><b>表格/双栏/图文混排最强</b></td></tr>
           <tr><td><b>成本</b></td><td>免费</td><td>免费(自部署费机器)</td><td>按页付费</td></tr>
           <tr><td><b>数据隐私</b></td><td><b>全本地</b></td><td>可全本地</td><td>要传云端(合规敏感注意)</td></tr>
+          <tr><td><b>速度</b></td><td>毫秒级/页,单机批量吞吐最高</td><td>视格式与策略:fast 秒级,hi_res 要检测模型慢一个量级</td><td>秒级/页 + 网络往返,吞吐靠并发调用堆</td></tr>
+          <tr><td><b>技术栈</b></td><td>C++ 内核 + Python 包装,API 很薄</td><td>Python,组件多、可插拔</td><td>REST API + SDK,底层模型黑盒</td></tr>
+          <tr><td><b>一句话最适</b></td><td>大批量文本层 PDF 的离线快解析</td><td>格式大杂烩、要自部署统一流水线</td><td>复杂表格/双栏/财报,质量优先</td></tr>
         </table>
+        <p>这张表的读法很"备份":<b>隐私是一票否决</b>——像数据驻留要求,涉及金融/医疗/政务,「要传云端」那一格直接把 LlamaParse 划掉,能力再强也让位合规;<b>成本是第二道闸门</b>——按页付费听着便宜,知识库入库动辄百万页起步,账单和本地免费路线差出数量级,性质就是备份介质费,规模是利息放大器(单价变得快,面试别背数字,说「我自己算过全链路成本再选」就稳);<b>质量排最后说</b>——过了前两道闸,才轮到夸 LlamaParse 表格/双栏强,而且要按"硬骨头文档类型"算性价比,不能全库平均,否则几页烂文档让全库买单。另有一个工程细节:PyMuPDF 底层的 MuPDF 走 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/GNU_Affero_General_Public_License">AGPL</a>「传染性」许可,商用发行必须过开源合规评审——细节见下方追问。</p>
+        <p><b>3. 解析路由:把选型做成系统(本题最大加分点)</b></p>
+        <p>静态选型是小技能,<b>做一个按文档自动分流的路由层</b>才是工程。探测逻辑先做三件本地廉价检查:①<b>格式</b>:读文件头 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Magic_number_%28programming%29">Magic Number</a>,别信扩展名——存储人都懂,假 .pdf 可能是 Word 改的名;②<b>文本层</b>:用 PyMuPDF 的 page.get_text() 数每页字符数,接近零就是扫描件,先跑 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Optical_character_recognition">OCR</a>(本地常用 <a target="_blank" rel="noopener" href="https://github.com/PaddlePaddle/PaddleOCR">PaddleOCR</a> 或 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Tesseract">Tesseract</a>);③<b>版式复杂度</b>:用内置 find_tables() 接口或线段统计数每页表格数,用文本块 x 坐标分布判单双栏。一条硬约束:<b>探测成本必须比解析成本低一到两个数量级</b>——和备份预扫描同款逻辑,先用便宜的元数据摸底,再决定昂贵的动作。</p>
         <p><b>解析路由设计(把选型做成系统)</b></p>
         <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 586 380" role="img" aria-label="文档解析路由架构">
   <rect class="sd-box-rose" x="200" y="16" width="140" height="52" rx="10"/>
@@ -61,22 +81,61 @@
   <text class="sd-t" x="290" y="328" text-anchor="middle">统一输出 Markdown</text>
   <text class="sd-ts" x="290" y="346" text-anchor="middle">表格保留 + 质量分抽检</text>
 </svg></div>
-        <p><b>两个实战要点</b></p>
+        <pre class="code">文档进入 (PDF/Word/PPT/HTML/邮件/扫描件…)
+ │
+ ├─[探测] 三件本地廉价检查, 成本比解析低 1~2 个数量级
+ │    ① magic number 验格式 (不迷信扩展名)
+ │    ② page.get_text() 验文本层 (字符数近零 = 扫描件)
+ │    ③ 表格密度 / 双栏检测
+ │
+ ├─[路由决策] 按序发问, 命中即走
+ │    Q1 无文本层?        ─Yes─► 先 OCR (PaddleOCR/Tesseract), 再回流水线
+ │    Q2 敏感文档?          ─Yes─► 本地通道 (PyMuPDF/Unstructured), 永不离机
+ │    Q3 非 PDF?         ─Yes─► Unstructured (Office/HTML/邮件 通用通道)
+ │    Q4 表格密/双栏?      ─Yes─► LlamaParse (付费专线, 质量优先)
+ │    Q5 都不命中      ──────► PyMuPDF (免费快通道, 承载 90% 流量)
+ │
+ └─► 统一输出 Markdown ─► 解析质量打分 ─► 低分文档类型进待优化清单
+      │
+      └─► 抽检反馈驱动路由规则迭代 (闭环在此)</pre>
+        <pre class="code"># 伪代码: 解析路由 —— 按序发问, 命中即走
+def route(doc):
+    if not has_text_layer(doc):              # 探测①: page.get_text() 每页字符数近零
+        doc = ocr(doc, engine="paddleocr")   # 扫描件 → 先 OCR 再回流水线
+    if doc.is_sensitive:                     # 探测②: 合规标签/白名单, 永不离机
+        return PyMuPDF() if doc.fmt == "pdf" else Unstructured()
+    if doc.fmt != "pdf":                     # 探测③: magic number 识别, 不信扩展名
+        return Unstructured()                # Office/HTML/邮件走通用通道
+    if table_density(doc) &gt; 0.3 or is_two_column(doc):
+        return LlamaParse()                  # 硬骨头: 付费专线, 质量优先
+    return PyMuPDF()                         # 默认: 90% 流量的免费快通道</pre>
+        <p>两点提醒:①表格密度的 0.3 只是示意,阈值必须用采样数据标定——路由更像一个要持续迭代的策略引擎,而不是一个写死的函数;②决策列表按"便宜的先问、一票否决的靠前"排,大多数文档两三问就返回,探测开销被压到地板。</p>
+        <p><b>4. 四个实战要点:"见过"和"做过"的分水岭</b></p>
         <ul>
-          <li><b>输出统一成 Markdown</b>:表格用 HTML/MD 表格保留结构,下游 chunk 按标题层级切——解析质量直接决定 RAG 上限,"garbage in, garbage out" 在这题最应景。</li>
-          <li><b>建立解析质量抽检</b>:抽样人工看解析结果,低分文档类型进"待优化清单",驱动路由规则迭代——解析是 RAG 里最容易被低估的脏活累活。</li>
+          <li><b>输出统一成 Markdown</b>:不管哪个引擎,下游只见一种格式——<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Markdown">Markdown</a>。表格用 MD/HTML 表格语法保留结构,不许拍平成散文字(LlamaParse 直接吐 MD 表格;PyMuPDF 可用 find_tables() 抽出再拼;Unstructured 的表格元素可导出 HTML);下游 chunk 按标题层级切,再把标题路径(如「第三章 / 3.2 风控」)塞进每个 chunk 当上下文。<b>为什么解析质量直接决定 RAG 的上限</b>:表格单元格被拍成正文,用户问「三季度毛利率」,相关数据散落进好几个垃圾 chunk,后面的 BM25、Rerank、混合检索全都救不回来——"garbage in, garbage out"在这题最应景。</li>
+          <li><b>建立解析质量抽检</b>:备份行业的铁律直接平移——<b>没做过恢复演练的备份等于没有备份;没做过校验的解析等于在赌博</b>。做法:①自动化质量信号:每页字符数异常(过低=漏抽,过高=页眉页脚重复入库)、乱码率、表格结构完整度;②按文档类型分层抽样——合同、财报、手册分开抽,人工抽查解析后的 markdown;③低分文档类型进「待优化清单」,驱动路由规则迭代。解析是 RAG 里最容易被低估的脏活累活,能把这段讲出来,面试官就知道你真下过地。</li>
+          <li><b>结果缓存与幂等(备份人的本行)</b>:用文档内容哈希(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/SHA-2">SHA-256</a>)+解析器版本号当缓存键,解析一次落盘持久化;同一文档重复入库不重算——这就是<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Data_deduplication">Deduplication</a>的解析版。解析器升级(比如 LlamaParse 模型迭代)只重算受影响的差量——和备份去重的元数据迁移同思路,别拆整个仓库重来。</li>
+          <li><b>失败降级与速度隔离</b>:LlamaParse API 失败/限流 → 降级 Unstructured hi_res 策略 → 兜底 PyMuPDF 抽正文;降级链上的文档打上「临时低质量」标记,专线恢复后自动重解析——和容灾的降级路径同款,"先可用,后修好"。速度上:90% 本地快通道批量秒级出结果,云 API 走异步队列,不拖垮入库流水线的 P99;本地解析 worker 横向扩容加机器就行,正是你最熟的分布式活。</li>
         </ul>
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:表格解析总是烂,有什么系统性解法?</summary><div class="an">分层:规整表格 LlamaParse/表格专用模型可保;不规则表格(合并单元格多)→ 转图片用多模态模型理解;极端情况人工模板;并反问业务"这个表格必须整表入检索吗"——很多时候按行展开+表头冗余更利于检索。</div></details>
+        <details class="qa"><summary class="qu">Q:表格解析总是烂,有什么系统性解法?</summary><div class="an"><b>人话:</b>按表格难度升级:规整的交给表格专用工具,不规则的(合并单元格多)转图片让多模态模型看图,极个别的上模板,最后反问业务——这表必须整表入检索吗?<b>类比:</b>像备份对待特殊负载——数据库走专用代理、虚机走镜像级、异形系统只能跑脚本作业;工具按源类型升级,还要问"是否要全保真"。<b>技术:</b>①规整表格:LlamaParse 或 <a target="_blank" rel="noopener" href="https://github.com/jsvine/pdfplumber">pdfplumber</a>/<a target="_blank" rel="noopener" href="https://github.com/camelot-dev/camelot">Camelot</a>,输出 MD/HTML 表;②不规则:页面渲染成图,交给<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Multimodal_learning">多模态模型</a>抽键值对;③固定模板:写列映射规则;④很多场景"按行展开+表头冗余"比整表 chunk 更好检索,Embedding 和 BM25 都更容易命中。</div></details>
+        <details class="qa"><summary class="qu">Q:LlamaParse 解析质量最好,为什么不全量用它?</summary><div class="an"><b>人话:</b>三个不:用不起——按页付费,成本随入库量线性涨;不能用——敏感文档要出机器;等不起——云端 API 有限流,大批离线入库会堵。<b>类比:</b>像备份负载不能全上云——费用堆积、监管行业过不了审计、大批冷备上云还拖备份窗口;必须分层:热数据本地、冷数据上云、硬骨头走专线。<b>技术:</b>①成本:百万页入库与本地免费路线差出数量级;②合规:金融/医疗/政务要求不出网,云 API 直接被否;③吞吐:云 QPS 有限流要并发加退避,本地 PyMuPDF 加机器就行;④所以做路由:90% 便宜通道+10% 专线,敏感数据永不离机。</div></details>
+        <details class="qa"><summary class="qu">Q:你说先探测再路由,具体探测什么信号?开销多大?</summary><div class="an"><b>人话:</b>四个信号:有无文本层、是否敏感、是不是 PDF、表格/版式密度高不高。全用本地廉价探测,开销必须远低于解析本身。<b>类比:</b>像备份跑作业前的预扫描:先廉价采样变更量和文件类型,再定增量还是全量——便宜探测决定昂贵动作,没人拿全量扫描来探测。<b>技术:</b>①文本层:PyMuPDF get_text() 数每页字符,近零判扫描件走 OCR;②格式:文件头魔数,不迷信扩展名;③表格密度:find_tables() 或线段统计;④双栏:文本块 x 坐标分布判断。全是本地 CPU 操作,比 LLM 解析便宜一到两个数量级。</div></details>
+        <details class="qa"><summary class="qu">Q:把 PyMuPDF 引入商业产品,有什么许可证风险?</summary><div class="an"><b>人话:</b>有大的:PyMuPDF 底层 MuPDF 走 AGPL「传染性」许可——链接分发可能导致整个产品被要求开源,商业出货要么买商业许可,要么换库。<b>类比:</b>像闭源备份软件沾了 GPL 组件,传染规则相似:沾了件的零件整机遭殃,要么全开源,要么向厂商买商业豁免。<b>技术:</b>①MuPDF 为 AGPL-3.0,且 AGPL 连网络服务也能"传染",对外提供服务同样触发义务,商用发行需向 Artifex 购买许可;②免费替代:<a target="_blank" rel="noopener" href="https://github.com/py-pdf/pypdf">pypdf</a>(BSD)、<a target="_blank" rel="noopener" href="https://github.com/pdfminer/pdfminer.six">pdfminer.six</a>(MIT),表格能力偏弱可搭配 pdfplumber;③自研产品必须过开源合规评审,答出这点才算出过货的人。</div></details>
       </div>
 
       <div class="block term"><span class="badge b-term">术语卡</span>
         <div class="terms-grid">
-          <div class="term-item"><b>文本层</b>:PDF 里可复制的文字(非扫描图)。</div>
-          <div class="term-item"><b>解析路由</b>:按文档特征选择解析引擎。</div>
-          <div class="term-item"><b>Chunk</b>:切分后的检索单元。</div>
+          <div class="term-item"><b>文本层</b>:PDF 里真实存着的可复制文字,区别于扫描图上的像素,是"能否跳过 OCR"的判定信号。</div>
+          <div class="term-item"><b>解析路由</b>:按廉价探测到的文档特征(格式/文本层/表格密度)选解析引擎,备份策略路由的文档版。</div>
+          <div class="term-item"><b>Chunk</b>:文档切分后的基本检索单元,它的质量上限在解析这一步就定死了。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Optical_character_recognition">OCR</a></b>:光学字符识别,把图片里的文字变成机器可读字符,扫描件的必经之路。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Retrieval-augmented_generation">RAG</a></b>:检索增强生成,先找材料再回答;解析是它第一道、也最容易被低估的关卡。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Markdown">Markdown</a></b>:轻量标记语言,解析输出的事实标准,标题层级直接映射到 chunk 切分。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/GNU_Affero_General_Public_License">AGPL</a></b>:传染性最强的开源许可证,MuPDF/PyMuPDF 是其一,商用发行须过合规评审。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Magic_number_%28programming%29">Magic Number</a></b>:文件头的识别字节,格式探测的正确依据,比扩展名可靠。</div>
         </div>
       </div>
 </article>
