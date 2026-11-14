@@ -1,33 +1,58 @@
 <article class="q" id="eval-008" data-topic="eval" data-title="bad case收集与迭代:是否做在线学习" data-difficulty="3" data-tags="迭代优化,在线学习" data-company="字节 / 阿里" data-source="P5Q42" data-kw="bad case 迭代 优化 在线学习 反馈 数据闭环 归因 回流 评测 SFT RLHF DPO 字节 阿里">
 
-  <div class="q-no">Agent核心 · Q42</div>
-  <h3>项目上线后，你是如何收集bad case并迭代模型/策略的？有做在线学习吗？</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐⭐</span>
-    <span class="tag">#迭代优化</span><span class="tag">#在线学习</span>
-    <span class="company">字节 / 阿里</span>
-  </div>
+      <div class="q-no">Agent核心 · Q42</div>
+      <h3>项目上线后，你是如何收集bad case并迭代模型/策略的？有做在线学习吗？</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐</span>
+        <span class="tag">#迭代优化</span><span class="tag">#在线学习</span>
+        <span class="company">字节 / 阿里</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"我搭的是<b>数据闭环</b>:收集 → 归因 → 修复 → 回归 → 上线。① <b>收集</b>:bad case 来自用户点踩、转人工、评价文本、模型低置信、内部抽检,其中<b>用户点踩最值钱</b>;② <b>归因</b>:用 trace 回放定位错在意图/检索/生成/工具哪一环;③ <b>修复</b>:从便宜到贵——补 few-shot、改 prompt、调检索参数、补知识、加工具,最后才上 SFT/RLHF 微调;④ <b>回归</b>:进测试集跑离线评估 + 灰度。关于<b>在线学习,我没做实时版</b>——风险是毒数据、灾难性遗忘、概念漂移、不可回滚,实际做法是<b>'准实时回流 + 定期离线训练 + 灰度上线'</b>。"</p>
-  </div>
+      <div class="note"><b>先说人话:</b>上线只是起点,这题问的是「用户开始骂之后,你有没有一套把骂声变成下一版改进的流水线」——考的是运营能力,不是开发能力。答「收集数据然后微调」暴露你没真跑过闭环;主动吹「实时在线学习」反而露怯:面试官等的就是你讲清它为什么不能随便做。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>像<b>餐厅改菜单</b>:把顾客差评、退菜、服务员观察(点踩/转人工)收集起来,后厨归因是"太咸还是食材不新鲜"(归因),对症改配方(修复),先在小桌试菜(灰度回归),好了才全面换。所谓<b>在线学习</b>相当于"顾客边吃边自动改配方"——听着酷,但可能被一两个奇葩顾客带偏,把好好的菜改砸,还改不回来;所以一般<b>攒一批再统一改</b>,而不是实时自动改。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"我搭的是一套<b>数据闭环</b>:收集 → 归因 → 修复 → 回归 → 上线。① <b>收集</b>:bad case 来自用户点踩、转人工、评价文本、模型低置信、用户改述重问、内部抽检,其中<b>用户点踩最值钱</b>——前提是点踩必须连同当时的完整 trace 一起落库,否则只有信号没有现场;② <b>归因</b>:用 trace 回放定位错在意图/检索/生成/工具哪一环,归因错了修复就白搭;③ <b>修复</b>:从便宜到贵——补 few-shot、改 prompt、调检索参数、补知识、加工具,最后才上 SFT/RLHF 微调;④ <b>回归</b>:case 固化进回归测试集,跑离线评估 + 灰度。关于<b>在线学习,我没做实时版</b>——毒数据、灾难性遗忘、不可回滚三座大山,实际做法是<b>『准实时回流 + 定期离线训练 + 灰度上线』</b>:数据流是在线的,参数更新是批式的。"</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. bad case 从哪来(六类来源)</b></p>
-    <ul>
-      <li><b>用户点踩/差评</b>:最直接的负反馈,含金量最高。</li>
-      <li><b>转人工</b>:AI 接不住才转人工,是能力边界的最佳样本。</li>
-      <li><b>评价文本/投诉</b>:带原因,比单纯点踩信息量大。</li>
-      <li><b>模型低置信/自检失败</b>:主动暴露"我不确定"的样本。</li>
-      <li><b>用户修正行为</b>:用户反复改述/重问,说明首答没解决问题。</li>
-      <li><b>内部抽检</b>:每天抽 N 条人工复核,补自动监控的盲区。</li>
-    </ul>
-    <p><b>2. 归因(定位错在链路哪一环)</b></p>
-    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 654 236" role="img" aria-label="bad case 归因定位流程">
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>整套 bad case 迭代 = 你天天在做的「故障工单闭环」</b>。用户点踩/转人工 = 用户报障和监控告警;归因 = 拿<b>全链路 trace</b> 定位慢在哪一环、错在哪个服务;修复分级 = 先应急止血(改配置、改 prompt,秒级生效)再根治(发版、微调模型);case 固化进回归集 = 故障复盘后把该场景加进年度容灾演练科目——<b>同一个坑,摔一次是事故,摔两次是失职</b>。<b>哪里像</b>:都是「信号 → 根因 → 分级修复 → 回归验证」,都强调先定位再动手、都靠回归/演练防复发。<b>哪里不像</b>:传统故障是离散 bug,修一个少一个;bad case 很多是「模型能力不足」这种连续问题,修不完,只能按影响面排序;而且基座模型一换版本,老 case 可能集体复发——所以回归集要长期养着,而不是修完就扔。</p>
+        <p><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Online_machine_learning">在线学习</a>(拿线上流式数据持续热更模型参数)= 「告警一出、系统全自动自愈改配置」</b>。终极容灾听着很美,但你为什么不敢给生产配全自动切换?因为<b>一个假告警就能把健康主库切掉</b>。在线学习同理:一个恶意用户的反馈就是假告警,直接热更参数(毒数据);而且参数是一个整体、没有作用域隔离,为修 A 场景热更可能把 B/C 场景能力挤掉(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Catastrophic_interference">灾难性遗忘</a>)——配置变更挂了只挂一个服务,参数更新挂了是全线挂;更麻烦的是坏了难回滚,你复现不出「是哪条反馈把模型带歪的」。<b>所以主流做法不是实时在线学,而是「反馈实时收集、训练按周期攒批、上线走灰度」</b>——和「监控实时收、变更走窗口、发布走灰度发布」完全同构:在线的是数据流,批式的是参数更新。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p>先把全景图画出来——后面每一步都是这张图上的一站:</p>
+        <pre class="code">数据闭环全景(对照故障工单闭环理解):
+
+  线上流量 ──→ Agent ──→ 用户
+     │           │
+     │           └── 全链路 trace 落库(改写/检索 top-k/工具出入参/输出/耗时)
+     │                        │
+     └── 点踩·转人工·改述重问·低置信 ──┐
+                                        ▼
+                                   bad case 池
+                              (去重 · 聚类 · 标注)
+                                        │
+                   归因:trace 回放,定位是意图/检索/生成/工具哪一环
+                                        │
+                   修复:按成本阶梯,prompt → 规则 → 小模型 → 基座
+                                        │
+              回归:老 bad case 必须修好,老 good case 不许改坏
+                                        │
+                   离线评估 ──→ 灰度发布 ──→ 全量(可回滚)
+                                        │
+                   新 bad case 继续流入 ──┘ (循环往复,永不停机)</pre>
+        <p><b>1. bad case 从哪来(六类来源)</b></p>
+        <ul>
+          <li><b>用户点踩/差评</b>:最直接的负反馈,含金量最高。但点踩必须连同当时 session、完整 trace 一起落库——只存一条「用户不满意」没有现场,等于报障工单不写故障现象;另外点踩 ≠ 回答错,可能只是情绪,标注时要先归因再定性。</li>
+          <li><b>转人工</b>:AI 接不住才转人工,是能力边界的最佳样本;转人工率本身就是最好的质量趋势指标。</li>
+          <li><b>评价文本/投诉</b>:带原因,比单纯点踩信息量大,是归因的辅助材料。</li>
+          <li><b>模型低置信/自检失败</b>:主动自曝「我不确定」的样本——像巡检提前发现隐患,不等用户撞上。</li>
+          <li><b>用户修正行为</b>:反复改述、重问,说明首答没解决问题——用户用脚投票的隐式负反馈,量大且不需要用户额外操作。</li>
+          <li><b>内部抽检</b>:每天抽 N 条人工复核,补自动监控的盲区——大部分用户不满意也不吭声(静默失败),只靠显式反馈会严重低估 bad case 量。</li>
+        </ul>
+        <p>这六路像运维的三管齐下:用户报障(点踩)、拨测与巡检(自检、抽检)、日志行为分析(重问)——缺任何一路都有盲区。</p>
+        <p><b>2. 归因(定位错在链路哪一环)</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 654 236" role="img" aria-label="bad case 归因定位流程">
   <rect class="sd-box-rose" x="20" y="30" width="96" height="56" rx="10"/>
   <text class="sd-t" x="68" y="54" text-anchor="middle">bad case</text>
   <text class="sd-ts" x="68" y="72" text-anchor="middle">线上负反馈</text>
@@ -60,46 +85,76 @@
   <text class="sd-t" x="594" y="193" text-anchor="middle">兜底</text>
   <text class="sd-ts" x="594" y="211" text-anchor="middle">没触发?</text>
 </svg></div>
-    <ul>
-      <li>归因错了,修复就白搭——所以<b>全链路 trace 落库 + 可回放</b>是迭代的地基。</li>
-      <li>同类型 case 自动<b>聚类</b>,优先修高频高影响的。</li>
-    </ul>
-    <p><b>3. 修复手段(从便宜到贵,别一上来就微调)</b></p>
-    <table>
-      <tr><th>层级</th><th>手段</th><th>成本/风险</th></tr>
-      <tr><td><b>Prompt</b></td><td>补 few-shot、改指令、加约束</td><td>最低,改完即生效</td></tr>
-      <tr><td><b>规则/检索</b></td><td>调召回、改重排、补知识库、加工具</td><td>低</td></tr>
-      <tr><td><b>小模型</b></td><td>意图/工具选择分类器重训</td><td>中</td></tr>
-      <tr><td><b>基座模型</b></td><td>SFT 微调 / RLHF / DPO</td><td>最高,周期长、要评测</td></tr>
-    </table>
-    <p><b>4. 迭代流程(数据闭环)</b></p>
-    <ul>
-      <li>收集 → 去重/标注/聚类 → 修复 → <b>把 case 写进回归测试集</b> → 离线评估 → 灰度 → 全量。</li>
-      <li>度量迭代效果:新 bad case 率、点踩率、转人工率、解决率,配合 AB 对比,<b>并确认"没把好 case 改坏"</b>。</li>
-    </ul>
-    <p><b>5. 在线学习(考点:为什么不轻易做)</b></p>
-    <ul>
-      <li><b>什么是在线学习</b>:用线上流式数据持续更新模型参数。</li>
-      <li><b>风险</b>:① <b>毒数据</b>——个别恶意/噪声样本直接带偏;② <b>灾难性遗忘</b>——学了新忘旧;③ <b>概念漂移</b>——分布变了模型过拟合当下;④ <b>不可回滚/难评测</b>——出问题难定位是哪个样本害的。</li>
-      <li><b>折中做法(我实际用的)</b>:'准实时回流 + 定期离线 SFT/DPO + 灰度'——数据实时收集,训练周期化,上线走灰度;非参数层面可做轻量在线选择(如 MAB 调工具/模型路由),风险可控。</li>
-    </ul>
-  </div>
+        <ul>
+          <li><b>归因错了,修复就白搭</b>——所以<b>全链路 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Distributed_tracing">trace</a> 落库 + 可回放</b>是迭代的地基。要存的现场清单:原始 query、改写后的 query、检索召回的 top-k 文档、Rerank 前后排序、最终注入 prompt 的内容、模型输出、工具调用入参出参、每步耗时——排障没有日志和调用栈,神仙也定不了位。</li>
+          <li>回放 = 拿落库的输入原样重跑一遍:错误能复现 → 稳定 bug,放心修;不能复现 → 抖动类,优先查下游稳定性。这一步和分布式排障「先复现再修」完全同构。</li>
+          <li>同类型 case 自动<b>聚类</b>(按 embedding 相似度和错误类型,<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Cluster_analysis">聚类分析</a>),按「频次 × 影响面」排优先级——像故障按 P1/P2 分级,先修高频高影响的,不按收到顺序修。</li>
+        </ul>
+        <p>每一环都有典型症状和对应的快速验证手段,拿这张表对号入座:</p>
+        <table>
+          <tr><th>环节</th><th>典型症状</th><th>快速验证</th></tr>
+          <tr><td>意图识别</td><td>query 改写/路由方向就错了</td><td>回放看改写结果,拿标准意图集测改写器</td></tr>
+          <tr><td>检索召回</td><td>top-k 里根本没有正确材料</td><td>人工确认答案在不在库里:在但没召回 → 调检索;根本不在 → 补知识,检索侧无锅</td></tr>
+          <tr><td>生成</td><td>材料给对了,答案仍胡编或答非所问</td><td>看注入 prompt 的文档:有正确材料而不用,才是生成侧问题</td></tr>
+          <tr><td>工具调用</td><td>选错工具、参数填错</td><td>检查工具描述和参数 schema 是否有歧义、缺 few-shot 示例</td></tr>
+          <tr><td>兜底</td><td>该转人工/拒答时没触发</td><td>查置信度阈值和自检规则的覆盖面</td></tr>
+        </table>
+        <p><b>3. 修复手段(从便宜到贵,别一上来就微调)</b></p>
+        <table>
+          <tr><th>层级</th><th>手段</th><th>成本/风险</th><th>什么时候轮到它</th></tr>
+          <tr><td><b>Prompt</b></td><td>补 few-shot、改指令、加约束</td><td>最低,改完即生效</td><td>绝大多数小问题:某类 query 总答不好,先补几个正例 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Few-shot_learning">few-shot</a> 试试</td></tr>
+          <tr><td><b>规则/检索</b></td><td>调召回、改重排、补知识库、加工具</td><td>低</td><td>归因到检索/知识侧:在库没召回 → 调参/换 Rerank;不在库 → 补 chunk、上新工具</td></tr>
+          <tr><td><b>小模型</b></td><td>意图/工具选择分类器重训</td><td>中</td><td>意图识别、工具选择「成批地」错——攒样本重训小分类器,比动基座便宜一个量级</td></tr>
+          <tr><td><b>基座模型</b></td><td>SFT 微调 / RLHF / <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.18290">DPO</a></td><td>最高,周期长、要评测</td><td>前三层确实不够用,且同类 bad case 已攒够几百上千条、能构成训练集</td></tr>
+        </table>
+        <p>顺序有讲究:贵手段周期长、回滚难,必须让便宜手段先证明「确实不行」;一上来就微调,等于「一来告警就发版」,工程上不职业。而且微调一轮以周计,用几周去修一个改 prompt 就能修的问题,是纯浪费。</p>
+        <p><b>4. 迭代流程(数据闭环)</b></p>
+        <ul>
+          <li>主流程:收集 → 去重/标注/聚类 → 修复 → <b>把 case 写进回归测试集</b> → 离线评估 → 灰度 → 全量。去重靠 embedding 相似度把「同一问题的 N 次点踩」合并,别让同一 case 反复占用标注人力。</li>
+          <li><b>回归集 = 容灾演练科目库</b>:每个修过的 bad case 固化成科目,每次改动重跑全部科目——新科目要过、老科目不许挂;历史 good case 也要进集子当护栏,防止「修好一个、改坏三个」。</li>
+          <li>度量迭代效果:新 bad case 率、点踩率、转人工率、解决率、重问率,配合 AB 对比,<b>并确认"没把好 case 改坏"</b>;周级 case 评审会定优先级、定版本节奏。</li>
+        </ul>
+        <p><b>5. 在线学习(考点:为什么不轻易做)</b></p>
+        <ul>
+          <li><b>什么是在线学习</b>(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Online_machine_learning">定义</a>):用线上流式数据持续更新模型参数——来一条反馈,立刻热更一次参数。</li>
+          <li><b>风险一:毒数据</b>。线上反馈噪声大、还有恶意注入——等于「假告警直接触发自动变更」,一个恶意用户就能把模型带偏,而且带偏是无声的,没人报障。</li>
+          <li><b>风险二:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Catastrophic_interference">灾难性遗忘</a></b>。参数是一个整体、没有作用域隔离:为修 A 场景热更,可能把 B/C/D 场景的能力挤掉——配置变更挂了只挂一个服务,参数更新挂了是全线挂。</li>
+          <li><b>风险三:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Concept_drift">概念漂移</a></b>。用户分布本身在变,流式训练追着当下过拟合,模型像追热点一样忽左忽右。</li>
+          <li><b>风险四:不可回滚/难评测</b>。参数被流式数据反复热更后,无法复现「是哪批样本造成的偏差」,没有干净回滚点——等价于一份没有版本管理的线上配置。</li>
+        </ul>
+        <p><b>折中做法(我实际用的)</b>:'准实时回流 + 定期离线 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.18290">SFT/DPO</a> + 灰度'——数据实时收集、清洗后攒批,训练周期化,上线走灰度发布:</p>
+        <pre class="code">实时做的是「数据回流」,不是「参数热更」:
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:为什么不直接做在线学习,技术难点具体是什么?</summary><div class="an">难点不在"能不能实时更新",而在<b>安全与稳定</b>:① 线上反馈噪声大、还有恶意注入,单个样本可能是毒;② 流式微调容易灾难性遗忘和概念漂移;③ 出了问题难回滚、难复现定位。工程上"实时数据 + 周期训练 + 灰度"几乎能拿到在线学习 90% 的收益,风险却小一个量级,所以更常用。</div></details>
-    <details class="qa"><summary class="qu">Q:bad case 量大,怎么高效标注?</summary><div class="an">先<b>聚类</b>(按错误类型/意图),再<b>按影响力排序</b>(高频优先),人工只标代表性样本;用 LLM 半自动打标 + 人工抽检;很多归因可以自动化(工具调用失败、检索空、格式错误都不用人工看)。</div></details>
-    <details class="qa"><summary class="qu">Q:修复后怎么证明没把好 case 改坏?</summary><div class="an">把历史 good case 也放进回归集,修完同时跑"bad 集要变好 + good 集不能退化";再做灰度 AB,看整体点踩率/解决率,而不是只看个别 case 有没有修好。</div></details>
-    <details class="qa"><summary class="qu">Q:做过 RLHF 或 DPO 这类对齐吗?</summary><div class="an">做过 DPO:把点踩/点赞样本构造成偏好对(win/lose),在 SFT 后做偏好对齐;成本比 RLHF 低、更稳定。关键前置是<b>偏好数据质量</b>——点踩不一定代表"回答错",要先归因筛选出真正的偏好信号。</div></details>
-  </div>
+  线上反馈流 ──→ 清洗过滤(去毒·去噪·脱敏)──→ 攒批(天/周级)
+   │                                        │
+   │                          离线 SFT/DPO + 黄金集回归评测(质量门)
+   │                                        │
+   │                              灰度发布 ──→ 全量(带版本,可回滚)
+   │
+   └── 安全的在线例外:MAB 调工具选择/模型路由
+       只动选择概率,不动参数本体 → 出问题秒级回退
+          (等价于按健康度做负载均衡调度)</pre>
+        <p>非参数层面的在线调整是这条红线内的安全区:用<b>多臂老虎机</b>(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Multi-armed_bandit">MAB</a>)在线调工具选择或模型路由——单个反馈只影响各选项的选择概率计数,不碰模型本体,风险与收益都和负载均衡调度同一个量级。<b>能分清「哪些东西可以在线动、哪些必须批式动」,这题就算答到点子上了。</b></p>
+      </div>
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>Bad case</b>:线上表现不佳的样本,迭代的燃料。</div>
-      <div class="term-item"><b>数据闭环</b>:收集→归因→修复→回归→上线的循环。</div>
-      <div class="term-item"><b>在线学习</b>:用流式数据持续更新模型的训练方式。</div>
-      <div class="term-item"><b>灾难性遗忘</b>:学新任务时忘了旧能力。</div>
-      <div class="term-item"><b>概念漂移</b>:数据分布随时间变化导致模型过时。</div>
-      <div class="term-item"><b>DPO</b>:直接偏好优化,用偏好对做对齐,比 RLHF 稳定。</div>
-    </div>
-  </div>
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:为什么不直接做在线学习,技术难点具体是什么?</summary><div class="an"><b>人话:</b>不是不能实时更新,而是实时更新了没人敢担责——单个样本就能带偏全局,坏了还查无对证。<b>类比:</b>像生产环境每收到一条告警就自动改配置热更:响应是快了,但一条假告警就能把好系统改坏,坏了也说不清是哪条告警干的。<b>技术:</b>① 流式反馈噪声大且存在恶意注入,单样本可能带毒;② 持续微调引发灾难性遗忘和概念漂移;③ 参数被反复热更后没有干净回滚点、无法复现归因。工程折中「实时回流 + 周期批训 + 灰度」能拿到在线学习大部分收益,风险低一个量级,所以是主流。</div></details>
+        <details class="qa"><summary class="qu">Q:bad case 量大,怎么高效标注?</summary><div class="an"><b>人话:</b>别一条条看,先聚类打包、同类只看代表,机器干粗活、人只干细活。<b>类比:</b>像治理备份失败告警——先按错误码聚成几类(介质坏/网络断/配额满),每类抽几条确认根因,而不是几百条工单挨个读。<b>技术:</b>先按错误类型/意图自动聚类,按「频次 × 影响面」排序,人工只标代表样本再类推到全类;用 LLM 半自动打标做归因初筛,人工只抽检校准;能规则自动归因的不进人工队列——工具调用失败、检索为空、格式错误这三类看日志就能定;人力只花在「答案到底对不对」这种真需要判断的样本上。</div></details>
+        <details class="qa"><summary class="qu">Q:修复后怎么证明没把好 case 改坏?</summary><div class="an"><b>人话:</b>修 bug 不能引入新 bug,所以要双向验收——坏的要变好,好的不许变坏。<b>类比:</b>容灾演练加新科目时,所有老科目必须全部重过——补了新场景不能把老场景练挂,这就是回归测试的本意。<b>技术:</b>把历史 good case 一并固化进回归集,每次改动同时跑两组指标:bad 集通过率要上升,good 集通过率不许下降超阈值;上线前过离线黄金集评测门,上线后灰度 AB 看整体点踩率/解决率/重问率,而不是只看目标 case 修没修好;任何一层挂了就拦发布、回退版本。</div></details>
+        <details class="qa"><summary class="qu">Q:做过 RLHF 或 DPO 这类对齐吗?</summary><div class="an"><b>人话:</b>做过 DPO——拿「同一问题的好答案 vs 坏答案」成对训练,比 RLHF 少训一个奖励模型,更省更稳。<b>类比:</b>像评审制度:RLHF 是先训一个「懂打分的裁判」再让裁判全程监工;DPO 是直接把「优秀答卷」和「被点踩答卷」摆一起对比着学,不需要裁判。<b>技术:</b>把点踩/点赞按 session 归因后构造成偏好对(win/lose),在 SFT 之后做 DPO。关键前置是偏好数据质量:点踩不等于答错,要先过滤「情绪点踩」「答对了但用户不喜欢」这类脏样本,否则偏好信号本身就是错的;几百到几千对即可起效,训练管线比 RLHF 轻很多。</div></details>
+        <details class="qa"><summary class="qu">Q:用户点踩很少,大多数不满都不吭声,bad case 会不会漏掉一大半?</summary><div class="an"><b>人话:</b>会——显式反馈只是冰山一角,只靠它收集必然严重低估问题。<b>类比:</b>等于只靠用户报障做运维:真出过故障的用户大多数不打电话,所以要监控、拨测、巡检一起上,用行为信号补口头痛。<b>技术:</b>① 行为隐式信号:重问率、改述率、会话中途放弃率——不用用户动手,量大且真实;② 模型侧自检:低置信输出主动抽样送检;③ 每天全量随机抽 N 条人工复核,估计整体错误率基线,校准「显式反馈 : 真实问题」的比例;④ 转人工率当总量趋势指标。原则:显式反馈定方向,隐式信号定规模。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>Bad case</b>:线上表现不佳的样本,迭代的燃料——没有它,改进只能靠拍脑袋。</div>
+          <div class="term-item"><b>数据闭环</b>:收集→归因→修复→回归→上线→再收集的循环;Agent 从「一次性交付」走向「持续运营」靠的就是它。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Online_machine_learning">在线学习</a></b>:用流式数据持续热更模型参数;毒数据、灾难性遗忘、不可回滚三座大山让它难以直接落地。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Catastrophic_interference">灾难性遗忘</a></b>:学新任务时把旧能力覆盖掉;参数更新没有作用域隔离,这是它和配置变更最大的区别。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Concept_drift">概念漂移</a></b>:数据分布随时间变化导致模型过时;提醒你模型不是训完就一劳永逸。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.18290">DPO</a></b>:直接偏好优化,拿「好答案 vs 坏答案」成对做对齐,比 RLHF 少一个奖励模型、更稳定。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2203.02155">RLHF</a></b>:基于人类反馈的强化学习;管线重、成本高,但仍是能力上限最高的一档对齐方法。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Multi-armed_bandit">多臂老虎机(MAB)</a></b>:在「探索与利用」间权衡的选择算法;用在工具/模型路由的在线调整上,不碰参数本体,风险可控。</div>
+        </div>
+      </div>
 </article>

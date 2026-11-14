@@ -1,70 +1,110 @@
 <article class="q" id="eval-006" data-topic="eval" data-title="Prompt优化效果评估指标" data-difficulty="3" data-tags="Prompt评估,性能指标" data-company="字节(真题)" data-source="P5Q33" data-kw="Prompt评估 性能指标 LLM-as-judge 评测集 准确率 工具调用 token成本 AB测试 回归测试 字节">
 
-  <div class="q-no">Agent核心 · Q33</div>
-  <h3>你做Prompt优化时，是如何判断优化后的Prompt在Agent推理链路中性能提升的？用什么指标来衡量？</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐⭐</span>
-    <span class="tag">#Prompt评估</span><span class="tag">#性能指标</span>
-    <span class="company">字节(真题)</span>
-  </div>
+      <div class="q-no">Agent核心 · Q33</div>
+      <h3>你做Prompt优化时，是如何判断优化后的Prompt在Agent推理链路中性能提升的？用什么指标来衡量？</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐</span>
+        <span class="tag">#Prompt评估</span><span class="tag">#性能指标</span>
+        <span class="company">字节(真题)</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"核心是<b>先建评测集、再量化对比</b>,而不是凭感觉。我会分三层:① <b>离线评测</b>——用带标准答案的回归测试集,比优化前后的准确率/任务成功率/工具调用正确率,配上 <b>LLM-as-judge</b> 打分和人工抽检;② <b>效率指标</b>——token 消耗、延迟、重试次数(好的 Prompt 应该更省);③ <b>在线 AB 实验</b>——小流量灰度看端到端指标和成本。结论看<b>四个维度:质量、成本、延迟、稳定性</b>,都涨才叫优化成功。"</p>
-  </div>
+      <div class="note"><b>先说人话:</b>这题问的不是「你 Prompt 写得多漂亮」,而是「你说新版更好,凭什么是它好?」——考的是有没有评测体系。面试官爱考它,因为一句「我调了一版,感觉效果挺好」追问一句「好多少、怎么量的」就露馅:等于做备份从来不做恢复演练,全凭自信。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>改 Prompt 就像<b>改一份发给员工的作业指导书</b>:不能只凭"感觉新版本更好",要<b>出同一套考卷</b>让新老两版指导书下的员工都做一遍,对答案打分(<b>回归测试集</b>);光看分数不够,还要看<b>谁更快交卷、谁用了更少纸</b>(延迟、token 成本);个别拿不准的卷子请资深老师复核(<b>LLM-as-judge + 人工抽检</b>);最后<b>小范围试运行一周</b>再全面推广(AB 实验)。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"核心是<b>先建评测集、再量化对比</b>,而不是凭感觉——没有固定考卷,一切'我觉得变好了'都是盲改。我会分三层:① <b>离线评测</b>——用带标准答案的回归测试集,比优化前后的准确率/任务成功率/工具调用正确率,配上 <b>LLM-as-judge</b> 打分和人工抽检;② <b>效率指标</b>——token 消耗、延迟、重试次数(好的 Prompt 应该更省);③ <b>在线 AB 实验</b>——小流量灰度看端到端指标和成本。结论看<b>四个维度:质量、成本、延迟、稳定性</b>——都涨才叫优化成功。"</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 第一步:没有评测集就别谈优化(最重要的意识)</b></p>
-    <ul>
-      <li>Prompt 优化必须有<b>固定的回归测试集</b>(几十到几百条真实 case),否则每次改动都在"盲改",今天修好 A 明天改坏 B 都不知道。</li>
-      <li>测试集要<b>分层覆盖</b>:正常场景 + 边界场景 + 对抗/刁钻场景;Agent 场景还要包含"该调用哪个工具"的判定。</li>
-      <li>理想情况带<b>标准答案(golden answer)</b>或<b>标准动作序列</b>,才能自动算分。</li>
-    </ul>
-    <p><b>2. 离线指标(质量维度)</b></p>
-    <table>
-      <tr><th>指标</th><th>含义</th><th>适用</th></tr>
-      <tr><td><b>准确率/正确率</b></td><td>答案与标准答案匹配比例</td><td>有明确对错的任务(数学/代码/抽取)</td></tr>
-      <tr><td><b>任务成功率</b></td><td>端到端把任务做成的比例</td><td>Agent 多步任务</td></tr>
-      <tr><td><b>工具调用正确率</b></td><td>选对工具 + 参数正确 + 调用顺序对</td><td>Agent 链路,最该盯的指标之一</td></tr>
-      <tr><td><b>格式合规率</b></td><td>输出 JSON/结构化格式的合法率</td><td>要求结构化输出的场景</td></tr>
-      <tr><td><b>LLM-as-judge 分</b></td><td>强模型按 rubric 打分(相关性/完整性/流畅性)</td><td>开放生成、难自动判分的任务</td></tr>
-    </table>
-    <p><b>3. 效率与成本指标(很多人漏掉)</b></p>
-    <ul>
-      <li><b>token 消耗</b>:同样效果下,输入/输出 token 越少越省。好的 Prompt 常能砍掉冗余上下文。</li>
-      <li><b>延迟</b>:TTFT / 总时长。加长 Prompt 可能提升质量却拖慢首字,要一起看。</li>
-      <li><b>重试/反思次数</b>:Prompt 写得清晰,Agent 反复重试、走弯路的概率会下降——这是"链路性能"的直接体现。</li>
-      <li><b>成本</b>:token × 单价,直接换算成钱。</li>
-    </ul>
-    <p><b>4. 评判方法怎么落地</b></p>
-    <ul>
-      <li><b>LLM-as-judge</b>:用强模型 + 明确评分标准(rubric),给新旧两版回答打 1~5 分或对打分,批量跑。注意:judge 也可能有偏见,要抽 10~20% 做人工复核。</li>
-      <li><b>人工评估</b>:抽样看质量,尤其看"模型判不出来、但用户会不爽"的细节(语气、格式、幻觉)。</li>
-      <li><b>AB 对比原则</b>:同测试集、同模型、同温度,只改 Prompt 变量,否则归因不清。</li>
-    </ul>
-    <p><b>5. 在线验证</b></p>
-    <ul>
-      <li>小流量灰度(如 5%)跑 1~2 周,对比<b>任务成功率、用户满意度/留存、转人工率、成本</b>。</li>
-      <li>Promp 优化上线也要留<b>回滚开关</b>,指标变差一键退回旧版。</li>
-    </ul>
-  </div>
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>改 Prompt,就是改 Agent 的「作业配置脚本」。</b>你在备份领域改作业逻辑时肯定有肌肉记忆:改一行调度脚本,从来不敢直接上生产——必须拿同一批固定的样本数据,在测试环境把备份、恢复整条链路跑一遍,比对结果才敢发布。Prompt 也是同一个道理:它是 Agent 这套「备份软件」的配置,模型是执行引擎;引擎没换、配置换了,凭什么说新配置更好?必须<b>出同一套考卷</b>,让新旧两版各跑一遍,对账。</p>
+        <p>逐项映射你熟悉的场景:<b>回归测试集</b> = 固定的恢复演练清单——每次改动拿同一批 case 重跑,专防「今天修好 A、明天改坏 B 都不知道」;<b>golden answer</b> = 演练的预期基线(RPO/RTO 达标线),自动对账全靠它;<b>LLM-as-judge + 人工抽检</b> = 校验工具自动比对 + 季度人工抽查;<b>AB 灰度</b> = 双活机房切 5% 流量先验证,而不是全量切换。<b>哪里像</b>:都是「自动先筛、人工终审、灰度上线、留回滚」的工程习惯,底层纪律完全一致。</p>
+        <p><b>哪里不像</b>:备份校验是确定性比对——checksum 对就是对、恢复成功就是成功,二值、精确、可复现;LLM 评分是概率性的——同一个 judge 跑两遍可能给不同分,judge 自己还会偏心(偏爱长答案、偏自己的风格)。所以 LLM 评测必须多一层备份领域没有的工序:<b>给 judge 定 rubric(评分细则)、用人工抽检给 judge 做「校准」</b>。另外,备份作业成败是二值的,而开放生成的质量是多维连续的(相关性/完整性/语气),所以要把「好不好」拆成维度打分,而不是像看恢复日志那样只看通过/失败。</p>
+      </div>
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:LLM-as-judge 不可靠怎么办?</summary><div class="an">四个手段:① 用<b>明确 rubric</b>(分维度、给锚点)而不是"打几分";② 让 judge 做<b>成对比较</b>(A 比 B 好吗)而非独立打分,成对判断更稳定;③ 调低温度、多次采样取平均;④ 关键结论<b>人工抽检</b>校准 judge 偏差。把 judge 当成"初筛",人工做"终审"。</div></details>
-    <details class="qa"><summary class="qu">Q:优化后质量升了但 token 翻倍,算成功吗?</summary><div class="an">看业务约束。若成本是硬指标,可以算"不划算",需要继续压缩;更常见的做法是<b>分级</b>:高价值/复杂请求用长 Prompt 保质量,简单请求用精简版保成本。<b>优化的目标是"单位成本的质量",不是单看质量。</b></div></details>
-    <details class="qa"><summary class="qu">Q:Agent 链路里,Prompt 效果怎么和"工具/流程改动"区分归因?</summary><div class="an">控制变量:评测时<b>固定工具与流程不变,只切 Prompt</b>,对比差值就是 Prompt 的净贡献;再做全链路 AB 看叠加效果。日志里记录版本号,事后能按版本拆指标。</div></details>
-  </div>
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>先看全景:一次合格的 Prompt 优化,是一场受控实验</b></p>
+        <pre class="code">一次 Prompt 优化 = 一场受控实验(离线部分):
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>Golden answer</b>:评测集里人工标注的标准答案。</div>
-      <div class="term-item"><b>LLM-as-judge</b>:用强模型按标准给生成结果打分。</div>
-      <div class="term-item"><b>Rubric</b>:评分标准,分维度给锚点。</div>
-      <div class="term-item"><b>回归测试集</b>:固定不变的评测集,防止改坏旧能力。</div>
-      <div class="term-item"><b>AB 实验</b>:小流量灰度对比新老版本指标。</div>
-    </div>
-  </div>
+  分层评测集(几十~几百条真实 case,带 golden answer/标准动作序列)
+        │
+        ├─ 旧 Prompt ─→ Agent 全链路跑一遍 ─→ 记录: 答案、动作序列、token、时延、重试
+        └─ 新 Prompt ─→ Agent 全链路跑一遍 ─→ 记录: 同上
+                          │
+   控制变量: 同一考卷、同模型、同温度,唯一变量是 Prompt
+                          │
+        ┌─────────────────┼───────────────────┐
+        ▼                 ▼                   ▼
+  有标准答案→自动算分   开放题→LLM-as-judge    人工抽检 10~20%
+  (准确率/成功率)      (rubric+成对比较)      (给 judge 校准偏差)
+        └─────────────────┼───────────────────┘
+                          ▼
+              四维成绩单: 质量 | 成本 | 延迟 | 稳定性
+                          │
+              离线全绿 → 在线 5% 灰度 AB(1~2 周)+ 回滚开关</pre>
+        <p><b>1. 第一步:没有评测集就别谈优化(最重要的意识)</b></p>
+        <ul>
+          <li>Prompt 优化必须有<b>固定的回归测试集</b>(几十到几百条真实 case),否则每次改动都在"盲改"——今天修好 A 明天改坏 B 都不知道。这和备份系统升级后必须重跑<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E5%9B%9E%E5%BD%92%E6%B5%8B%E8%AF%95">回归测试</a>是一个纪律:考卷固定,分数才可比。</li>
+          <li>测试集要<b>分层覆盖</b>:正常场景 + 边界场景 + 对抗/刁钻场景;Agent 场景还要包含"该调用哪个工具"的判定。类比:演练清单不能全是"单文件恢复"的送分题,必须混着断点续传、源端变更、并发超限这些刁钻 case——只考简单题的分数没有意义。</li>
+          <li>理想情况带<b>标准答案(golden answer)</b>或<b>标准动作序列</b>,才能自动算分——有了它,评测才能像恢复演练一样无人值守地批量跑、每天跑。</li>
+        </ul>
+        <p><b>2. 离线指标(质量维度)</b></p>
+        <table>
+          <tr><th>指标</th><th>含义</th><th>适用</th></tr>
+          <tr><td><b>准确率/正确率</b></td><td>答案与标准答案匹配比例</td><td>有明确对错的任务(数学/代码/抽取)</td></tr>
+          <tr><td><b>任务成功率</b></td><td>端到端把任务做成的比例</td><td>Agent 多步任务</td></tr>
+          <tr><td><b>工具调用正确率</b></td><td>选对工具 + 参数正确 + 调用顺序对</td><td>Agent 链路,最该盯的指标之一</td></tr>
+          <tr><td><b>格式合规率</b></td><td>输出 JSON/结构化格式的合法率</td><td>要求结构化输出的场景</td></tr>
+          <tr><td><b>LLM-as-judge 分</b></td><td>强模型按 rubric 打分(相关性/完整性/流畅性)</td><td>开放生成、难自动判分的任务</td></tr>
+        </table>
+        <p>特别说<b>工具调用正确率</b>,Agent 链路里它的地位相当于备份链路的「作业配置正确性」,可以拆成三段分别统计,定位问题最快:</p>
+        <ul>
+          <li><b>选对工具</b>:类比选对存储池/备份方式——Agent 该查数据库却去调了网页搜索,一步错全错;</li>
+          <li><b>参数正确</b>:类比挂对参数——工具选对了但时间范围、过滤条件传错,等于备份了错误的目录;</li>
+          <li><b>调用顺序对</b>:类比作业依赖顺序——先改数据再备份就备份了个寂寞;Agent 先写文件再读需求也是同类事故。</li>
+        </ul>
+        <p><b>3. 效率与成本指标(很多人漏掉)</b></p>
+        <ul>
+          <li><b>token 消耗</b>:同样效果下,输入/输出 token 越少越省。好的 Prompt 常能砍掉冗余上下文——类比做了重删:内容一个字不少,占的空间小一半。</li>
+          <li><b>延迟</b>:TTFT / 总时长。加长 Prompt 可能提升质量却拖慢首字,要一起看——质量预算是有延迟代价的,就像备份窗口是有限的。</li>
+          <li><b>重试/反思次数</b>:Prompt 写得清晰,Agent 反复重试、走弯路的概率会下降——这是"链路性能"的直接体现,相当于备份作业的失败重跑率:一次成功和重试三次才成功,稳定性天差地别。</li>
+          <li><b>成本</b>:token × 单价,直接换算成钱——像「每 TB 备份成本」一样,是能汇报给管理层的语言。</li>
+        </ul>
+        <p><b>4. 评判方法怎么落地</b></p>
+        <ul>
+          <li><b>LLM-as-judge</b>(经典方法见 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">MT-Bench 论文</a>):用强模型 + 明确评分标准(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Rubric_(academic)">rubric</a>),给新旧两版回答打 1~5 分或对打分,批量跑。注意:judge 也是模型,会有偏见(偏长答案、偏自家的风格),要抽 10~20% 做人工复核——它只能当初筛,人工是终审。</li>
+          <li><b>人工评估</b>:抽样看质量,尤其看"模型判不出来、但用户会不爽"的细节(语气、格式、<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)">幻觉</a>)。</li>
+          <li><b>AB 对比原则</b>:同测试集、同模型、同温度,只改 Prompt 变量,否则归因不清——就是存储升级时「一次只动一个变量」的变更纪律。</li>
+        </ul>
+        <p><b>5. 在线验证</b></p>
+        <ul>
+          <li>小流量灰度(如 5%)跑 1~2 周,对比<b>任务成功率、用户满意度/留存、转人工率、成本</b>——离线考卷只是预演,真实流量才是故障现场。</li>
+          <li>Prompt 优化上线也要留<b>回滚开关</b>,指标变差一键退回旧版——和新策略上线必须能切回旧版本是同一个容灾思维:能上就能退。</li>
+        </ul>
+        <p><b>6. 汇总:一张可直接抄的成绩单模板</b></p>
+        <table>
+          <tr><th>维度</th><th>核心指标</th><th>备份领域的对应物</th><th>红线示例</th></tr>
+          <tr><td><b>质量</b></td><td>准确率、任务成功率、工具调用正确率</td><td>恢复演练通过率</td><td>任何一项下跌即回退</td></tr>
+          <tr><td><b>成本</b></td><td>token 消耗、每任务成本</td><td>每 TB 备份成本</td><td>涨幅超预算 20% 需评审</td></tr>
+          <tr><td><b>延迟</b></td><td>TTFT、总时长</td><td>备份窗口 / RTO</td><td>TTFT 超过 SLA 即回退</td></tr>
+          <tr><td><b>稳定性</b></td><td>重试次数、格式合规率、失败率</td><td>作业失败重跑率</td><td>重试率翻倍即回退</td></tr>
+        </table>
+        <p>汇报口径建议:四个维度各给一个数字、新旧对比、加上一句结论——<b>「质量 +x%,成本持平,延迟持平,稳定性 +y%,建议上线」</b>。能拿出这张表的人,和只会说「感觉更好了」的人,在面试官眼里是两个物种。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:LLM-as-judge 不可靠怎么办?</summary><div class="an"><b>人话:</b>judge 自己也是个模型,会偷懒、偏心长答案、偏好自己的风格,所以别把它当真理,要当成一个「初级质检员」来管理。<b>类比:</b>自动校验工具再好用也有盲区——checksum 只能告诉你「比特没变」,回答不了「恢复出来的数据业务上对不对」;所以制度上必须有人工终审,并且定期反向校验工具本身。<b>技术:</b>四个手段:① 用<b>明确 rubric</b>(分维度、给分值锚点)代替"打几分";② 让 judge 做<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Pairwise_comparison">成对比较</a>(A 比 B 好吗)而非独立打分,成对判断更稳定;③ 调低温度、多次采样取平均;④ 关键结论抽 10~20% 人工复核,量化 judge 和人工的一致率、持续校准。judge 是初筛,人是终审。</div></details>
+        <details class="qa"><summary class="qu">Q:优化后质量升了但 token 翻倍,算成功吗?</summary><div class="an"><b>人话:</b>要算账——质量是花钱买的,值不值看「单位成本的质量」,不看裸质量。<b>类比:</b>为了把 RTO 从 4 小时压到 30 分钟,把介质全换全闪——没有绝对对错:核心业务库值,归档库就不值;正确做法是分层,不是一刀切。<b>技术:</b>若成本是硬约束,这就叫「不划算」,继续做压缩(砍冗余示例、收紧上下文);更常见的解法是<b>分级 Prompt</b>:高价值/复杂请求用长版保质量,简单请求路由到精简版保成本。汇报时给「每任务成本」和「单位成本质量」两条曲线,让业务方在明确的价签下选档位。</div></details>
+        <details class="qa"><summary class="qu">Q:Agent 链路里,Prompt 效果怎么和"工具/流程改动"区分归因?</summary><div class="an"><b>人话:</b>一次只准动一个变量,不然涨了分不清功劳、出了锅甩不清责任。<b>类比:</b>存储升级同一个窗口既换了盘又升了固件,性能上去了说不清是谁的功劳,坏了也查不到根因——变更管理的基本功就是单变量推进。<b>技术:</b>评测时<b>冻结工具集与流程,只切 Prompt</b>,同一考卷跑出的差值就是 Prompt 的净贡献;之后再跑全链路 AB 看叠加效果。工程上给所有请求日志打上 prompt 版本号、工具版本号,事后能按版本拆出归因报表——这套玩法和你熟悉的「按变更单拆监控指标」完全同构。</div></details>
+        <details class="qa"><summary class="qu">Q:评测集分数涨了,会不会只是 Prompt「押中考题」?怎么防过拟合?</summary><div class="an"><b>人话:</b>这是最隐蔽的坑——Prompt 就是照着这几百条考题调出来的,考卷分数涨可能只是「刷题刷出来的」,真实流量一来现原形。<b>类比:</b>备份策略只在精心挑的样本数据上调优过,真实的增量数据、异常文件一来就露馅;演练考卷和真实故障必须分开准备。<b>技术:</b>① 评测集切成两部分:调优时只看训练份,验收汇报用从没参与调优的 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Training,_validation,_and_test_data_sets">holdout 留出集</a>;② 按<strong>难度分桶</strong>看涨分分布,别只涨简单题;③ 线上 badcase 定期回流扩充评测集,考卷常换常新;④ 团队约定:只报 holdout 分数,刷训练集分数不算业绩。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">LLM-as-judge</a></b>:让强模型按评分标准替人工批量打分;省人力但有偏见,必须配人工抽检校准。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Rubric_(academic)">Rubric</a></b>:评分细则,把「好不好」拆成维度 + 分值锚点,让打分可复现——对应备份领域的验收标准。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E5%9B%9E%E5%BD%92%E6%B5%8B%E8%AF%95">回归测试集</a></b>:固定不变的考卷,每次改动重跑一遍,专防「修好 A 改坏 B」。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/A/B_testing">AB 实验</a></b>:把流量随机分组对比新旧版本,在线指标归因唯一可靠的手段。</div>
+          <div class="term-item"><b>Golden answer</b>:评测集里人工标注的标准答案/标准动作序列,自动算分的对照基线。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Training,_validation,_and_test_data_sets">Holdout 留出集</a></b>:从不参与调优、只用来最终验收的题库——防 Prompt 对评测集「刷题」。</div>
+        </div>
+      </div>
 </article>

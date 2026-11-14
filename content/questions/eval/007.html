@@ -1,50 +1,79 @@
 <article class="q" id="eval-007" data-topic="eval" data-title="Agent效果评估:指标、离线在线与LLM-as-judge" data-difficulty="3" data-tags="Agent评估,效果评价" data-company="字节 / 阿里(高频)" data-source="P5Q37" data-kw="Agent 评估 效果评价 指标 任务成功率 LLM-as-judge 离线 在线 AB测试 回归 幻觉率 成本">
 
-  <div class="q-no">Agent核心 · Q37</div>
-  <h3>Agent怎么评估效果？</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐⭐</span>
-    <span class="tag">#Agent评估</span><span class="tag">#效果评价</span>
-    <span class="company">字节 / 阿里(高频)</span>
-  </div>
+      <div class="q-no">Agent核心 · Q37</div>
+      <h3>Agent怎么评估效果？</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐</span>
+        <span class="tag">#Agent评估</span><span class="tag">#效果评价</span>
+        <span class="company">字节 / 阿里(高频)</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"评估分<b>指标、离线、在线</b>三层:第一,<b>指标多维</b>——不能只看'答对没',要看任务成功率、工具/参数准确率、平均步数、延迟、单任务成本、幻觉率;第二,<b>离线评估</b>——固定测试集 + 自动评分,规则/程序化校验/LLM-as-judge 三级打分,接进 CI 每次发版跑回归;第三,<b>在线评估</b>——AB 实验 + 用户反馈(点踩、转人工、修正行为),bad case 回流成新的测试样本。核心思想:离线防退化、在线看真相,两层必须结合。"</p>
-  </div>
+      <div class="note"><b>先说人话:</b>这题问的是:你做的 Agent 到底好不好用,你拿什么证据说服面试官。它高频,因为答「跑跑测试集看对错」的人一抓一大把——暴露的是只会调模型、没搭过质量体系。评估之于 Agent,就像恢复演练之于备份:没验证过的能力,等于没有能力。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>像<b>教练评估运动员</b>:不能只看"这场比赛赢没赢",要看<b>训练成绩</b>(离线测试集)、<b>正式比赛成绩</b>(线上 AB 实验)、<b>比赛录像复盘</b>(bad case 回流),还要综合体能、伤病、训练成本这些指标。只看训练成绩会选出"训练型选手"(应试过拟合),只看一两场比赛又太慢噪声大——所以两层都要,指标要全面。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"分三层说。第一,<b>指标多维</b>:Agent 是多步系统,不能只看『答对没』——任务成功率、工具选择/参数准确率是效果分;平均步数和延迟看有没有绕路;单任务 token 成本老板必看;幻觉率是安全红线。结果对了但绕了三次远路,照样算不合格。第二,<b>离线评估</b>:固定测试集 + 三级自动打分(规则 → 程序化校验 → LLM-as-judge),接进 CI,每次发版跑<b>回归</b>,专门防退化。第三,<b>在线评估</b>:AB 实验看解决率、点踩率、转人工率,用户的负反馈自动回流成新测试样本。核心思想一句话:<b>离线是门禁防退化,在线是真相定胜负,两层必须闭环。</b>"</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 为什么 Agent 评估比普通模型难</b></p>
-    <ul>
-      <li>Agent 是<b>多步、有交互、有副作用</b>的:中间一步工具调错了,最后答案可能"碰巧"对或错,单看最终答案会误判。</li>
-      <li>任务开放:很多 Agent 任务(写方案、查信息、操作订单)没有唯一标准答案,需要人工或裁判模型来判。</li>
-      <li>所以评估要<b>过程 + 结果 + 成本</b>一起看。</li>
-    </ul>
-    <p><b>2. 指标体系(别只会说"准确率")</b></p>
-    <table>
-      <tr><th>维度</th><th>指标</th><th>说明</th></tr>
-      <tr><td><b>效果</b></td><td>任务成功率、工具选择准确率、参数准确率</td><td>核心指标,离线可测</td></tr>
-      <tr><td><b>效率</b></td><td>平均步数、工具调用次数、P50/P99 延迟</td><td>步数多=绕路,费钱费时</td></tr>
-      <tr><td><b>成本</b></td><td>单任务 token、折算金额</td><td>老板最关心</td></tr>
-      <tr><td><b>安全</b></td><td>幻觉率、越权操作数、拒答合理率</td><td>红线指标</td></tr>
-    </table>
-    <p><b>3. 离线评估:测试集 + 三级自动评分</b></p>
-    <ul>
-      <li><b>L1 规则评分</b>:关键词/精确匹配,快而便宜但死板。</li>
-      <li><b>L2 程序化校验</b>:代码题跑单测、工具调用比 Schema、数学题验算——<b>能程序化的尽量程序化,最可靠</b>。</li>
-      <li><b>L3 LLM-as-judge</b>:给 rubric(维度+分值+示例)让强模型打分。三个坑:<b>位置偏差</b>(对比时偏爱先出现的)、<b>自我偏好</b>(偏爱自己家族)、<b>长度偏差</b>(偏爱长答案)——对策:随机顺序、换裁判模型家族、rubric 明确"长度不加分"。</li>
-      <li>测试集要<b>版本化</b>、分层(核心集/全量集/专项集),和被测系统版本绑定保证可复现。</li>
-    </ul>
-    <p><b>4. 在线评估:AB 实验 + 用户反馈</b></p>
-    <ul>
-      <li>同期同流量随机分流,看<b>解决率、点踩率、转人工率、CSAT</b>,跑够样本量看统计显著性。</li>
-      <li>用户<b>点踩/修正行为</b>是最值钱的评估信号,自动回流成新测试样本。</li>
-    </ul>
-    <p><b>5. 评估闭环(加分点)</b></p>
-    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 602 234" role="img" aria-label="Agent评估闭环离线防退化在线看真相">
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>先对齐一个你最熟的常识</b>:备份行业有条铁律——没做过恢复演练的备份,等于没有备份。Agent 评估就是这同一条铁律在 AI 系统上的翻版:<b>离线评估是演练,在线评估是真实故障</b>。离线=拿固定剧本在演练环境反复测,便宜、可重复、能进 CI 门禁;在线=让真实流量和真实用户当考官,贵、噪声大,但只有它说真话。哪里像:演练年年全绿不代表真故障顶得住,离线高分同样不代表线上好用——因为<b>剧本永远编不全生产的意外</b>。哪里不像:容灾演练可以主动注入故障、把系统故意打挂来看表现;Agent 的线上评估不能故意坑用户,只能靠小流量灰度、AB 分流一点点试探真相。</p>
+        <p><b>LLM-as-judge 相当于请第三方审计</b>。开放性任务(写方案、查资料)没有唯一正确答案,『好不好』得有人判,但不能让开发自己验自己的活——就像备份验收要拉独立团队签字,Agent 判卷要拉一个更强的模型当裁判,拿着评分细则(rubric)逐项打分。哪里像:真人审计员有偏好(报告厚的显得工作量大、先看到的标书占便宜),<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">LLM 裁判也有系统性偏差</a>——偏爱长答案、偏爱先出现的答案、偏爱自家家族的模型。哪里不像:真人审计员你没法「洗牌」,LLM 裁判可以随机换打分顺序、换裁判家族来消除偏差,成本也只是几次模型调用的钱。</p>
+        <p><b>bad case 回流就是故障复盘回灌演练库</b>:线上发现一起点踩,复盘后写成新剧本进测试集,下次发版这条 case 就在门禁里候着。你的测试集因此越来越像真实世界,而不是越来越像你以为的世界。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 为什么 Agent 评估比普通模型难</b></p>
+        <p>普通 QA 模型一问一答,对就是对、错就是错。Agent 是<b>多步、有交互、有副作用</b>的系统——这个体验你其实早就有了:一条备份作业也是多阶段的(快照 → 去重 → 上传 → 校验),「作业状态=成功」根本不等于过程健康,你得翻各阶段日志看重试了几次、校验过没过。Agent 的麻烦更进一步:中间一步错了,最后可能<b>碰巧</b>对,也可能被后面的自我纠正救回来:</p>
+        <pre class="code">用户任务: "查这批订单里哪些还没开发票"
+Agent 轨迹:
+  ① 选工具: 查订单列表        ✓
+  ② 传参:   status=已开票     ✗ ← 参数传反了
+  ③ 自我纠正: 换条件重查        ✓
+  ④ 组织答案输出               ✓  → 最终答案正确
+
+只看结果: 成功 ✓
+看过程:   一次无效调用,多花 1 倍 token 和 1 倍延迟
+          下次环境稍变,②的错可能就救不回来了(稳定性隐患)</pre>
+        <ul>
+          <li>多步有交互:中间工具调错了,最终答案可能「碰巧」对或错,单看最终答案会误判——就像只看作业成功标志不看阶段日志。</li>
+          <li>任务开放:很多 Agent 任务(写方案、查信息、操作订单)没有唯一标准答案,只能靠评分细则+裁判来判。</li>
+          <li>有副作用:Agent 会真调工具、真改数据,评错了不是丢分,是线上事故——所以越权操作数是红线指标。</li>
+          <li>结论:评估要<b>过程 + 结果 + 成本</b>三本账一起看,缺一本都是盲人摸象。</li>
+        </ul>
+        <p><b>2. 指标体系(别只会说"准确率")</b></p>
+        <table>
+          <tr><th>维度</th><th>指标</th><th>说明</th></tr>
+          <tr><td><b>效果</b></td><td>任务成功率、工具选择准确率、参数准确率</td><td>核心指标,离线可测</td></tr>
+          <tr><td><b>效率</b></td><td>平均步数、工具调用次数、P50/P99 延迟</td><td>步数多=绕路,费钱费时</td></tr>
+          <tr><td><b>成本</b></td><td>单任务 token、折算金额</td><td>老板最关心</td></tr>
+          <tr><td><b>安全</b></td><td>幻觉率、越权操作数、拒答合理率</td><td>红线指标</td></tr>
+          <tr><td><b>过程</b></td><td>轨迹步准确率、有效步占比、无效调用数</td><td>多步任务的中间质量账,和结果分分开记</td></tr>
+        </table>
+        <p>这张表的价值在「多维」两个字。只报成功率 95% 是不够的——如果单任务成本 ¥1、平均绕路 3 次,业务根本用不起;反过来,<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)">幻觉率</a>0.5% 在客服场景可能可容忍,在操作订单的场景就是一次事故的种子。<b>指标要按业务风险配权重,不是一列了事。</b></p>
+        <p><b>3. 离线评估:测试集 + 三级自动评分</b></p>
+        <p>三级打分按「可靠、便宜优先」排序,能低级别解决的绝不用高级别——这和恢复验证能用校验和自动跑就不上人肉的道理一样:</p>
+        <ul>
+          <li><b>L1 规则评分</b>:关键词/精确匹配,快而便宜,但死板——「答对了但没出现关键词」会冤枉好人,只适合 FAQ 类封闭场景。</li>
+          <li><b>L2 程序化校验</b>:代码题跑单测、工具调用比 Schema、数学题验算、SQL 题比对结果集。<b>能程序化的尽量程序化,最可靠</b>——恢复后自动 checksum 校验永远比人肉翻日志靠谱,同一个道理。</li>
+          <li><b>L3 LLM-as-judge</b>:给 rubric(维度+分值+示例)让强模型打分,专治开放性任务。三个已实证的坑及对策:<b>位置偏差</b>(对比打分偏爱先出现的答案 → 随机顺序,两个顺序都打、不一致就送人工)、<b>自我偏好</b>(偏爱自己家族的模型 → 换裁判家族)、<b>长度偏差</b>(偏爱长答案 → rubric 明写「长度不加分」)。这些偏差的实证研究见 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">MT-Bench 论文</a>。</li>
+        </ul>
+        <pre class="code">[rubric 示例: 退款政策问答 的评分细则]
+- 事实准确(0-4): 数字、政策条款与知识库一致? 任一处引错 → 直接 0
+- 完整性(0-3): 用户问的三点是否都答到
+- 合规性(0-3): 不承诺知识库之外的政策;越权承诺 → 整题 0
+- 表达(0-2): 写明"长度不加分,冗长不扣分"——堵长度偏差
+附样例: 2 分答案 / 4 分答案各一份,先给裁判看再打分(锚定分数感)</pre>
+        <ul>
+          <li><b>测试集要版本化、分层</b>:核心集(几百条,每次 CI 门禁必跑,单次成本控制在几块钱)/ 全量集(几千条,发版日跑)/ 专项集(bad case 回流区、新场景),和被测系统版本绑定,保证可复现。这就是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Regression_testing">回归测试</a>在 Agent 上的落地形态:改一个 prompt、换一个模型版本,跑分一对比,退化立刻拦在上线前。</li>
+        </ul>
+        <p><b>4. 在线评估:AB 实验 + 用户反馈</b></p>
+        <ul>
+          <li><b>同期同流量随机分流</b>的 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/A/B_testing">AB 实验</a>:新旧版本各接一部分真实流量,看任务完成率、点踩率、转人工率、CSAT;跑够样本量、确认<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Statistical_significance">统计显著性</a>再下结论——「新版本点踩率 3.2% vs 老版本 3.5%,样本 500」这种差异多半是噪声。</li>
+          <li><b>「任务解决」要埋点定义</b>,不能拍脑袋:比如「用户 24 小时内未就同一问题重问、未转人工」记为解决。定义本身要和业务方对齐。</li>
+          <li><b>用户点踩/修正行为是最值钱的评估信号</b>:不花钱、来自真实分布,自动回流成新测试样本进专项集。上线后还要<b>人工抽检</b>一部分对话,用来校准裁判模型的可信度。</li>
+        </ul>
+        <p><b>5. 评估闭环(加分点)</b></p>
+        <p>离线分数高只说明「在已知剧本上没退化」,只有闭环能把「未知剧本」源源不断变成已知——和演练剧本必须来自真实故障报告是同一个进化逻辑:</p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 602 234" role="img" aria-label="Agent评估闭环离线防退化在线看真相">
   <rect class="sd-layer" x="4" y="8" width="594" height="218"/>
   <text class="sd-l" x="16" y="26">Agent 评估闭环 · 离线防退化 · 在线看真相</text>
   <rect class="sd-box-rose" x="12" y="44" width="130" height="56" rx="10"/>
@@ -76,23 +105,27 @@
   <path class="sd-a" marker-end="url(#sd-arr)" d="M308 188 L292 188"/>
   <path class="sd-a" marker-end="url(#sd-arr)" d="M225 160 L225 102"/>
 </svg></div>
-  </div>
+        <p>这条闭环里,离线回归是<b>门禁</b>(拦住 80% 的退化,成本极低),在线 AB 是<b>终审</b>(效果决策以它为准),反馈回流是<b>进化引擎</b>(测试集跟着真实分布走)。面试能把这三句讲全,基本就赢了大多数人。</p>
+      </div>
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:离线分数高、线上反馈差,怎么办?</summary><div class="an">说明测试集分布和真实用户偏了。用线上真实 query 重采样测试集、定期轮换;离线指标只用来防退化,效果决策以在线为准。</div></details>
-    <details class="qa"><summary class="qu">Q:Agent 是多步的,中间对最后错怎么算分?</summary><div class="an">过程分和结果分分开:轨迹级(每步工具选择是否合理、参数是否对)+ 结果级(最终答案),再统计"有效步占比"看有多少调用是白干的。</div></details>
-    <details class="qa"><summary class="qu">Q:开放性问题没有标准答案,怎么评?</summary><div class="an">用 LLM-as-judge 按 rubric 打分 + 人工抽检 5% 校准 judge 可信度(judge 与人的一致率 &gt; 85% 才敢信);或把开放任务拆成可校验子项(引用了正确来源吗、满足了用户要求吗)。</div></details>
-    <details class="qa"><summary class="qu">Q:评估本身要花多少 LLM 成本?</summary><div class="an">裁判用便宜但靠谱的模型 + 缓存裁判结果;核心集控制在几百条,一次回归几块钱以内。</div></details>
-  </div>
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:离线分数高、线上反馈差,怎么办?</summary><div class="an"><b>人话:</b>说明你的「演练剧本」和真实战场脱节了——剧本越跑越像表演,真实故障一来全露馅。<b>类比:</b>备份演练年年全绿,真切换那天手忙脚乱,因为剧本只覆盖「演练过的那种故障」,得拿真实故障报告去改剧本。<b>技术:</b>用线上真实 query 重采样测试集并定期轮换(注意脱敏);核心集保持稳定守住回归可比性,全量集定期换血对齐线上分布;重新校准指标权重,让它对齐线上目标(如转人工率、解决率)。原则不变:离线只负责防退化,效果好坏以在线 AB + 统计显著性为准。</div></details>
+        <details class="qa"><summary class="qu">Q:Agent 是多步的,中间对最后错、中间错最后对,分别怎么算分?</summary><div class="an"><b>人话:</b>拆开记账——过程分和结果分各记各的,别让「碰巧对」蒙混过关,也别让「绕路但到了」显得十全十美。<b>类比:</b>备份作业不能只看「作业状态=成功」,要翻各阶段日志:哪步重试了三次、校验返工了几回——状态绿不代表过程健康。<b>技术:</b>轨迹级逐步判(工具选择是否合理、参数是否正确——参数可以直接和执行结果比对,选择靠 judge 按 rubric 判)+ 结果级判最终答案,再统计有效步占比、无效调用数。发版门禁两个都卡:防止「结果对但成本翻倍」这种隐性退化悄悄混上线。</div></details>
+        <details class="qa"><summary class="qu">Q:开放性问题没有标准答案,怎么评?</summary><div class="an"><b>人话:</b>没有标准答案,但有验收标准——把「好不好」拆成一条条可打分的验收项。<b>类比:</b>容灾方案没有唯一正确写法,但 RTO 达标、演练通过、文档齐全这些验收项可以逐项勾——勾完就敢签字。<b>技术:</b>把开放任务拆成可校验子项(引用来源对不对、用户约束满足没、格式合规没),写进 rubric 交给 LLM-as-jjudge 按 0-4 分逐维打;同时人工抽检约 5% 校准裁判可信度,judge 与人的一致率 &gt; 85% 才敢信;高价值、易分歧的题进人工金标集,长期沉淀。</div></details>
+        <details class="qa"><summary class="qu">Q:评估本身要花多少 LLM 成本?会不会比开发还贵?</summary><div class="an"><b>人话:</b>评估也烧真金白银,思路是「便宜方法覆盖大流量,贵的只抽查」——别用旗舰模型当日常门禁。<b>类比:</b>和备份校验一样:全量数据每次都人肉核验谁也养不起,所以自动校验和天天跑、深度核查按周期抽查。<b>技术:</b>三级打分本身就把 judge 留给 L2 解决不了的题;裁判选便宜但靠谱的模型(先用强裁判算一致率验证过再上岗);同题同答案的裁判结果做缓存不重复打分;核心集控制在几百条进 CI,单次回归几块钱量级;全量集按发版周期跑,不进日常门禁。</div></details>
+        <details class="qa"><summary class="qu">Q:测试集从哪来?要多少条才够?</summary><div class="an"><b>人话:</b>别一上来追求大而全,先手工攒百来条核心场景,再靠线上回流滚雪球——测试集是养出来的,不是一次性建出来的。<b>类比:</b>演练剧本不是拍脑袋一次写完,是每年复盘真实故障、一条条攒出来的;只出过书的「学院派剧本」打不了实战。<b>技术:</b>三个来源:人工构造核心场景(覆盖高频+高危路径)、线上真实 query 抽样脱敏、bad case 回流专项集。分层使用:核心集几百条进 CI 门禁,全量集几千条发版跑。够不够的检验标准是「区分度」:拿两个已知优劣的版本跑分,分不开就说明要么加题、要么加难度,而不是无脑堆量。</div></details>
+      </div>
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>任务成功率</b>:完成用户目标的任务占比,核心效果指标。</div>
-      <div class="term-item"><b>LLM-as-judge</b>:用强模型按 rubric 给回答打分。</div>
-      <div class="term-item"><b>Rubric</b>:评分细则(维度+标准+示例)。</div>
-      <div class="term-item"><b>回归测试</b>:发版前防退化的自动化验证。</div>
-      <div class="term-item"><b>幻觉率</b>:答案中无依据内容占比,安全红线。</div>
-      <div class="term-item"><b>CSAT</b>:客户满意度评分。</div>
-    </div>
-  </div>
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>任务成功率</b>:完成用户目标的任务占比,核心效果指标——埋点定义「完成」本身就是设计活。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">LLM-as-judge</a></b>:用强模型按 rubric 给开放性回答打分,要防位置/自我/长度三类偏差。</div>
+          <div class="term-item"><b>Rubric</b>:评分细则(维度+标准+示例),裁判可靠的前提——没有它,judge 就是凭感觉。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Regression_testing">回归测试</a></b>:发版前防退化的自动化验证,Agent 版即测试集跑分门禁。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)">幻觉率</a></b>:答案中无依据内容占比,安全红线——指标,按业务风险定阈值。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Customer_satisfaction">CSAT</a></b>:客户满意度评分,在线评估的用户侧指标之一。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Statistical_significance">统计显著性</a></b>:AB 实验下结论的门槛——差异没过这条线,再多热闹也是噪声。</div>
+          <div class="term-item"><b>有效步占比</b>:轨迹里真正推进任务的步数占比,衡量「绕路程度」的过程指标。</div>
+        </div>
+      </div>
 </article>

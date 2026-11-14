@@ -7,16 +7,27 @@
         <span class="tag">#调试</span><span class="tag">#监控</span><span class="tag">#可观测性</span>
       </div>
 
+      <div class="note"><b>先说人话:</b>这题在问:Agent 上线后用户说"答错了",你拿什么在十分钟内定位是检索、Prompt 还是工具的锅,而不是玄学换模型。面试官爱考它,是因为搭过 demo 和扛过线上的人在此分家:前者只会"多打日志",后者讲得出三支柱、告警分级和排障工作流——答不上来,暴露你没运营过真实系统。</div>
+
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-        <p>"标准三支柱:<b>Trace</b>(每次请求的全链路树,LLM 特有的要记录 prompt/输出/token/成本)<b>+ Metrics</b>(延迟、错误率、token 成本、缓存命中)+ <b>Logs</b>(结构化聚合)。Agent 场景的独有需求是<b>把"答错了"归因到具体环节</b>——是检索没召回、还是 Prompt 不好、还是工具返回错了,所以 trace 里每个 span 要能回放。方案上 OpenTelemetry 做标准,LangFuse 做展示分析,告警分级带 trace 直达链接。"</p>
+        <p>"标准三支柱打底:<b>Trace</b>(每次请求的全链路树;LLM 场景每次调用还要把完整 prompt、原始输出、token 数、成本记进去)<b>+ Metrics</b>(延迟、错误率、token 成本、缓存命中率)+ <b>Logs</b>(结构化、可聚合)。Agent 场景的独有需求是<b>把"答错了"归因到具体环节</b>——是检索没召回、Prompt 渲染坏了、还是工具返回了错数据,所以 trace 里每个 span 都要能<b>回放</b>。方案上 <a target="_blank" rel="noopener" href="https://opentelemetry.io/">OpenTelemetry</a> 定数据标准,LangFuse 做 LLM 观测与展示,告警分级且每条带 trace 链接直达案发现场。"</p>
       </div>
 
       <div class="block ana"><span class="badge b-ana">通俗类比</span>
-        <p>给 Agent 装一套<b>行车记录仪 + 仪表盘 + 保养手册</b>:仪表盘(Metrics)让你开车时随时看车速、水温、油量——系统健康不健康一眼便知;行车记录仪(Trace)出了事故能<b>逐秒回放</b>——这个回答为什么错,把每一步调出来看;保养手册(Logs)记录所有历史细节备查。没有这三样,出了问题就只能"我觉得可能是模型不行"。</p>
+        <p><b>三支柱,拿备份系统想就通了</b>:你每天看的备份监控其实早就是教科书级的三支柱——<b>Metrics</b> 是备份大盘(成功率、备份窗口时长、去重率,扫一眼就知道"整个系统今晚活干得怎么样");<b>Trace</b>(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Distributed_tracing">链路追踪</a>)是一条作业里"快照 → 去重 → 复制"每个子任务的开工/完成记录(哪一步、多久、输入输出是什么、死在哪一环);<b>Logs</b> 是作业详细日志,备查。Agent 的观测系统 = 把这套原样搬过来,再给 LLM 加一本特殊账:每次模型调用的<b>完整 prompt、原始输出、token 数、成本</b>。对照表:</p>
+        <table>
+          <tr><th>支柱</th><th>回答什么</th><th>备份世界的对应物</th><th>Agent 场景的增量</th></tr>
+          <tr><td><b>Trace</b></td><td>这一次请求,每步谁干的、传了什么</td><td>作业链路里各子任务的开单记录</td><td>LLM 调用必须留完整 prompt/输出原文,可回放</td></tr>
+          <tr><td><b>Metrics</b></td><td>系统整体现在健康吗</td><td>备份大盘:成功率/窗口/去重率</td><td>token 成本、TTFT、各模型调用量分布</td></tr>
+          <tr><td><b>Logs</b></td><td>某个具体事件的细节原委</td><td>作业详细日志</td><td>结构化、带 trace_id 可串起全链</td></tr>
+        </table>
+        <p><b>最要紧的不同:Agent 会"静默失败"</b>。传统系统出错是抛异常、5xx、进程挂——监控天然抓得住;LLM 系统最大的坑是<b>没崩,但答错了</b>:HTTP 200,回答流畅自信,内容是错的,QPS、错误率、GPU 全绿。这就是备份工程里最古老的那条铁律:<b>作业全绿 ≠ 数据可恢复</b>。所以 Agent 观测在"抓崩溃"的三支柱之外,必须补第四路信号——质量信号(用户点踩、引用核查、评估集得分),专门盯"没崩但不对"。<b>哪里像</b>:都是多阶段流水线,最终失败可能来自任何一环,归因全靠"每环留痕"。<b>哪里不像</b>:备份每个阶段是确定性代码,重跑可复现,记元数据就够;LLM 调用是不确定的,同样输入下次可能换个输出——必须留语义原文才能回放,这是 LLM trace 和你熟悉的分布式 trace 唯一的本质差异。</p>
       </div>
 
       <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p>先把概念对齐:「可观测性」(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Observability_(software_engineering)">Observability</a>)的定义是——只看系统的外部输出,就能推断内部发生了什么,行业标准拆法就是 Trace / Metrics / Logs 三支柱,<a target="_blank" rel="noopener" href="https://opentelemetry.io/">OpenTelemetry</a>(OTel)把它们定义成统一采集协议。你做过分布式微服务,这套的原型你全见过;这题真正的考点是 <b>Agent/LLM 给三支柱加了什么</b>:①<b>语义留痕</b>——LLM 调用的 prompt 和输出必须记原文,否则没法回放归因;②<b>成本是一等公民</b>——按 token 计费,观测系统要兼任"水电表";③<b>质量信号</b>——答错了不抛异常,要靠额外信号才看得见。下面逐块展开。</p>
         <p><b>1. Trace:Agent 排障的灵魂</b></p>
+        <p>Agent 一次请求不是一条直线,是一棵树:主线之外随时分叉出工具调用、并行检索。观测系统的任务就是把这棵树原样记下来,每个节点(span)记清四件事:<b>谁(调了哪个模型/工具)、多久、花多少、说了什么(输入输出原文)</b>。一次真实请求的 trace 长这样:</p>
         <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 576 282" role="img" aria-label="Agent 一次请求的 Trace 链路树">
   <rect class="sd-box-rose" x="10" y="112" width="120" height="56" rx="10"/>
   <text class="sd-t" x="70" y="136" text-anchor="middle">trace</text>
@@ -50,43 +61,76 @@
   <text class="sd-t" x="456" y="122">bm25_search</text>
   <text class="sd-ts" x="456" y="136">150ms·top50</text>
 </svg></div>
+        <p>读图:最左玫瑰色是 trace 根(一次用户请求,trace_id 7f3a…);中间每个圆角框是一个 span;琥珀色 = LLM 调用(贵、慢,必须留全文),青色 = 工具调用(出站依赖),retrieve 下面还挂着两个子 span(向量检索与 BM25 并行跑,即混合检索)。出问题时,这就是一份能逐格回放的案发记录。</p>
         <ul>
-          <li>每个 span 记录:入参出参(<b>敏感字段脱敏</b>)、耗时、重试次数、token 数、折算成本、模型名。<b>出错标记</b>:哪个 span 抛了异常一目了然。</li>
-          <li>跨服务传播:trace_id 放请求头,网关/检索/生成各微服务全链路透传(OpenTelemetry 标准,别自己造轮子)。</li>
-          <li>采样策略:LLM 调用<b>全量采集</b>(贵且重要),健康高频请求按 1~10% 采样;出错请求自动提升为全采。</li>
+          <li>每个 span 记录:入参出参(<b>敏感字段脱敏</b>)、耗时、重试次数、token 数、折算成本、模型名。<b>出错标记</b>:哪个 span 抛了异常一目了然。这里和普通微服务 trace 有个本质差别:普通 span 记元数据就够,因为代码确定性、可重放;LLM 调用不确定,同样输入下次可能换答案——所以"入参出参"必须存<b>完整 prompt 和原始输出原文</b>,不留原文就没法回放,没法回放的 trace 等于白记。脱敏要在落存储前做,和你处理日志里的客户数据是同一条纪律。</li>
+          <li>跨服务传播:trace_id 放请求头,网关/检索/生成各微服务全链路透传(OpenTelemetry 标准,别自己造轮子)。落地就是按 <a target="_blank" rel="noopener" href="https://www.w3.org/TR/trace-context/">W3C Trace Context</a> 标准头透传上下文——和你做微服务调用链是同一套机制,零新知识;新增要求只有一个:Agent 框架内部的"规划 → 工具调用 → 再规划"也要生成子 span,否则 LLM 内部那一段成黑盒。</li>
+          <li>采样策略:LLM 调用<b>全量采集</b>(贵且重要),健康高频请求按 1~10% 采样;出错请求自动提升为全采。这种"先完整记录、等请求结束再决定留不留"的策略叫<a target="_blank" rel="noopener" href="https://opentelemetry.io/docs/concepts/sampling/">尾部采样</a>——思想等于备份作业失败必须留全量日志、成功作业只留摘要:错误样本是排障和回归评估的原料,一条都不能少。</li>
         </ul>
+        <p>有了这棵树,"那次为什么答错"就从猜谜变成查档:点开出错的 span,看到当时真实的 prompt、真实的检索结果、真实的工具返回,当场复现。没有 trace 的团队,排障现场通常是这样:产品猜模型不行,算法猜数据脏,后端猜接口抖——吵一周,谁也拿不出证据。</p>
         <p><b>2. Metrics:四层看板</b></p>
+        <p>光有单次请求的现场还不够,大盘回答"整体现在健康吗"。四层从底往上堆,越往上离"用户爽不爽"越近:</p>
         <table>
-          <tr><th>层级</th><th>关键指标</th></tr>
-          <tr><td><b>业务层</b></td><td>问题解决率、用户点踩率、转人工率</td></tr>
-          <tr><td><b>应用层</b></td><td>QPS、P50/P95/P99、错误率、缓存命中率</td></tr>
-          <tr><td><b>模型层</b></td><td>TTFT、吞吐(token/s)、每请求成本、各模型调用量分布</td></tr>
-          <tr><td><b>资源层</b></td><td>GPU 利用率、队列深度、Worker 饱和度</td></tr>
+          <tr><th>层级</th><th>关键指标</th><th>这层回答什么问题</th></tr>
+          <tr><td><b>业务层</b></td><td>问题解决率、用户点踩率、转人工率</td><td>"没崩但用户用得不爽"——静默失败的唯一哨兵</td></tr>
+          <tr><td><b>应用层</b></td><td>QPS、P50/P95/P99、错误率、缓存命中率</td><td>接口还快不快、稳不稳,延迟有没有恶化</td></tr>
+          <tr><td><b>模型层</b></td><td>TTFT、吞吐(token/s)、每请求成本、各模型调用量分布</td><td>模型服务本身的质量与开销,成本异常最早在这露头</td></tr>
+          <tr><td><b>资源层</b></td><td>GPU 利用率、队列深度、Worker 饱和度</td><td>机器够不够、会不会排队雪崩</td></tr>
         </table>
+        <p>四层要<b>合在一起看,单层会骗人</b>:资源层全绿 + 业务层点踩率飙升 = 典型的"机器没问题,答案有问题"。其中最容易被忽略、也最值钱的是业务层——前三层只能发现"崩了",业务层是唯一能发现"没崩但答错了"的哨兵;点踩率、转人工率抬头,常常就是幻觉或检索劣化的第一个信号,而此时 QPS、错误率、GPU 可能全绿。这正是 Agent 观测和传统监控的分水岭:传统监控的终点是"系统活着",Agent 观测还要回答"系统答得对不对"。</p>
         <p><b>3. 告警分级(带一键现场)</b></p>
+        <p>看板是给人看的,告警是给值班定的——分级原则就一条:影响面 × 紧急度,决定叫醒谁、用什么方式叫。</p>
         <ul>
-          <li>P0:服务不可用 / 错误率 &gt; 20% → 电话叫醒。</li>
-          <li>P1:错误率 &gt; 5% 持续 5 分钟、P99 翻倍 → 群消息。</li>
-          <li>P2:token 成本环比 +50%、缓存命中率跌破 20% → 工单。</li>
-          <li>每条告警附 trace 样本链接,点进去就是案发现场,不用再捞日志。</li>
+          <li>P0:服务不可用 / 错误率 &gt; 20% → 电话叫醒。全线用户受影响,损失按分钟计——对应你世界里"生产备份链路中断"的级别。</li>
+          <li>P1:错误率 &gt; 5% 持续 5 分钟、P99 翻倍 → 群消息。"持续 5 分钟"是防抖窗口,偶发毛刺不半夜误叫人,和告警抑制/静默是同一套思路。</li>
+          <li>P2:token 成本环比 +50%、缓存命中率跌破 20% → 工单。别小看成本告警——一个陷入死循环的 Agent 一晚上能烧掉一周预算,这是 LLM 系统特有的事故形态,传统监控根本想不到要盯它。</li>
+          <li>每条告警附 trace 样本链接,点进去就是案发现场,不用再捞日志。告警负责"喊人",trace 负责把人直接放到现场——最忌告警响了半小时,值班还在十几个系统里翻日志。</li>
         </ul>
         <p><b>4. 排障工作流(讲这个=有实战经验)</b></p>
-        <p>用户反馈"答错了" → 按 trace_id 拉全轨迹 → 依次检查:① 检索召回里有没有正确文档(没有=检索问题,看 chunk/索引);② 有但没排进 top5(重排问题);③ Prompt 渲染是否异常(模板变量错了?);④ 工具返回值对不对 → 十分钟内定位环节,而不是玄学调模型。</p>
-        <p><b>5. 选型</b>:LangFuse(开源、LLM trace 专精、可自部署、 prompt 版本管理)/ LangSmith(LangChain 官方 SaaS)/ OTel + Prometheus + Grafana(通用底座)。典型组合:<b>Prometheus+Grafana 管机器和接口,LangFuse 管 LLM 语义层</b>。</p>
+        <p>排障有个前提:得先知道"答错了"发生了。上线信号靠用户点踩、转人工率;自动信号靠 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">LLM-as-judge</a> 对抽样回答打分;基线靠离线黄金评估集定期跑分——三路信号汇合,才触发下面的归因流程。用户反馈"答错了" → 按 trace_id 拉全轨迹 → 依次检查:① 检索召回里有没有正确文档(没有=检索问题,看 chunk/索引);② 有但没排进 top5(重排问题);③ Prompt 渲染是否异常(模板变量错了?);④ 工具返回值对不对 → 十分钟内定位环节,而不是玄学调模型。画成决策树:</p>
+        <pre class="code">拿到一条"答错了"的 trace,像做容灾复盘一样按序问四关:
+
+  ① 召回结果里有正确文档吗?
+       没有 ──→ 检索锅:查 chunk 大小 / 索引 / 混合检索权重
+       有   ↓
+  ② 正确文档排进 top5 了吗?
+       没有 ──→ 重排锅:查 rerank 模型 / 打分阈值
+       有   ↓
+  ③ Prompt 渲染对不对?(变量空了?文档真拼进去了?)
+       异常 ──→ 工程锅:修模板
+       正常 ↓
+  ④ 工具返回值对不对?
+       错   ──→ 工具锅:查下游接口
+       对   ──→ 模型锅:能力问题,换模型 / 加 few-shot / 进评估集</pre>
+        <p>注意顺序是"由外向内":先查外部依赖(检索/工具),最后才怀疑模型本身——和排查分布式系统"先看网络与依赖、最后才怀疑代码"是同一直觉。每归因出一条根因,把这条 trace 存进回归评估集:下次改检索参数或 Prompt,先拿这批"旧案"跑一遍,防止修好东墙塌西墙。</p>
+        <p><b>5. 选型</b>:LangFuse(开源、LLM trace 专精、可自部署、prompt 版本管理)/ LangSmith(LangChain 官方 SaaS)/ OTel + Prometheus + Grafana(通用底座)。典型组合:<b>Prometheus+Grafana 管机器和接口,LangFuse 管 LLM 语义层</b>。三者定位差异:</p>
+        <table>
+          <tr><th>方案</th><th>定位</th><th>什么时候选</th></tr>
+          <tr><td><a target="_blank" rel="noopener" href="https://langfuse.com/">LangFuse</a></td><td>开源 LLM 观测平台:trace 回放、prompt 版本管理、评估打分一体,可自部署</td><td>合规要求 trace 不出内网,或要深度定制、控成本</td></tr>
+          <tr><td><a target="_blank" rel="noopener" href="https://www.langchain.com/langsmith">LangSmith</a></td><td>LangChain 官方 SaaS,与 LangChain 生态原生集成</td><td>技术栈本来就是 LangChain 全家桶,不想自建运维</td></tr>
+          <tr><td><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Prometheus_(software)">Prometheus</a> + <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Grafana">Grafana</a> + OTel</td><td>通用观测底座:指标采集、看板、告警,管机器与接口</td><td>公司已有这套基础设施,只缺 LLM 语义层</td></tr>
+        </table>
+        <p>一个常见误区是"上了 LangFuse 就把 Prometheus 扔了"——两者是分工不是替代:机器、接口、队列归 Prometheus/Grafana,LLM 的 prompt/输出/成本归 LangFuse;埋点统一走 OTel 协议,以后换任何一层的展示或存储产品都不用重写埋点代码,这是"别自己造轮子"在数据面的另一半含义。</p>
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:Trace 数据量很大,存得起吗?</summary><div class="an">分级存储:全量 trace 放对象存储(便宜),最近 7 天热数据进 ClickHouse/ES;prompt 全文只存摘要+可回放原文(压缩);采样 + TTL 自动过期。</div></details>
-        <details class="qa"><summary class="qu">Q:每次调用的成本怎么精确算?</summary><div class="an">网关层统一计量:输入/输出 token 分开计数 × 该模型单价,写进 span;聚合到租户/天级成本表。注意供应商批量折扣和缓存命中的价格差异。</div></details>
-        <details class="qa"><summary class="qu">Q:幻觉率能监控吗?</summary><div class="an">在线近似指标:引用存在率(答案引用是否真实)、用户点踩聚类、judge 抽样跑分;真正的幻觉率靠定期离线评估集。</div></details>
+        <details class="qa"><summary class="qu">Q:Trace 数据量很大,存得起吗?</summary><div class="an"><b>人话:</b>trace 是观测数据里的"重资产"——一条带 prompt 全文的轨迹动辄几十 KB,全量永久保存早晚烧穿预算,所以要像管备份存储一样给它做生命周期管理。<b>类比:</b>这就是你天天做的存储分层:热数据放性能层、冷数据沉到<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Object_storage">对象存储</a>、到期自动归档删除——分层 + TTL,一个字都不用新学。<b>技术:</b>分级存储:全量 trace 原文进对象存储(最便宜),最近 7 天热数据进 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/ClickHouse">ClickHouse</a>/ES 供秒级查询;prompt 全文压缩,或只存摘要 + 可回放原文;再叠尾部采样(错误/慢请求 100% 留,正常请求抽 1~10%)加 TTL 自动过期。动手前先算账:每条 trace 均值多少 KB × 日量,再定保留策略。</div></details>
+        <details class="qa"><summary class="qu">Q:每次调用的成本怎么精确算?</summary><div class="an"><b>人话:</b>LLM 是按 token 计费的"水电表",你要能算出每个请求、每个功能、每个租户各花了几分钱,不然月底账单一来只能集体懵。<b>类比:</b>等于备份系统按租户计量容量、副本数、出口流量——计量必须放在统一入口处做,不能指望各模块自觉上报。<b>技术:</b>在网关层统一计量:每次调用把输入/输出 token 分开计数 × 该模型当期单价,折算成本写进 span;按租户/功能/天聚合成成本表。两个坑要提:供应商批量折扣让单价不恒定;缓存命中(如前缀缓存)的价格和普通调用差好几倍——计量口径必须和账单口径对齐,否则财务对不上账。</div></details>
+        <details class="qa"><summary class="qu">Q:幻觉率能监控吗?</summary><div class="an"><b>人话:</b>能"近似监控",不能"精确测量"——模型瞎编时不报错、不抛异常,系统层面完全静默,你只能靠旁证围捕它。<b>类比:</b>就像"备份作业全绿但数据实际不可恢复":平时看不出来的问题,只能靠定期恢复演练验证;幻觉同理,线上靠旁证,真值靠离线评估。<b>技术:</b>在线近似指标:引用存在率(答案引用的文档是否真实存在)、用户点踩聚类、用 LLM-as-judge 对抽样回答自动打分;离线定期跑黄金评估集拿幻觉率基线,发版前后对比。单独哪个信号都不准,三个交叉着看趋势才可靠——点踩率抬头 + 引用存在率下降同时发生,基本可以立案了。</div></details>
+        <details class="qa"><summary class="qu">Q:Prompt 改了一版上线,怎么知道有没有把系统改坏?</summary><div class="an"><b>人话:</b>Agent 最常见的事故不是机器挂,而是"我们自己昨晚改了 Prompt"——所以观测系统必须能回答"这次变更是变好还是变坏"。<b>类比:</b>就是备份系统的变更管理:大版本升级前必须跑回归演练,不能改完直接上生产,两者是同一条运维铁律。<b>技术:</b>Prompt 纳入版本管理(LangFuse 自带 prompt 版本功能),每次 trace 记录所用版本号;上线配离线黄金集回归 + 灰度发布,新旧版本按流量切分,对比业务指标(点踩率、解决率);留好回滚开关。trace 里带版本号,事后归因能精确到"哪一版 Prompt 的锅",而不是含糊的"最近模型不稳"。</div></details>
+        <details class="qa"><summary class="qu">Q:Agent 陷入工具调用死循环,监控兜得住吗?</summary><div class="an"><b>人话:</b>能兜,而且必须兜——Agent 特有的"失控"不崩机、不报错,只会一圈圈烧 token,等你发现时账单已经爆了。<b>类比:</b>像分布式系统里的重试风暴:单看每次重试都"合理",叠加起来就是雪崩——所以靠全局预算护栏兜底,而不是相信每个环节自己会收敛。<b>技术:</b>每次运行装三道护栏:最大步数/最大工具调用次数、单请求 token 预算、单请求成本上限,超限强杀并标记 trace;观测上盯"单请求 span 数分布"和"单请求成本 P99",尾部突然变长就是失控信号,直接触发告警。P2 级成本告警(环比 +50%)就是为这类事故准备的最后一道网。</div></details>
       </div>
 
       <div class="block term"><span class="badge b-term">术语卡</span>
         <div class="terms-grid">
-          <div class="term-item"><b>Trace/Span</b>:一次请求的链路/链路中的一个步骤。</div>
-          <div class="term-item"><b>OTel</b>:OpenTelemetry,可观测性数据标准协议。</div>
-          <div class="term-item"><b>采样</b>:只采部分 trace 省存储。</div>
-          <div class="term-item"><b>P0/P1/P2</b>:告警严重级别。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Distributed_tracing">Trace/Span</a></b>:一次请求的完整链路树叫 trace,树里每个步骤叫 span——像一条备份作业里"快照→去重→复制"每段的开单记录。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://opentelemetry.io/">OpenTelemetry(OTel)</a></b>:可观测性数据的行业标准协议,trace/metrics/logs 的采集与透传全走它——微服务时代的你大概率已经用过。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://opentelemetry.io/docs/concepts/sampling/">尾部采样</a></b>:先完整记录、请求结束后再决定留不留的采样策略——错误样本 100% 留,正常样本抽着留。</div>
+          <div class="term-item"><b>P0/P1/P2</b>:告警严重级别,数字越小越急:P0 电话叫醒,P2 开工单慢慢排。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://langfuse.com/">LangFuse</a></b>:开源 LLM 观测平台,trace 回放、prompt 版本管理、评估打分一体,支持自部署。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">LLM-as-judge</a></b>:用另一个模型给回答自动打分的评估方法,线上质量监控里省人力的旁证。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)">幻觉</a></b>:模型一本正经输出与事实不符的内容——不报错、不抛异常,LLM 观测里最难抓的静默故障。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/ClickHouse">ClickHouse</a></b>:列式 OLAP 数据库,观测场景常拿它存热 trace,聚合查询飞快。</div>
         </div>
       </div>
 </article>
