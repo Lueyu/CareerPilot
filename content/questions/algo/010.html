@@ -1,46 +1,93 @@
 <article class="q" id="algo-010" data-topic="algo" data-title="DPO与PPO的理论对比与数学推导" data-difficulty="4" data-tags="DPO,PPO,RLHF" data-company="" data-source="P6Q7" data-kw="DPO PPO RLHF 强化学习 偏好优化 直接偏好优化 近端策略优化 数学推导 Bradley-Terry 隐式奖励 场景选择">
 
-  <div class="q-no">Agent算法 · Q7</div>
-  <h3>DPO 与 PPO 的理论对比</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐⭐⭐</span>
-    <span class="tag">#DPO</span><span class="tag">#PPO</span><span class="tag">#RLHF</span>
-  </div>
+      <div class="q-no">Agent算法 · Q7</div>
+      <h3>DPO 与 PPO 的理论对比</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#DPO</span><span class="tag">#PPO</span><span class="tag">#RLHF</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"一句话结论:两者<b>优化的是同一个目标</b>——在参考策略约束下最大化奖励,区别只是<b>怎么逼近它</b>。PPO 走『奖励模型 + 强化学习』两步:训练 reward model 打分,再用带 KL 惩罚的 PPO 在线采样、用策略梯度更新;DPO 走一步:从 Bradley-Terry 偏好模型推出最优策略的<b>闭式解</b>,直接把这个解写进一个分类损失去优化,<b>省掉了奖励模型和 RL 循环</b>。所以数学上等价、工程上 DPO 更简单稳定,但 DPO 依赖离线偏好数据、容易分布偏移;PPO 支持在线探索和过程奖励,上限更高但成本也高。"</p>
-  </div>
+      <div class="note"><b>先说人话:</b>这题在问:把「人类偏好」装进大模型的两条主流路线——PPO 的「奖励模型+在线强化学习」和 DPO 的「一条分类损失」——到底是什么关系、怎么选。面试官爱考它,因为一道题同时压着数学推导和工程选型;只会背「DPO 更简单」、推导讲不出、坑说不清的,一下就暴露没真训过对齐。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>PPO 像<b>请教练 + 下场打比赛</b>:教练(奖励模型)给每个动作打分,运动员(策略)在场上不断试错、按教练反馈微调动作,练出来很扎实但费时费力。DPO 像<b>直接看两份答卷定胜负</b>:不请教练、不反复试错,直接拿着"好答案 vs 坏答案"这对样本告诉模型"以后往好答案靠、远离坏答案",一条损失函数就完事——快、稳,但你不下场试错,就学不到考卷之外的新花样。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"先把结论钉死:两者<b>优化的是同一个目标</b>——在「不许离参考策略太远」的 KL 约束下最大化人类偏好奖励,区别只在<b>怎么逼近</b>。PPO 走两步:先训一个奖励模型当裁判,再用带 KL 罚款、clip 限步长的在线强化学习,让策略亲自下场试错、小步更新;DPO 走一步:从 Bradley-Terry 偏好模型推出最优策略的<b>闭式解</b>,把「达到这个解」直接改写成一条二分类损失,<b>奖励模型和整个 RL 循环全省掉</b>。所以数学上两者目标同源;工程上 DPO 简单、稳定、便宜,但依赖离线偏好数据、容易分布偏移;PPO 贵、难调,但在线探索和过程奖励让它上限更高。"</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. PPO 的数学(RLHF 标准流程,要能写 clipped objective)</b></p>
-    <p>RLHF 里 PPO 通常挂着四个模块:策略 <code>π_θ</code>、参考策略 <code>π_ref</code>(SFT 模型)、奖励模型 <code>r_φ</code>、价值模型 <code>V</code>(估计优势函数)。核心损失:</p>
-    <pre class="code">L_CLIP(θ) = 𝔼_t[ min( r_t(θ)·Â_t , clip(r_t(θ), 1−ε, 1+ε)·Â_t ) ]
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>先搞懂这题的前提(用你熟的备份调度想)</b>:一个刚做完 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Fine-tuning_%28machine_learning%29">SFT</a> 的模型,像一套「能跑但不够讨喜」的调度策略——功能都在,但人类对其中取舍各有偏好。麻烦在于人类给不了绝对分,只会说「这次比上次好」;<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Reinforcement_learning_from_human_feedback">RLHF</a> 的全部原料就是这种「A 比 B 好」的偏好对,PPO 和 DPO 只是消化这批原料的两条产线。</p>
+        <p><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1707.06347">PPO</a> 像「在线容灾演练 + 评审团」</b>:每一轮都真的把当前预案拉出来演练(在线采样),评审团(奖励模型)按人类口味打分,再按分数小步修订预案(策略梯度);clip 是变更管理里「单批变更幅度锁死在 ±ε」,<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence">KL</a> 惩罚是回滚半径——改动再诱人,离基线预案太远就按距离罚款。<b>哪里像</b>:试错→打分→小步改、离基线太远就回退,和滚动变更治理完全同构。<b>哪里不像</b>:演练的分数是客观 KPI,PPO 的裁判是训出来的模型,自己会看走眼,还可能被「选手」反向刷分(奖励 hacking)——真实世界没有「评分系统被考核对象骗到」这一层,所以 PPO 才需要 clip、KL 这一堆护栏。</p>
+        <p><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.18290">DPO</a> 像「复盘历史演练报告做离线改进」</b>:不跑新演练,把档案里同一故障场景下「好方案 vs 差方案」的报告对拿出来,把好方案的决策权重调高、差方案调低,一条损失训到底。给「谁比谁好」排出隐含实力分的数学是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Bradley%E2%80%93Terry_model">Bradley-Terry 模型</a>,它就是<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Elo_rating_system">天梯排位</a>背后的公式:每位棋手一个实力分,胜负概率由分差决定;人类裁判只说 A 赢了 B,攒够对局,实力分自然浮出。<b>哪里像</b>:相对比较攒出绝对水平,和积分赛不用人人交手一样。<b>哪里不像</b>:真演练可以注入新故障(探索),离线复盘只能学档案里出现过的故障模式——DPO 学不到分布外的新解法;而且档案是老预案跑出来的,和改到一半的新预案天然有偏差(分布偏移)。</p>
+        <p>一句话收束:<b>PPO 是真演练练出来的预案——贵,但见多识广;DPO 是复盘报告改出来的预案——便宜稳当,天花板是档案库的覆盖面。</b></p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>第 0 步:先看清两条流水线各自在干嘛</b></p>
+        <p>SFT 教会模型「照示范干活」,但「两个答案里人类更喜欢哪个」这种口味 SFT 教不会——这是 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2203.02155">InstructGPT</a> 提出三阶段 RLHF 时就定下的命题。PPO 和 DPO 是消化「偏好对」的两派解法,一派在线、一派离线:</p>
+        <pre class="code">PPO 路线(三步:先造裁判,再让选手下场边打边学):
+  SFT 模型 ──→ ① 用「人类偏好对」训练奖励模型 r_φ(造一个替人类打分的裁判)
+      │                          ↓
+      └── 冻结一份当 π_ref ──→ ② PPO 在线训练 π_θ(选手亲自上场)
+                                  每轮:当前策略生成 → r_φ 打分 → 扣 KL 罚款
+                                        → 算优势 → 小步更新,循环往复
+
+DPO 路线(一步:裁判和选手合并成一个模型):
+  SFT 模型 ──→ 冻结一份当 π_ref ──→ 直接把「偏好对」当二分类数据训练 π_θ
+                                   整条链路没有采样、没有裁判、没有 critic</pre>
+        <p>下面分别把两边的数学讲透,再回头看「为什么说它们优化同一个目标」。</p>
+
+        <p><b>1. PPO 的数学(RLHF 标准流程,要能写 clipped objective)</b></p>
+        <p>RLHF 里 PPO 通常挂着四个模块:策略 <code>π_θ</code>、参考策略 <code>π_ref</code>(SFT 模型)、奖励模型 <code>r_φ</code>、价值模型 <code>V</code>(估计优势函数)。核心损失:</p>
+        <pre class="code">L_CLIP(θ) = 𝔼_t[ min( r_t(θ)·Â_t , clip(r_t(θ), 1−ε, 1+ε)·Â_t ) ]
 r_t(θ) = π_θ(a_t|s_t) / π_θold(a_t|s_t)      <span class="c"># 新旧策略的概率比</span>
 Â_t = Σ_{l≥0} (γλ)^l · δ_{t+l}              <span class="c"># GAE 优势估计</span>
 δ_t = r_t + γ·V(s_{t+1}) − V(s_t)            <span class="c"># TD 残差</span></pre>
-    <ul>
-      <li><b>clip 的作用</b>:把概率比限制在 <code>[1−ε, 1+ε]</code>,防止一次更新步子太大把策略"摔崩"——这是 PPO 比普通 policy gradient 稳的关键。</li>
-      <li><b>KL 惩罚</b>:奖励里通常再扣一项 <code>β·KL(π_θ ‖ π_ref)</code>,防止模型为了刷分偏离人类语言分布太远(胡言乱语但 reward 高)。</li>
-      <li>代价:要在线采样(每轮更新都要当前策略生成)、要维护 critic,训练不稳定、超参多、还吃 GPU。</li>
-    </ul>
-    <p><b>2. DPO 的数学(直接偏好优化,一步到位)</b></p>
-    <p>偏好数据给的是"赢家 y_w 输家 y_l"对,Bradley-Terry 模型把"更喜欢谁"建模为奖励差的 sigmoid:</p>
-    <pre class="code">p(y_w ≻ y_l | x) = σ( r(x, y_w) − r(x, y_l) )     <span class="c"># BT 偏好模型</span></pre>
-    <p>带 KL 约束的 RLHF 目标 <code>max 𝔼[r(x,y)] − β·KL(π ‖ π_ref)</code> 存在<b>闭式最优解</b>:</p>
-    <pre class="code">π*(y|x) = π_ref(y|x) · exp( r(x,y)/β ) / Z(x)     <span class="c"># Z(x) 是归一化项(配分函数)</span></pre>
-    <p>把它反解出奖励,就得到 DPO 的<b>隐式奖励</b>,代入 BT 模型后 Z(x) 恰好约掉,只剩策略对数比:</p>
-    <pre class="code">r_θ(x, y) = β · log( π_θ(y|x) / π_ref(y|x) )      <span class="c"># 隐式奖励:奖励即"相对参考策略的抬升"</span>
+        <p>这四行面试常要白板默写,先逐行翻译成人话,再背字母:</p>
+        <ul>
+          <li><b>第 1 行 · clip 目标</b>:<code>min(·, clip(·))</code> 的意思是——更新方向有利时,收益封顶在 <code>1+ε</code>;方向不利时,损失托底在 <code>1−ε</code>。相当于变更管理把「单批变更幅度」硬性锁死:宁可分多批小步走,不许一步到位。</li>
+          <li><b>第 2 行 · 概率比</b>:策略的本质是「给定上文,给下一个 token 分配概率」;新旧策略对同一动作的概率之比,度量这批更新把该动作的概率挪动了多少。</li>
+          <li><b>第 3 行 · 优势</b>:<code>Â_t</code> 回答「这步比预期好多少」。为什么不用原始奖励?因为奖励带基线波动,减掉价值模型的预估才露出这步动作的净贡献——像增量同步看「实际传输量 − 预估传输量」,正数才说明这步真省了。</li>
+          <li><b>第 4 行 · TD 残差</b>:<code>δ_t</code> 是「实际所得 + 折现后的未来预期」与「当前估值」的差;<code>γ</code> 是折扣(越远的回报越打折),<code>λ</code> 是偏差-方差旋钮(λ=0 只看眼前一步,方差小偏差大;λ=1 看完整条轨迹,反之)。</li>
+        </ul>
+        <p>四个模块在系统里的角色,对号入座:</p>
+        <table>
+          <tr><th>模块</th><th>作用</th><th>分布式系统里的对应物</th></tr>
+          <tr><td>π_θ 策略</td><td>被优化的主角,每个 token 由它决定</td><td>正在迭代中的调度策略</td></tr>
+          <tr><td>π_ref 参考策略(冻结)</td><td>基线,衡量「偏离多远」的锚点</td><td>已验证的基线配置/已知良好版本</td></tr>
+          <tr><td>r_φ 奖励模型</td><td>给整段回答打「人类满意度」分</td><td>替人类口味代打分的质检评分系统</td></tr>
+          <tr><td>V 价值模型(critic)</td><td>预估「从当前状态走到结束还值多少分」</td><td>剩余时间/开销预估,用来算「超预期多少」</td></tr>
+        </table>
+        <ul>
+          <li><b>clip 的作用</b>:把概率比限制在 <code>[1−ε, 1+ε]</code>,防止一次更新步子太大把策略"摔崩"——这是 PPO 比普通 policy gradient 稳的关键。</li>
+          <li><b>KL 惩罚</b>:奖励里通常再扣一项 <code>β·KL(π_θ ‖ π_ref)</code>,防止模型为了刷分偏离人类语言分布太远(胡言乱语但 reward 高)。</li>
+          <li>代价:要在线采样(每轮更新都要当前策略生成)、要维护 critic,训练不稳定、超参多、还吃 GPU。</li>
+        </ul>
+        <p><b>为什么 KL 惩罚必不可少(PPO 路线最大的暗礁)</b>:奖励模型是人标出来的,一定有盲区;无约束的<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Policy_gradient_method">策略梯度</a>会精准找到盲区去刷分——就像为了缩短备份窗口把校验环节全砍掉,窗口指标漂亮、恢复全挂,奖励 hacking 与此同构。KL 散度是「新策略离基线多远」的距离表,<code>β·KL</code> 就是按距离收的罚款:刷分省下的收益如果不够交罚款,这个方向就不划算,模型于是只保留「人类真觉得好的偏离」。</p>
+
+        <p><b>2. DPO 的数学(直接偏好优化,一步到位)</b></p>
+        <p>偏好数据给的是"赢家 y_w 输家 y_l"对,Bradley-Terry 模型把"更喜欢谁"建模为奖励差的 sigmoid:</p>
+        <p>这行假设用人话念:① 人类只做<b>相对比较</b>——「A 比 B 好」,给不出绝对分;② 「A 胜出的概率」由两者的<b>奖励差</b>过一层 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Sigmoid_function">sigmoid</a> 决定,差为 0 五五开,差越大越一边倒。它和象棋天梯是同一个数学:单场胜负有随机,攒够对局,实力分(隐含奖励)自然浮出水面。</p>
+        <pre class="code">p(y_w ≻ y_l | x) = σ( r(x, y_w) − r(x, y_l) )     <span class="c"># BT 偏好模型</span></pre>
+        <p>带 KL 约束的 RLHF 目标 <code>max 𝔼[r(x,y)] − β·KL(π ‖ π_ref)</code> 存在<b>闭式最优解</b>:</p>
+        <p>这行闭式解用人话念:<b>最优策略 = 参考策略按奖励做指数放大,再归一化成概率分布</b>。奖励比 β 高一截的回答,概率被指数级放大;β 越小,放得越狠、分布越尖。<code>Z(x)</code> 是<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Partition_function_%28statistical_mechanics%29">配分函数</a>——把所有可能回答的贡献加总、凑成合法概率分布的归一化项。它的存在也解释了为什么这行公式不能直接拿来用:构造 π* 得对每个 prompt 遍历所有回答,算不动。于是出现全题的胜负手:<b>PPO 选择「迭代逼近」这个解,DPO 选择「绕开」这个解。</b></p>
+        <pre class="code">π*(y|x) = π_ref(y|x) · exp( r(x,y)/β ) / Z(x)     <span class="c"># Z(x) 是归一化项(配分函数)</span></pre>
+        <p>把它反解出奖励,就得到 DPO 的<b>隐式奖励</b>,代入 BT 模型后 Z(x) 恰好约掉,只剩策略对数比。推导分两步,每步都不玄:</p>
+        <ul>
+          <li><b>第一步,反解奖励</b>:对闭式解两边取 log 移项,得 <code>r(x,y) = β·log(π*(y|x)/π_ref(y|x)) + β·log Z(x)</code>。多出来的 <code>β·log Z(x)</code> 只依赖 prompt x,和具体回答 y 无关。</li>
+          <li><b>第二步,代回 BT 让 Z 约掉</b>:BT 用的是「win 的奖励 − lose 的奖励」,同一个 prompt 下 <code>Z(x)</code> 是公共常数,做差精确抵消——像比较两条备份链路谁更快,公共的排队底噪在相减时自动消失。于是损失里连 Z 都不用算,只剩纯策略对数比。</li>
+        </ul>
+        <pre class="code">r_θ(x, y) = β · log( π_θ(y|x) / π_ref(y|x) )      <span class="c"># 隐式奖励:奖励即"相对参考策略的抬升"</span>
 L_DPO = −𝔼[ log σ( β·( log(π_θ(y_w|x)/π_ref(y_w|x)) − log(π_θ(y_l|x)/π_ref(y_l|x)) ) ) ]</pre>
-    <ul>
-      <li><b>妙处</b>:没有显式奖励模型、没有采样、没有 critic,两个模型(π_θ + π_ref)就能训,损失就是一条二分类交叉熵,超级稳定。</li>
-      <li><b>β 是温度</b>:控制"离参考策略多远"。β 越小,模型越敢偏离 ref 去贴合偏好,但越容易过拟合/奖励 hacking。</li>
-    </ul>
-    <p><b>3. 两者关系(本题核心,能讲清这层就是高分)</b></p>
-    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 626 200" role="img" aria-label="DPO 与 PPO 理论对比：同一目标两种逼近">
+        <ul>
+          <li><b>妙处</b>:没有显式奖励模型、没有采样、没有 critic,两个模型(π_θ + π_ref)就能训,损失就是一条二分类交叉熵,超级稳定。</li>
+          <li><b>β 是温度</b>:控制"离参考策略多远"。β 越小,模型越敢偏离 ref 去贴合偏好,但越容易过拟合/奖励 hacking。</li>
+          <li><b>训练形态就是监督学习</b>:每个偏好对是一道二分类题——「y_w 应该拿更高的隐式分」。整条流水线拿捏它只需要普通的<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Cross_entropy">交叉熵</a>训练经验,这是 DPO 对工程团队如此亲民的原因。</li>
+          <li><b>拿一对数据看它怎么动</b>:若当前 <code>π_θ</code> 对某回答的概率和 <code>π_ref</code> 相同,log 比值为 0;训练把 win 的比值拉正、lose 的比值压负——赢家生成概率被抬高、输家被压低,<code>π_ref</code> 全程冻结只当参照系。</li>
+          <li><b>β 的工程直觉</b>:β 大 = KL 预算紧 = 紧贴 ref、保守;β 小 = 预算松 = 敢大改,但容易被数据噪声带偏。它和 PPO 里那个 β 概念同源,只是罚款从「奖励里扣」变成「损失里隐含」,常见量级 0.01~0.1。</li>
+        </ul>
+
+        <p><b>3. 两者关系(本题核心,能讲清这层就是高分)</b></p>
+        <p>把两边放进同一张图看:它们优化的是<b>同一个目标函数</b>——上面那个带 KL 约束的奖励最大化,分歧只在解法:PPO 不知道最优策略长什么样,靠在线采样做<b>数值迭代逼近</b>;DPO 先把最优解写成闭式,再把「达到这个解」改写成能直接梯度下降的损失,走<b>解析路线</b>。这里有个高频追问点:<b>「数学等价」说的是目标等价,不等于实验效果等价</b>——数据流不同(PPO 用当前策略在线造数据,DPO 吃固定的离线集)、归纳偏置不同(PPO 有探索,DPO 没有)、训练动力学不同;同一个目标,两边实际到达的终点并不重合。能主动把这层讲出来,这题就稳了大半。</p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 626 200" role="img" aria-label="DPO 与 PPO 理论对比：同一目标两种逼近">
   <rect class="sd-box" x="175" y="16" width="300" height="60" rx="10"/>
   <text class="sd-t" x="325" y="40" text-anchor="middle">同一个优化目标</text>
   <text class="sd-ts" x="325" y="58" text-anchor="middle">max E[r] − β·KL(π‖π_ref)</text>
@@ -55,33 +102,47 @@ L_DPO = −𝔼[ log σ( β·( log(π_θ(y_w|x)/π_ref(y_w|x)) − log(π_θ(y_l
   <text class="sd-ts" x="485" y="164" text-anchor="middle">闭式解 π*∝π_ref·exp(r/β)</text>
   <text class="sd-ts" x="485" y="178" text-anchor="middle">离线 · 一步到位</text>
 </svg></div>
-    <p><b>4. 场景选择(用 trade-off 说话)</b></p>
-    <table>
-      <tr><th>维度</th><th>PPO</th><th>DPO</th></tr>
-      <tr><td><b>数据需求</b></td><td>需要 reward model 标注 + 在线采样</td><td>只需离线偏好对(win/lose)</td></tr>
-      <tr><td><b>模块/成本</b></td><td>4 个模型,RL 基础设施,慢、贵、不稳</td><td>2 个模型,纯监督式训练,快、稳、省</td></tr>
-      <tr><td><b>探索能力</b></td><td>在线采样,能发现新行为、配合过程奖励</td><td>离线,学不到分布外的新东西</td></tr>
-      <tr><td><b>主要坑</b></td><td>不稳定、奖励 hacking、工程复杂</td><td>分布偏移、长度偏好、奖励过拟合</td></tr>
-      <tr><td><b>适用</b></td><td>要探索上限、有多步/过程奖励、预算足</td><td>数据现成、追求稳和快、中小团队</td></tr>
-    </table>
-    <p>一句话:<b>数据离线且求稳 → DPO;要在线探索和复杂奖励、预算充足 → PPO;工程上常从 DPO 起步,再上 iterative/online DPO 折中。</b></p>
-  </div>
+        <p>一句话记住:<b>PPO 解的是「怎么逼近」,DPO 直接拿「解本身」当损失。</b></p>
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:DPO 的隐式奖励 r=β·log(π/π_ref) 是怎么推导出来的?</summary><div class="an">从带 KL 约束的 RLHF 目标 <code>max 𝔼[r(x,y)] − β·KL(π ‖ π_ref)</code> 出发,对 π 求变分/拉格朗日极值,得到闭式解 <code>π*(y|x) = π_ref(y|x)·exp(r(x,y)/β)/Z(x)</code>。对这个等式两边取对数并移项,就解出 <code>r(x,y) = β·log(π*(y|x)/π_ref(y|x)) + β·log Z(x)</code>。代入 BT 模型时,同一 prompt x 下 Z(x) 是常数、在 win/lose 差值里约掉,于是只剩 <code>β·log(π/π_ref)</code> 这一项——这就是"隐式奖励",它没被显式训练,而是策略自己"长"出来的。</div></details>
-    <details class="qa"><summary class="qu">Q:DPO 省掉了奖励模型,为什么还能学出对错?</summary><div class="an">因为偏好信号直接进了损失:loss 逼 win 的对数概率比、输的拉低,本质上是在"奖励空间"里做区分。隐式奖励 <code>β·log(π/π_ref)</code> 等价于奖励模型,只是它和策略共用同一组参数 θ、同步更新,而不是先冻结训好一个 r_φ 再拿来当裁判。代价是这份"奖励"只在偏好数据覆盖的区域可靠,数据没覆盖到的地方容易乱。</div></details>
-    <details class="qa"><summary class="qu">Q:DPO 最典型的两个坑是什么?怎么缓解?</summary><div class="an">① <b>分布偏移(off-policy)</b>:偏好数据是别的模型生成的,和当前策略分布不一致,DPO 会"越训越偏"。缓解:用 iterative DPO——训完一轮就用当前模型重新采样、再标偏好、再训。② <b>长度偏好/reward hacking</b>:DPO 常学到"答得越长分越高"这种捷径。缓解:训练里加长度归一化/长度惩罚、数据里显式配平长短样本、或改用带 reference-free 校正的变体(如 SimPO)。</div></details>
-    <details class="qa"><summary class="qu">Q:训练到后期 DPO 会退化吗(赢率不升反降)?</summary><div class="an">会,这是已知现象:损失越低不代表赢率越高,因为 <code>log π_θ/π_ref</code> 被无界地拉开时,logit 会被拉得很极端、模型出现"过度自信 + 多样性崩塌"。缓解:β 别设太小、早停、对 <code>log π_θ/π_ref</code> 加 clip、或引入 length/entropy 正则。</div></details>
-  </div>
+        <p><b>4. 场景选择(用 trade-off 说话)</b></p>
+        <table>
+          <tr><th>维度</th><th>PPO</th><th>DPO</th></tr>
+          <tr><td><b>数据需求</b></td><td>需要 reward model 标注 + 在线采样</td><td>只需离线偏好对(win/lose)</td></tr>
+          <tr><td><b>模块/成本</b></td><td>4 个模型,RL 基础设施,慢、贵、不稳</td><td>2 个模型,纯监督式训练,快、稳、省</td></tr>
+          <tr><td><b>探索能力</b></td><td>在线采样,能发现新行为、配合过程奖励</td><td>离线,学不到分布外的新东西</td></tr>
+          <tr><td><b>主要坑</b></td><td>不稳定、奖励 hacking、工程复杂</td><td>分布偏移、长度偏好、奖励过拟合</td></tr>
+          <tr><td><b>适用</b></td><td>要探索上限、有多步/过程奖励、预算足</td><td>数据现成、追求稳和快、中小团队</td></tr>
+        </table>
+        <pre class="code">选型决策流(先过三问,再谈算法):
+  ① 有现成的离线偏好对吗?
+       没有 → 先攒数据(SFT/合成偏好),两个算法都无从谈起
+       有   → 往下走
+  ② 奖励能机器验证吗(代码过单测、数学答案对错)?
+       可验证 + 算力足 → PPO/GRPO 类在线 RL,探索上限最高
+       不可验证(纯人类口味) → 往下走
+  ③ 有 RL 基础设施和调参人力吗?
+       没有 → DPO 起步;赢率饱和或开始退化 → 上 iterative DPO 折中
+       有   → PPO,或「DPO 打底 + 在线 RL 冲刺」组合拳</pre>
+        <p>2027 年的实际行情:口味类对齐(helpful/harmless)基本 DPO 系打底,可验证能力(数学、代码、Agent 工具调用)用在线 RL 冲刺——面试里能报出这个组合打法,比单独背熟任何一家算法的得分都高。</p>
+        <p>一句话:<b>数据离线且求稳 → DPO;要在线探索和复杂奖励、预算充足 → PPO;工程上常从 DPO 起步,再上 iterative/online DPO 折中。</b></p>
+      </div>
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>PPO</b>:近端策略优化,clip 概率比防止策略更新过大。</div>
-      <div class="term-item"><b>DPO</b>:直接偏好优化,把 RLHF 闭式解写成分类损失,免掉奖励模型与 RL。</div>
-      <div class="term-item"><b>Bradley-Terry 模型</b>:用奖励差建模"两两谁更优"的概率模型。</div>
-      <div class="term-item"><b>隐式奖励</b>:DPO 中 r=β·log(π/π_ref),由策略参数间接表示。</div>
-      <div class="term-item"><b>GAE</b>:广义优势估计,平衡优势函数的偏差与方差。</div>
-      <div class="term-item"><b>KL 惩罚</b>:约束策略别偏离参考策略太远的正则项。</div>
-    </div>
-  </div>
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:DPO 的隐式奖励 r=β·log(π/π_ref) 是怎么推导出来的?</summary><div class="an"><b>人话:</b>它不是拍脑袋定义的——把「最优策略长什么样」的闭式解反过来解,就得到奖励的表达式,比较时约不掉的公共项再约掉。<b>类比:</b>已知「理想恢复计划 = 基线计划按收益指数放大再归一化」,反推出「收益 = β×log(新计划/基线计划)」;对比两份计划优劣时,共同分摊的归一化项 Z 做差自动抵消——像比较两条备份链路谁快,公共排队底噪一减就没了。<b>技术:</b>对 <code>max 𝔼[r] − β·KL(π‖π_ref)</code> 求变分极值得 <code>π*(y|x)=π_ref·exp(r/β)/Z(x)</code>;取对数移项得 <code>r=β·log(π*/π_ref)+β·log Z(x)</code>;代回 BT 模型时同一 prompt 下 Z(x) 是常数,win/lose 相减恰好约掉,只剩 <code>β·log(π/π_ref)</code>——奖励不被单独训练,由策略参数隐式给出。</div></details>
+        <details class="qa"><summary class="qu">Q:DPO 省掉了奖励模型,为什么还能学出对错?</summary><div class="an"><b>人话:</b>裁判没有消失,而是并进了选手——策略参数同时干「答题」和「打分」两份工,偏好信号直接写在损失里。<b>类比:</b>像下线独立的校验服务,让存储引擎在读写路径内嵌校验逻辑、共用同一份代码。哪里不像:两者共享参数,「裁判」会跟着「选手」一起漂移——选手学到的偏见裁判照样有,不会像独立裁判那样硬顶着。<b>技术:</b>损失逼着 win 样本的 <code>β·log(π_θ/π_ref)</code> 抬升、lose 压低,等价于在隐式奖励空间做判别;隐式奖励与策略同参同步更新,代价是它只在偏好数据覆盖的区域内可靠,分布外的区域这个内置裁判会乱打分。</div></details>
+        <details class="qa"><summary class="qu">Q:DPO 最典型的两个坑是什么?怎么缓解?</summary><div class="an"><b>人话:</b>一是偏好数据是「别的/旧的模型」生成的,和当前策略分布对不上,越训越偏;二是模型钻空子,最常见是把「答得长」当「答得好」。<b>类比:</b>前者像拿三年前的业务流量画像做容量规划,画像和真实负载早脱节;后者像为了备份窗口达标偷偷砍掉校验环节——窗口指标漂亮,恢复质量崩盘,都是「指标好看了,系统变坏了」。<b>技术:</b>① 分布偏移 → iterative DPO:每轮训完用当前模型重新采样、重新标偏好、再训,让数据分布追上策略;② 长度偏好 → 训练加长度归一化/惩罚、数据配平长短样本,或换 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2405.14734">SimPO</a> 这类去掉参考模型、自带长度校正的变体。</div></details>
+        <details class="qa"><summary class="qu">Q:训练到后期 DPO 会退化吗(赢率不升反降)?</summary><div class="an"><b>人话:</b>会,而且是已知现象:loss 还在降,真实赢率却不升反降——优化目标和你要的东西脱钩了。<b>类比:</b>像为了追同步指标把副本数压到极限,数字越来越好看,冗余(多样性)却没了,一点扰动就全挂;模型同样把 win/lose 的隐式分差越拉越极端,输出坍缩成几句车轱辘话。<b>技术:</b><code>log(π_θ/π_ref)</code> 是无界量,持续压 loss 会把 logit 推向极端——过度自信、多样性崩塌、概率质量坍缩到少数样本。缓解:β 别太小;评估看赢率别只看 loss,及时早停;对 log 比值加 clip;引入长度/熵正则。</div></details>
+        <details class="qa"><summary class="qu">Q:为什么顶级模型的数学/代码能力还在用 PPO/GRPO 这类在线 RL,DPO 不够用吗?</summary><div class="an"><b>人话:</b>不是 DPO 差,是场景变了:数学、代码有「可验证奖励」——单测过没过、答案对不对一测便知,有免费且骗不了的裁判,这时在线探索的价值是真金白银。<b>类比:</b>容灾演练若有确定性 KPI(RTO 是否达标机器可判),当然值得真演练、注入新故障;只有主观口味(「哪个回答更讨喜」)才需要先训一个会看走眼的裁判。<b>技术:</b>可验证奖励(RLVR)配上 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2402.03300">GRPO</a> 等 on-policy 算法,模型能采出偏好数据里根本没有的新解法——离线 DPO 只能复读旧卷。工程常见组合:口味对齐用 DPO 系打底,可验证能力用 PPO/GRPO 在线冲刺。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1707.06347">PPO</a></b>:近端策略优化——把新旧策略概率比 clip 在 [1−ε, 1+ε],小步更新防摔崩,RLHF 的标准在线算法。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.18290">DPO</a></b>:直接偏好优化——把 RLHF 目标的闭式解改写成一条二分类损失,免掉奖励模型与 RL 循环。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Bradley%E2%80%93Terry_model">Bradley-Terry 模型</a></b>:用奖励差的 sigmoid 建模「两两谁更优」,象棋 ELO 天梯背后的数学。</div>
+          <div class="term-item"><b>隐式奖励</b>:DPO 里 r=β·log(π_θ/π_ref),不单独训练,由策略参数间接表达,只在偏好数据覆盖区可靠。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1506.02438">GAE</a></b>:广义优势估计,用 TD 残差的指数加权组合估计「这步比预期好多少」,平衡偏差与方差。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence">KL 散度</a></b>:度量两个分布差多远;RLHF 里当「离参考策略太远就罚款」的护栏。</div>
+        </div>
+      </div>
 </article>

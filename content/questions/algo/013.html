@@ -1,40 +1,58 @@
 <article class="q" id="algo-013" data-topic="algo" data-title="注意力复杂度优化O(n²)到O(n log n)" data-difficulty="5" data-tags="Attention,长上下文,复杂度优化" data-company="" data-source="P6Q12" data-kw="Attention 注意力 长上下文 复杂度 稀疏 线性注意力 LSH 层次 分块 FlashAttention Reformer 核技巧 感受野">
 
-  <div class="q-no">Agent算法 · Q12</div>
-  <h3>长上下文建模的注意力机制优化</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐⭐⭐⭐</span>
-    <span class="tag">#Attention</span><span class="tag">#长上下文</span><span class="tag">#复杂度优化</span>
-  </div>
+      <div class="q-no">Agent算法 · Q12</div>
+      <h3>长上下文建模的注意力机制优化</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐⭐</span>
+        <span class="tag">#Attention</span><span class="tag">#长上下文</span><span class="tag">#复杂度优化</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"标准注意力是 <b>O(n²·d)</b>,降复杂度有四条路:① <b>稀疏化</b>——只算局部窗口 + 少量全局/跨块连接,复杂度约 O(n);② <b>核技巧线性注意力</b>——用 φ(Q)φ(K)ᵀ 重排乘法顺序,降到 O(n·d²);③ <b>哈希/聚类近似</b>——用 LSH 或层次树把 token 合并,落到 <b>O(n log n)</b>(题里要的这档);④ <b>FlashAttention</b>——注意它<b>降的是内存/IO(O(n)),时间还是 O(n²)</b>,别答错。O(n log n) 的本质是'分层开会':近邻直接看、远处通过代表间接看。真正的代价是长程依赖精度。"</p>
-  </div>
+      <div class="note"><b>先说人话:</b>这道题在问:标准注意力让每个词和所有词两两配对打分,序列一长开销平方爆炸,怎么把复杂度压到 O(n log n) 档。面试官爱考它,是因为长上下文是 Agent 记忆的地基;而题里埋着全题最大的坑——把 FlashAttention 说成"降低了时间复杂度",直接暴露你没算过账。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>标准注意力是<b>开会时 n 个人两两握手</b>,要 n² 次。O(n log n) 的做法是<b>分层开会</b>:先在小组内讨论(局部注意力),每个小组选个代表到上一层开会(层次合并),代表们再聚、再往上……总握手次数降到 n log n。代价是"你和远处的张三不再直接握手",只能靠中间代表层层转达——<b>近处信息精确、远处信息被压缩</b>,这就是长程依赖精度的损失来源。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"标准注意力是 <b>O(n²·d)</b>——每个词和所有词两两配对打分,序列一长平方项就爆炸。降复杂度有四条路:① <b>稀疏化</b>——只算局部窗口 + 少量全局/跨块连接,复杂度约 O(n);② <b>核技巧线性注意力</b>——用 φ(Q)φ(K)ᵀ 重排乘法顺序,降到 O(n·d²);③ <b>哈希/聚类近似</b>——用 LSH 或层次树把 token 分桶/合并,落到 <b>O(n log n)</b>(题里要的这档);④ <b>FlashAttention</b>——注意它<b>降的是内存/IO(O(n)),时间还是 O(n²)</b>,别答错。O(n log n) 的本质是'分层开会':近邻直接看、远处通过代表间接看。真正的代价是长程依赖精度。"</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 复杂度从哪来(先写清楚)</b></p>
-    <pre class="code">Attention(Q,K,V) = softmax( Q·Kᵀ / √d ) · V
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>先看懂标准注意力为什么是 O(n²)(用数据去重想)</b>:重复数据消除如果真拿每个新块和库里所有历史块逐块比对,100 万个块就是约一万亿次比对——所以真实的去重引擎从不这么干,都是先算指纹、再分桶、桶内细比。标准注意力(见 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1706.03762">Transformer 的原始论文</a>)恰恰就是那个"原始人做法":n 个 token,每个都要和其余所有 token 算一次相关度打分,配对次数就是 n²。它的本意很合理——每个词都该扫一眼全部上下文,再决定重点吸收谁的信息;但账单不合理——长度翻倍,配对数翻四倍。</p>
+        <p><b>O(n log n) 的做法 = 分层开会 + 先指纹后细比</b>:n 个人开会两两握手要 n² 次;分层开会——小组内直接聊,每组选个代表上高层会,层层上去,总握手次数降到 n log n。这套思路你在存储领域天天在用:<b>LSH 分桶</b> = 去重引擎的"先算指纹、同桶才细比"——相似的词大概率落同一个桶,只在桶内握手;<b>层次注意力</b> = 文件系统目录树——叶子是文件、往上是目录、再往上是归档集,找远处的东西沿树上行 log n 层,而不是全库扫描。<b>哪里像</b>:都是"先分治、再精算",把平方暴力换成结构。<b>哪里不像</b>:去重的桶分错了顶多多算几步,是性能问题;注意力的桶分错了是模型看漏关键信息,是质量问题——所以近似注意力永远带精度损失,收尾必须谈 trade-off。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 复杂度从哪来(先写清楚)</b></p>
+        <p>给没做过 AI 的同学三个记忆锚点:Q(query)=「我要找什么」,K(key)=「我是什么」,V(value)=「我携带的内容」。每个 token 拿自己的 Q 去和<b>所有</b> token 的 K 打分,分数过 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Softmax_function">softmax</a> 归一化成权重,再按权重把大家的 V 加权收进来——所以"注意力"本质是一次可微的「全库检索 + 按相关度加权读取」。</p>
+        <pre class="code">Attention(Q,K,V) = softmax( Q·Kᵀ / √d ) · V
 Q,K,V ∈ R^{n×d}   →  Q·Kᵀ 是 n×n   →  时间 O(n²·d)、显存 O(n²)</pre>
-    <p>n 是序列长度、d 是头维度。长上下文(n 到 10⁴~10⁶)时,平方项立刻爆炸,这是所有优化要消灭的瓶颈。</p>
-    <p><b>2. 四条降复杂度路线(先给全景,再重点讲 O(n log n))</b></p>
-    <table>
-      <tr><th>路线</th><th>代表工作</th><th>复杂度</th><th>核心思路 / 代价</th></tr>
-      <tr><td><b>稀疏注意力</b></td><td>Sparse Transformer、Longformer、BigBird</td><td>O(n·w)≈O(n)</td><td>只算局部窗口+少量全局/随机边;靠任务"局部性"假设</td></tr>
-      <tr><td><b>线性注意力</b></td><td>Performer、Linear Attention</td><td>O(n·d²)</td><td>核技巧 φ(Q)φ(K)ᵀ,先算 KᵀV;精度常不如 softmax</td></tr>
-      <tr><td><b>哈希/分层近似</b></td><td>Reformer(LSH)、层次 Transformer</td><td>O(n log n)</td><td>用 LSH 或树合并 token,近邻精确、远处压缩</td></tr>
-      <tr><td><b>IO 优化</b></td><td>FlashAttention</td><td>时间 O(n²)、显存 O(n)</td><td>分块+重算,不降时间、降显存/IO</td></tr>
-    </table>
-    <p><b>3. O(n log n) 这一族怎么做到(重点展开)</b></p>
-    <ul>
-      <li><b>LSH 注意力(Reformer)</b>:用局部敏感哈希把"相似的 Q、K"分到同一个桶,<b>只在同一桶内算注意力</b>。每个 token 只和桶内少数几个 token 交互,总交互量约 O(n log n),且能近似"只关注最相关的 token"。</li>
-      <li><b>层次注意力</b>:把 token 按块聚合(每块算局部注意力),块再往上聚合(代表向量),层层叠加。第 l 层感受野呈指数扩大,总计算 O(n log n)。代价是跨块信息要靠"代表"转达,<b>有信息压缩损失</b>。</li>
-      <li><b>分块 + 跨块</b>:块内全连接 + 块间稀疏连接(如每个 token 再连少量全局锚点),介于 O(n) 和 O(n²) 之间,是工程上最常用的折中。</li>
-    </ul>
-    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 626 214" role="img" aria-label="长上下文注意力优化：稀疏全局与分层 O(n log n)">
+        <p>n 是序列长度、d 是头维度。要害在 Q·Kᵀ 这张 n×n 打分表:每个 token 对每个 token 都有一格分数,长度翻倍、表变四倍。而且 <b>softmax 是整行归一化</b>——不看完全部 n 个分数就没法归一,所以这张表一格都省不掉,时间和显存一起平方爆炸。放到真实尺度感受一下:</p>
+        <pre class="code">序列长度 n      两两配对 n²         分层 n·log₂n        差距
+ 10⁴           1 亿                ~13 万             ~750 倍
+ 10⁵           100 亿              ~166 万            ~6000 倍
+ 10⁶           1 万亿              ~2000 万           ~5 万倍</pre>
+        <p>长上下文(n 到 10⁴~10⁶)时,平方项立刻爆炸,这是所有优化要消灭的瓶颈——和"全量两两比对式去重在千万块级别必然做不动"是同一个数学问题,解法也同源:分治、分桶、分层。</p>
+        <p><b>2. 四条降复杂度路线(先给全景,再重点讲 O(n log n))</b></p>
+        <table>
+          <tr><th>路线</th><th>代表工作</th><th>复杂度</th><th>核心思路 / 代价</th></tr>
+          <tr><td><b>稀疏注意力</b></td><td>Sparse Transformer、Longformer、BigBird</td><td>O(n·w)≈O(n)</td><td>只算局部窗口+少量全局/随机边;靠任务"局部性"假设</td></tr>
+          <tr><td><b>线性注意力</b></td><td>Performer、Linear Attention</td><td>O(n·d²)</td><td>核技巧 φ(Q)φ(K)ᵀ,先算 KᵀV;精度常不如 softmax</td></tr>
+          <tr><td><b>哈希/分层近似</b></td><td>Reformer(LSH)、层次 Transformer</td><td>O(n log n)</td><td>用 LSH 或树合并 token,近邻精确、远处压缩</td></tr>
+          <tr><td><b>IO 优化</b></td><td>FlashAttention</td><td>时间 O(n²)、显存 O(n)</td><td>分块+重算,不降时间、降显存/IO</td></tr>
+        </table>
+        <p>四条路线对应四种"省力哲学",每种都能在你的舒适区找到原型:<b>稀疏化</b>(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/1904.10509">Sparse Transformer</a>、<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2004.05150">Longformer</a>、<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2007.14082">BigBird</a>)赌的是"变化局部化"——像增量备份只盯变化块,远处只留几条专线;<b>线性注意力</b>(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2009.14794">Performer</a>)靠矩阵链换乘法顺序,先算小矩阵;<b>哈希/分层</b>(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2001.04451">Reformer</a>)就是去重引擎"先指纹分桶再细比"加目录树;<b>FlashAttention</b> 是流式处理,省存储不省计算。其中线性注意力那一步,纯靠<b>乘法结合律</b>——分布式系统里"矩阵链怎么乘最省"是老朋友了:</p>
+        <pre class="code">标准注意力:  softmax(Q·Kᵀ) · V
+  → softmax 要整行归一化、不可拆 → 必须先老老实实算出 n×n 打分表 → O(n²·d)
+线性注意力:   φ(Q) · ( φ(K)ᵀ·V )
+  → 用核函数 φ 替代 softmax,乘法可重排
+  → 先算 φ(K)ᵀ·V : d×n · n×d → d×d 小矩阵(中间产物与 n 无关)
+  → 再左乘 φ(Q)  : n×d · d×d → n×d                 总复杂度 O(n·d²)
+代价: softmax 的"尖锐聚焦"(高分集中在少数相关 token)被 φ 抹平 → 长程稀疏指向性下降</pre>
+        <p>φ 是把向量映射到特征空间的小函数,数学背景见<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Kernel_method">核方法</a>;它让"每个词只看少数相关词"的稀疏指向性被抹匀,这正是线性注意力掉点的来源。</p>
+        <p><b>3. O(n log n) 这一族怎么做到(重点展开)</b></p>
+        <ul>
+          <li><b>LSH 注意力(Reformer)</b>:用<b>局部敏感哈希</b>(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Locality-sensitive_hashing">LSH</a>)把"相似的 Q、K"分到同一个桶,<b>只在桶内算注意力</b>。这就是备份去重用烂了的思路:<b>先算指纹、同桶才细比</b>——没人拿每个块去全库扫描,都是先哈希分桶、桶内精确比对。每个 token 只和桶内少数几个 token 交互,总交互量约 O(n log n),且能近似"只关注最相关的 token"。关键区别:它<b>保留了 softmax 注意力本身</b>,只是把"跟谁算"从"所有人"缩到"同桶的人"——这是它比线性注意力保真的原因。</li>
+          <li><b>层次注意力</b>:把 token 按块聚合(每块算局部注意力),块再往上聚合(代表向量),层层叠加。结构就是文件系统目录树:叶子是 token,往上是块、段、篇,访问远处信息沿树上行 log n 层,不做全库扫描。第 l 层感受野呈指数扩大,总计算 O(n log n)。代价是跨块信息要靠"代表"转达,<b>有信息压缩损失</b>——像把 100 行日志聚合成一行摘要:大势不丢,细节回不来。</li>
+          <li><b>分块 + 跨块</b>:块内全连接 + 块间稀疏连接(如每个 token 再连少量全局锚点),介于 O(n) 和 O(n²) 之间,是工程上最常用的折中——对应容灾组网里的"局域全连 + 跨站专线"。</li>
+        </ul>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 626 214" role="img" aria-label="长上下文注意力优化：稀疏全局与分层 O(n log n)">
   <rect class="sd-box-rose" x="270" y="16" width="110" height="52" rx="10"/>
   <text class="sd-t" x="325" y="46" text-anchor="middle">n 个 token</text>
   <path class="sd-a" marker-end="url(#sd-arr)" d="M315 68 L135 104"/>
@@ -51,34 +69,36 @@ Q,K,V ∈ R^{n×d}   →  Q·Kᵀ 是 n×n   →  时间 O(n²·d)、显存 O(n�
   <text class="sd-ts" x="525" y="152" text-anchor="middle">块代表→上层·O(n log n)</text>
   <text class="sd-ts" x="325" y="196" text-anchor="middle">感受野:1层邻域 → 2层小组 → 3层大段(指数扩大)</text>
 </svg></div>
-    <p><b>4. 必须澄清的易错点:FlashAttention 没有降时间</b></p>
-    <ul>
-      <li>FlashAttention 用 <b>分块(tiling)+ 在线 softmax + 反向重算</b> 避免把 n×n 注意力矩阵落到 HBM,显存从 O(n²) 降到 O(n),从而可以跑更长序列。</li>
-      <li>但它每个 Q 仍要和所有 K 点积,<b>时间复杂度还是 O(n²·d)</b>——面试官常拿这个挖坑,"降 IO 不降计算"要主动说清。</li>
-    </ul>
-    <p><b>5. 精度 / 长程依赖的 trade-off(收尾要辩证)</b></p>
-    <ul>
-      <li>稀疏/线性/哈希这些"近似注意力"都依赖一个假设:<b>绝大多数信息在局部或少数相关 token 上</b>。对长文档摘要、代码补全通常成立;但对"需要逐字对照全文"的任务(长程精确匹配、多跳依赖)会掉精度。</li>
-      <li>工程实践常是<b>混合</b>:局部窗口保证效率 + 全局/稀疏锚点保留长程通道 + 关键任务用检索增强把"远但相关"的 token 显式找回来(Attention Sink、RoPE 外推也是配套手段)。</li>
-      <li>选型的判断标准:先问"这个任务长程依赖有多强",再决定敢不敢用近似、近似到什么程度。</li>
-    </ul>
-  </div>
+        <p>图上三列不是三选一,工程上经常组合:Longformer/BigBird 就是「滑动窗口(块内)+ 全局锚点(跨块)」的官方组合拳,层次/LSH 再负责更长的场景。</p>
+        <p><b>4. 必须澄清的易错点:FlashAttention 没有降时间</b></p>
+        <ul>
+          <li>FlashAttention 用 <b>分块(tiling)+ 在线 softmax + 反向重算</b> 避免把 n×n 注意力矩阵落到 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/High_Bandwidth_Memory">HBM</a>(显存),显存从 O(n²) 降到 O(n),从而可以跑更长序列。类比:像大文件校验比对时不把整张 n×n 对照表落盘,而是<b>分块装进内存、算过即丢、反向传播要用时再重算</b>——省的是"存表"的开销,不是"算"的开销。</li>
+          <li>但它每个 Q 仍要和所有 K 点积,<b>时间复杂度还是 O(n²·d)</b>——面试官常拿这个挖坑,"降 IO 不降计算"要主动说清。</li>
+        </ul>
+        <p><b>5. 精度 / 长程依赖的 trade-off(收尾要辩证)</b></p>
+        <ul>
+          <li>稀疏/线性/哈希这些"近似注意力"都依赖一个假设:<b>绝大多数信息在局部或少数相关 token 上</b>——和增量备份依赖"变化局部化"是同一种赌注。对长文档摘要、代码补全通常成立(赌赢了);但对"需要逐字对照全文"的任务(长程精确匹配、多跳依赖)会掉精度(赌注输了)。</li>
+          <li>工程实践常是<b>混合</b>:局部窗口保证效率 + 全局/稀疏锚点保留长程通道 + 关键任务用检索增强把"远但相关"的 token 显式找回来(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2309.17453">Attention Sink</a>、<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2104.09864">RoPE</a> 外推也是配套手段)。</li>
+          <li>选型的判断标准:先问"这个任务长程依赖有多强",再决定敢不敢用近似、近似到什么程度。</li>
+        </ul>
+        <p>一句话收束:O(n log n) 不是魔法,是「近邻直连 + 远处经代表」的结构改造;FlashAttention 不是降阶,是「省存储不省计算」的 IO 工程;所有近似都要拿下游精度做抵押——这三句话说全,这道题就答圆了。</p>
+      </div>
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:FlashAttention 把复杂度从 O(n²) 降下来了吗?</summary><div class="an">没有。它降的是<b>显存和 IO</b>——通过分块和重算,把中间 n×n 注意力矩阵的显存从 O(n²) 压到 O(n),但每个 query 依然要和全部 key 做点积,<b>计算量还是 O(n²·d)</b>。它的价值是"用更少的显存跑更长的序列 + 更好利用 GPU",而不是算法意义上的降阶。这是高频挖坑点,一定要主动区分"时间复杂度"和"空间/IO 复杂度"。</div></details>
-    <details class="qa"><summary class="qu">Q:线性注意力已经到 O(n) 了,为什么题目还要 O(n log n)?</summary><div class="an">因为线性注意力用核函数 φ 近似 softmax,<b>精度损失通常更大</b>:它把"点积相似度"替换成"特征内积",对需要精确、稀疏聚焦的长程依赖不友好,实践中 Performer 这类往往比 sparse/层次方案更容易掉点。O(n log n) 这一族(LSH、层次)保住了"真正算 softmax 注意力"的形式,只是<b>限制在哪些 token 对之间算</b>,近似更可控、精度折损更小——所以更常作为"高保真降阶"的候选。</div></details>
-    <details class="qa"><summary class="qu">Q:长程依赖在稀疏/分层注意力里怎么保留?</summary><div class="an">几招:① <b>全局锚点</b>——固定若干 token(如 BigBird 的 global token / Longformer 的全局注意力)和所有 token 相连,兜住全局信息;② <b>分层传递</b>——远处信息通过逐层代表间接传到,层数足够时感受野指数覆盖全长;③ <b>检索式兜底</b>——需要精确远距离对齐时,先检索出"远但相关"的 token 再精确算注意力,把"全量长程"变成"按需长程";④ 位置编码用 RoPE + 长度外推(如 NTK/YaRN)配合,否则序列一长位置信息先崩,优化复杂度也没意义。</div></details>
-    <details class="qa"><summary class="qu">Q:实际工程里你会怎么选?</summary><div class="an">先测<b>任务的长程依赖强度</b>:短上下文(&lt; 8k)直接标准注意力 + FlashAttention 吃满算力,不折腾;中等(8k~128k)优先 FlashAttention + 滑动窗口 + 全局锚点,用稀疏把显存和时间都压住;超长(&gt; 128k)或显存受限再上分层/LSH 近似,并对关键任务用检索增强把"远距离精确信息"单独喂进去。核心原则:<b>先在真实任务上测精度掉多少,再决定近似到什么程度</b>,不要为了 O(n log n) 的漂亮而牺牲下游质量。</div></details>
-  </div>
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:FlashAttention 把复杂度从 O(n²) 降下来了吗?</summary><div class="an"><b>人话:</b>没降,它降的是显存和 IO,时间还是 O(n²·d)——这个坑要主动跳开。<b>类比:</b>像大文件比对不再把整张 n×n 对照表落盘,改成分块进内存、算过即丢、反向传播要用再重算——比对次数一次没少(时间不变),但那张随长度平方膨胀的中间表不用存了。<b>技术:</b>分块 + 在线 softmax + 反向重算,n×n 注意力矩阵不落 HBM,显存 O(n²)→O(n);每个 query 依然和全部 key 点积,时间不变。它的价值是同样显存跑更长序列、GPU 利用率更高,不是算法意义上的降阶。</div></details>
+        <details class="qa"><summary class="qu">Q:线性注意力已经到 O(n) 了,为什么题目还要 O(n log n)?</summary><div class="an"><b>人话:</b>O(n) 压得更狠但走样更大,O(n log n) 是"高保真降阶",精度折损更可控。<b>类比:</b>像压缩档位——线性注意力相当于整条流先过一遍有损编码,所有细节被抹匀;LSH/分层只在"远处"压缩、近邻保留原样,重要信息走样少。<b>技术:</b>线性注意力用核函数 φ 替代 softmax,把"尖锐地只盯少数相关 token"抹成平滑分布,稀疏聚焦能力下降,Performer 这类实践中常比稀疏/层次方案更掉点;LSH/层次保留 softmax 注意力的形式,只是限制"在哪些 token 对之间算",近似更可控。</div></details>
+        <details class="qa"><summary class="qu">Q:长程依赖在稀疏/分层注意力里怎么保留?</summary><div class="an"><b>人话:</b>给"远处"留几条专用通道,别全靠层级慢慢转达。<b>类比:</b>像异地容灾——不可能每个数据块都跨站点实时同步,做法是关键系统开专线(全局锚点),其余靠层级汇聚异步转达,零散但关键的远距离访问再单独走检索(按需长程)。<b>技术:</b>① 全局锚点:固定若干 token 与所有 token 相连,兜住全局信息(BigBird/Longformer 都这么干);② 分层传递:层数足够时感受野指数覆盖全长;③ 检索式兜底:先把"远但相关"的 token 找回来再精确算注意力;④ 位置编码配 RoPE + NTK/YaRN 长度外推,否则序列一长位置信息先崩。</div></details>
+        <details class="qa"><summary class="qu">Q:实际工程里你会怎么选?</summary><div class="an"><b>人话:</b>先测任务的长程依赖强度,再决定近似到什么程度,别为漂亮的复杂度牺牲下游质量。<b>类比:</b>像备份策略选型——小库直接全量,不折腾;中等库全量+增量混合;超大库才上重删和分层。先看数据规模和 RPO 需求,不为炫技上复杂方案。<b>技术:</b>短上下文(&lt; 8k)直接标准注意力 + FlashAttention 吃满算力;中等(8k~128k)FlashAttention + 滑动窗口 + 全局锚点;超长(&gt; 128k)或显存受限再上分层/LSH,并用检索增强把远距离精确信息单独喂进去;所有近似上线前必须在真实任务上测精度掉多少,超阈值就回退。</div></details>
+      </div>
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>Attention</b>:softmax(QKᵀ/√d)·V,时间 O(n²·d)。</div>
-      <div class="term-item"><b>稀疏注意力</b>:只算局部窗口+少量全局边,近似 O(n)。</div>
-      <div class="term-item"><b>线性注意力</b>:核技巧重排乘法顺序,降到 O(n·d²)。</div>
-      <div class="term-item"><b>LSH</b>:局部敏感哈希,把相似 token 分桶,桶内算注意力。</div>
-      <div class="term-item"><b>FlashAttention</b>:分块+重算降显存到 O(n),时间仍 O(n²)。</div>
-      <div class="term-item"><b>感受野</b>:一个 token 能"看到"的范围,分层结构可指数扩大。</div>
-    </div>
-  </div>
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1706.03762">Attention</a></b>:softmax(QKᵀ/√d)·V,每个词给所有词打权重再加权取信息,标准实现 O(n²·d)。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2004.05150">稀疏注意力</a></b>:只算局部窗口+少量全局边,近似 O(n),赌"信息局部性"假设成立。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2009.14794">线性注意力</a></b>:核技巧重排乘法顺序、先算 d×d 小矩阵,降到 O(n·d²),代价是聚焦被抹平。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Locality-sensitive_hashing">LSH</a></b>:局部敏感哈希,相似向量大概率落同桶——和备份去重"先算指纹分桶再细比"同构。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2205.14135">FlashAttention</a></b>:分块+在线 softmax+重算,显存 O(n²)→O(n),时间仍 O(n²)——降 IO 不降计算。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Receptive_field">感受野</a></b>:一个 token 能"看到"的范围,分层结构里逐层指数扩大。</div>
+        </div>
+      </div>
 </article>

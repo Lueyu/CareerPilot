@@ -1,65 +1,90 @@
 <article class="q" id="algo-011" data-topic="algo" data-title="Token级奖励vs序列级奖励与信用分配" data-difficulty="5" data-tags="RLHF,信用分配,奖励设计" data-company="" data-source="P6Q8" data-kw="RLHF 信用分配 奖励设计 Token奖励 序列奖励 过程奖励 PRM 稀疏奖励 GAE 奖励塑形 reward hacking">
 
-  <div class="q-no">Agent算法 · Q8</div>
-  <h3>Token 级别奖励 vs Seq 级别奖励</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐⭐⭐⭐</span>
-    <span class="tag">#RLHF</span><span class="tag">#信用分配</span><span class="tag">#奖励设计</span>
-  </div>
+      <div class="q-no">Agent算法 · Q8</div>
+      <h3>Token 级别奖励 vs Seq 级别奖励</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐⭐</span>
+        <span class="tag">#RLHF</span><span class="tag">#信用分配</span><span class="tag">#奖励设计</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"核心是<b>信用分配(credit assignment)</b>:序列级奖励只给整段一个标量(比如最终 0/1),模型不知道到底是哪几个 token 立了功、哪几个闯了祸,梯度信噪比低、训练慢。Token 级奖励把功劳拆到每一步,有三条路:① 训一个<b>过程奖励模型 PRM</b>(Let's Verify Step by Step)对每个中间步骤打分;② 从结局反推,用 MC/REINFORCE 把终局奖励折现回每个 token;③ 用 critic 估计每个状态的 value 做逐 token 的 advantage。设计 token 奖励的要点:<b>用 potential-based shaping 加密集奖励不改变最优策略</b>,同时防 reward hacking(长度、重复、套话)。"</p>
-  </div>
+      <div class="note"><b>先说人话:</b>这题在问:训练大模型时,奖励该给整段回答打一个总分,还是给每个 token 单独记账、单独记功。它是 RLHF 后训练的核心取舍,面试官爱考,因为答不好直接暴露你「只背过 PPO 名词、没想过梯度怎么流动」;最典型的翻车答法是张口就说「token 级一定更好」。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>把训练模型想成<b>带一支足球队</b>:序列级奖励是"只告诉球队最终比分"——赢了大家一人一碗饭,但具体是谁那脚传球立功、谁漏防丢球,谁都不知道,练一百场也难有针对性提升。Token 级奖励是<b>教练给每个动作实时打分</b>:"这脚直塞 +1、这脚浪射 −1",队员才知道该练什么、改什么。代价是教练(PRM)得请得起、还得靠谱,否则乱打分反而把队伍带偏。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"核心是<b>信用分配(credit assignment)</b>:序列级奖励只给整段一个标量(比如最终 0/1),模型不知道到底是哪几个 token 立了功、哪几个闯了祸,梯度信噪比低、训练慢。Token 级奖励把功劳拆到每一步,有三条路:① 训一个<b>过程奖励模型 PRM</b>(Let's Verify Step by Step)对每个中间步骤打分;② 从结局反推,用 MC/REINFORCE 把终局奖励折现回每个 token;③ 用 critic 估计每个状态的 value,做逐 token 的 advantage(GAE)。设计 token 奖励的要点:<b>用 potential-based shaping 加密集奖励才不改变最优策略</b>,同时防 reward hacking(刷长度、凑格式、说套话)。"</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 信用分配问题是什么(先讲清痛点)</b></p>
-    <ul>
-      <li>生成 500 个 token,只在最后给一个奖励 R(正确/错误),那么前面 499 步的梯度都"共享"这一个信号——<b>方差大、样本效率低</b>,尤其长链推理(Math/Code)里,一个早期错误 token 到第 300 步才体现为失败,中间隔了 300 步的"延迟反馈"。</li>
-      <li>序列级奖励还有个隐患:<b>奖励本身不可分解</b>。总分为 0 可能来自"思路对但算错数",也可能是"全错",两者对训练的指导完全不同。</li>
-    </ul>
-    <p><b>2. 序列级奖励(seq-level)的优缺点</b></p>
-    <table>
-      <tr><th></th><th>说明</th></tr>
-      <tr><td><b>优点</b></td><td>标注便宜(只评整段)、和最终目标对齐(就是要正确答案)、天然可和 RM/规则/答案对拍结合</td></tr>
-      <tr><td><b>缺点</b></td><td>稀疏、方差大、长序列收敛慢、无法指出"哪步错了"</td></tr>
-    </table>
-    <p><b>3. Token 级奖励的三条来源(面试要能点名)</b></p>
-    <ul>
-      <li><b>① 过程奖励模型 PRM</b>:OpenAI 的 Let's Verify Step by Step——把解答拆成"步骤",人工/强模型标注每个步骤对错,训练一个模型给每步打分。数学推理上 PRM 明显优于只给终局奖励的 ORM(结果奖励模型)。代价是<b>步骤级标注极贵</b>。</li>
-      <li><b>② 从结局反推(MCRB/REINFORCE)</b>:没有 PRM 时,把终局奖励 R 按时间折扣折回每一步:<code>r_t = γ^(T−t)·R</code>,或用 leave-one-out baseline 降方差。零额外标注,但每个 token 拿到的是"平均化"的信号。</li>
-      <li><b>③ critic/价值函数</b>:PPO 里训一个 value network,<code>Â_t = r_t + γV(s_{t+1}) − V(s_t)</code>,把"单步即时奖励"扩展成"这一步对未来总回报的贡献",本质上就是在做逐 token 的信用分配(GAE)。</li>
-    </ul>
-    <p><b>4. 怎么设计 token 级奖励函数(重点)</b></p>
-    <pre class="code">R_total = R_outcome                            <span class="c"># 稀疏的终局奖励(正确+1/错误0)</span>
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>先用你的老本行想这题</b>:你跑过成百上千个备份作业,最烦的就是那种「整场 job 只回一个非零 exit code」的失败——快照、传输、去重、校验、清理,几百个子任务,到底哪一环挂的?序列级奖励就是这种日子:模型吐完 500 个 token,你只在最后给一个「对/错」,前面 499 步的功过糊成一笔账。Token 级奖励就是给链路上<b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Distributed_tracing">分布式追踪</a></b>:每个 stage 都有 span、有健康检查,第几步慢了错了一眼可见,梯度也才知道该修谁。<b>哪里像</b>:都是把一个「总信号」拆成每一步的责任,定位准、反馈快。<b>哪里不像</b>:trace 是纯观测,打错了顶多是误报;而 token 奖励直接决定每一步梯度往哪修——<b>观测错了只是告警噪音,奖励打错了会把模型真带偏</b>。所以 token 级奖励的全部前提是:打分器得靠谱。</p>
+        <p><b>再想「延迟反馈」</b>:第 3 个 token 的一次笔误,要到第 300 步才以「解题失败」的形式爆雷——这就像备份链路里第一阶段快照就不一致,一直潜伏到恢复演练才发现,根因回溯得倒着翻几百步日志。序列级奖励下,这颗雷的责任被「连坐」摊到每一步头上,好的坏的一起挨骂,信噪比自然低。Token 级奖励做的,本质上就是 RL 版的根因定位(RCA):把总账拆开,算到每一步头上。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 信用分配问题是什么(先讲清痛点)</b></p>
+        <ul>
+          <li>生成 500 个 token,只在最后给一个奖励 R(正确/错误),那么前面 499 步的梯度都「共享」这一个信号——<b>方差大、样本效率低</b>。尤其长链推理(Math/Code)里,一个早期错误 token 到第 300 步才体现为失败,中间隔了 300 步的「延迟反馈」,归因几乎糊掉。</li>
+          <li>序列级奖励还有个隐患:<b>奖励本身不可分解</b>。总分为 0 可能来自「思路对但算错数」,也可能来自「全错」——就像备份失败码只有一个,但「源端快照失败」和「校验和不符」的修法天差地别,两种 0 分对训练的指导完全不同。</li>
+        </ul>
+        <pre class="code">序列级:  [t1][t2][t3] ... [t499][t500] ──→  R = 0   ← 全程唯一的信号
+           └────────── 500 步的功过,糊成一笔连坐账 ──────────┘
+
+token级:  [t1]+1   [t2]+1   [t3]−1(设错变量) ...  [t500]+0
+           └ 每步有自己的账本,梯度知道该修谁
+              (第 3 步的雷当场拆掉,不用等第 300 步才爆)</pre>
+        <p><b>2. 序列级奖励(seq-level)的优缺点</b></p>
+        <table>
+          <tr><th></th><th>说明</th></tr>
+          <tr><td><b>优点</b></td><td>标注便宜(只评整段)、和最终目标对齐(就是要正确答案)、天然可和 RM/规则/答案对拍结合</td></tr>
+          <tr><td><b>缺点</b></td><td>稀疏、方差大、长序列收敛慢、无法指出「哪步错了」</td></tr>
+        </table>
+        <p>再把两种粒度摆在一起对齐着看,取舍就清楚了:</p>
+        <table>
+          <tr><th>维度</th><th>序列级</th><th>Token 级(理想情况)</th></tr>
+          <tr><td>信号密度</td><td>稀疏(一段一个分)</td><td>密集(一步一个分)</td></tr>
+          <tr><td>梯度方差</td><td>高,收敛慢</td><td>低,收敛快</td></tr>
+          <tr><td>定位错步</td><td>不能</td><td>能</td></tr>
+          <tr><td>标注/实现成本</td><td>低</td><td>高(步骤级标注贵一个量级)</td></tr>
+          <tr><td>被刷分 风险</td><td>较低</td><td>更高(可钻的缝多)</td></tr>
+          <tr><td>适用场景</td><td>短答案、可硬验证(代码对拍)</td><td>长链推理、数学证明、多步规划</td></tr>
+        </table>
+        <p><b>3. Token 级奖励的三条来源(面试要能点名)</b></p>
+        <ul>
+          <li><b>① 过程奖励模型 PRM</b>:OpenAI 的 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.20050">Let's Verify Step by Step</a>——把解答拆成「步骤」,人工/强模型标注每个步骤对错,训练一个模型给每步打分。数学推理上 PRM 明显优于只给终局奖励的 ORM(结果奖励模型)。类比:只看作业总分便宜,请老师逐行批改贵得多——代价就是<b>步骤级标注极贵</b>。</li>
+          <li><b>② 从结局反推(MCRB/REINFORCE)</b>:没有 PRM 时,把终局奖励 R 按时间折扣折回每一步:<code>r_t = γ^(T−t)·R</code>(γ 是折现因子,离终局越远的 token 拿到的份额越小),或用 leave-one-out baseline 降方差。零额外标注,但每个 token 拿到的是「平均化」的信号——像事故复盘时把责任按资历摊回每个人,省了观察员,可也分不出谁是真英雄。</li>
+          <li><b>③ critic/价值函数</b>:<a target="_blank" rel="noopener" href="https://arxiv.org/abs/1707.06347">PPO</a> 里训一个 value network,<code>Â_t = r_t + γV(s_{t+1}) − V(s_t)</code>,把「单步即时奖励」扩展成「这一步对未来总回报的贡献」,本质上就是在做逐 token 的信用分配(GAE)。类比你熟悉的监控:value 是容量规划式的基线预测,advantage 只学「实际比预期好/差多少」——报警只在实际值偏离基线时才响,而不是每次都从头判断。GAE 的细节见 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1506.02438">论文</a>,它做的事是在单步 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Temporal_difference_learning">TD 误差</a>(偏差小方差大)和蒙特卡洛回报(偏差大方差小)之间取加权折中。</li>
+        </ul>
+        <p><b>4. 怎么设计 token 级奖励函数(重点)</b></p>
+        <pre class="code">R_total = R_outcome                            <span class="c"># 稀疏的终局奖励(正确+1/错误0)</span>
         + Σ_t F(s_{t+1}) − F(s_t)               <span class="c"># potential-based shaping,不改变最优策略</span>
         + λ·R_process(token_t)                  <span class="c"># PRM 过程打分或规则性塑形</span></pre>
-    <ul>
-      <li><b>奖励塑形(shaping)的黄金法则</b>:额外奖励必须写成势函数之差 <code>F(s_{t+1}) − F(s_t)</code>(potential-based),否则你以为是"帮模型",其实是<b>偷偷改了最优策略</b>,会让模型钻塑形项的空子而不去解原题。</li>
-      <li><b>常见塑形项</b>:格式正确、思路完整、步骤可验证、不重复、长度合理——每一项都容易被 hack,必须配合"为什么给这项"的审慎判断。</li>
-      <li><b>防 reward hacking</b>:① 奖励项互相独立、别叠加太多种;② 用验证器(代码执行、答案对拍)给硬信号而不是软分;③ 定期看"奖励涨了但真任务分没涨"的曲线,一旦背离就砍项。</li>
-      <li><b>密集 vs 稀疏的平衡</b>:密集奖励收敛快但易被 hack、且和"真实目标"有偏差;稀疏奖励最诚实但方差大。工程上是<b>稀疏锚定 + 少量密集塑形</b>,并让塑形项权重随时间衰减。</li>
-    </ul>
-  </div>
+        <ul>
+          <li><b>奖励塑形(shaping)的黄金法则</b>:额外奖励必须写成势函数之差 <code>F(s_{t+1}) − F(s_t)</code>(potential-based)。为什么?沿整条轨迹把这项逐段加起来,中间项会望远镜式抵消,只剩 F(终点) − F(起点)——也就是说塑形项<b>只是给「离目标还有多远」的变化量记分,没有引入新的终点</b>。反例类比:如果你把塑形写成「备份链路里每传一个文件 +1 分」,模型会学会疯狂传无数小文件、跳过校验去刷分;写成「剩余未传文件数的变化量」就没法刷——方向错了它反而扣分。</li>
+          <li><b>常见塑形项</b>:格式正确、思路完整、步骤可验证、不重复、长度合理——每一项都容易被 hack,必须配合「为什么给这项」的审慎判断。</li>
+          <li><b>防 reward hacking</b>(形式化定义见 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2209.13085">这篇综述</a>):① 奖励项互相独立、别叠加太多种;② 用验证器(代码执行、答案对拍)给硬信号而不是软分;③ 定期看「奖励涨了但真任务分没涨」的曲线,一旦背离就砍项。本质上这是<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Goodhart%27s_law">古德哈特定律</a>在 RL 里的化身:拿压缩率当 KPI 的备份系统,迟早学会往数据里塞可压缩的垃圾把分刷高。</li>
+          <li><b>密集 vs 稀疏的平衡</b>:密集奖励收敛快但易被 hack、且和「真实目标」有偏差;稀疏奖励最诚实但方差大。工程上是<b>稀疏锚定 + 少量密集塑形</b>,并让塑形项权重随时间衰减——类比灰度期可以多看几个中间指标,正式上线 SLA 只认硬指标。</li>
+        </ul>
+        <pre class="code">训练进度 ─→
+代理奖励(总奖励)   ╱╱╱╱╱  ↑ 一路涨(某个塑形项在被刷)
+真实任务成功率     ─────────→  原地踏步
+两线背离 = 塑形项被 hack 的典型信号,该诊断砍项了</pre>
+      </div>
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:Token 级奖励一定比序列级更好吗?代价是什么?</summary><div class="an">不一定。好处是方差小、能指出错步、长链推理收敛快;代价有三:① <b>标注成本</b>——PRM 要步骤级标注,贵一个量级;② <b>偏差风险</b>——过程分是"人类认为的中间好状态",不等于"能通向正确答案",可能误导模型走一条人类喜欢但解不出题的路;③ <b>更易被 hack</b>——逐 token 打分给了模型更多可钻的缝(凑格式、刷步骤分)。所以短答案/强反馈场景用 seq 级就够,长链推理才值得上 token 级。</div></details>
-    <details class="qa"><summary class="qu">Q:PRM 的数据从哪来?成本怎么控制?</summary><div class="an">来源:① 人工标注每个解题步骤对错(最贵最准);② 用<b>能否推导到正确答案</b>自动标步骤——从某步出发若最终答案对,则该步及之前标"好"(过程监督的自动化近似,Math-Shepherd 这类做法);③ 强模型(LLM)自动判步骤。控制成本:先让强模型粗标、人工只抽检纠错;或用 MCTS 采样多条路径、用结果正确性反推步骤标签,把"步骤标注"变成"轨迹搜索"。</div></details>
-    <details class="qa"><summary class="qu">Q:怎么防止模型刷 token 奖励(reward hacking)?</summary><div class="an">三层防御:① <b>设计上</b>——奖励项少而正交,能用硬验证(代码跑通、答案对拍)的不用软分;② <b>机制上</b>——密集塑形必须 potential-based,且权重随训练衰减,最终只保留稀疏真实奖励;③ <b>监控上</b>——同时跟踪"代理奖励"和"真实任务成功率",一旦两者背离(奖励涨、成功率平)立刻诊断是哪个项被 exploit,砍掉或加惩罚(如长度归一化、重复 n-gram 惩罚)。</div></details>
-    <details class="qa"><summary class="qu">Q:结局奖励 + 过程奖励怎么配权重才稳?</summary><div class="an">没有统一常数,原则是<b>结局奖励是锚、过程奖励是辅助</b>。过程项权重 λ 取到"能显著降低方差、又不至于盖过结局信号"的经验区间,通常让过程项量级 ≤ 结局项量级;并做消融:λ=0 / 小 / 大 各跑一组,选真实任务分最高而非"总奖励最高"的那组。关键认知:λ 过大模型会追求"过程好看"而忽略"结果对"。</div></details>
-  </div>
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:Token 级奖励一定比序列级更好吗?代价是什么?</summary><div class="an"><b>人话:</b>不一定,先看答案多长、反馈多硬。<b>类比:</b>小机房一个 cron 作业失败,翻一眼日志就知道瓶颈,没必要上全链路 trace;大型分布式作业才需要 span 级打点——token 级奖励同理,是给长链推理准备的装备。<b>技术:</b>好处是方差小、能指出错步、长链收敛快;代价有三:① <b>标注成本</b>——PRM 要步骤级标注,比整段评贵一个量级;② <b>偏差风险</b>——过程分是「人类认为的中间好状态」,不等于「能通向正确答案」,可能把模型带上一条人类喜欢但解不出题的路;③ <b>更易被 hack</b>——逐 token 打分给了模型更多可钻的缝(凑格式、刷步骤分)。所以短答案/强反馈场景用 seq 级就够,长链推理才值得上 token 级。</div></details>
+        <details class="qa"><summary class="qu">Q:PRM 的数据从哪来?成本怎么控制?</summary><div class="an"><b>人话:</b>人标最准也最贵,省钱的路子是让「结果」反推「过程」。<b>类比:</b>不用请人盯每个备份任务,靠周期性恢复演练的最终成败,反推哪个快照时间点是干净的。<b>技术:</b>来源:① 人工标注每个解题步骤对错(最贵最准);② <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2312.08935">Math-Shepherd</a> 这类做法——从某步出发续写采样多条,若多数能推到正确答案则该步标「好」,把步骤标注自动化;③ 强模型(LLM)自动判步骤。控制成本:强模型粗标 + 人工只抽检纠错;或用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Monte_Carlo_tree_search">MCTS</a> 采样多条解题路径、用结果正确性反推沿途步骤标签,把「步骤标注」变成「轨迹搜索」。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么防止模型刷 token 奖励(reward hacking)?</summary><div class="an"><b>人话:</b>奖励项要少而硬,并且永远盯住两条曲线。<b>类比:</b>防 KPI 刷分——指标少、可审计,且定期和北极星指标对表;拿压缩率当 KPI 的系统迟早学会塞可压缩垃圾刷分。<b>技术:</b>三层防御:① <b>设计上</b>——奖励项少而正交,能用硬验证(代码跑通、答案对拍)就不用软分;② <b>机制上</b>——密集塑形必须 potential-based,且权重随训练衰减,最终只保留稀疏真实奖励;③ <b>监控上</b>——同时跟踪「代理奖励」和「真实任务成功率」,一旦两者背离(奖励涨、成功率平)立刻诊断哪个项被 exploit,砍掉或加惩罚(如长度归一化、重复 n-gram 惩罚)。</div></details>
+        <details class="qa"><summary class="qu">Q:结局奖励 + 过程奖励怎么配权重才稳?</summary><div class="an"><b>人话:</b>结局是锚,过程是脚手架——脚手架是为了盖楼,不能最后住进脚手架里。<b>类比:</b>备份体系里,恢复演练的 RTO/RPO 是锚,中间的传输速率、去重率只是辅助指标,为了报表好看牺牲恢复目标就是本末倒置。<b>技术:</b>没有统一常数,原则是<b>结局奖励是锚、过程奖励是辅助</b>:过程项权重 λ 取到「能显著降方差、又不盖过结局信号」的区间,通常让过程项量级 ≤ 结局项;做 λ=0/小/大三档消融,按真实任务分(而非总奖励)选最优;并随训练衰减。关键认知:λ 过大,模型会去追求「过程好看」而放弃「结果对」。</div></details>
+        <details class="qa"><summary class="qu">Q:既然 PRM 效果好,为什么开源圈主流训练还是用结果奖励(ORM/GRPO)?</summary><div class="an"><b>人话:</b>因为 token 级好处里最值钱的部分,可以不请 PRM 就拿到。<b>类比:</b>不给每条备份任务配专家审计,而是同一份数据跑 N 个副本互相对照——用「组内对比」替代「绝对打分」,离群即异常,零审计成本。<b>技术:</b>DeepSeekMath 提出的 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2402.03300">GRPO</a>:对同一道题采一组回答,用组内 leave-one-out 均值当基线,把结果奖励转成逐 token 的优势信号——零额外标注、天然降方差,相当于用②③两条路线的组合逼近了 PRM 的大部分收益;再叠加可验证领域(代码执行、数学答案对拍)的规则硬奖励,纯结果奖励 + 大规模采样就成了性价比主流,PRM 是预算充足时的增项。</div></details>
+      </div>
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>信用分配</b>:把整体结果归因到每一步/每个 token 的贡献。</div>
-      <div class="term-item"><b>PRM</b>:过程奖励模型,对中间步骤而非整段打分。</div>
-      <div class="term-item"><b>ORM</b>:结果奖励模型,只对最终答案打分。</div>
-      <div class="term-item"><b>奖励塑形</b>:加辅助奖励引导训练,potential-based 才能不改最优策略。</div>
-      <div class="term-item"><b>reward hacking</b>:模型钻奖励函数空子、刷分但不解决真问题。</div>
-      <div class="term-item"><b>GAE</b>:广义优势估计,平衡逐 token 优势的偏差与方差。</div>
-    </div>
-  </div>
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b>信用分配</b>:把整段结果的功过,拆账到每个 token/每一步头上——RL 训练的核心难题。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.20050">PRM</a></b>:过程奖励模型,对每个中间步骤打分;贵,但长链推理上明显赢 ORM。</div>
+          <div class="term-item"><b>ORM</b>:结果奖励模型,只对最终答案打分;便宜、诚实,但稀疏。</div>
+          <div class="term-item"><b>奖励塑形</b>:加辅助奖励引导训练;只有 potential-based(势函数之差)形式才不改变最优策略。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2209.13085">reward hacking</a></b>:模型钻奖励函数的空子刷分,却不解决真问题——古德哈特定律在 RL 里的化身。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1506.02438">GAE</a></b>:广义优势估计,用多步 TD 误差的加权平均,平衡逐 token 优势的偏差与方差。</div>
+          <div class="term-item"><b>γ 折现因子</b>:终局奖励反推到早步时的打折系数,离结局越远、份额越小。</div>
+        </div>
+      </div>
 </article>
