@@ -7,26 +7,62 @@
         <span class="tag">#FunctionCalling</span><span class="tag">#数据生成</span><span class="tag">#微调</span>
       </div>
 
+      <div class="note"><b>先说人话:</b>这题问的是:给小模型造一套「什么时候调工具、调哪个、参数怎么填」的训练数据,这条生产线怎么设计。面试官爱考,因为 Function Calling 是 Agent 的地基,而微调翻车九成翻在数据上——答不出质检流水线、只说「用 GPT 生成一下」,暴露的就是没真跑过:生成谁都会,验收才是功力。</div>
+
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-        <p>"本质是<b>用强模型当老师给小模型造题(知识蒸馏)</b>:先定义工具 Schema,再程序化+LLM 结合生成多样化场景(重点是要覆盖<b>不需要工具的负样本</b>和多工具选择样本),强模型产出『用户话术 → 工具调用 → 参数』样本,然后过<b>四道质检</b>:Schema 合法性校验、参数沙箱执行验证、结果一致性检查、LLM 打分去重,人工抽检后转成目标模型的 chat template 格式。质量控制是这套系统的灵魂。"</p>
+        <p>"本质是<b>用强模型当老师给小模型出题、并对答案负责的「数据工厂」</b>。流程五步:① 一处定义、处处复用的工具 Schema;② 程序化模板 + LLM 扩写造场景,重点是覆盖<b>负样本(占 20~30%,治『见谁都想调一下』的工具上瘾症)</b>和多工具组合;③ 强模型 few-shot 标注出『用户话术 → 工具调用 → 工具结果 + 最终回答』三元组;④ 过<b>四道质检</b>:Schema 合法性校验、沙箱真执行、结果闭环反推、打分去重,外加人工抽检;⑤ 渲染成目标模型的 chat template,掺通用对话样本防遗忘,留出测试集测『选对工具、填对参数、忍住不调』三个指标。一句话:质量控制是灵魂,生成只是起点。"</p>
       </div>
 
       <div class="block ana"><span class="badge b-ana">通俗类比</span>
-        <p>就是<b>老师傅出题带徒弟</b>:老师傅(强模型)按考纲(工具 Schema)编各种模拟题——有的要用扳手、有的其实啥工具都不用、有的得先量再拧;自己做出标准答案(标注),再<b>实际拧一遍验证答案能跑通</b>(沙箱校验),装订成册(数据集)给徒弟(小模型)刷题(微调)。徒弟练完后专门会这几样活,又快又便宜。</p>
+        <p><b>先搞懂 Function Calling(用值班系统想)</b>:普通的 LLM 对话像「只出报告不给动作」的监控平台——凌晨三点告警炸了,它给你写一篇《磁盘可能要坏》的分析文章,恢复还得你手动来。<a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function Calling</a> 则是让模型在回答里输出一段<b>机器可执行的结构化指令</b>(调哪个工具、参数填什么),网关拿到后真的去执行——相当于告警平台从「发报告」升级成「按 playbook 直接触发恢复动作」。<b>哪里像</b>:都是「理解语义 → 决定动作」。<b>哪里不像</b>:传统自动化是确定性规则(看到 error 级告警就迁移盘),模型是<b>概率判断</b>——十次里可能有一次,它会把「备份作业跑得慢」理解成「该下线重建了」。这个不可靠,正是这道题存在的全部理由:微调数据的质量,就是拿去把这个概率判断练准的。</p>
+        <p><b>整套生成系统,像给新值班员建一套演练题库</b>:老师傅(强模型,也就是<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Knowledge_distillation">知识蒸馏</a>里的「老师」)按 runbook(工具 Schema)编题——有的题要真执行恢复动作(调工具),有的题来人只是想聊聊(负样本,练「不该动手时忍得住」),有的题得先查状态再操作(多工具编排);老师傅自己写标准答案,再<b>把每道题在隔离环境真跑一遍</b>(沙箱执行——容灾演练从来不纸上推演),跑完还要校验恢复出来的结果对不对(闭环校验),复盘会上打分淘汰烂题(打分去重),最后抽检入库。<b>哪里像</b>:核心都是「验收比生产更重要」。<b>哪里不像</b>:演练题编错了,最多浪费一次演练窗口;训练数据脏了,是<b>直接刻进徒弟脑子里的</b>——微调没有「撤销」,坏影响要靠重新训练才能洗掉,所以这里的质检下手必须比演练验收更狠。</p>
       </div>
 
       <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>第 0 步:先看清一条样本长什么样(后面所有设计都围着它转)</b></p>
+        <p>没做过 AI 的同学先看这条样本,再往下读会顺很多。模型要学的其实是三步:① 判断「我需要工具」;② 挑对工具、填对参数;③ 拿到结果后把话说圆。所谓微调数据,就是把这三步固化成一问一答的「标准答题卡」:</p>
+        <pre class="code">用户:    "帮我查下北京明天的天气,要是晴就把周末露营的装备清单列出来"
+
+assistant 不直接回答,而是输出一段结构化指令(这就是「工具调用」):
+  {"name": "get_weather", "arguments": {"city": "北京", "date": "明天"}}
+
+工具执行后返回结果:
+  {"temp_c": 12, "condition": "晴", "wind": "3级"}
+
+assistant 拿到结果,才组织最终回答:
+  "北京明天晴,12 度、微风,适合露营。装备建议:帐篷、防潮垫、睡袋……"</pre>
+        <p>这套「用户话术 → 工具调用 → 工具结果 + 最终回答」,就是原文里那个三元组 <code>(user_query, assistant_tool_call, tool_response + final_answer)</code>。整道题要设计的系统,就是<b>批量、安全、可验收地生产这种答题卡</b>的流水线。</p>
         <p><b>1. 输入:工具 Schema 定义</b></p>
-        <p>每个工具一份 JSON Schema:名称、描述(要写清<b>什么时候该用/不该用</b>,这直接决定模型选对工具的率)、参数类型、必填项、枚举值。这份 Schema 同时服务于生成和校验,一处定义多处复用。</p>
+        <p>每个工具一份 <a target="_blank" rel="noopener" href="https://json-schema.org/">JSON Schema</a>:名称、描述(要写清<b>什么时候该用/不该用</b>,这直接决定模型选对工具的率)、参数类型、必填项、枚举值。这份 Schema 同时服务于生成和校验,一处定义多处复用:</p>
+        <pre class="code">{
+  "name": "get_weather",
+  "description": "查询指定城市未来 7 天内的天气。当用户询问天气、气温、
+                  是否下雨/下雪时使用;闲聊或与天气无关的问题不要调用。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "city": {"type": "string", "description": "城市名,如「北京」"},
+      "date": {"type": "string", "enum": ["今天", "明天", "后天"]}
+    },
+    "required": ["city", "date"]
+  }
+}</pre>
+        <p>类比:这就像 runbook。runbook 里如果只写「执行恢复」而不写「何种告警才执行」,新值班员见告警就想动手;Schema 描述里那句「不该用」,就是负样本能力的源头,一个字都不能省。</p>
         <p><b>2. 场景生成(多样性是关键)</b></p>
-        <ul>
-          <li><b>正样本</b>:单工具调用、<b>多工具组合</b>(先查天气再订餐厅)、<b>多轮</b>(参数不足先反问用户)、参数边角案例(日期格式、枚举边界、空值)。</li>
-          <li><b>负样本(必须占 20~30%)</b>:闲聊、无关请求 —— <b>没有负样本,模型会得上"工具上瘾症",见谁都想调一下</b>,这是 FC 微调最常见的翻车点。</li>
-          <li>生成方式:程序化模板(保证覆盖)+ LLM 扩写(保证自然)+ 真实日志回流(bad case 沉淀,最值钱)。</li>
-        </ul>
+        <p>只生成「正确提问 → 正确调用」的题,模型会学成只会做这一道题。场景必须铺开,配比大致长这样:</p>
+        <table>
+          <tr><th>样本类型</th><th>占比(参考)</th><th>训练目标</th><th>值班类比</th></tr>
+          <tr><td>单工具正样本</td><td>~40%</td><td>调对工具、填对参数</td><td>单一告警对应单一动作</td></tr>
+          <tr><td>多工具组合(先查天气再订餐厅)</td><td>~20%</td><td>学会编排:先查再动</td><td>先定位坏盘,再下线重建</td></tr>
+          <tr><td>多轮(参数不足先反问用户)</td><td>~10%</td><td>知道缺什么、会追问</td><td>工单信息不全,先回电确认</td></tr>
+          <tr><td>参数边角案例(日期格式、枚举边界、空值)</td><td>~10%</td><td>别在细节上翻车</td><td>时区、盘位号写法这类坑</td></tr>
+          <tr><td><b>负样本(闲聊、无关请求)</b></td><td><b>20~30%</b></td><td><b>学会拒绝,治「工具上瘾」</b></td><td>咨询类来电不该触发恢复</td></tr>
+        </table>
+        <p><b>负样本为什么必须占 20~30%</b>:没有它,模型会得上「工具上瘾症」——用户问「今天心情不好」,它也要调一下天气接口。这是 FC 微调最常见的翻车点,而且翻得很丢人:用户一眼就看出这模型在瞎调。生成方式三条腿走路:<b>程序化模板</b>(保证结构化的覆盖率,枚举组合不漏)、<b>LLM 扩写</b>(保证话术自然,同一个意图有十种说法)、<b>真实日志回流</b>(线上 bad case 沉淀,最值钱——就像恢复失败的复盘案例进演练库,含金量远高于凭空编的题)。</p>
         <p><b>3. 标注:强模型生成</b></p>
-        <p>用旗舰模型 + few-shot 示例,输入场景输出结构化三元组:<code>(user_query, assistant_tool_call, tool_response + final_answer)</code>。温度调高多生成几个变体。</p>
+        <p>用旗舰模型 + <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Prompt_engineering">few-shot</a> 示例(给老师傅看几道「题目 + 标准答案」的范例,让他照着风格出题),输入场景,输出上面第 0 步那种结构化三元组 <code>(user_query, assistant_tool_call, tool_response + final_answer)</code>。温度调高、同一场景多生成几个变体——一来话术多样,二来后面质检关卡可以拿多个变体<b>互相投票</b>,老师说错话的概率又被压了一层。</p>
         <p><b>4. 质量验证(四道关卡,系统核心)</b></p>
+        <p>老师傅也会手潮,生成的样本必须全部过闸。整条流水线:</p>
         <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 846 92" role="img" aria-label="Function Calling 微调数据四道质检流水线">
   <rect class="sd-box2" x="10" y="16" width="100" height="56" rx="10"/>
   <text class="sd-t" x="60" y="40" text-anchor="middle">样本</text>
@@ -56,28 +92,58 @@
   <text class="sd-t" x="780" y="40" text-anchor="middle">入库</text>
   <text class="sd-ts" x="780" y="58" text-anchor="middle">数据集</text>
 </svg></div>
+        <p>四道关卡各杀一类错,谁也替代不了谁:</p>
+        <ul>
+          <li><b>① Schema 合法性校验</b>:用 JSON Schema 校验器纯程序检查——类型对不对、必填缺没缺、枚举值是不是模型自己编造的(比如凭空冒出「大后天」)。零成本、全客观,先把硬伤杀干净。类比:备份介质入库前先过格式合规检查,不合格连门都进不来。</li>
+          <li><b>② 沙箱执行</b>:把 tool_call 真的发出去执行一遍,验证「这个调用真的跑得通」。类比:容灾演练必须真切流量,不能纸上推演。细节见追问第 4 条(只读工具真调、有副作用的进隔离环境)。用户说「帝都」、参数填了「北京」没问题,填了「beijng」在这一关当场报错暴露。</li>
+          <li><b>③ 闭环校验</b>:动作跑通了 ≠ 答案是对的。要检查两件事:参数和用户话术是否一致(用户问北京,参数不能填上海),最终回答是否真的由工具结果推出来(不能工具明明说「晴」,回答里说「带伞」)。类比:恢复演练跑完了,还得校验恢复出来的数据版本对不对——<b>演练成功和数据正确是两回事</b>。</li>
+          <li><b>④ 打分去重</b>:换一个 LLM 当裁判(注意是「换一个」——评审不能自审,和代码评审同一个规矩)给样本打 1~5 分,低分丢弃;再用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Word_embedding">Embedding</a> 相似度把几乎重复的题去掉。类比:演练复盘评分 + 题库去重——同一道题刷一百遍,徒弟只会做这一道(数据太窄,模型会过拟合)。</li>
+        </ul>
+        <p>最后<b>人工抽检 5%~10%</b>。类比:定期抽检备份的可恢复性——不抽检,你以为你有备份,其实是「备份了个寂寞」。抽检发现的问题要<b>反哺生成端</b>(修 Schema 描述、补 few-shot 范例),而不是只把坏样本删掉,否则同一类错下周还会再生成出来。</p>
         <p><b>5. 格式标准化</b></p>
         <ul>
-          <li>目标模型的 chat template 各不相同(Qwen、Hermes、Llama 格式对 tool_call 的标签写法不一样),写转换器按模板渲染;工具定义按 OpenAI tools 字段组织。</li>
-          <li>配比建议:工具调用样本 + 通用对话样本混着训(如 7:3),防止微调后<b>通用能力遗忘</b>(只会调工具不会聊天)。</li>
-          <li>数据集版本化:和训练配置绑定,可复现。</li>
+          <li>目标模型的 chat template 各不相同(Qwen、Hermes、Llama 格式对 tool_call 的标签写法不一样),写转换器按模板渲染;工具定义按 OpenAI tools 字段组织。「同一条样本、两种长相」直观看一下:</li>
         </ul>
-        <p><b>6. 效果评估</b>:留出测试集(不参与训练),测三个指标——<b>工具选择准确率</b>(该不该调、调哪个)、<b>参数精确匹配率</b>(EM/F1)、<b>负样本拒绝率</b>。</p>
+        <pre class="code">Qwen 风格(特殊标签包一段 JSON):
+&lt;|im_start|&gt;assistant
+&lt;tool_call&gt;
+{"name": "get_weather", "arguments": {"city": "北京", "date": "明天"}}
+&lt;/tool_call&gt;&lt;|im_end|&gt;
+
+Llama 3.1 风格(专用标记 + 不同的字段名和结束符):
+&lt;|start_header_id|&gt;assistant&lt;|end_header_id|&gt;
+{"name": "get_weather", "parameters": {"city": "北京", "date": "明天"}}&lt;|eot_id|&gt;</pre>
+        <ul>
+          <li><b>配比建议</b>:工具调用样本 + 通用对话样本混着训(如 7:3),防止微调后<b>通用能力遗忘</b>(只会调工具不会聊天)。类比:运动员只猛练一个动作,其他动作会退化——通用对话样本就是「保底训练」,维持住小模型原本的聊天能力。</li>
+          <li><b>数据集版本化</b>:和训练配置绑定,可复现。类比:备份策略要 pin 住「哪个版本的数据 + 哪个版本的脚本」,否则三个月后指标变了,你连当时是用哪份数据训的都查不回来。</li>
+        </ul>
+        <p><b>6. 效果评估</b></p>
+        <p>留出一份测试集(不参与训练、也从生成管道里<b>独立抽样</b>,防止「考题就是练习题」),测三个指标——</p>
+        <table>
+          <tr><th>指标</th><th>量什么</th><th>对应哪种翻车</th></tr>
+          <tr><td><b>工具选择准确率</b></td><td>该不该调、调哪个</td><td>上瘾症(见谁都调)/ 选择恐惧(该调不调)</td></tr>
+          <tr><td><b>参数精确匹配率</b>(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/F-score">EM/F1</a>)</td><td>参数填得对不对</td><td>格式错、编造枚举值、填错城市</td></tr>
+          <tr><td><b>负样本拒绝率</b></td><td>不该调时忍得住吗</td><td>闲聊也触发工具调用</td></tr>
+        </table>
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:需要多少条数据?</summary><div class="an">经验值:单一工具场景 1~2K 起步就能显著提升;工具多(20+)、场景复杂的要 1~5 万;质量 &gt; 数量,脏数据 500 条不如干净数据 100 条。</div></details>
-        <details class="qa"><summary class="qu">Q:为什么不直接用带 FC 的大模型?</summary><div class="an">三个场景必须微调:① 成本(小模型便宜 10~50 倍,高频调用);② 私有化/合规(数据不能出内网);③ 垂类工具特别多且专有,大模型没见过、选择准确率低。</div></details>
-        <details class="qa"><summary class="qu">Q:线上效果怎么持续改进?</summary><div class="an">线上 bad case(选错工具/参数错)自动捕获 → 回流数据工厂 → 定期增量微调 → 灰度上线,形成数据飞轮。</div></details>
+        <details class="qa"><summary class="qu">Q:需要多少条数据?</summary><div class="an"><b>人话:</b>别迷信数量,先看覆盖度——工具种类和场景类型铺没铺开,比堆条数重要得多。<b>类比:</b>备份不是把同一份文件复制一万遍就算做得好,覆盖了哪些系统、哪些场景才是关键;演练库一百道全是「磁盘告警」的题,不如二十道覆盖各类故障的题。<b>技术:</b>经验值:单一工具场景 1~2K 条起步就能显著提升;工具多(20+)、场景复杂的要 1~5 万。质量 &gt; 数量,脏数据 500 条不如干净数据 100 条。实操上拿留出集指标说话:曲线到平台期了,再加数据边际收益很低,该回头补的是场景覆盖,不是条数。</div></details>
+        <details class="qa"><summary class="qu">Q:为什么不直接用带 FC 的大模型?</summary><div class="an"><b>人话:</b>大模型又贵又慢还可能不让数据出门,三种情况必须把能力「下沉」到自己的小模型里。<b>类比:</b>每次灾难都请原厂专家飞过来救火(贵、慢、还得把你机房数据给他看),不如把恢复流程练成本地团队的肌肉记忆——平时又快又便宜,数据不出机房。<b>技术:</b>① 成本:小模型推理便宜 10~50 倍,高频调用场景一年省出一个团队;② 私有化/合规:金融、政企的数据不能出内网,大模型 API 根本不许用;③ 垂类工具特别多且专有(备份产品内部的备份、恢复、挂载接口),大模型预训练里根本没见过,零样本选择准确率很低,微调反而是必选项。</div></details>
+        <details class="qa"><summary class="qu">Q:线上效果怎么持续改进?</summary><div class="an"><b>人话:</b>建一个「坏案例自动回流 → 重新训练 → 再上线」的循环,让系统越用越准。<b>类比:</b>和备份体系一个逻辑——每次恢复失败都复盘,把教训沉淀成新的演练场景,下次演练覆盖就多一块;只靠初始题库,一年后就过时了。<b>技术:</b>线上自动捕获 bad case(选错工具、参数填错、用户纠正、改写重问等信号)→ 脱敏后回流数据工厂,当高价值种子重新生成同类场景 → 定期增量微调 → 走灰度发布上线,新旧版本用线上 A/B 对比确认指标真的涨了再全量。这就是「数据飞轮」:bad case 是免费的、最真实的训练素材,闭门造车编一万条不如线上真实纠错一千条。</div></details>
+        <details class="qa"><summary class="qu">Q:沙箱执行是真调用还是 mock?成本和安全怎么平衡?</summary><div class="an"><b>人话:</b>按工具的「脾气」分:只读的查询工具直接真调,会动真实世界的一律隔离或模拟。<b>类比:</b>演练里查状态(只读)可以直接连真实集群,但「下线磁盘」「删除快照」这种动作绝不能在生产库上真干——在快照副本、隔离环境里练。<b>技术:</b>① 只读幂等工具(天气、搜索)真调,还能拿到真实 tool_response,给闭环校验喂真数据;② 有副作用的工具(下单、删除、发邮件)用 mock 或录制回放(像恢复测试用快照副本);③ 注意 mock 的返回也要「像真的」,字段、数值范围要仿真,否则模型学到的是奇怪的输入输出对应关系;④ 高频生成期给真调用加缓存(同参数同结果直接复用),控制成本。</div></details>
+        <details class="qa"><summary class="qu">Q:强模型当老师,老师自己也会出错,错误会不会被徒弟放大?</summary><div class="an"><b>人话:</b>会,而且这正是四道质检存在的意义——它们防的不是徒弟,是老师。<b>类比:</b>老师傅也会手潮,所以演练验收必须有客观标准,不能他说「这道题没问题」就算过;关键动作还得换一个人复核,评审不能自审。<b>技术:</b>关卡 ①② 是纯客观程序校验,不信任任何模型;③④ 用另一个 LLM 当裁判,裁判和出题人分离;生成端温度调高、同场景多出几个变体,让多个变体互相投票再取一致答案;最后人工抽检兜底。整体思路是「单点信任变多重校验」——把「信老师」拆成「信程序、信交叉验证、信抽样」,这在分布式系统里叫冗余设计,在数据工厂里叫质检流水线,逻辑同源。</div></details>
       </div>
 
       <div class="block term"><span class="badge b-term">术语卡</span>
         <div class="terms-grid">
-          <div class="term-item"><b>知识蒸馏</b>:强模型的输出当弱模型的训练数据。</div>
-          <div class="term-item"><b>负样本</b>:不该调用工具的样本,治"工具上瘾"。</div>
-          <div class="term-item"><b>Chat Template</b>:各模型的对话格式模板。</div>
-          <div class="term-item"><b>EM/F1</b>:参数精确匹配/部分匹配指标。</div>
-          <div class="term-item"><b>数据飞轮</b>:bad case 回流→再训练→效果提升的循环。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function Calling</a></b>:让模型输出机器可执行的结构化调用指令(工具名+参数),从「会说话」升级为「会下单」。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Knowledge_distillation">知识蒸馏</a></b>:强模型的输出当弱模型的训练数据,老师傅的答案进徒弟的脑子。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://json-schema.org/">JSON Schema</a></b>:描述 JSON 该长什么样的规范文件,此处一处定义、生成和校验两处复用。</div>
+          <div class="term-item"><b>负样本(工具上瘾)</b>:「不该调用工具」的样本,占 20~30%,专治模型见谁都想调一下的毛病。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://huggingface.co/docs/transformers/main/chat_templating">Chat Template</a></b>:各模型规定的对话格式模板,Qwen/Llama/Hermes 对工具调用的标签写法各不相同。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/F-score">EM/F1</a></b>:参数精确匹配/部分匹配指标——填对一半参数能得部分分,全对才满分。</div>
+          <div class="term-item"><b>数据飞轮</b>:线上 bad case 回流 → 再训练 → 效果提升的循环,坏案例是最值钱的免费教材。</div>
         </div>
       </div>
 </article>

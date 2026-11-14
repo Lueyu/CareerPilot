@@ -8,16 +8,20 @@
     <span class="company">字节(真题)</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题在问：模型"会用工具"的本事，到底是出厂前训练进脑子的，还是用的时候外挂上去的。面试官爱考它，因为一开口就分层——把 Function Calling 说成"模型自己执行了函数"、把 Toolformer 当成"某家产品的接口"的，都暴露出只调过 API、没想过决策与执行的边界。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>两者最本质的区别是<b>「工具能力装在哪里」</b>：<b>Function Calling 是推理期接口</b>——模型权重不变，靠开发者传入的 JSON Schema 让模型学会"要不要调、调哪个、传什么参数"，真正执行由外部运行时负责；<b>Toolformer 是训练期方法</b>——用自监督信号构造"带 API 调用标注"的语料继续微调，把"何时用工具"内化进模型权重。一句话：<b>Function Calling 给模型"接工具"，Toolformer 教模型"学会用工具"</b>。</p>
+    <p>"抓住主线：<b>工具能力装在哪里</b>。<b>Function Calling 是推理期接口</b>——模型权重一个字节不动，开发者每次请求用 JSON Schema 附上工具清单，模型判断'要不要调、调哪个、参数填什么'，输出一张结构化工单，执行交给运行时代码，结果拼回上下文让它接着说。<b>Toolformer 是训练期方法</b>（Meta 2023 年的论文）——让模型在海量语料上自己标注'这里值得调一次 API'，用'插了调用之后后文是不是更好预测'当尺子筛掉垃圾样本，再微调，把'何时用工具'内化进权重。一句话：<b>Function Calling 给模型"接工具"，Toolformer 教模型"学会用工具"</b>；共同底线是——模型只做决策，执行永远在外部运行时手里。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>Function Calling 像给一台<b>智能手机装 App</b>：手机（模型）本身没变，只是系统（运行时）提供了一排可点按钮，模型说"我想打开地图、导航到 X"，实际导航由 App 完成，结果再显示回屏幕。Toolformer 则像把一个人<b>从小训练成会用地图和计算器</b>：他遇到算账、找路的场景，会本能地掏出工具并用对——"会用工具"已经刻进大脑里了。前者改"使用说明书"，后者改"大脑"。</p>
+    <p><b>先搞懂这两个名字</b>：<a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function Calling</a> 是 ChatGPT、Claude 这类产品接口里的功能——你在请求里附一份"可用函数清单"，模型需要时返回"我要调哪个函数、参数是什么"，真正的执行由你的代码完成；<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2302.04761">Toolformer</a> 是 Meta 2023 年发表的论文方法，目标是让一个基座模型<b>自己教会自己用工具</b>。前者的类比是<b>给备份服务器外挂一台新磁带库</b>：备份服务器（模型）一行代码不用改，读一遍设备描述文件（工具清单：名字、用途、参数），就能下发"把这份备份写到 3 号槽"的工单；真正写磁带的是磁带机（外部运行时），服务器从头到尾没亲手碰过带子。想换台新设备？改一下描述文件，当天就能用。后者的类比是<b>把调度策略刷进 RAID 卡固件</b>：出厂前拿大量真实负载做训练，"什么场景用什么策略"烧进芯片里，插上电就会；代价是以后想改策略，得重新烧录整块固件。<b>哪里像</b>：都让系统获得了自己原本没有的能力，而且都遵守"决策者只发令、执行者才动手"。<b>哪里不像</b>：外挂磁带库是<b>挂载期接入</b>——能力在系统外面，随插随换、便宜；刷固件是<b>出厂期内化</b>——能力在芯片里面，用起来"下意识"、不用现读说明书，但换起来贵、慢、难回退。</p>
+    <p><b>两者还有一个重要共性："模型只决策，不执行"——这像分布式系统的控制面与数据面分离</b>。备份主服务器（控制面）决定"几点备份、备份哪个盘、走什么策略"，真正搬数据的是各主机上的代理进程（数据面）；主服务器可以出工单，但不允许自己长出手去碰生产盘。模型就是那个只出工单的角色，执行器永远在信任边界外面。<b>哪里像</b>：决策与副作用解耦，才做得了权限控制、审计日志、灰度验证。<b>哪里不像</b>：传统控制面下发的指令是确定性代码，写对了就永远对；模型发的工单是<b>概率生成的文本</b>，可能选错函数、编造参数——所以中间还得垫一层校验兜底（第 2 节细讲）。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
     <p><b>1. 定位：训练期 vs 推理期（先抓住矛盾主线）</b></p>
+    <p>这道题的所有细节都挂在一条主线上：<b>模型"会用工具"的能力，是训练阶段写进权重的，还是推理阶段从外面接进来的</b>。给你一个万能判断口诀——<b>看"换一个新工具要不要重新训练"</b>：要重新训练，说明能力长在权重里；不用训练、改个配置就能上，说明能力长在接口上。先竖着扫一遍这张表，后面逐条展开。</p>
     <table>
       <tr><th>维度</th><th>Function Calling</th><th>Toolformer</th></tr>
       <tr><td><b>本质</b></td><td>推理期接口 / 对齐能力</td><td>训练期方法 / 论文</td></tr>
@@ -26,8 +30,12 @@
       <tr><td><b>是否改权重</b></td><td>用户侧使用时不改</td><td>是，用增强语料继续微调</td></tr>
       <tr><td><b>学习信号</b></td><td>指令微调 + 工具调用对齐（厂商做）</td><td>自监督：调用是否降低后续 token 损失</td></tr>
       <tr><td><b>典型场景</b></td><td>ChatGPT / Claude 等产品接口</td><td>学术研究、让基座模型自学工具</td></tr>
+      <tr><td><b>换新工具的成本</b></td><td>改一份 schema，当次请求即生效</td><td>重新构造数据并微调，否则退化为 few-shot 提示</td></tr>
+      <tr><td><b>主要失败模式</b></td><td>选错函数 / 参数幻觉，靠校验与重试兜底</td><td>工具知识固化在权重里，动态增删难</td></tr>
     </table>
+    <p>读表最容易卡住的是第 4、5 行的组合，很多人的第一个疑问就是："Function Calling 不也是训练出来的吗，凭什么说不改权重？"答案是：<b>训练是厂商在出厂前做完的</b>——你调用接口时买到的是"已经会填工单的模型"，训练这件事发生在你成为用户之前。而 Toolformer 公开的是<b>这套训练本身怎么做</b>。所以准确的说法是：Function Calling 是"成品能力 + 使用说明"，Toolformer 是"制造工艺 + 配方"。</p>
     <p><b>2. Function Calling 怎么工作（推理期）</b></p>
+    <p>顺着流程图走：Function Calling 从头到尾发生在<b>推理期</b>，模型权重在你发请求到拿回答的全程里一个字节没动，动的只是<b>你请求里多附了一份"工具清单"</b>。清单里每个工具用 <a target="_blank" rel="noopener" href="https://json-schema.org/">JSON Schema</a> 写清楚：叫什么、干什么用、要哪些参数、什么类型（OpenAI 接口里这份清单就叫 tools，早期版本叫 functions，"Function Calling"这个功能名就是这么来的）。模型读题时同时读到清单，如果判断"这题我自己答不了，但清单里有个函数能答"，它就不硬答，而是输出一张<b>结构化工单</b>——函数名加参数的 JSON。</p>
     <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 740 152" role="img" aria-label="Function Calling 推理流程">
   <rect class="sd-box-rose" x="10" y="76" width="90" height="60" rx="10"/>
   <text class="sd-t" x="55" y="102" text-anchor="middle">开发者</text>
@@ -53,11 +61,40 @@
   <text class="sd-t" x="672" y="102" text-anchor="middle">结果回填</text>
   <text class="sd-ts" x="672" y="120" text-anchor="middle">模型继续生成</text>
 </svg></div>
+    <pre class="code">一次完整往返(以"查订单"为例):
+
+用户:   帮我看看订单 A123 到哪了
+           │  请求同时附上工具清单(形如下面这个条目)
+           ▼
+模型:   (读题 + 读清单 → 判断: 该调 get_order_status,参数我能填)
+           输出工单 → { "name": "get_order_status",
+                          "arguments": { "order_id": "A123" } }
+           │  注意: 到这里为止,函数一个字节都没执行,模型只写了张单子
+           ▼
+运行时: 你的 Python 代码收到工单 → 校验参数 → 真正调订单系统
+           → 拿到 "已到杭州转运中心" → 包成一条工具返回消息,拼回对话
+           ▼
+模型:   看到结果继续生成 → "订单 A123 已到杭州转运中心,预计明天派送。"
+
+工具清单里的一个条目(声明式描述"参数长什么样"):
+{
+  "name":        "query_backup_job",
+  "description": "按任务 ID 查询备份作业的状态与最近一次执行结果",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "job_id": { "type": "string", "description": "形如 BK-2024-xxxx" }
+    },
+    "required": ["job_id"]
+  }
+}</pre>
     <ul>
-      <li>关键点：<b>模型只产出"调用意图"，不执行</b>；参数合法性由 schema + 运行时二次校验兜底。</li>
-      <li>训练层面：商用模型的 Function Calling 能力来自厂商的<b>指令微调 + 工具调用数据对齐</b>，让模型学会"识别该调用、生成合法 JSON"。但对开发者而言，这是<b>推理期的现成接口</b>，不涉及改权重。</li>
+      <li><b>关键点 1：模型只产出"调用意图"，不执行</b>。函数跑在谁的服务器上、有什么权限、要不要记审计日志、超时了重不重试——全由运行时说了算。模型有"发工单"的笔，没有"按开关"的手；参数合法性由 schema + 运行时二次校验兜底。</li>
+      <li><b>关键点 2：训练层面</b>，商用模型的 Function Calling 能力来自厂商的<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Instruction_tuning">指令微调</a> + 工具调用数据对齐——喂大量"用户问题 → 正确工单"格式的样本，让模型学会"识别该调用、生成合法 JSON"。但对开发者而言，这是<b>推理期的现成接口</b>，你拿到的是成品能力，不需要也不应该去碰权重。</li>
+      <li><b>关键点 3：循环可以多轮</b>。结果回来后模型可能发现还不够，继续发第二张工单（先查订单、再查物流）——这就是"思考一步、调一次工具、看一眼结果再走"的 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a> 循环。所谓 Agent 的"工具循环"，本质就是这一来一回的 for 循环。</li>
     </ul>
     <p><b>3. Toolformer 怎么工作（训练期，四步）</b></p>
+    <p>如果说 Function Calling 讲的是"怎么用工单"，Toolformer 回答的是更上游的问题：<b>填工单的本事从哪来</b>。它不给模型清单，而是让模型在普通语料上自己练习"在哪儿发工单、工单怎么填"，四步走完：</p>
     <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 322 304" role="img" aria-label="Toolformer 训练四步">
   <rect class="sd-box2" x="110" y="20" width="200" height="56" rx="10"/>
   <text class="sd-t" x="210" y="44" text-anchor="middle">① 采样候选</text>
@@ -75,31 +112,52 @@
   <text class="sd-t" x="210" y="260" text-anchor="middle">④ 微调</text>
   <text class="sd-ts" x="210" y="278" text-anchor="middle">增强语料训练·内化工具</text>
 </svg></div>
+    <pre class="code">四步在一个样本上走一遍(以论文里的问答 API 为例):
+
+原始语料: "《星际穿越》由克里斯托弗·诺兰执导,上映于"
+① 采样候选: 模型靠 few-shot 提示,在可能的位置试着插入调用
+   "…上映于 [QA("《星际穿越》哪年上映?") → ___] 年"
+② 执行: 真实调用 API,把返回结果填进空位
+   "…上映于 [QA("《星际穿越》哪年上映?") → 2014] 年"
+③ 过滤: 算两笔交叉熵损失,比大小
+   L+ = 保留这条调用时,预测后续原文的损失
+   L- = 把整条调用删掉时,预测后续原文的损失
+   L+ 明显 &lt; L- → 这条样本保留 ; 否则丢弃
+④ 微调: 把筛出来的增强语料拿去继续微调
+   (对 API 返回结果那一段做掩码——要学的是"何时发工单、怎么填",
+    不是"凭空预言 API 会返回什么")</pre>
+    <p>第③步是全文精髓，也是"<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Self-supervised_learning">自监督</a>"三个字落到实处的地方。翻译成人话：<b>没有人坐在那儿标注"这句话该调 API"</b>——那拿什么判断一条自动标注好不好？拿结果说话：<b>插了这条调用之后，后文是不是更好预测了</b>。<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Cross_entropy">交叉熵损失</a>就是"预测后文有多费劲"的分数：分数降了，说明这个调用真帮上了忙，保留；分数没降，说明是模型瞎标的，丢掉。第①步的 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2005.14165">few-shot</a>（在提示里塞几个示例让模型照葫芦画瓢）只负责"广撒网"，质量全靠第③步把关。论文用这套流程试了 5 类 API（问答、计算器、维基百科搜索、日历、机器翻译），结果是一个 6.7B 的基座模型自学之后，在不少任务上干过了参数量大它几十倍的 GPT-3——"学会用工具"补的能力，比"闷头堆参数"划算。第④步的<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Fine-tuning_(machine_learning)">微调</a>，就是在已有权重上接着训练，把这些样本"焊"进去。</p>
     <ul>
-      <li>损失过滤是精髓：<b>不是所有候选调用都有用</b>——如果"插入调用"没有让后续文本更好预测，就丢弃。这样模型只学会"有用的工具使用"。</li>
-      <li>推理时：模型自回归生成，遇到 API 调用 token 时<b>暂停解码 → 执行调用 → 结果插回 → 继续生成</b>。</li>
+      <li><b>损失过滤是精髓</b>：<b>不是所有候选调用都有用</b>——模型 few-shot 标出来的候选，大量是"不需要计算的地方也硬标"、或者格式根本不对。过滤标准就一句话："插入调用后，后续原文的预测损失降没降"。没降就丢弃，垃圾样本进不了训练集，模型最终只学会"有用的工具使用"。整个流程<b>不需要一行人工标注</b>，所以叫自监督。</li>
+      <li><b>推理时</b>：模型自回归生成，遇到 API 调用 token 时<b>暂停解码 → 执行调用 → 结果插回 → 继续生成</b>。注意：执行照样发生在外部运行时——模型学会的是"何时何地调、参数怎么填"，不是"亲手执行"。"只决策、不执行"这条底线，和 Function Calling 是同一条。</li>
     </ul>
     <p><b>4. 两者关系与 trade-off（面试加分句）</b></p>
     <ul>
       <li>二者不是对立而是<b>互补</b>：Function Calling 是工程上最省事、可控的方式（工具可换、可审计）；Toolformer 思路用于"让模型更自主地决定用不用工具、用什么"，减少显式路由。</li>
       <li>Function Calling 的代价：依赖厂商训练、工具集合受 schema 约束、复杂嵌套调用仍需工程编排；Toolformer 的代价：需要构造/筛选训练数据、成本高、工具知识固化后难动态增删。</li>
       <li>可以总结为：<b>Function Calling 把"决策 + 格式"交给模型、"执行 + 清单"交给系统；Toolformer 把"何时用工具"这件事训练进权重，但执行仍靠系统</b>——共同点是"模型只做决策，不亲自执行副作用"。</li>
+      <li>收尾加分句："Function Calling 的能力其实也来自训练，只不过那是厂商在出厂前做好的——一个是买现成的能力，一个是自己炼能力；而且两层可以叠加：用 Toolformer 式的数据思路训练，再以 Function Calling 的形式对外提供。"能把这层关系讲顺，面试官就知道你不是背概念，是懂来龙去脉。</li>
     </ul>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:Function Calling 模型也是训练出来的，那和 Toolformer 的区别还剩什么？</summary><div class="an">区别在<b>"工具使用能力的来源与更新方式"</b>：Function Calling 的"会不会用工具"由厂商在训练时对齐好，开发者<b>使用时不改权重</b>，换工具只需换 schema；Toolformer 是<b>一套公开的训练 recipe</b>，让任意基座模型用自己的数据自学工具调用，代价是要自己跑筛选与微调。更本质一点：Function Calling 是"产品接口"，Toolformer 是"训练方法论"，二者不互斥——可以"用 Toolformer 的思路训练，再以 Function Calling 的形式对外提供"。</div></details>
-    <details class="qa"><summary class="qu">Q:模型生成的函数参数错了怎么办？</summary><div class="an">三层兜底：① schema 约束 + 结构化解码（让输出天然合法）；② 运行时<b>参数校验</b>（类型/范围/必填），非法则把错误信息回填让模型重试；③ 对副作用操作做<b>两段式</b>（预览 → 确认）与幂等，避免"参数错但已执行"造成损失。</div></details>
-    <details class="qa"><summary class="qu">Q:Toolformer 为什么用"损失降低"当过滤信号，而不是全部保留？</summary><div class="an">因为模型会生成大量<b>无意义或错误的调用候选</b>（把不需要计算的地方也标了、或调用格式不对）。以"调用结果是否让后续文本预测损失下降"作为自监督信号，等价于只保留"确实帮助预测下一个词"的调用，相当于无人工标注地筛出高质量工具使用样本——这是它的核心创新。</div></details>
+    <details class="qa"><summary class="qu">Q:Function Calling 模型也是训练出来的，那和 Toolformer 的区别还剩什么？</summary><div class="an"><b>人话:</b>剩下的区别在"谁来教、教完能不能换"：Function Calling 的"会用工具"是厂商出厂前教好的成品，拿来就用、换工具不用重训；Toolformer 是公开的教学方法，让你用自己的数据和工具教会任意基座模型。<b>类比:</b>像商用备份软件自带的重删：开箱即用，但内部实现你管不着；Toolformer 是拿到公开论文后，用自己的数据集炼出自己的一套。<b>技术:</b>更准确的定位是：一个产品接口、一个训练方法论，不互斥——可以用 Toolformer 的思路训练基座，再以 Function Calling 的形式对外提供服务。主动点出"两层可以叠加"，是这题的加分位。</div></details>
+    <details class="qa"><summary class="qu">Q:模型生成的函数参数错了怎么办？</summary><div class="an"><b>人话:</b>会有错——模型本质是概率生成器，编参数是常态。所以要有三道防线：生成时锁格式、执行前做校验、出错喂回去重试。<b>类比:</b>和下发备份作业一个思路：任务单先过参数校验（目标库存在吗？保留策略合法吗？），非法就打回重写，绝不带着错参数跑上生产系统。<b>技术:</b>① 结构化解码：按 JSON Schema 约束采样过程，让输出天然合法（如 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2401.01895">Outlines</a> 这类约束解码框架）；② 运行时校验类型/范围/必填项，非法则把错误信息回填成一条消息，让模型生成修正后的调用；③ 有副作用的操作走两段式（预览 → 确认），并要求工具<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E5%B9%82%E7%AD%89">幂等</a>，防止"参数错但已执行"造成不可逆损失。</div></details>
+    <details class="qa"><summary class="qu">Q:Toolformer 为什么用"损失降低"当过滤信号，而不是全部保留？</summary><div class="an"><b>人话:</b>因为模型自己标的调用十有八九是瞎标的，全保留会把模型教坏；"插入后后文更好预测"是唯一不用人工、又能自动判断调用真有用的尺子。<b>类比:</b>像从告警风暴里筛真故障：见告警就建工单会把值班淹死，只保留"确认后真能解释后续系统表现"的那几条。<b>技术:</b>few-shot 采样会产生大量无意义或格式错误的候选（不需要计算的地方也硬标）；对比"带调用的损失 L+"与"去掉调用的损失 L-"，只有明显更低才保留——等价于无人工标注地筛出高质量工具使用样本，这正是论文的核心创新。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么模型只输出"要调用什么"，不自己把函数执行了？</summary><div class="an"><b>人话:</b>两个原因：能力上，模型只是个文本生成器，没有执行代码的通道；安全上，就算有通道也不该给——模型会幻觉，副作用必须攥在系统手里。<b>类比:</b>备份主服务器可以决定"删掉生产库"吗？不行——决策可以集中，执行必须过权限、过审计，由受控执行器落地。模型就是那个只出工单的调度器。<b>技术:</b>模型输出是概率文本，可能选错函数、编造参数；把它和业务系统隔离成两个信任域，中间用 schema 校验、权限控制、审计日志把守，是 Agent 系统的安全底线。"模型只决策、运行时执行"说的就是这条边界。</div></details>
+    <details class="qa"><summary class="qu">Q:Toolformer 训练完之后，还能随时增加新工具吗？</summary><div class="an"><b>人话:</b>白捡不了：要么重新走一遍"采样 → 执行 → 过滤 → 微调"，要么推理时用 few-shot 提示临时塞给它——后者就没有"内化"效果了。<b>类比:</b>固件里焊死的能力，升级得重新烧录；外挂磁带库换设备，改挂载配置就行。一个贵但下意识就会，一个便宜但每次都要现读说明书。<b>技术:</b>工具知识固化在权重里，动态增删是 Toolformer 路线的结构性短板；Function Calling 换一份 schema 当次请求即生效。所以工业产品主线是 Function Calling，Toolformer 思路更多活跃在"训练更自主的基座模型"的研究里。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>Function Calling</b>:模型输出结构化调用、由外部运行时执行的接口。</div>
-      <div class="term-item"><b>Toolformer</b>:自监督构造 API 调用样本并微调、让模型自学用工具的论文方法。</div>
-      <div class="term-item"><b>JSON Schema</b>:描述函数参数结构的声明式规范。</div>
-      <div class="term-item"><b>自监督信号</b>:用数据本身构造的监督，无需人工标注。</div>
-      <div class="term-item"><b>交叉熵损失</b>:衡量模型预测下一个 token 的难度。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function Calling</a></b>:推理期工具接口——模型输出结构化"调用工单"、由外部运行时执行，OpenAI 的官方文档是最标准的入门材料。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2302.04761">Toolformer</a></b>:Meta 2023 年论文方法，用自监督信号构造带 API 调用标注的语料再微调，让模型自己学会"何时调、怎么调"。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://json-schema.org/">JSON Schema</a></b>:声明式描述"数据结构长什么样"的规范，Function Calling 用它写工具清单、约束参数格式。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Self-supervised_learning">自监督学习</a></b>:不需要人工标注、从数据自身构造监督信号的学习方式，Toolformer 拿"调用后损失是否下降"当信号就是一例。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Cross_entropy">交叉熵损失</a></b>:量化"模型预测下一个 token 有多费劲"的数值，损失越低预测越准，Toolformer 拿它当过滤器。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Instruction_tuning">指令微调</a></b>:用"指令 → 期望回答"格式的样本继续训练模型，是商用模型 Function Calling 能力的厂商侧来源。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a></b>:让模型"思考一步、调一次工具、看一眼结果再决定下一步"的循环范式，是 Agent 工具循环的经典骨架。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E5%B9%82%E7%AD%89">幂等</a></b>:同一操作执行一次和执行多次结果相同，是工具调用"失败可重试"的设计前提。</div>
     </div>
   </div>
 </article>

@@ -1,74 +1,145 @@
 <article class="q" id="algo-005" data-topic="algo" data-title="避免工具调用参数格式错误:约束解码与后处理" data-difficulty="3" data-tags="工具调用,格式约束" data-company="字节(真题)" data-source="P5Q39" data-kw="工具调用 格式约束 约束解码 结构化输出 JSON Schema 后处理 函数调用 语法约束 算法岗 字节">
 
-  <div class="q-no">Agent核心 · Q39</div>
-  <h3>大模型生成工具调用时，如何避免参数格式错误？有哪些后处理或约束解码方法？</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐⭐</span>
-    <span class="tag">#工具调用</span><span class="tag">#格式约束</span>
-    <span class="company">字节(真题)</span>
-  </div>
+      <div class="q-no">Agent核心 · Q39</div>
+      <h3>大模型生成工具调用时，如何避免参数格式错误？有哪些后处理或约束解码方法？</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐</span>
+        <span class="tag">#工具调用</span><span class="tag">#格式约束</span>
+        <span class="company">字节(真题)</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"我的原则是<b>宁可在解码期约束,不要靠 prompt 祈祷</b>,分四层:① <b>结构化输出</b>——让模型直接吐 JSON,用 JSON Schema 限定字段和类型;② <b>约束解码</b>——把 JSON 语法编译成有限状态机,采样时只允许走合法分支的 token 进候选,<b>从概率上保证 100% 语法合法</b>;③ <b>后处理兜底</b>——解析失败时正则修复/回填重试,最多 N 次再降级;④ <b>协议层</b>——优先用原生 function calling,让模型按 Schema 填参而非手拼 JSON。工程上:能 function calling 就不手写,要极强保证就上约束解码,后处理只做最后一道兜底。"</p>
-  </div>
+      <div class="note"><b>先说人话:</b>Agent 调工具前,模型得先吐一段 JSON 描述「用哪个工具、传什么参数」——可它经常缺引号、编字段、类型填错,下游一解析就炸。这题问的就是怎么让参数永远合法。面试官爱考它,因为它一秒分清「只会写 prompt 的」和「懂解码层原理的」——答不出「约束解码是在采样时把非法 token 概率清零」的,基本暴露没碰过推理内核。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>像<b>填电子报销单</b>:与其让员工随便手写、会计反复退回(后处理重试),不如把表单做成<b>下拉框 + 必填校验 + 格式校验</b>(约束解码)——每个空只能填合法内容,一提交就基本不会错。<b>JSON Schema 是"表单模板"</b>,<b>约束解码是"只能选下拉框选项、日期必须按格式填"</b>,后处理是"提交前再扫一眼有没有漏填"。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"我的原则是<b>宁可在解码期约束,不要靠 prompt 祈祷</b>,四层防线层层加固:① <b>prompt + few-shot</b>——给格式说明和标准示例,只能提高正确概率,永远做不到保证;② <b>结构化输出 / function calling</b>——用 JSON Schema 把「默写题」变「填空题」,模型被专门训练过按 schema 填参,绝大多数场景够用,但本质仍是软约束;③ <b>约束解码</b>——把 JSON 语法编译成有限状态机,采样每一步只放行合法 token,非法 token 概率直接置零,<b>100% 语法合法是数学保证,不是概率承诺</b>,还能顺带禁止模型幻构出 Schema 外的工具名;④ <b>后处理兜底</b>——解析容错、schema 校验、报错回填让模型自修复,最多 N 次再降级。工程口诀:能 function calling 就不手拼 JSON,要硬保证就上约束解码,后处理永远留着当最后一道门。"</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 错误从哪来</b></p>
-    <ul>
-      <li>自由文本生成下,LLM 会犯:JSON 少引号/多逗号、幻构出<b>不存在的工具名</b>、参数类型不符(数字写成字符串)、漏必填字段、输出没说完就被截断。</li>
-      <li>根源:模型是"按概率吐 token",没有"语法"这个概念——所以要给它外加语法约束。</li>
-    </ul>
-    <p><b>2. 方法一:Prompt + Few-shot + 明确格式(最基础,不可靠)</b></p>
-    <ul>
-      <li>在 prompt 里给工具名、参数说明、几个标准 JSON 示例。</li>
-      <li>优点:零成本;缺点:<b>仍然可能出错</b>,模型越弱错得越多,不能作为唯一保障。</li>
-    </ul>
-    <p><b>3. 方法二:结构化输出 / Function calling(首选)</b></p>
-    <ul>
-      <li>用原生 <b>function calling</b> 或 <code>response_format={"type":"json_schema"}</code>,把参数写成 JSON Schema(字段、类型、枚举、必填)。</li>
-      <li>模型被训练/引导成按 schema 填参,大多数场景够用;缺点:仍是"软约束",极小概率仍会越界,且要服务端支持。</li>
-    </ul>
-    <p><b>4. 方法三:约束解码(Guided / Constrained Decoding,最强保证)</b></p>
-    <ul>
-      <li>原理:把目标格式(JSON Schema / 正则 / 上下文无关文法)编译成一个<b>有限状态机(FSM)</b>,在自回归采样的每一步,只把"能合法接下去的 token"放进候选集,非法 token 概率置零。</li>
-      <li>效果:<b>输出 100% 语法合法</b>,不需要事后修;还能顺带<b>禁止幻觉出 Schema 外的工具名/字段</b>。</li>
-      <li>代表实现:Outlines、Guidance、Jsonformer、llama.cpp 的 GBNF grammar、XGrammar/SGLang/vLLM 的结构化输出。</li>
-      <li>代价:解码状态机有少量额外开销,复杂 schema 下 token 选择可能略掉点质量(经验上影响很小)。</li>
-    </ul>
-    <p><b>5. 方法四:后处理与重试(兜底)</b></p>
-    <ul>
-      <li><b>解析容错</b>:正则修复缺引号/尾逗号;提取大括号内内容;截断则补全。</li>
-      <li><b>Schema 校验</b>:拿 JSON Schema 校验器(jsonschema/pydantic)验字段和类型。</li>
-      <li><b>自修复重试</b>:把报错信息回填给模型让它改,最多 N 次(如 2 次),还失败就走降级(反问用户/跳过工具)。</li>
-    </ul>
-    <p><b>6. 方案对比</b></p>
-    <table>
-      <tr><th>方法</th><th>语法保证</th><th>延迟</th><th>实现成本</th><th>适用</th></tr>
-      <tr><td>Prompt+few-shot</td><td>无</td><td>无</td><td>低</td><td>起步/演示</td></tr>
-      <tr><td>Function calling</td><td>软约束(强)</td><td>基本无</td><td>低</td><td><b>绝大多数场景</b></td></tr>
-      <tr><td>约束解码</td><td>硬保证 100%</td><td>略增</td><td>中</td><td>强格式要求/弱模型</td></tr>
-      <tr><td>后处理+重试</td><td>事后补救</td><td>失败时增加</td><td>低</td><td>所有方案的兜底</td></tr>
-    </table>
-  </div>
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>先搞懂模型为什么会写错 JSON(用备份系统的写路径想)</b>:LLM 不是「查接口文档然后填表」的程序,它是<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E8%87%AA%E5%9B%9E%E5%BD%92%E6%A8%A1%E5%9E%8B">自回归</a>地逐 token 采样——每吐一个 token 都是掷一次骰子,骰子的面就是词表,<b>全程没有任何环节检查「到目前为止这条 JSON 还合不合法」</b>。这就像一条没有写路径校验的存储链路:坏数据静默落盘,等下游应用 parse 炸了才发现,而那时数据早就写完了。更麻烦的是错误率会<b>连乘</b>:一条 100 token 的 JSON,就算每个 token 都有 99% 正确,整条全对的概率只剩 0.99 的 100 次方,约 37%——跟条带化存储一个道理,任何一坏全盘皆坏。所以「模型大体靠谱」不等于「输出大体能用」,光在 prompt 里写「请务必输出合法 JSON」是跟概率讲道理。</p>
+        <p><b>四层方案像数据保护的分层校验</b>:prompt + few-shot 相当于运维文档里写「请认真填写」——纯口头约定,提高认真程度但没有强制力;<b>function calling</b> 相当于客户端 SDK 按模板填表、提交前本地校验——绝大多数错误被拦住,但客户端自己仍可能手抖;<b>约束解码</b> 相当于存储系统在<b>写路径上</b>强制校验,非法数据物理上就写不进去——硬保证;<b>后处理</b> 相当于事后的 scrub 校验加修复重试——最后一道兜底。<b>哪里像</b>:都是纵深防御,防线越前移保证越强、改动越深。<b>哪里不像</b>:传统校验只是「拦下坏数据」,不改变数据本身;约束解码是直接<b>改概率分布</b>——把模型本来想吐的非法 token 清零、强制它换一个。所以约束解码多了一个传统校验没有的新变量:可能影响内容质量(这个坑后面追问专门展开)。</p>
+      </div>
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:约束解码会不会拖慢生成或掉效果?</summary><div class="an">状态机每步只过滤 token,额外开销很小(通常个位数百分比延迟);质量上,语法约束把搜索空间收窄,经验上对格式类任务基本无损,反而因为"不犯错"整体成功率更高。真正要注意的是 schema 太复杂(深层嵌套)时状态机本身构建开销。</div></details>
-    <details class="qa"><summary class="qu">Q:参数枚举值很多、或字段值是开放文本,怎么约束?</summary><div class="an">枚举值少用 enum 硬约束;枚举值多(如城市列表)用 <code>anyOf</code>/正则 + 后校验兜底;开放文本字段只约束"是字符串",语义正确性交给后续业务校验和重试。</div></details>
-    <details class="qa"><summary class="qu">Q:模型返回了合法 JSON,但参数值语义错了(时间戳写错)怎么办?</summary><div class="an">格式正确 ≠ 语义正确。加第二道<b>业务校验</b>:类型/范围/枚举/依赖关系(如"开始时间早于结束时间"),校验不过就把报错回填让模型自我修正;写操作再做一次"预览确认"。</div></details>
-    <details class="qa"><summary class="qu">Q:模型不支持 function calling 时怎么办?</summary><div class="an">退到 ReAct 文本协议 + 约束解码:定义固定文本格式(如 <code>&lt;tool&gt;name|json&lt;/tool&gt;</code>)并用 grammar 约束,解析端用同一套 schema 校验;或外面套一层把文本协议翻译成 function calling 的适配层。</div></details>
-  </div>
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 错误从哪来</b></p>
+        <p>动手之前先给错误分型——和排查备份作业失败先收集错误码样本是同一个职业习惯。自由文本生成下,LLM 的格式错误基本就五类:</p>
+        <ul>
+          <li><b>括号引号类</b>:JSON 少引号、多逗号、尾逗号,甚至把中文引号「"」混进来。</li>
+          <li><b>幻构类</b>:编造出<b>不存在的工具名</b>或字段名——模型「觉得应该有这个功能」。</li>
+          <li><b>类型类</b>:数字 30 写成字符串 "30"、布尔 true 写成 "true"。</li>
+          <li><b>缺漏类</b>:漏掉必填字段。</li>
+          <li><b>截断类</b>:max_tokens 用完,JSON 吐到一半戛然而止——这种 parse 必炸。</li>
+        </ul>
+        <p>根源一句话:<b>模型是「按概率吐 token」,没有「语法」这个内置概念</b>,语法必须从外面加给它。看一段自由生成时每一步真实发生的事:</p>
+        <pre class="code">自由生成(无约束):每个 token 都是一次概率采样,没有"语法警察"
+  已生成: {"tool": "create_backup", "retention_days": 
+  下一个 token 采样 →  "30"    ✓  (p=0.85)
+                      "thirty" ✗ 类型错! (p=0.05, 照样可能被抽中)
+                      "'30'"   ✗ 字符串陷阱 (p=0.04)
+  没有约束时,p=0.05 的错误分支迟早会被踩中 —— 不是会不会,是几点钟</pre>
+        <p>结论:对付概率性的错误源,要么<b>改概率分布</b>(约束解码),要么<b>事后修</b>(后处理),要么两头都做。</p>
+        <p><b>2. 方法一:Prompt + Few-shot + 明确格式(最基础,不可靠)</b></p>
+        <ul>
+          <li>做法:在 prompt 里给工具名、参数说明、几个标准 <a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/JSON">JSON</a> 示例。</li>
+          <li>它只能把正确分支的概率从 0.95 抬到 0.99,<b>永远抬不到 1.0</b>;模型越弱、schema 越复杂,错误率越高。</li>
+          <li>定位:原型和演示够用,生产环境不能作为唯一保障。</li>
+        </ul>
+        <p><b>3. 方法二:结构化输出 / Function calling(首选)</b></p>
+        <p>这是多数人该用的档位。用原生 <a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">function calling</a> 或 <code>response_format={"type":"json_schema"}</code>,把参数写成 <a target="_blank" rel="noopener" href="https://json-schema.org/">JSON Schema</a>(字段、类型、枚举、必填)。关键区别:模型在训练阶段就见过海量「按 schema 填参」的样本,你注册的不是一段自然语言描述,而是一张<b>结构化填空题的答题卡</b>——等价于接口定义里的 IDL:</p>
+        <pre class="code">工具注册时声明 schema(等价于接口的 IDL,像 protobuf 定义):
+{
+  "name": "create_backup",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "job_name":       {"type": "string"},
+      "retention_days": {"type": "integer", "minimum": 1},
+      "level":          {"enum": ["full", "incremental", "differential"]}
+    },
+    "required": ["job_name", "retention_days", "level"]
+  }
+}
+模型面对的是"填空题"而不是"默写题" —— 但仍是软约束,极小概率仍会越界</pre>
+        <ul>
+          <li>优点:零额外基建、大多数场景够用、服务端原生支持。</li>
+          <li>缺点:引导发生在<b>概率层面</b>(训练出来的倾向),不是解码层面的强制——所以叫软约束;且依赖服务端支持。</li>
+        </ul>
+        <p><b>4. 方法三:约束解码(Guided / Constrained Decoding,最强保证)</b></p>
+        <p>这是本题的技术核心。原理四步走:</p>
+        <ul>
+          <li>① 把目标格式(JSON Schema / <a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E6%AD%A3%E5%88%99%E8%A1%A8%E8%BE%BE%E5%BC%8F">正则</a> / <a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E4%B8%8A%E4%B8%8B%E6%96%87%E6%97%A0%E5%85%B3%E6%96%87%E6%B3%95">上下文无关文法</a>)编译成一个<b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E6%9C%89%E9%99%90%E7%8A%B6%E6%80%81%E6%9C%BA">有限状态机(FSM)</a></b>——和你做协议解析时写的状态机是同一种东西:当前状态 + 下一个输入 → 唯一确定的下一个状态。</li>
+          <li>② 自回归采样的每一步,先看 FSM 当前在哪个状态,算出所有「能合法接下去的字符前缀」。</li>
+          <li>③ 对照模型词表,把<b>非法 token 的 logit 置为负无穷</b>——概率直接归零。</li>
+          <li>④ 采样只在合法候选集里进行。非法路径从「低概率」变成「概率为 0」,物理上不可能被生成。</li>
+        </ul>
+        <pre class="code">约束解码:给采样过程装一个"语法警察"(FSM)
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>结构化输出</b>:让模型输出符合 schema 的 JSON。</div>
-      <div class="term-item"><b>JSON Schema</b>:描述字段/类型/必填/枚举的结构规范。</div>
-      <div class="term-item"><b>约束解码</b>:采样时用语法 FSM 限制候选 token。</div>
-      <div class="term-item"><b>FSM</b>:有限状态机,语法约束的核心数据结构。</div>
-      <div class="term-item"><b>自修复</b>:把解析报错回填让模型改参数。</div>
-    </div>
-  </div>
+schema: {"tool": string, "retention_days": number}   ↓ 编译
+有限状态机(简化):
+  S0 ──'{'──→ S1 ──'"'──→ S2(读 key) ── … ──→ S4(读 value)
+              │
+              └─ 此刻在 S1,只有 '"' 和 '}' 是合法的下一步
+
+解码每一步(模型先照常打分,FSM 再做 mask):
+  模型 logits:  '{': 0.1    '"': 8.2    'tool': 3.1    '}': -2.0
+                  非法        合法        非法           合法
+  mask 之后:    非法 token 概率 = 0,采样只能在 '"' 和 '}' 里挑
+  → 100% 语法合法是数学保证;schema 里没有的字段名,根本进不了候选集</pre>
+        <ul>
+          <li><b>效果</b>:输出 100% 语法合法,不需要事后修;还能顺带<b>禁止幻觉出 Schema 外的工具名/字段</b>——不在 schema 里的东西连候选资格都没有。</li>
+          <li><b>代表实现</b>:<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2307.09702">Outlines</a>、<a target="_blank" rel="noopener" href="https://github.com/guidance-ai/guidance">Guidance</a>、<a target="_blank" rel="noopener" href="https://github.com/1rgs/jsonformer">Jsonformer</a>、llama.cpp 的 <a target="_blank" rel="noopener" href="https://github.com/ggml-org/llama.cpp/blob/master/grammars/README.md">GBNF grammar</a>、<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2411.15100">XGrammar</a>/SGLang/vLLM 的结构化输出。</li>
+          <li><b>代价</b>:① schema → FSM 有编译开销,深层嵌套的复杂 schema 尤其明显(XGrammar 的主要优化点);② 每步 mask 有少量运行时开销;③ 语法约束收窄搜索空间,复杂 schema 下 token 选择可能略掉点内容质量(经验上影响很小,追问里细说)。</li>
+          <li><b>一个真碰过才会知道的坑</b>:FSM 描述的是<b>字符</b>层面的语法,采样发生在<b>token</b> 层面——一个字符可能被拆成多个 token,两层粒度对不齐,需要一次「词表级编译」才能做准确 mask(追问里展开)。</li>
+        </ul>
+        <p><b>5. 方法四:后处理与重试(兜底)</b></p>
+        <p>无论前面用了哪层,后处理都该留着——纵深防御。三道工序:</p>
+        <ul>
+          <li><b>解析容错</b>:正则修复缺引号/尾逗号;从回复里「捞」出大括号内内容(模型爱在 JSON 前后加「好的,以下是调用:」这种废话);截断则补全括号。</li>
+          <li><b>Schema 校验</b>:拿 <a target="_blank" rel="noopener" href="https://python-jsonschema.readthedocs.io/">jsonschema</a> 或 <a target="_blank" rel="noopener" href="https://docs.pydantic.dev/">pydantic</a> 校验字段和类型——pydantic 还能顺手把数据转成带类型的 Python 对象,下游代码直接用,不用再 dict 取值到处判空。</li>
+          <li><b>自修复重试</b>:把结构化报错回填给模型(「retention_days 应为 integer,你给的是 "30"」)让它改,最多 N 次(建议 2 次),还失败就降级——反问用户、跳过工具、走无工具路径。这和备份作业失败把 error code 回填调度器重排是同一个模式:<b>重试要有上限,到了就告警降级,不能无限重试打爆资源</b>。</li>
+        </ul>
+        <pre class="code">后处理流水线(所有方案的最后一道门):
+  模型输出 → JSON.parse ─ 成功 → schema 校验 ─ 通过 → 执行工具
+              │ 失败                       │ 不通过
+              ↓                            ↓
+         正则修复(补引号/去尾逗号/截断补全)   结构化报错回填模型
+              │ 仍失败                      │ 重新生成(≤2 次)
+              ↓                            │ 仍失败
+         报错也回填 → 重试 …————————→ 降级:反问用户 / 跳过工具 / 换简单路径</pre>
+        <p><b>6. 方案对比</b></p>
+        <table>
+          <tr><th>方法</th><th>语法保证</th><th>延迟</th><th>实现成本</th><th>防线位置</th><th>适用</th></tr>
+          <tr><td>Prompt+few-shot</td><td>无</td><td>无</td><td>低</td><td>口头约定</td><td>起步/演示</td></tr>
+          <tr><td>Function calling</td><td>软约束(强)</td><td>基本无</td><td>低</td><td>客户端校验</td><td><b>绝大多数场景</b></td></tr>
+          <tr><td>约束解码</td><td>硬保证 100%</td><td>略增</td><td>中</td><td>写路径硬校验</td><td>强格式要求/弱模型</td></tr>
+          <tr><td>后处理+重试</td><td>事后补救</td><td>失败时增加</td><td>低</td><td>读路径修复</td><td>所有方案的兜底</td></tr>
+        </table>
+        <p>选型决策从上往下走,遇到第一个满足的就用:</p>
+        <pre class="code">服务端支持 function calling? ─ 是 → 用它,外面套一层后处理校验兜底
+                              └ 否 → 模型自部署?
+                                     ├ 是 → 约束解码(Outlines/XGrammar)+ 校验
+                                     └ 否 → prompt+few-shot + 强后处理
+另:模型弱 / 格式错误代价极高(参数会触发写操作) → 无论哪档,直接上约束解码</pre>
+        <p><b>能讲出「约束解码是把校验从读路径前移到写路径——在采样那一刻就把非法 token 的概率清零」这句话,面试官就知道你懂原理,而不是背了几个框架名。</b></p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:约束解码会不会拖慢生成或掉效果?</summary><div class="an"><b>人话:</b>有开销但很小,真正的坑不在每步 mask,而在 schema 复杂时的编译成本。<b>类比:</b>像 RAID 校验的写惩罚——多花几个百分点开销,换来 100% 数据保证,这买卖划算;但小文件场景下元数据开销反超数据本身,深层嵌套 schema 就是那个「小文件」。<b>技术:</b>每步 mask 是在 logits 上做一次掩码,GPU 上开销通常个位数百分比;编译开销靠摊销解决——schema 编译一次进程内复用(XGrammar 把编译做到毫秒级)。质量上,收窄搜索空间理论上可能逼模型放弃更想吐的词,经验上格式类任务基本无损,反而因为不返工、不重试,整体成功率更高。</div></details>
+        <details class="qa"><summary class="qu">Q:参数枚举值很多、或字段值是开放文本,怎么约束?</summary><div class="an"><b>人话:</b>硬约束用在值域小的地方,值域一大就退化成「类型约束 + 事后校验」,别硬撑。<b>类比:</b>校验也要分级——核心库每次全量校验,边缘库定期抽检,一个道理:校验成本要和对象规模匹配。<b>技术:</b>枚举值少(备份级别 full/incremental)直接进 schema 的 enum,FSM 硬保证;枚举值多(全国城市列表几万项)会造成 FSM 状态爆炸,改用 <code>anyOf</code>/正则做粗约束 + 后置校验兜底;开放文本字段(如任务描述)只约束「是合法 JSON 字符串」,语义正确性交给业务校验和重试——语法层管不了内容层的事。</div></details>
+        <details class="qa"><summary class="qu">Q:模型返回了合法 JSON,但参数值语义错了(时间戳写错)怎么办?</summary><div class="an"><b>人话:</b>格式正确 ≠ 语义正确,这是两道关卡,约束解码只管第一道。<b>类比:</b>备份 catalog 格式完全能 parse,但里面记录的时间戳指向错误版本——数据完好性和数据正确性从来是两回事,checksum 挡不住「写错了的正确数据」。<b>技术:</b>加第二道<b>业务校验</b>:类型/范围/枚举/跨字段依赖(开始时间必须早于结束时间)/存在性(工具名在注册表里);校验不过就把结构化报错回填让模型自我修正;破坏性写操作(删除、覆盖)再垫一层「预览确认」,等价于删卷之前先 dry-run。</div></details>
+        <details class="qa"><summary class="qu">Q:模型不支持 function calling 时怎么办?</summary><div class="an"><b>人话:</b>退回「固定文本协议 + 语法约束」,格式自己定义,保证手段不换。<b>类比:</b>老设备不支持新协议,就在外面套一层协议转换网关——协议变土了,校验强度不打折。<b>技术:</b>用 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a> 风格的文本协议,如 <code>&lt;tool&gt;name|json&lt;/tool&gt;</code>,用 grammar 把这个外层格式也约束住;解析端用同一套 JSON Schema 校验,保证「生成端和解析端看的是同一张合同」;或者外面套适配层,把文本协议翻译成标准 function calling 调用,对上层透明。</div></details>
+        <details class="qa"><summary class="qu">Q:FSM 管的是字符,模型吐的是 token,粒度对不齐怎么办?</summary><div class="an"><b>人话:</b>这是约束解码最隐蔽的坑:schema 描述的是字符流,采样发生在 token 层,必须先做一次「对齐编译」。<b>类比:</b>文件系统的逻辑块和磁盘物理扇区大小不一致,写路径就必须做块对齐映射——两层粒度不对齐,校验就会漏。<b>技术:</b>把字符级 FSM 在具体模型的词表上展开成 token 级转移表:每步查「哪些 token 的整段字符前缀在当前状态下都合法」,只有这些能进候选。朴素展开会得到一张巨大的表,Outlines/GBNF 早期实现为此较慢;XGrammar 用上下文相关的规则折叠把表压小,编译快了几个数量级。能主动讲出这层,说明你真读过推理内核。</div></details>
+        <details class="qa"><summary class="qu">Q:Agent 每轮的工具列表都在变,FSM 反复重编译会不会成瓶颈?</summary><div class="an"><b>人话:</b>别每轮现场编译,要缓存编译产物,变了的部分做增量。<b>类比:</b>数据库不会每条 SQL 都重新解析优化,有 plan cache——schema 的编译产物同样应该缓存复用,这属于同一类「重活干一次」的工程直觉。<b>技术:</b>工具集合稳定的场景,FSM 按工具粒度编译并缓存,拼装时复用;增删工具用增量编译(XGrammar 支持共享上下文,只重编变化部分);极端动态、schema 每轮都大变的场景,退回 function calling + 后处理——约束编译的开销摊不薄时,硬保证就不划算了,按 ROI 换档。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/structured-outputs">结构化输出</a></b>:让模型输出严格符合 schema 的 JSON,把「默写题」变「填空题」的第一步。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://json-schema.org/">JSON Schema</a></b>:描述字段/类型/必填/枚举的结构规范,等于给模型发的答题卡模板。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2307.09702">约束解码</a></b>:采样时用语法 FSM 限制候选 token,非法 token 概率清零——写路径上的硬校验。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E6%9C%89%E9%99%90%E7%8A%B6%E6%80%81%E6%9C%BA">FSM</a></b>:有限状态机,语法约束的核心数据结构,和协议解析器的状态机同宗同源。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function calling</a></b>:模型原生按注册的工具 schema 填参的机制,软约束但工程首选。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2411.15100">XGrammar</a></b>:把 schema 编译成高效 token 级转移表的引擎,SGLang/vLLM 结构化输出的底座。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2304.05128">自修复</a></b>:把解析报错回填给模型让它改参数,相当于失败作业带 error code 重新入队。</div>
+        </div>
+      </div>
 </article>
