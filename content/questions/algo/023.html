@@ -8,21 +8,49 @@
     <span class="company">无公司</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题问的是：你训练分类器时天天写的那行 loss = cross_entropy，数学上到底在优化什么。面试官爱考它，因为它是「背公式的」和「懂来路的」的分水岭——推不到极大似然估计那一层，暴露的就是只会调参数、不知道损失函数从哪来；而「标签平滑之后等号还成立吗」这类追问，专杀死记结论的人。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"交叉熵损失和负对数似然在分类任务里是<b>同一个东西</b>。NLL = −log y_true,只取真实类别概率的负对数;交叉熵 CE = −Σ tᵢ·log yᵢ,当标签是 one-hot 时,求和里只有真实类那一项非零,所以 <b>CE = NLL,严格相等</b>。两者的本质都是极大似然估计(MLE):最小化 NLL/CE 等价于最大化模型在数据上的似然。"</p>
+    <p>"在分类任务里，交叉熵和负对数似然是<b>同一个东西的两个名字</b>。NLL 只看模型给真实类别开出的概率，取负对数；CE 对所有类别加权求和，但 one-hot 标签下只有真实类权重是 1、其余全是 0，求和自动塌缩成一项，于是 <b>CE = NLL，严格相等</b>。再挖一层根：两者都是<b>极大似然估计(MLE)</b>——最小化损失等价于最大化模型在训练数据上的似然。取 log 是把连乘压成连加(防下溢、好求导、可拆分)，取负是把『最大化』翻译成优化器听得懂的『最小化』。标签一旦软化(标签平滑、蒸馏)，等号失效——这是隐藏考点。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>想象你在猜骰子:模型对每个面给一个概率,真实结果是"3 点"。负对数似然说:<b>"我只关心模型给 3 点那个面的概率,越低我罚得越重"</b>。交叉熵说:"我把真实分布(3 点是 100%、其他面 0%)和模型预测分布逐面对比"。因为真实分布只有 3 点那一面是 1、其余全是 0,逐面对比下来,最后也只剩 3 点那一项在起作用——所以两者算出来的数一模一样。</p>
+    <p><b>先搞懂 MLE(用备份日志想)</b>：假设你接手一套陌生的备份系统，能看到的只有每晚的作业日志。模型参数就像系统的「隐藏配置」，<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Likelihood_function">似然</a>就是「在这套配置下，这批日志恰好被观测到的概率」;<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/极大似然估计">极大似然估计</a>就是挑那套最能解释现有日志的配置——配置声称失败率 50%，可日志连着 30 天全绿，这套配置的似然就低得可疑。<b>哪里像</b>：都是「给定观测，反推最合理的参数」。<b>哪里不像</b>：备份配置是几个离散开关，选定后真去改系统；MLE 是在连续参数空间里做梯度搜索，只调数字不动机器。</p>
+    <p><b>为什么取对数(用对账和数量级想)</b>：概率连乘会下溢——每条样本贡献一个小于 1 的概率，一万条样本连乘，双精度浮点直接归零；取 log 把「连乘」变「连加」，就像把跨越 9 个数量级的备份容量画到对数坐标轴上，0.5¹⁰⁰⁰⁰ 这种天文数字立刻变成能心算的 −6931。<b>CE 与 NLL 像全量校验与增量校验</b>：CE 把预测分布和真实分布逐类对账(全量)，NLL 只读真实标签那一行(增量)；one-hot 标签意味着账本上只有一行非零，所以全量对完的总额必然等于那一行——两个数字一样，不是巧合，是 one-hot 白送的。<b>哪里不像</b>：增量备份靠变更块元数据才敢跳过未变数据；CE 的塌缩不靠任何元数据，纯粹因为 0 乘任何数都是 0，数学上免检。</p>
+    <p><b>罚金曲线为什么长这样(用重罚误报想)</b>：NLL 的形状是 −log y， y 趋近 1 时代价趋近 0,y 趋近 0 时代价趋向无穷。这就像容灾演练的扣分规则：方案声称「几乎必成」(给真实标签开出 0.99 的概率)结果失败，扣分惨重；方案一开始就老实承认「只有三成把握」(开出 0.3),失败也罚得轻。模型想少交罚金，唯一出路是把概率往真实标签上集中——训练压力的方向，就是被这条曲线的形状「逼」出来的。MSE 的罚是一条抛物线，对「自信地错」和「不自信地错」惩罚力度差不多，逼不出这种「敢认错、肯改口」的行为，追问区详细对比。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 两个定义</b></p>
+    <p><b>第 1 步：把两个名字摆正</b></p>
+    <p>先交代背景，防止符号悬空。分类任务里，模型读入一条样本 x，输出一个 K 维概率分布 y = (y₁, …, y_K)，表示它认为 x 属于每个类别的概率；训练集给的是标签，比如「这是第 3 类」。损失函数就是给这个预测「开罚单」的规则——罚得越准、越狠，模型改得越快。</p>
     <ul>
-      <li><b>交叉熵</b>:CE(p, q) = −Σ p(x)·log q(x),p 是真实分布,q 是模型预测分布。</li>
-      <li><b>负对数似然(NLL)</b>:NLL = −log q(y|x),y 是真实标签,q(y|x) 是模型给该标签的概率。</li>
+      <li><b>交叉熵</b>(<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/交叉熵">Cross-Entropy</a>):CE(t, y) = −Σᵢ tᵢ·log yᵢ,t 是真实分布，y 是模型预测分布。</li>
+      <li><b>负对数似然(NLL)</b>:NLL = −log q(y=c|x),c 是真实标签，q(y=c|x) 是模型给这个标签开出的概率。</li>
     </ul>
-    <p><b>2. 等价性推导</b></p>
+    <table>
+      <tr><th>名字</th><th>公式</th><th>一句话直觉</th><th>关系</th></tr>
+      <tr><td>交叉熵 CE</td><td>−Σᵢ tᵢ·log yᵢ</td><td>预测分布偏离真实分布的「平均惊讶度」</td><td>一般形式</td></tr>
+      <tr><td>负对数似然 NLL</td><td>−log y_c</td><td>模型对真实答案开价太低就重罚</td><td>CE 的 one-hot 特例</td></tr>
+    </table>
+    <p>两个公式的差别乍看只是「求和范围」：CE 把 K 个类别全算一遍按 tᵢ 加权，NLL 只挑真实类 c 那一项。框架文档里 PyTorch 的 <code>CrossEntropyLoss</code> 和 <code>NLLLoss</code> 是两个类，也不算重复造轮子——前者内置 softmax(吃原始 logits),后者要求你先自己跑 <code>log_softmax</code> 再喂进来。名字分两个、数学上一个，这正是面试考点所在。</p>
+    <p><b>第 2 步：为什么是「对数」和「负号」——两个纯工程动机</b></p>
+    <ul>
+      <li><b>取 log:连乘变连加</b>。整个数据集的似然是每条样本概率的连乘 L = Π q(xᵢ)。一万条样本、每条概率 0.5,连乘是 0.5¹⁰⁰⁰⁰ ≈ 10⁻³⁰¹⁰,而双精度浮点能表示的最小正数约 10⁻³⁰⁸——直接下溢成 0。取 log 后变加法：10000×log(0.5) = −6931,数值稳，而且每条样本独立算再加总，天然适合分布式拆分求和(和把日志计数摊给多节点算再汇总是一个道理)。log 还是单调函数，不挪动最大值的位置——山头没搬，只是刻度压扁了。</li>
+      <li><b>取负：把爬山翻译成挖坑</b>。MLE 要「最大化」似然，优化器只会「最小化」损失。乘个 −1,山头变坑底：argmax log L = argmin(−log L),一字不改地把统计目标翻译成了工程目标。</li>
+      <li><b>附带福利：求导也变简单</b>。log 把乘法链变成加法链，对参数 θ 求梯度时，log(Π q) 拆成 Σ log q,每项独立求导再相加——积的导数要套乘法法则展开成一大串，和的导数逐项处理即可。这也是为什么几乎所有概率模型的损失都长着「负对数」的模样。</li>
+    </ul>
+    <pre class="code">极大化似然 L = Π q(xᵢ)         ← 连乘、会下溢、要「最大化」
+   │ 取 log(单调，山头位置不动；连乘 → 连加)
+   ▼
+极大化 log L = Σ log q(xᵢ)     ← 数值稳、可拆分、好求导
+   │ 乘 −1(山头变坑底)
+   ▼
+极小化 NLL = −Σ log q(xᵢ)      ← 优化器听得懂的语言
+   │ one-hot 标签下 CE = NLL
+   ▼
+你代码里那行 loss = CrossEntropyLoss()   ← 本质就是 MLE</pre>
+    <p><b>第 3 步：等价性推导(one-hot 是那把折叠钥匙)</b></p>
+    <p>推导目标是：在「分类 + one-hot 标签」这个前提下，证明 CE 和 NLL 算出的是同一个数。手段只有一个——把 one-hot 的取值代进 CE 的求和里，看着它塌缩。</p>
     <pre class="code"><span class="c"># 设真实标签为 one-hot: t = (0,…,1,…,0), 真实类为 c, 即 t_c = 1</span>
 <span class="c"># 模型输出概率分布: y = (y₁,…,y_K), Σᵢ yᵢ = 1</span>
 
@@ -30,33 +58,62 @@
 负对数似然: NLL = − log P_θ(y=c | x) = − log y_c
 
 ∴ CE = NLL    (分类 + one-hot 标签下严格相等)</pre>
-    <p><b>3. 与极大似然估计(MLE)的关系</b></p>
+    <p>整个推导只有一个关键动作：tᵢ 是 one-hot,求和里所有 i≠c 的项都是「0 乘 log yᵢ = 0」,K 项折叠成 1 项。这就是「全量对账」和「增量校验」必然得出同一个数的原因——不是碰巧相等，是 one-hot 结构强制的。</p>
+    <p>注意一个容易踩的坑：这里「0 乘 log yᵢ = 0」默认按极限处理。如果某个 yᵢ 恰好精确等于 0,log 0 = −∞,严格说是 0·(−∞) 未定式；工程实现里 softmax 输出永远大于 0(指数函数的值域)，数值上不会真触雷，但面试时能主动提一句「按极限约定为 0」，是加分细节。</p>
+    <p>拿骰子做个数值体感：真实掷出 3 点，模型输出 y = (0.05, 0.05, 0.70, 0.05, 0.10, 0.05)——</p>
+    <pre class="code">CE  = −[1×log 0.70 + 0×(其余五项)] = 0.357
+NLL = −log 0.70                    = 0.357     ← 完全相等
+
+模型要是把 0.70 错报成 0.10:
+NLL = −log 0.10 = 2.303            ← 罚金翻了 6.5 倍
+概率越低，负对数罚得呈指数地狠——这是它「敢逼模型认错」的来源</pre>
+    <p>再补一个体感刻度，帮你在面试里报数不慌：模型给真实标签的概率为 1.0、0.9、0.5、0.1、0.01 时，NLL 分别约为 0、0.105、0.693、2.303、4.605。完全答对零罚金，概率每降一个量级，罚金大约翻 2.3(自然对数的底数换算)——惩罚是「按数量级指数加码」的，这就是负对数损失训出来的模型偏好高置信预测的原因。</p>
+    <p><b>第 4 步：接上 MLE——训练的统计学名字叫「参数估计」</b></p>
     <ul>
       <li>样本似然 L = Π q(xᵢ);对数似然 log L = Σ log q(xᵢ)。</li>
       <li>最大化 log-likelihood ⇔ 最小化 −Σ log q(xᵢ) ⇔ 最小化 NLL ⇔ 最小化 CE。</li>
-      <li>结论:用交叉熵训练分类器,本质就是在做<b>极大似然估计</b>。</li>
+      <li>结论：用交叉熵训练分类器，本质就是在做<b>极大似然估计</b>。loss 曲线每降一格，统计含义都是「这套参数让训练数据看起来更不意外了」。</li>
     </ul>
-    <p><b>4. 什么时候不再相等(边界)</b></p>
+    <p>这四步等价链是整道题的灵魂，建议面试时按「似然 → 取 log → 取负 → one-hot 塌缩」的顺序在白板上走一遍，每步一句话讲动机(下溢/单调、翻译给优化器、标签结构)，比直接甩结论有说服力得多。</p>
+    <p>工程彩蛋:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Softmax_function">softmax</a> + CE 这个组合还有个著名连招——损失对 logits 的梯度恰好是 <b>y − t</b>(预测减标签)，简洁、不饱和、数值稳。MSE 配 softmax 时会多出饱和因子，正是它被淘汰的原因之一，追问区展开。</p>
+    <p><b>第 5 步：再深一层——CE 其实是「熵 + KL」</b></p>
+    <p>信息论里(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Entropy_(information_theory)">熵</a>、<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence">KL 散度</a>)有一个恒等分解：CE(t, y) = H(t) + KL(t‖y)。KL(t‖y) 是预测分布偏离真实分布的方向性差距，训练真正想压的就是它；H(t) 是真实分布自身的熵，与模型参数无关，是个常数。one-hot 时 H(t) = 0(确定事件零惊讶)，于是 CE = KL = NLL,三个量合一。标签软化后 H(t) ≠ 0,但常数不影响 argmin——「最小化 CE 等价于让预测分布贴近真实分布」这句话的数学出处就在这里。信息论直译：交叉熵是「用为 q 调校的编码器去压来自 p 的数据，平均多付的比特数」。</p>
+    <p>这个分解还顺带回答了一个常见疑问：既然训练真正压的是 KL,为什么不直接用 KL 当损失？因为 KL(t‖y) = CE(t,y) − H(t),而 H(t) 与模型无关，两者梯度完全相同，argmin 相同——用哪个都行，CE 少算一项、实现更省，业界就统一写了 CE。能答出这一句，说明你不是背公式而是真理解「常数项不影响优化」。</p>
+    <p><b>第 6 步：什么时候不再相等(边界)</b></p>
     <ul>
-      <li>标签非 one-hot(标签平滑、软标签、知识蒸馏)时,CE = −Σ tᵢ·log yᵢ 仍成立,但<b>不能再简化</b>成单个 −log y_c,此时 CE 是软标签下的期望 NLL。</li>
-      <li>二分类特例:BCE = −[ t·log y + (1−t)·log(1−y) ]。</li>
-      <li>严格说,NLL 是 CE 在 one-hot 标签下的特例;CE 是更一般的定义。</li>
+      <li><b>标签非 one-hot</b>(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/1906.02629">标签平滑</a>、软标签、<a target="_blank" rel="noopener" href="https://arxiv.org/abs/1503.02531">知识蒸馏</a>)时，CE = −Σ tᵢ·log yᵢ 仍成立，但<b>不能再简化</b>成单个 −log y_c,此时 CE 是软标签下的期望 NLL。</li>
+      <li><b>二分类特例</b>:BCE = −[ t·log y + (1−t)·log(1−y) ],是 Bernoulli 版本的 NLL。</li>
+      <li>严格说，NLL 是 CE 在 one-hot 标签下的特例；CE 是更一般的定义。</li>
     </ul>
+    <table>
+      <tr><th>场景</th><th>标签形态</th><th>该用什么</th><th>CE 与 NLL 的关系</th></tr>
+      <tr><td>单标签分类(典型训练)</td><td>one-hot</td><td>softmax + CE</td><td>严格相等</td></tr>
+      <tr><td>标签平滑 / 蒸馏</td><td>软分布</td><td>CE(软标签版)</td><td>CE = 期望 NLL,塌缩失效</td></tr>
+      <tr><td>二分类</td><td>t ∈ {0,1}</td><td>sigmoid + BCE</td><td>BCE 是 Bernoulli NLL</td></tr>
+      <tr><td>多标签</td><td>多个 1</td><td>sigmoid + 逐类 BCE 求和</td><td>softmax 互斥假设不成立，别用</td></tr>
+    </table>
+    <p>面试收尾建议：主动把边界讲出来(「等号只在 one-hot 下成立，标签平滑、蒸馏、软标签都会破坏塌缩」)，等于替面试官把追问的路堵了一半——他要么顺着你的边界往深挖(说明你引导成功)，要么换个话题(说明这块你已经过关)。</p>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:为什么分类不用 MSE,而用交叉熵?</summary><div class="an">两层原因:① 交叉熵配 softmax 梯度为 y−t,简洁且不饱和;MSE 配 softmax 会多出 y(1−y) 因子,输出接近 0/1 时梯度消失、学得慢。② 概率视角下 MSE 假设误差服从高斯分布,而分类标签是类别分布,交叉熵才是与 Bernoulli/Categorical 分布匹配的 MLE 目标。</div></details>
-    <details class="qa"><summary class="qu">Q:用了标签平滑之后,CE 和 NLL 还相等吗?</summary><div class="an">不等。标签平滑把 t 从 one-hot 改成 t_c = 1−ε、其余 ε/(K−1),此时 CE = −Σ tᵢ·log yᵢ 是软标签下的期望,无法再简化成单个 −log y_c。这正好说明 NLL(单点形式)只是 CE 在 one-hot 下的特例,CE 更一般。</div></details>
-    <details class="qa"><summary class="qu">Q:多标签分类(一条样本多个标签)能用 softmax+CE 吗?</summary><div class="an">不能直接。softmax 假设标签互斥(总和为 1 的单标签),多标签场景应改用 <b>sigmoid + BCE</b>:每个标签独立做二分类,损失为各标签 BCE 之和。这道题常用来测候选人是否理解损失函数背后的"分布假设"。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么分类不用 MSE,而用交叉熵？</summary><div class="an"><b>人话:</b>两个原因：训练信号差 + 概率假设错位。MSE 是给回归设计的，拿它管类别，既学得慢，又答非所问。<b>类比:</b>用「备份大小差多少 MB」衡量两份备份没问题，但拿它衡量「全量/增量/差异」三种策略选错了哪个就毫无意义——策略是类别，类别之间没有数值距离，「全量」不是「差量」的两倍。<b>技术:</b>① CE 配 softmax,梯度恰好是 y − t,干净不饱和；MSE 配 softmax,梯度多出 yᵢ(1−yᵢ) 一类饱和因子，预测一旦接近 0/1 梯度就趋 0,越到关键处越学不动；② MLE 视角：MSE 隐含<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/正态分布">高斯噪声</a>假设(适合回归)，分类标签服从 Categorical 分布，与之匹配的负对数似然正是 CE——用错损失等于用错分布假设。</div></details>
+    <details class="qa"><summary class="qu">Q:用了标签平滑之后，CE 和 NLL 还相等吗？</summary><div class="an"><b>人话:</b>不等。平滑之后「账本」上不止一行非零，「只读一行」的塌缩动作就失效了。<b>类比:</b>原来数据只有一份主副本有效，增量校验只看它就行；标签平滑相当于宣告「数据九成在主副本、一成摊在其他 K−1 个副本上」，校验就必须每个副本按权重过一遍，再不能只盯主副本。<b>技术:</b>平滑后 t_c = 1−ε+ε/K、其余 tᵢ = ε/K,CE = −Σ tᵢ·log yᵢ 是软标签下的期望，无法化简成单个 −log y_c。这正好反向印证主结论：NLL 只是 CE 的 one-hot 特例；知识蒸馏拿 teacher 的软分布当 t,同理分家。</div></details>
+    <details class="qa"><summary class="qu">Q:多标签分类(一条样本多个标签)能用 softmax+CE 吗？</summary><div class="an"><b>人话:</b>不能直接用。softmax 强制 K 个类别瓜分总和为 1 的概率预算，而多标签下「既是文档类又是 2023 年的」完全可以同时成立，预算根本不够分。<b>类比:</b>softmax 像一块固定容量的存储池硬塞给多个互斥卷——多挂一个卷就必须从别的卷抢容量；多标签的正确建模是每个卷配独立的池，各管各的水位。<b>技术:</b>多标签 = K 个独立 Bernoulli 判定，每个类别用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Sigmoid_function">sigmoid</a> 独立输出概率，损失是逐标签 BCE 之和，BCE = −[t·log y+(1−t)·log(1−y)]。这道追问真正考的是：你知不知道每个损失函数背后都藏着一条分布假设。</div></details>
+    <details class="qa"><summary class="qu">Q:交叉熵这个名字和信息论什么关系？和 KL 散度呢？</summary><div class="an"><b>人话:</b>交叉熵衡量「用一套为预测分布调校的编码方案，去编码来自真实分布的数据，平均要多付多少比特」——多付得越多，说明预测越没摸清真实。<b>类比:</b>像拿按 A 业务流量特征调优的压缩字典去压 B 业务的数据：字典和数据错配，压缩比必然变差，多出来的冗余就是错配的账单。<b>哪里像</b>:都是「编码器与数据分布错配的代价」。<b>哪里不像</b>:压缩比是工程近似，交叉熵是精确的信息论量，可分解可推导。<b>技术:</b>CE(p,q) = H(p) + KL(p‖q)。one-hot 时 H(t)=0,CE 直接等于 KL(t‖y);标签软化后 H(t) 是与参数无关的常数，不影响 argmin,所以最小化 CE 永远等价于压小 KL——「训练就是让预测分布贴近真实分布」的数学出处就在这。</div></details>
+    <details class="qa"><summary class="qu">Q:既然两者相等，为什么深度学习框架里 CrossEntropyLoss 和 NLLLoss 是两个不同的类？</summary><div class="an"><b>人话:</b>数学上相等，但接口约定不同——一个替你做了概率归一化，一个要求你自己先做好再喂进来。<b>类比:</b>像备份工具的「一键全量」和「手动指定源与策略再执行」：产物一样，但一个把参数打包固定，一个要求调用方自己把前置条件摆平；用错接口，传进去的数据形态不对，跑出来的数就完全不对。<b>技术:</b>PyTorch 的 <code>nn.CrossEntropyLoss</code> 内置 log-softmax,输入是<b>原始 logits</b>;<code>nn.NLLLoss</code> 不做归一化，输入要求是<b>已经 log_softmax 过的对数概率</b>。给 NLLLoss 直接喂 logits,等于跳过了概率化这一步，损失值和梯度全错，而且这种错不会报异常——数值上「看起来还在训练」，属于最隐蔽的一类工程 bug。</div></details>
+    <details class="qa"><summary class="qu">Q:训练早期 loss 突然变得很大甚至 NaN,和交叉熵的数值实现有什么关系？</summary><div class="an"><b>人话:</b>CE 里那个 log 是数值上的薄弱点：预测概率一旦贴近 0,log 就奔着无穷大去了，配合大学习率容易爆。<b>类比:</b>像备份系统里一个除以「剩余配额」的监控指标——磁盘快满时配额趋零，指标直接飞出量程，报警的不是真实风险而是计算本身。<b>技术:</b>正确做法是永远不在概率域算，而在 logit 域用 log-softmax 一步到位：log_softmax(z) = z − logsumexp(z),logsumexp 内部先减最大值再做指数求和，保证不溢出；配合 CE 后梯度是 y − t,天然有界。常见翻车写法是先 softmax 再取 log,两步各有一次下溢/精度损失的机会。顺带一句，logit 域计算还让 CE 梯度不饱和，和第 4 步的「y − t 连招」是同一套设计的两个收益。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>交叉熵(CE)</b>:真实分布与预测分布差异的期望信息量。</div>
-      <div class="term-item"><b>负对数似然(NLL)</b>:真实类别概率取负对数。</div>
-      <div class="term-item"><b>MLE</b>:极大似然估计,选参数使观测数据概率最大。</div>
-      <div class="term-item"><b>one-hot</b>:唯一位置为 1、其余为 0 的标签编码。</div>
-      <div class="term-item"><b>标签平滑</b>:把 one-hot 软化,抑制过拟合。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/交叉熵">交叉熵(CE)</a></b>:用预测分布给真实分布数据编码的平均代价；one-hot 下与 NLL 严格相等。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Likelihood_function">负对数似然(NLL)</a></b>:模型给真实标签开出的概率取负对数；开价越低，罚得越狠。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/极大似然估计">极大似然估计(MLE)</a></b>:挑出让观测数据出现概率最大的参数；交叉熵训练的统计学本质。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/One-hot">one-hot</a></b>:只有真实类位置为 1、其余为 0 的标签编码，是 CE 塌缩成 NLL 的那把钥匙。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Softmax_function">softmax</a></b>:把一组实数 logits 归一化成概率分布的函数，与 CE 组合可得 y − t 形式的梯度。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1906.02629">标签平滑</a></b>:把 one-hot 软化成带小概率的分布，抑制过度自信，代价是 CE 与 NLL 分家。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence">KL 散度</a></b>:两个分布之间的方向性差距；CE 减去真实分布自身的熵，剩下的就是它。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1503.02531">知识蒸馏</a></b>:拿 teacher 模型输出的软分布当训练标签，天然工作在「CE ≠ NLL」的软标签世界。</div>
     </div>
   </div>
 </article>

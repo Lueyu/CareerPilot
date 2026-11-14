@@ -1,30 +1,52 @@
 <article class="q" id="algo-021" data-topic="algo" data-title="推导LoRA参数量减少比例" data-difficulty="3" data-tags="LoRA,参数计算,优化" data-company="无公司" data-source="P6Q20" data-kw="LoRA 低秩 参数计算 rank 8 4096 参数量 微调 低秩分解 合并">
 
-  <div class="q-no">Agent算法 · Q20</div>
-  <h3>推导 LoRA 的参数量减少比例</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐⭐</span>
-    <span class="tag">#LoRA</span><span class="tag">#参数计算</span><span class="tag">#优化</span>
-    <span class="company">无公司</span>
-  </div>
+      <div class="q-no">Agent算法 · Q20</div>
+      <h3>推导 LoRA 的参数量减少比例</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐</span>
+        <span class="tag">#LoRA</span><span class="tag">#参数计算</span><span class="tag">#优化</span>
+        <span class="company">无公司</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"LoRA 把全量微调的增量 ΔW 分解成两个低秩矩阵的乘积 ΔW = B·A,A 是 r×d、B 是 d×r,参数量从 d² 降到 2dr。给定 rank=8、d=4096:原始 4096² = 1677 万,LoRA 只训 2×8×4096 = 65536 个参数,是原来的 1/256,约 0.39%,即<b>减少约 99.6%</b>。关键是比例公式 2r/d,和维度成反比、和 rank 成正比。推理时把 BA 乘进 W 里,零额外延迟。"</p>
-  </div>
+      <div class="note"><b>先说人话:</b>这题本质是一道算术题加一个概念题:LoRA 微调到底能少训多少参数、比例怎么算、凭什么敢这么省。面试官爱考它,是因为动笔一算就分清「背结论的」和「真懂结构的」——忘乘 2(LoRA 有 A、B 两个矩阵)、被变式(改 r 或改 d)一问就懵,都是高频翻车点。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>原始微调像"<b>把整栋楼的每一块砖都换一遍</b>"(改 d² 个参数)。LoRA 发现模型的更新往往集中在低维子空间,就像一栋楼其实只有少数几根承重柱在受力。所以它只训练两根"细柱子"A 和 B(共 2dr 个参数),把它们的乘积当作对原楼的小修小补。原来要动 1600 多万块砖,现在只动 6.5 万块——<b>省了 99.6% 的料</b>。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"LoRA 把<b>全量微调</b>要学的增量 ΔW 分解成两个低秩矩阵的乘积 ΔW = B·A,A 是 r×d、B 是 d×r,可训练参数量从 d² 降到 2dr。代入 rank=8、d=4096:全量要动 4096² ≈ 1677 万个参数,LoRA 只训 2×8×4096 = 65536 个,占比 2r/d = 1/256 ≈ 0.39%,即<b>减少约 99.6%</b>。记住锚点公式 <b>2r/d</b>:和维度成反比、和 rank 成正比,面试变式全靠它现场推。再补两句加分话:优化器只需给这 6.5 万个参数记账,显存省得比参数还狠;推理时把 BA 预先乘进 W 里合并,零额外延迟。"</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 原理(是什么)</b></p>
-    <ul>
-      <li>冻结预训练权重 W,只学增量 ΔW = B·A。前向:h = Wx + BAx = (W + BA)x。</li>
-      <li>A ∈ R^{r×d} 是下投影矩阵,B ∈ R^{d×r} 是上投影矩阵,r ≪ d。</li>
-      <li>初始化:A 用高斯、B 置 0,保证训练起点严格等价于原始模型(ΔW 初始为 0)。</li>
-    </ul>
-    <p><b>2. 参数计算(核心推导)</b></p>
-    <pre class="code"><span class="c"># 以一个 d×d 的权重矩阵为例(d = 4096)</span>
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>先看全量微调有多「败家」(用备份窗口想)</b>:全量微调相当于每天备份都把整个 LUN 从头抄一遍——4096×4096 ≈ 1600 万个块全部标记为「待重写」,优化器还要为每个块另记两笔账(动量、方差)。<b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2106.09685">LoRA</a>(论文原名叫 Low-Rank Adaptation,低秩适配)的思路是备份工程师的老本行</b>:那份「基础全量」——预训练权重 W,1600 万个数字——永远冻结不动;新任务只追加一份「增量」ΔW,要用的时候在计算中应用。记录 1600 万个数字改动的成本被压到 6.5 万,压缩比分 <b>256:1</b>,比重删报表还好看。</p>
+        <p><b>增量凭什么这么小——<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Low-rank_approximation">低秩假设</a>就是「变化率假设」</b>:备份团队敢上「永久增量」策略,靠的是一条经验——生产数据的日变化率很低,每天真正动过的块占比很小。LoRA 敢把增量按死在 r=8 个方向上,靠的是同一条经验在模型世界的翻版:<b>模型适应一个新任务所需的「有效改动」,集中在极少数方向上</b>。旁路里,A 先把 4096 维压到 8 维、B 再升回 4096 维,像所有变更都要挤过一条只有 8 车道的窄涵洞——r 就是涵洞的车道数,决定同时能运多少种不同性质的变更。</p>
+        <p><b>哪里像、哪里不像</b>:像——两者都是「冻结底座、只管增量」,都靠「变化占比小」省成本;推理时的合并 W+BA 就像定期做「合成全量」,合成完之后读取性能与裸全量一模一样。不像——备份增量吃的是<b>稀疏</b>(大多数块精确地一个字节没动,零散分布);LoRA 的增量矩阵是<b>稠密</b>的,几乎没有精确的零,它省的是「方向重复」。稀疏吃零,低秩吃重复方向——面试里能把这两个词分开讲,立刻显出功力。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>第 0 步:名词扫盲(没做过 AI 的从这里进)</b></p>
+        <ul>
+          <li><b>权重矩阵 W 是什么</b>:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Large_language_model">大模型</a>内部是几十层重复的<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Attention_(machine_learning)">注意力</a>结构,每层里有若干张 d×d 的「数字表格」,d 是隐藏维度(主流 7B 级开源模型常见 d=4096)。一张 W 有 4096×4096 ≈ 1600 万个数字,模型的「本事」就存在这些数字里。</li>
+          <li><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Fine-tuning_(machine_learning)">微调</a>是什么</b>:拿业务数据继续训练这些数字,让通用模型贴合自己的任务。「全量微调」= 所有数字全部解冻重学,每张 W 的 1600 万个数字都要配梯度、配优化器状态——贵就贵在这。</li>
+          <li><b>LoRA 是什么</b>:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Parameter-efficient_fine-tuning">参数高效微调</a>家族里最出名的成员,一句话概括:「底座一个数字不动,只学增量,而且增量天生小」。</li>
+        </ul>
+        <p><b>1. 原理(是什么)</b></p>
+        <ul>
+          <li><b>冻结 W,只学增量</b>:ΔW = B·A,前向计算 h = Wx + BAx = (W + BA)x。x 是输入向量;主路照常算 Wx,旁路把 x 先经 A 压到 r 维、再经 B 升回 d 维,结果与主路相加。全程不碰 W 的任何一个数字。</li>
+          <li><b>形状约定</b>:A ∈ R^{r×d} 是下投影(4096 维 → 8 维),B ∈ R^{d×r} 是上投影(8 维 → 4096 维),r ≪ d(8 ≪ 4096)。乘积 BA 是 d×d,与 W 同型,所以能直接相加。</li>
+          <li><b>初始化的讲究</b>:A 用高斯随机初始化、B 置 0,保证训练起点严格等价于原始模型(ΔW 初始为 0)——先保证「不添乱」,再谈「学得好」。为什么不能两个都置零?见文末追问。</li>
+        </ul>
+        <pre class="code">结构示意(只有旁路是可训练的):
+
+输入 x(4096 维)
+   │
+   ├──→ [ W  4096×4096 ] ──→ Wx ─────────┐
+   │      冻结:1600 万参数,一个都不更新    │
+   │                                    (+)──→ 输出 h = Wx + BAx
+   └──→ [ A  8×4096 ]──→ [ B  4096×8 ]──┘
+          旁路:只训这 6.5 万个参数(2dr)
+
+一句话:主路是大动脉,LoRA 是一根可拆装的旁路细管;
+训练只动旁路,推理可把旁路「焊死」进主路。</pre>
+        <p><b>2. 参数计算(核心推导,面试现场就考这段)</b></p>
+        <pre class="code"><span class="c"># 以一个 d×d 的权重矩阵为例(d = 4096)</span>
 W ∈ R^{d×d}
 全量微调参数量: d² = 4096² = 16,777,216 ≈ 1677 万
 
@@ -35,34 +57,72 @@ LoRA 参数量: d·r + r·d = 2dr = 2 × 4096 × 8 = 65,536
 <span class="c"># 占比与减少比例</span>
 占比   = 2dr / d² = 2r / d = 16 / 4096 = 1 / 256 ≈ 0.39%
 减少   = 1 − 1/256 ≈ 99.6%</pre>
-    <p><b>3. 为什么能省这么多(为什么)</b></p>
-    <ul>
-      <li>关键式子 <b>2r/d</b>:参数量与 rank r 成正比、与维度 d 成反比。d 越大、r 越小,省得越多。</li>
-      <li>背后的假设是<b>低秩假设</b>:大模型微调时,"任务相关的更新"rank 很低,低秩矩阵足以承载大部分有效信息。</li>
-    </ul>
-    <p><b>4. trade-off(怎么做 + 取舍)</b></p>
-    <ul>
-      <li><b>r 太小</b>:容量不足、拟合能力下降;<b>r 太大</b>:逼近全量,失去省参意义。经验值 r ∈ [4, 64]。</li>
-      <li>实际增量常用缩放 (α/r)·BA,α 与 r 一起控制更新幅度。</li>
-      <li>最常见只给 attention 的 Wq、Wv(有时加 Wo)挂 LoRA,效果最好;也可扩展到 FFN。</li>
-      <li>推理合并:W' = W + BA 预计算后,计算量与原始模型<b>完全相同</b>,无推理开销——这是 LoRA 相比 Adapter 的一大优势。</li>
-    </ul>
-  </div>
+        <p>逐行用人话拆开,顺便标出两个高频翻车点:</p>
+        <ul>
+          <li><b>为什么是 2dr,不是 dr</b>:LoRA 有两个矩阵。A 是 r×d(8×4096 = 32768 个),B 是 d×r(4096×8 = 32768 个),合计 2dr = 65536。<b>翻车点 1</b>:只算一个矩阵,得出 1/512,当场露馅。形状谁上谁下不影响参数量(两个都是 2dr),但报形状时按论文口径 A∈R^{r×d}、B∈R^{d×r} 说最稳。</li>
+          <li><b>为什么不存乘出来的 BA</b>:BA 确实是 d×d(1600 万个数字),但训练和存储从头到尾只碰 A、B 两个瘦矩阵,乘法留给前向计算现场做。类比:存的是压缩包,不是解压后的文件——对外汇报就是 256:1 的压缩比分(按重删比的口径讲,业务方秒懂)。</li>
+          <li><b>比例公式 2r/d 的来历</b>:2dr / d²,分子分母约掉一个 d。结论:占比与 rank r 成正比、与维度 d 成反比——模型越大省得越狠,这也解释了为什么 LoRA 在大模型时代才真正起飞。</li>
+          <li><b>数字别报错</b>:1/256 ≈ 0.39%,减少比例 = 1 − 1/256 ≈ 99.6%。<b>翻车点 2</b>:小数点错位(0.39% 说成 3.9%),或者把「占比」和「减少比例」混着说——两者加起来才是 100%。</li>
+        </ul>
+        <p><b>变式速查表(d=4096 时,面试官最爱现场改 r)</b></p>
+        <table>
+          <tr><th>r</th><th>2r/d</th><th>占比</th><th>减少比例</th></tr>
+          <tr><td>4</td><td>1/512</td><td>≈0.20%</td><td>≈99.8%</td></tr>
+          <tr><td>8</td><td>1/256</td><td>≈0.39%</td><td>≈99.6%</td></tr>
+          <tr><td>16</td><td>1/128</td><td>≈0.78%</td><td>≈99.2%</td></tr>
+          <tr><td>64</td><td>1/32</td><td>3.125%</td><td>≈96.9%</td></tr>
+        </table>
+        <p>口诀:别列竖式,记公式 2r/d + 一个锚点(d=4096、r=8 → 1/256),其他变式现场推——4096 是 2 的 12 次方,除法全是整数,很好算。</p>
+        <p><b>3. 工程账:省的不只是参数,更是显存和分发成本(加分项)</b></p>
+        <p>答出 99.6% 只是及格;能把<b>优化器状态</b>这本账算出来,才是工程师和背题者的分水岭。训练框架用的 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1412.6980">Adam</a> 优化器要为<b>每个可训练参数</b>额外保存两份状态(动量、方差),再加梯度和混合精度主副本——经验粗算:全量微调的训练显存 ≈ 参数量 × 16 字节。</p>
+        <table>
+          <tr><th>账目(7B 模型,d=4096,32 层)</th><th>全量微调</th><th>LoRA(r=8,挂 Wq+Wv)</th></tr>
+          <tr><td>可训练参数</td><td>约 70 亿(100%)</td><td>约 419 万(0.06%)</td></tr>
+          <tr><td>训练显存(含优化器状态,粗算)</td><td>约 112 GB(70 亿 × 16 字节),必须多卡</td><td>冻结底座 fp16 约 14 GB + 几十 MB 零头,单张 24 GB 消费级卡可跑</td></tr>
+          <tr><td>产出制品大小</td><td>整个模型,十几 GB</td><td>adapter 文件十几 MB,可进制品库当普通二进制分发</td></tr>
+        </table>
+        <p>419 万怎么来的:每个矩阵 2dr = 65536,Wq+Wv 两张 × 32 层 = 65536 × 2 × 32 ≈ 419 万。注意这是「全模型」口径,和单矩阵口径的 1/256 别混——面试时主动问一句「您要单矩阵口径还是全模型口径」,这个动作本身就是加分项。分发成本的账也一样好算:底座像「全局唯一的一份全量备份」,N 个任务的 adapter 像归档的小增量,分发网络只搬增量。</p>
+        <p><b>4. 为什么能省这么多(为什么)</b></p>
+        <ul>
+          <li><b>关键式子 2r/d</b>只回答「省了多少」,没回答「凭什么可以」。补上这一环的是<b>低秩假设</b>:大模型微调时,「任务相关的更新」rank 很低,低秩矩阵足以承载大部分有效信息——改动虽然摊在 1600 万个位置上,有效方向只有个位数。两个证据:<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2012.13255">Intrinsic Dimensionality</a>(微调一个任务真正需要的自由度远小于参数总量)和 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2106.09685">LoRA 论文</a>的实验(很小的 r 就能追平全量微调)。</li>
+          <li><b>直觉类比就是增量备份的「变化率假设」</b>:敢承诺永久增量,是因为知道每天真正变的块很少;LoRA 敢用 r=8,是因为知道任务需要的有效改动集中在少数方向。<b>注意哪里不像</b>:备份增量靠稀疏(大部分块精确没动),LoRA 的 BA 是稠密的(几乎没有精确的零),省的是「方向重复」。稀疏吃零,低秩吃重复方向。低秩近似的经典数学工具是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Singular_value_decomposition">SVD(奇异值分解)</a>。</li>
+          <li><b>顺带补上「<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Rank_(linear_algebra)">秩(rank)</a>」</b>:一张矩阵里「真正独立的方向数」。r=8 就是把增量的自由度按死在 8——这也是为什么 r 是 LoRA 唯一的「容量旋钮」。</li>
+        </ul>
+        <p><b>5. trade-off(怎么做 + 取舍)</b></p>
+        <ul>
+          <li><b>r 的两难</b>:太小容量不足、拟合能力下降;太大逼近全量,失去省参意义。经验值 r ∈ [4, 64],从 8 起步往上扫。</li>
+          <li><b>α 缩放</b>:实际增量常用 (α/r)·BA。α 管更新幅度、r 管容量,两者解耦——扫描 r 时固定 α/r,保证「只改容量不改步长」,像做变更时把审批窗口固定、只调批量大小。</li>
+          <li><b>挂在哪</b>:注意力层里有四张 d×d 投影矩阵(常记作 Wq、Wk、Wv、Wo)。最常见只给 Wq、Wv 挂 LoRA(有时加 Wo),论文实验显示这个组合性价比最高;资源允许再扩到 FFN,收益边际递减。</li>
+          <li><b>推理合并(LoRA 的杀手锏)</b>:W' = W + BA 预计算合成后,前向计算量与原始模型<b>完全相同</b>,无推理开销——这是 LoRA 相对 Adapter 的一大优势,对比如下:</li>
+        </ul>
+        <table>
+          <tr><th>方法</th><th>额外可训参数(d=4096)</th><th>推理额外开销</th><th>一句话点评</th></tr>
+          <tr><td><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1902.00751">Adapter</a></td><td>与 LoRA 同量级</td><td>有:层间串行插模块,延迟实打实</td><td>省参数,牺牲延迟</td></tr>
+          <tr><td><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2104.08691">Prompt/Prefix 调优</a></td><td>最少(几百~几千)</td><td>无算子开销,但挤占上下文窗口和 KV Cache</td><td>参数最省,容量也最小</td></tr>
+          <tr><td>LoRA</td><td>2dr/矩阵</td><td><b>合并后为零</b></td><td>省参数且不伤延迟,还能多任务热插拔</td></tr>
+        </table>
+        <p>想把显存再往下压,进阶玩法是 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.14314">QLoRA</a>:把冻结底座量化到 4bit 再挂 LoRA——工程上等于把「冻结的全量」压得更狠,增量逻辑完全不变。</p>
+      </div>
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:为什么是给 Wq、Wv 加 LoRA,而不是所有矩阵都加?</summary><div class="an">论文实验表明 attention 的 Q、V 收益最大,Wq+Wv 组合用少量参数就能接近全量微调效果;全层都加会显著增加参数量、收益边际递减。实践中常从 Wq/Wv 起步,资源允许再加 Wo 和 FFN。</div></details>
-    <details class="qa"><summary class="qu">Q:rank 到底怎么选?</summary><div class="an">一般从 8 开始,任务复杂(领域知识密集、指令多样)可升到 16/32/64。做法:固定 α/r 的缩放比,扫描 r,看验证集曲线,r 增大不再涨点就停——用最小的 r 换取足够的效果。</div></details>
-    <details class="qa"><summary class="qu">Q:LoRA 和全量微调比,效果会差吗?</summary><div class="an">在多数 NLP 微调任务上,r 合适的 LoRA 效果可与全量微调持平甚至更好(还自带正则、缓解灾难性遗忘);但在需要学大量新知识、新分布的领域,LoRA 容量不足会落后。这是"参数效率 vs 表达容量"的权衡,能说出这句话是加分项。</div></details>
-    <details class="qa"><summary class="qu">Q:多个 LoRA 能共存吗?</summary><div class="an">能。不同任务各训一套 BA,共享同一个基础模型,推理时按需加载对应 adapter 拼进 W(可并行或串联)。这是 LoRA 在多租户服务里的杀手级优势:一个底座 + N 个廉价插件。</div></details>
-  </div>
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:为什么是给 Wq、Wv 加 LoRA,而不是所有矩阵都加?</summary><div class="an"><b>人话:</b>不是抠门,是实验证明这几个位置收益最大——把预算花在刀刃上,全挂反而浪费。<b>类比:</b>像容灾改造,不是把机房里所有设备都做成双活,而是先保核心数据库:收益最大的位置优先做,把存储和网络双活的预算省下来。<b>技术:</b>LoRA 论文在 GPT-3 上做过挂载位置扫描,Wq+Wv 组合用最少参数逼近全量微调;把 FFN 也全挂上,参数量翻数倍,效果提升边际递减。工程实践从 Wq/Wv 起步,验证不够再扩 Wo 和 FFN。</div></details>
+        <details class="qa"><summary class="qu">Q:rank 到底怎么选?</summary><div class="an"><b>人话:</b>从 8 起步,用验证集曲线说话——参数加上去不再涨点就停,用最小的 r 换够用的效果。<b>类比:</b>像定备份保留期,不是越长越好:恢复目标(效果)够用就停,再多存一个月都是白花的存储费。<b>技术:</b>简单任务 r=8 常够;领域知识密集、指令多样的任务升 16/32/64。方法是固定 α/r 缩放比、扫描 r 看验证集曲线,出现平台期就取拐点。r 只管容量,更新幅度由 α 单独控制,两者解耦,互不牵连。</div></details>
+        <details class="qa"><summary class="qu">Q:LoRA 和全量微调比,效果会差吗?</summary><div class="an"><b>人话:</b>多数常规任务能打平甚至反超;但要灌进大量全新知识时,LoRA 会显出容量短板。<b>类比:</b>增量备份应付日常变更绰绰有余,但如果系统底层大版本重构,增量链就顶不住了——只能重做全量。微调同理:常规适配像日常变更,跨领域大迁移像大重构。<b>技术:</b>r 合适时 LoRA 在多数 NLP 微调任务上与全量持平甚至更好——低秩自带正则化,还能缓解<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Catastrophic_interference">灾难性遗忘</a>;但学新分布、新语言这类任务容量不够会落后。本质是「参数效率 vs 表达容量」的权衡,能主动说出这句话是加分项。</div></details>
+        <details class="qa"><summary class="qu">Q:多个 LoRA 能共存吗?</summary><div class="an"><b>人话:</b>能,而且这是 LoRA 工程上最香的一点:一个冻结底座,N 个小插件,按任务热插拔。<b>类比:</b>一份基础全量备份 + N 份增量,要恢复哪个版本就挂哪份;存储成本按增量算,不用为 N 个任务各存一份全量。<b>技术:</b>每个任务独立训练一套 A、B,共享同一个底座;推理时按需把对应 BA 合并进 W,或动态加载不合并。多租户 Agent 服务的典型形态:一份底座全局共享,N 个十几 MB 的 adapter 当制品分发,显存和分发成本都按 2dr 计。</div></details>
+        <details class="qa"><summary class="qu">Q:为什么初始化时 A 用高斯、B 置零?两个都置零行不行?</summary><div class="an"><b>人话:</b>目的是「起点严格等于原模型」,同时旁路必须留一个活口,梯度才推得动——两个都置零就彻底卡死。<b>类比:</b>像变更流程里先下发一张「空变更单」保证生产零影响,但流程里得有人能签字:两个入口全锁死,变更单永远躺在那里没人执行。<b>技术:</b>h = Wx + BAx 中,∂L/∂B 正比于 A、∂L/∂A 正比于 B;若 A=B=0,两个梯度都是零,永远训不动。A 高斯 + B=0 让 BA=0(起点等价原模型),又保证 Ax≠0,B 先拿到梯度动起来,A 随之更新——既安全又能训练。</div></details>
+        <details class="qa"><summary class="qu">Q:推理时真的零额外延迟吗?多任务同时服务呢?</summary><div class="an"><b>人话:</b>单任务、合并之后是真零;多任务动态切换时有一点管理开销,但要分清「算力开销」和「工程开销」。<b>类比:</b>合并像定期做合成全量,之后读性能与裸全量完全一样;要同时在线 N 个版本、每次现挂增量,就退回「边读边应用增量」的模式。<b>技术:</b>W' = W + BA 预计算后,前向计算量与原模型完全相同——这是 LoRA 对 Adapter 的核心优势(Adapter 串行插层,延迟实打实)。多租户混跑时,要么每个任务常驻一份合并副本(显存×N),要么不合并、batch 内动态切 adapter(少量额外计算),按流量分布权衡。</div></details>
+      </div>
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>低秩(Low-Rank)</b>:矩阵可近似为两个小矩阵乘积,rank 远小于维度。</div>
-      <div class="term-item"><b>Adapter</b>:附加在冻结模型上的可训练小模块。</div>
-      <div class="term-item"><b>全量微调</b>:更新全部 d² 个参数。</div>
-      <div class="term-item"><b>rank r</b>:低秩分解的秩,决定可训参数规模。</div>
-      <div class="term-item"><b>α(缩放)</b>:LoRA 的缩放超参,与 r 一起控制更新幅度。</div>
-    </div>
-  </div>
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2106.09685">LoRA</a></b>:冻结底座权重、只训练低秩增量 B·A 的微调方法,本题主角。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Rank_(linear_algebra)">rank(秩)</a></b>:矩阵里真正独立的方向数;LoRA 用 r 把增量的自由度按死在个位数。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Low-rank_approximation">低秩近似</a></b>:用两个小矩阵的乘积顶替一个大矩阵——「省 99.6%」的数学来源。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1902.00751">Adapter</a></b>:冻结模型层间外挂的可训练小模块;省参数,但推理时串行多一层计算。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Fine-tuning_(machine_learning)">全量微调</a></b>:解冻并更新全部参数;优化器状态是显存爆炸的主因。</div>
+          <div class="term-item"><b>α(缩放系数)</b>:实际增量写作 (α/r)·BA,α 管更新幅度、r 管容量,两者解耦。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2012.13255">内在维度</a></b>:微调一个任务真正需要的自由度远小于参数总量——LoRA 敢用低秩的理论靠山。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1412.6980">优化器状态</a></b>:Adam 为每个可训练参数额外保存的动量与方差,全量微调显存的大头。</div>
+        </div>
+      </div>
 </article>

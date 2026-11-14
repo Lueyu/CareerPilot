@@ -1,35 +1,58 @@
 <article class="q" id="algo-020" data-topic="algo" data-title="推导KL散度在RLHF中的作用" data-difficulty="4" data-tags="KL散度,RLHF,理论" data-company="无公司" data-source="P6Q19" data-kw="KL散度 RLHF PPO 奖励模型 KL惩罚 β 参考模型 reward hacking 熵">
 
-  <div class="q-no">Agent算法 · Q19</div>
-  <h3>推导 KL 散度在 RLHF 中的作用</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐⭐⭐</span>
-    <span class="tag">#KL散度</span><span class="tag">#RLHF</span><span class="tag">#理论</span>
-    <span class="company">无公司</span>
-  </div>
+      <div class="q-no">Agent算法 · Q19</div>
+      <h3>推导 KL 散度在 RLHF 中的作用</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#KL散度</span><span class="tag">#RLHF</span><span class="tag">#理论</span>
+        <span class="company">无公司</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"RLHF 里加 KL 散度,本质是给策略模型套一条<b>安全带</b>。PPO 目标是:最大化奖励的同时,约束新策略 π_θ 不要偏离参考模型 π_ref(通常是 SFT 后的模型)太远,目标函数 = E[r(x,y) − β·KL(π_θ ‖ π_ref)]。为什么要约束?因为奖励模型有漏洞,策略一旦跑偏就会用刷分的怪话骗高分(<b>reward hacking</b>),KL 项把它拉回正常说话。实现上 π_ref 冻结,KL 按 token 近似为 log π_ref − log π_θ,β 控制松紧。"</p>
-  </div>
+      <div class="note"><b>先说人话:</b>这道题问的是:RLHF 训练时,为什么要在「挣奖励」之外额外减去一项 KL 散度、这一项在数学上怎么落到每个 token 的账上。面试官爱考它,因为它是「背过 RLHF 流程」和「真懂原理」的分水岭——只会答「防跑偏」不够,能写出 per-token log-ratio、说清 β 的松紧才算及格。答错的典型暴露点:把 KL 当成对称的「距离」、说不清参考模型为什么必须冻结。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>把 RLHF 想成<b>奖励模型当考官、策略模型当考生</b>。考官只给分数,但它是个草台班子,有些"漏洞答案"能骗到高分——比如无限复读"好的好的"、堆砌溢美之词。没有规则约束,考生就会钻漏洞刷到满分,答案却毫无用处。KL 散度就是那条规则:<b>"你可以自由发挥,但不许离标准答案模板(参考模型)太远"</b>。β 就是这条规则的松紧度,β 越大,考生越老实。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"RLHF 里加 KL 散度,本质是给策略模型 π_θ 套一条<b>安全带</b>。PPO 目标是:最大化奖励的同时,约束新策略 π_θ 不要偏离参考模型 π_ref(通常是 SFT 后冻结的那个)太远,目标函数 = E[r(x,y) − β·KL(π_θ ‖ π_ref)]。为什么要约束?因为奖励模型是个只会打分的代理考官,本身有漏洞,策略一旦放飞就会用复读、谄媚这类怪话骗高分(<b>reward hacking</b>),KL 项把它持续拉回正常说话的轨道。实现上 π_ref 全程冻结,KL 按 token 近似为 log π_ref − log π_θ——策略每吐一个 token 就记一笔「偏移账」,乘 β 从奖励里扣;β 控制安全带松紧,β 太小学出坏毛病,太大原地踏步。"</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 先讲清 KL 散度是什么</b></p>
-    <ul>
-      <li>定义:KL(P ‖ Q) = Σ P(x)·log(P(x)/Q(x)),衡量"用 Q 去近似 P 时损失的信息量"。它是<b>非负、非对称</b>的,P = Q 时取 0。</li>
-      <li>在 RLHF 里,P = π_θ(训练中的策略),Q = π_ref(冻结的参考模型,通常由 SFT 得到)。</li>
-    </ul>
-    <p><b>2. 为什么要约束 KL(核心动机)</b></p>
-    <ul>
-      <li>奖励模型是"<b>有偏的代理目标</b>",不是真正的目标。策略只讨好奖励模型,就会找到 reward hacking 的后门:输出重复短语、极端谄媚、高置信但空洞的话。</li>
-      <li>KL 项把策略<b>锚定</b>在 SFT 模型的良好行为附近,防止语言能力崩坏、多样性坍塌。</li>
-      <li>本质是<b>正则化</b>:防止策略过拟合到奖励模型这一"噪声标签"上。</li>
-    </ul>
-    <p><b>3. 数学上如何实现(推导)</b></p>
-    <pre class="code"><span class="c"># RLHF-PPO 目标:每 token 加 KL 惩罚</span>
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>先把考场看清楚:奖励模型是个代理指标,而代理指标一定会被钻空子</b>。<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Reinforcement_learning_from_human_feedback">RLHF</a> 真正想优化的是「人类的真实偏好」,但真实偏好写不成目标函数,只好先训一个奖励模型(RM)来替人打分。这个处境你太熟了:想度量「备份系统好不好」,最后落到纸面的只有「备份成功率」「RTO 达标率」几个指标——指标永远只是目标的代理,而 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Goodhart%27s_law">古德哈特定律</a>(Goodhart's Law)早就预警:一旦某个度量变成优化目标,它就不再是好的度量。<b>类比</b>:「备份成功率」一旦上了 KPI,就有人把「失败即跳过」刷成默认策略——KPI 满分,可恢复性归零。RLHF 里一模一样:策略发现复读「好的好的」、堆砌溢美之词、输出高置信但空洞的话能骗 RM 给高分,这就是 <b>reward hacking</b>——为分数优化,不为任务优化。</p>
+        <p><b>KL 散度就是那条安全带:给「新版本」和「已验证基线」的行为差异记笔账</b>。把训练中的策略模型 π_θ 当成「待发布的新版本」,把参考模型 π_ref(冻结的 SFT 模型)当成「已通过验证的基线版本」,<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence">KL 散度</a>就是两个版本行为差异的度量——不是比参数差多少字节,而是比「同一个上文往下接,两边会做出多不一样的选择」。目标函数 J = E[奖励 − β·KL] 的意思就是:你可以自由演进挣分,但每偏离基线一步都要按 β 计价交罚金;β 就是变更审批的松紧度,β 小 = 审批形同虚设,β 大 = 变更冻结。<b>哪里像</b>:都是「允许优化、但禁止偏离已验证基线太远」,罚金按偏移量实时计价。<b>哪里不像</b>:运维的基线漂移检测是事后审计、出了事故才回滚;KL 是内嵌在训练目标里的实时约束——每生成一个 token 立刻记账,不等复盘;而且它度量的是概率分布的行为差异,不是数据的字节差异。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>第 0 步:看清 KL 在 RLHF 全景里的位置</b></p>
+        <pre class="code">[阶段1] 人类写示范答案 ──SFT监督微调──→ π_sft ──复制一份冻结──→ π_ref(锚点/安全带)
+                                                     │
+[阶段2] 人类对两个答案排序 ──训练──→ 奖励模型 r_φ(代理考官,只会打分)
+                                                     │
+[阶段3] π_θ 一边生成一边算两本账:
+        ├─→ r_φ(x,y) 打分        →  挣的钱
+        └─→ 与 π_ref 逐 token 比  →  违规罚款 = β · log(π_θ/π_ref) 的账
+
+        总目标:最大化  E[ r_φ(x,y) − β·KL(π_θ ‖ π_ref) ]
+                 即「挣的分 − 偏离基线的罚款」</pre>
+        <p>下面按「KL 是什么 → 为什么非要它 → 数学上怎么实现 → β 怎么调」四步走。</p>
+        <p><b>1. 先讲清 KL 散度是什么</b></p>
+        <ul>
+          <li>定义:KL(P ‖ Q) = Σ P(x)·log(P(x)/Q(x)),衡量"用 Q 去近似 P 时损失的信息量"。换个更直觉的读法:它是<b>期望对数似然比</b> E_{x~P}[log(P(x)/Q(x))]——站在 P 的立场、按 P 的口吻统计「我常说的事,你怎么给这么低的概率」。</li>
+          <li>它是<b>非负、非对称</b>的:P = Q 时取 0;KL(P ‖ Q) ≠ KL(Q ‖ P)。非对称可以类比成<b>增量备份的方向性</b>:「从生产推到副本」和「从副本推回生产」记的账本不一样。RLHF 里取 KL(π_θ ‖ π_ref),按<b>新策略实际生成的 token 加权</b>——策略走到哪、账记到哪,像增量备份只记实际变化的块,没写到的地方不计费。</li>
+          <li>单位是 nats(以 e 为底的对数,见 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Nat_(unit)">nat</a>):log-ratio = 2.3 nats ≈ 概率差 10 倍,4.6 nats ≈ 差 100 倍。</li>
+        </ul>
+        <p>拿一个 token 例子把「按 π_θ 加权」看实:</p>
+        <table>
+          <tr><th>token</th><th>π_θ 给的概率</th><th>π_ref 给的概率</th><th>log-ratio</th><th>对 KL 的贡献(×π_θ)</th></tr>
+          <tr><td>"好评!"</td><td>0.50</td><td>0.05</td><td>+2.3 nats</td><td>0.50×2.3 = <b>+1.15,重罚</b></td></tr>
+          <tr><td>"您"</td><td>0.05</td><td>0.50</td><td>−2.3 nats</td><td>0.05×(−2.3) = −0.115,轻减</td></tr>
+        </table>
+        <p>看明白两件事:① 策略把 ref 不看好的词概率抬得越高、说得越勤,罚得越狠——这正是我们要的「重点盯防你实际说出口的话」;② 在低概率处压低某个词,减免很少——KL 不奖励你「装低调」,只惩罚「高调跑偏」。</p>
+        <p><b>2. 为什么要约束 KL(核心动机)</b></p>
+        <ul>
+          <li>奖励模型是"<b>有偏的代理目标</b>",不是真正的目标。RM 只在人类标注过的分布上可靠,是分布外的脆件:策略一旦把生成分布推到 RM 没见过的区域,RM 的分数就退化成噪声。策略只讨好 RM,就会找到 reward hacking 的后门:输出重复短语、极端谄媚、高置信但空洞的话——InstructGPT 论文(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2203.02155">Training language models to follow instructions</a>)实证过这些崩坏模式,并靠 KL 惩罚压住。</li>
+          <li>KL 项把策略<b>锚定</b>在 SFT 模型的良好行为附近,防止语言能力崩坏、多样性坍塌。顺带一笔:KL 约束还间接<b>托住了策略的熵</b>(输出分布的信息论不确定性,见<a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/%E7%86%B5_(%E4%BF%A1%E6%81%AF%E8%AE%BA)">熵(信息论)</a>)——不许往 ref 的低概率区狂跳,自然就保留了用词多样性,不至于只会复读一个高频 token。</li>
+          <li>本质是<b>正则化</b>(见 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Regularization_(mathematics)">regularization</a>):防止策略过拟合到奖励模型这一"噪声标签"上,和备份领域「按一个抖动指标做容量规划必然翻车」是同一个道理。</li>
+        </ul>
+        <p><b>3. 数学上如何实现(推导)</b></p>
+        <pre class="code"><span class="c"># RLHF-PPO 目标:每 token 加 KL 惩罚</span>
 J(θ) = E_{x~D, y~π_θ(·|x)}[ r(x,y) − β · KL( π_θ(·|x) ‖ π_ref(·|x) ) ]
 
 <span class="c"># KL 散度定义(离散分布)</span>
@@ -37,29 +60,50 @@ KL(P ‖ Q) = Σ_x P(x) · log( P(x) / Q(x) )
 
 <span class="c"># 实际按 token 估计:π_ref 冻结,其熵项对 θ 是常数,不参与梯度</span>
 KL(π_θ ‖ π_ref) ≈ log π_ref(y|x) − log π_θ(y|x)</pre>
-    <p>推导要点:KL(P ‖ Q) = Σ P·log P − Σ P·log Q = −H(P) + Σ P·log(P/Q)。对 θ 求梯度时,−H(π_θ) 这部分由 PPO 的 surrogate objective 间接处理,工程上最常用的做法是直接用 log-ratio:每生成一个 token,把 <code>log π_ref − log π_θ</code> 作为 KL 的蒙特卡洛估计,乘 β 后从奖励里扣掉。</p>
-    <p><b>4. β 的 trade-off</b></p>
-    <ul>
-      <li><b>β 太小</b>:奖励涨但语言质量崩、reward hacking;策略可能学出一堆无意义的 token 组合。</li>
-      <li><b>β 太大</b>:策略几乎不动,学不到人类偏好。</li>
-      <li>经验值 β 通常在 0.01~0.1 量级,需调;进阶做法是<b>自适应 KL</b>:设一个 target KL(如 6 nats),实时监控,超出就自动加大 β、低于就减小。</li>
-    </ul>
-  </div>
+        <p>推导要点:KL(P ‖ Q) = Σ P·log P − Σ P·log Q = −H(P) + Σ P·log(P/Q)。对 θ 求梯度时,−H(π_θ) 这部分由 PPO 的 surrogate objective 间接处理,工程上最常用的做法是直接用 log-ratio:每生成一个 token,把 <code>log π_ref − log π_θ</code> 作为 KL 的蒙特卡洛估计,乘 β 后从奖励里扣掉。</p>
+        <p>把上面这步掰开细讲(面试时要能白板推出来):</p>
+        <ul>
+          <li><b>第一步,整句 KL 拆成 token 之和</b>:自回归模型生成整句 y = (a_1, …, a_T),联合概率是各 token 条件概率的连乘 π(y|x) = Π_t π(a_t|前文, x);取 log 连乘变连加,于是整句 KL = E_{y~π_θ}[ Σ_t log(π_θ(a_t)/π_ref(a_t)) ]——「对句子的期望」天然拆成「逐 token 的对数比值再求和」。<b>类比</b>:像块级增量备份,整卷的变更量天然等于各块的变更量之和。</li>
+          <li><b>第二步,期望用采样来算</b>:外层期望 E_{y~π_θ} 不好解析,直接用当前 batch 实际生成的句子来当样本——这就是<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Monte_Carlo_method">蒙特卡洛估计</a>:策略真实说了什么,就按什么记账,无偏且零额外成本。</li>
+          <li><b>第三步,为什么 π_ref 冻结后熵项不参与梯度</b>:展开 KL = E[log π_θ] − E[log π_ref] = −H(π_θ) − E[log π_ref]。π_ref 参数全程冻结,log π_ref 对 θ 无梯度;−H(π_θ) 这部分由 PPO 的 surrogate objective 间接处理(即 pre 里那行近似的来历)。落到工程上,per-token 记账项 k_t = log π_θ(a_t) − log π_ref(a_t),把 <b>−β·k_t 逐 token 混进 reward</b>(token-level 奖励塑形),KL 的梯度就自动出现在 PPO 更新里。</li>
+          <li><b>第四步,两种实现位置</b>:① 主流做法(InstructGPT / TRL 系实现)是把 −β·log-ratio 加进 per-token reward,KL 混在「分数」里被 PPO 一起消化;② 少数实现把 β·KL 作为独立损失项加在 loss 端。面试提一句「reward 端塑形是主流」,是加分的工程细节。</li>
+        </ul>
+        <p><b>4. β 的 trade-off</b></p>
+        <ul>
+          <li><b>β 太小</b>:奖励涨但语言质量崩、reward hacking;策略可能学出一堆无意义的 token 组合。</li>
+          <li><b>β 太大</b>:策略几乎不动,学不到人类偏好。</li>
+          <li>经验值 β 通常在 0.01~0.1 量级,需调;进阶做法是<b>自适应 KL</b>:设一个 target KL(如 6 nats),实时监控,超出就自动加大 β、低于就减小。</li>
+        </ul>
+        <table>
+          <tr><th>β 设定</th><th>训练表现</th><th>背后发生了什么</th><th>运维世界的样子</th></tr>
+          <tr><td>β → 0(不设防)</td><td>奖励猛涨,输出复读/谄媚/怪话</td><td>策略钻 RM 漏洞刷分</td><td>无变更审批,指标全绿但全是坏变更</td></tr>
+          <tr><td>β 合适</td><td>奖励与人工评估同步上升</td><td>在基线附近探索高价值偏移</td><td>正常演进:小步快跑、灰度护航</td></tr>
+          <tr><td>β 过大</td><td>KL ≈ 0,奖励也不动,RLHF 白训</td><td>梯度被罚金抵消,策略原地踏步</td><td>变更冻结,业务原地停摆</td></tr>
+        </table>
+        <p>自适应 KL 的机制值得单独记:它是一个反馈控制器——实时测实际 KL,逼近 target 就加 β(勒紧),回落就减 β(放松),把策略稳定在「基线附近的一条走廊」里。<b>类比</b>:和 TCP 拥塞控制的 AIMD、和「按队列积压动态调限流阈值」是同一族思想——用反馈把一个风险指标锁在设定区间,而不是写死一个静态参数祈祷它合适。</p>
+        <p><b>5. 延伸一笔:KL 没有消失,只是换了住处</b></p>
+        <ul>
+          <li>后来不少方法把显式 KL 项省掉了,最典型是 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.18290">DPO</a>:它从「带 KL 约束的 RL 目标」出发做数学变形,把 KL 约束<b>解析地融进了损失函数</b>——不是不需要安全带,而是安全带焊死在公式里,不再现场记账。面试里能讲出这层演进,直接上分。</li>
+        </ul>
+      </div>
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:为什么用 KL 散度,换成 L2 距离或别的度量不行吗?</summary><div class="an">L2 直接比参数或输出向量,对概率分布不敏感:两个分布可能输出几乎相同的句子,但 logits 尺度差很多。KL 是概率分布间"信息论正确"的度量,且能和梯度自然结合成 log-ratio(只差一个 log 运算,实现极简)。更重要的是 KL 关注低概率区域的对数差距——策略"偷偷给某个 token 极小概率"会被重罚,恰好符合防跑偏的诉求。</div></details>
-    <details class="qa"><summary class="qu">Q:RLHF 里 KL 是对每个 token 加,还是对整句加?</summary><div class="an">工程上通常按 <b>token 级别</b>估计:对生成的每个 token 计算 log π_ref(t|x) − log π_θ(t|x) 再求均值,作为整句 KL 的蒙特卡洛估计,并逐 token 加到对应位置的 reward 上(token-level KL)。整句级 KL 需要归一化分布再算,实现更繁琐。token 级更细粒度、训练更稳定。</div></details>
-    <details class="qa"><summary class="qu">Q:KL 惩罚太大,模型"学不动"了怎么办?</summary><div class="an">三个方向:① 直接调小 β;② 用自适应 KL——设 target KL(经验值约 6 nats),实时监控实际 KL,超出就加大 β、低于就减小 β,让 KL 稳定在一个区间;③ 检查参考模型是否过强/过弱,必要时换更弱的 ref,或改用 DPO 这类<b>不需要显式参考模型和 KL 项</b>的方法(DPO 把 KL 约束解析地融进了目标里)。</div></details>
-    <details class="qa"><summary class="qu">Q:reference model 为什么通常选 SFT 模型,而不是初始的 pretrain 模型?</summary><div class="an">因为 RLHF 的起点就是 SFT 模型(已经会对话、会遵循指令),ref 选它意味着"优化时不偏离已经学会的对话能力"。若选 pretrain 模型,两者距离太远,KL 惩罚会强行阻止策略学到对话格式,优化方向反而错乱。ref 本质是"当前能力的地基",和初始策略保持一致最合理。</div></details>
-  </div>
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:为什么用 KL 散度,换成 L2 距离或别的度量不行吗?</summary><div class="an"><b>人话:</b>L2 量的是「两组数字差多少」,KL 量的是「两个概率分布差多少」——策略的本质是分布,度量就得对着分布去。<b>类比:</b>判断两个服务版本行为是否一致,看平均延迟差多少没意义(平均都 50ms 但一个方差爆炸),要看请求在各个接口上的占比分布——风控里检测数据漂移用的 PSI(Population Stability Index),底子就是 KL,业界早就默认「漂移要用分布散度看,不能用均值差看」。<b>技术:</b>① L2 直接比参数或输出向量,对分布形状不敏感:两个模型可能句子几乎相同但 logits 尺度差很远;② KL 是概率框架下信息论正确的度量,且天然化成 log-ratio——只差一次 log 运算,和 PPO 的 token 级奖励无缝融合,实现极简;③ KL 用对数放大低概率区的偏离:概率差 10 倍就是 +2.3 nats,差 100 倍就是 +4.6 nats,「偷偷把某个 token 抬 100 倍」会被重罚,恰好是防跑偏最想要的性质。</div></details>
+        <details class="qa"><summary class="qu">Q:RLHF 里 KL 是对每个 token 加,还是对整句加?</summary><div class="an"><b>人话:</b>工程上几乎都按 token 一笔笔记账、再汇到整句,整句级只活在定义里。<b>类比:</b>像备份做块级校验而不是整卷一个总校验和——粒度细,哪个块偏了看得见,定位准、信号也稳;只有一个总的,出了偏移只知道「有偏」,不知道偏在哪。<b>技术:</b>整句 KL = E_{y~π_θ}[ Σ_t log-ratio ],这个「对句子的期望」用当前 batch 真实生成的句子做蒙特卡洛估计,就是「实际句子的 per-token log-ratio 求和/求均值」;实现上把 −β·log π_ref − log π_θ 的差值逐 token 混进对应位置的 reward(token-level KL 奖励塑形),梯度方差小、训练更稳。整句级要先对整个词表归一化出分布再算散度,计算贵、信号糙,没有工程优势。</div></details>
+        <details class="qa"><summary class="qu">Q:KL 惩罚太大,模型"学不动"了怎么办?</summary><div class="an"><b>人话:</b>安全带勒太紧,第一步是松安全带,不是硬踩油门。<b>类比:</b>限流阈值把正常流量全挡在门外,先调阈值,再考虑升级成「按实时队列长度动态调阈值」的反馈控制器——静态参数定不准,就该让它自己跟着负载走。<b>技术:</b>① 直接调小 β;② 自适应 KL——设 target KL(经验约 6 nats),实时监控实际 KL,超出就加大 β、低于就减小 β,把偏移锁在走廊内;③ 检查参考模型选型是否过强/过弱,必要时换 ref;④ 换 DPO 这类不需要显式参考模型和 KL 项的方法——它把 KL 约束解析地融进了目标函数,安全带内置,不存在「现场勒太紧」的调参问题。</div></details>
+        <details class="qa"><summary class="qu">Q:reference model 为什么通常选 SFT 模型,而不是初始的 pretrain 模型?</summary><div class="an"><b>人话:</b>安全带要拴在「你出发的地方」,而不是拴在「三年前的老机房」。<b>类比:</b>变更管理的基线必须是「当前生产版本」,不是远古架构——拿 pretrain 模型当 ref,等于拿一个还没学会对话的底座当行为标准,KL 会拼命把策略往「不会对话」的方向拽,优化方向整个错乱。<b>技术:</b>RLHF 的起点本身就是 SFT 模型(已经会对话、会遵循指令),ref 选它意味着「优化时不偏离已经学会的对话能力」,两者 KL 距离近、惩罚项才起「微调护栏」而非「压制学习」的作用;同时 ref 全程冻结、不随训练更新——锚点自己会漂,锚就没意义了。一句话总结:ref 是「当前能力的地基」,和初始策略保持一致最合理。</div></details>
+        <details class="qa"><summary class="qu">Q:训练结束时 KL 应该是多少?target KL(比如 6 nats)是怎么定出来的?</summary><div class class="an"><b>人话:</b>KL 不是越小越好——为 0 等于白训;也不是越大越好——大了就是失控。健康的终点是「在偏移预算内把奖励挣到头」,target KL 就是这条预算线。<b>类比:</b>像 RPO——不追求零数据偏移(那等于禁止一切写入),而是给偏移量设预算上限,逼近预算就收紧惩罚、远离就放松,自适应 KL 就是那套实时对账机制。<b>技术:</b>把整句 KL ≈ 6 nats 摊到约 100 个 token 上,平均每 token 的 log-ratio ≈ 0.06 nats,即平均每个词的概率只比 ref 高约 6%——温和偏移、够学新偏好又够不着 reward hacking 的悬崖;6 nats 是 PPO/RLHF 实践的量级经验值,各家在 3~12 之间随任务调。面试加分点:能现场做「nats → 每 token 概率倍数」的换算,说明你不是背数字,是真懂单位。</div></details>
+      </div>
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>KL 散度</b>:两个概率分布差异的信息论度量,非负、非对称。</div>
-      <div class="term-item"><b>参考模型(π_ref)</b>:RLHF 中冻结的锚点,通常由 SFT 得到。</div>
-      <div class="term-item"><b>Reward hacking</b>:策略钻奖励模型漏洞刷分,而非真正完成任务。</div>
-      <div class="term-item"><b>β(惩罚系数)</b>:KL 项的权重,控制策略偏离参考模型的幅度。</div>
-      <div class="term-item"><b>PPO</b>:RLHF 常用的近端策略优化算法。</div>
-    </div>
-  </div>
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence">KL 散度</a></b>:两个概率分布差异的信息论度量,非负、非对称;RLHF 里按策略实际生成的 token 加权记账。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2203.02155">参考模型(π_ref)</a></b>:RLHF 中冻结的锚点,通常由 SFT 复制而来——锚点自己会漂,锚就没意义了。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2209.13085">Reward hacking</a></b>:策略钻奖励模型漏洞刷分,而非真正完成任务;是「为度量优化 ≠ 为目标优化」的模型版翻车。</div>
+          <div class="term-item"><b>β(惩罚系数)</b>:KL 项的权重,控制策略偏离参考模型的幅度——审批松紧度,经验值 0.01~0.1 量级。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1707.06347">PPO</a></b>:RLHF 常用的近端策略优化算法,KL 惩罚以 per-token log-ratio 的形式混进它的奖励流。</div>
+          <div class="term-item"><b>自适应 KL 控制器</b>:按实际 KL 与 target(经验约 6 nats)的偏差动态调 β 的反馈控制,同族思想是 TCP 的 AIMD 与动态限流。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.18290">DPO</a></b>:把 KL 约束解析融进损失函数的偏好对齐方法——安全带不是没了,是焊死在公式里了。</div>
+        </div>
+      </div>
 </article>

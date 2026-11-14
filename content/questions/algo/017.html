@@ -8,64 +8,105 @@
     <span class="company">字节(真题)</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这是一道白板推导题:从「让好动作更可能发生」出发,一步步推出 PPO 那个带 clip 的损失函数,再讲 clip 为什么能防训练崩盘。RLHF 训策略模型的事实标准就是 PPO,面试官拿它区分「背过公式」和「真懂原理」——只会默写、说不出 min 和 clip 各管哪半边,暴露的就是没理解。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"白板推导分四步:<b>① 策略梯度</b>——目标是最大化带优势加权的对数概率 E[∇log π(a|s)·Â];<b>② 重要性采样</b>——用旧策略采样却更新新策略,引入概率比 r(θ)=π_θ/π_θ_old;<b>③ Clipped 目标</b>——L=Ê[min(r·Â, clip(r, 1−ε, 1+ε)·Â)],把 r 限制在 [1−ε, 1+ε];<b>④ 作用</b>——防止一次更新步子太大导致策略崩塌,让训练又稳又快。这是 RLHF 里训策略模型的标准算法。"</p>
-  </div>
+        <p>"白板推导分四步:<b>① 策略梯度</b>——目标是最大化带优势加权的对数概率 E[∇log π(a|s)·Â];<b>② 重要性采样</b>——用旧策略采样却更新新策略,引入概率比 r(θ)=π_θ/π_θ_old;<b>③ Clipped 目标</b>——L=Ê[min(r·Â, clip(r, 1−ε, 1+ε)·Â)],把 r 限制在 [1−ε, 1+ε];<b>④ 作用</b>——防止一次更新步子太大导致策略崩塌,让训练又稳又快。这是 RLHF 里训策略模型的标准算法。"</p>
+      </div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>想象<b>教孩子投篮、每次投完微调姿势</b>:奖励(投进 +1,投丢 −1)告诉你该往哪个方向改。问题是一次投进就狂改姿势,下次可能更离谱。PPO 的 clip 就是给每次调整<b>装一个"限位器"</b>——一次最多改 20%(ε=0.2),朝对的方向小步走,既利用了好结果、又不至于崩盘。</p>
-  </div>
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>核心类比:给策略更新装「变更限幅器」</b>。想象你运维一个备份集群,每天试一组新参数,拿备份窗口缩短量当「奖励信号」。某天你试出并发 8→16 窗口暴缩 40%,你敢直接全网推平吗?不敢——你会限定<b>单次变更影响面封顶,一次最多改 20%,灰度观察再走下一步</b>。PPO 干的就是这件事:策略 π_θ 是那组「参数配置」,动作是「这次具体怎么改」,奖励是「窗口缩短了多少」,而 clip 就是数学化的变更限幅器——朝对的方向走可以,但一步不许迈超过 ε。</p>
+        <p><b>为什么要绕「重要性采样」这个弯</b>:朴素的策略梯度有个致命痛点——评估新配置,必须用新配置真跑一轮作业,<b>每改一行参数就要重做一次全量演练</b>,贵到没法迭代。省钱的办法是复用旧配置跑出来的「线上日志」,但新旧配置处理同一请求的倾向不同,样本得按「新旧倾向之比」加权纠偏,这个比值就是概率比 r。灰度发布里你熟悉的逻辑:<b>新旧版本行为差得越远,旧版本日志对新版本的参考价值越低</b>,评估方差直接爆炸。TRPO 的解法是给差异上硬约束(严谨但重),PPO 的解法是给差异装限幅(简单够用)。<b>哪里像</b>:都是「复用旧数据评估新版本 + 差异过大就止损」。<b>哪里不像</b>:灰度里新旧是两个独立部署的服务,差异是版本号;PPO 里新旧策略是<b>同一个网络的两次参数状态</b>,一次前向就能同时算出两个概率,所以纠偏成本极低。</p>
+        <p><b>min 和 clip 的分工</b>:损失里 min(r·Â, clip·Â) 是「两个评估口径里挑更保守的那个」——clip 提供一个「封顶/垫底」的口径,min 永远选不激进的那个。就像变更评审同时看「乐观口径」和「封顶口径」,按封顶的批——宁可少赚,不许冒进。</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 起点:策略梯度定理</b></p>
-    <p>目标是最大化期望累计回报 J(θ)。策略梯度给出方向:</p>
-    <pre class="code">∇J(θ) = E[ ∇log π_θ(a|s) · Â(s,a) ]     <span class="c"># Â 是优势函数:比"平均"好多少</span></pre>
-    <p>含义:让"拿到正优势的动作"概率上升、负优势的动作概率下降。但问题来了——这个期望里的采样来自<b>当前策略</b>,一旦策略更新,旧样本就不能直接复用(样本分布变了)。</p>
-    <p><b>2. 重要性采样:用旧策略的样本更新新策略</b></p>
-    <pre class="code"><span class="c"># 核心:乘上概率比,把"旧分布下的采样"纠偏成"新分布下的期望"</span>
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>第 0 步:先认人(符号速查,推导里反复出现)</b></p>
+        <table>
+          <tr><th>符号</th><th>人话</th><th>你熟悉的对照</th></tr>
+          <tr><td>θ</td><td>策略网络的全部参数</td><td>一组可调的配置项</td></tr>
+          <tr><td>π_θ(a|s)</td><td>状态 s 下选动作 a 的概率</td><td>路由表:请求 s 被分到处理方式 a 的比例</td></tr>
+          <tr><td>E[·]</td><td>期望(对所有可能轨迹求平均)</td><td>全量请求的平均表现,不是单次抽样</td></tr>
+          <tr><td>Â</td><td>优势:这个动作比「平均水平」好多少</td><td>相对基线的增益,不是绝对值</td></tr>
+        </table>
+        <p><b>1. 起点:策略梯度定理</b></p>
+        <p>目标是最大化期望累计回报 J(θ)。策略梯度(见 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Policy_gradient">Policy Gradient</a>)给出方向:</p>
+        <pre class="code">∇J(θ) = E[ ∇log π_θ(a|s) · Â ]     <span class="c"># Â 是优势函数:比"平均"好多少</span></pre>
+        <p>含义:让"拿到正优势的动作"概率上升、负优势的动作概率下降。为什么是 log?——∇log π 是「把这个动作的概率往上拉」的最陡方向,再乘上 Â 当<b>步长和符号</b>:好动作(Â&gt;0)拉、坏动作(Â&lt;0)压,幅度按「比平均好多少」加权。为什么用 Â 不用原始回报?——减掉一个基线(平均水位)能大幅降方差,好比监控告警看「相对基线的偏移」而不是裸值。但问题来了——这个期望里的采样来自<b>当前策略</b>,一旦策略更新,旧样本就不能直接复用(样本分布变了)。这就是 on-policy 的痛:每更新一步都要重新采样,像每改一行配置就重跑一次全量容灾演练。</p>
+        <p><b>2. 重要性采样:用旧策略的样本更新新策略</b></p>
+        <pre class="code"><span class="c"># 核心:乘上概率比,把"旧分布下的采样"纠偏成"新分布下的期望"</span>
 r_t(θ) = π_θ(a_t | s_t) / π_θ_old(a_t | s_t)
-<span class="c"># r=1 表示新旧策略对该动作的看法一致;>1 说明新策略更倾向这个动作</span></pre>
-    <p>但重要性采样有个致命问题:<b>r 偏离 1 太多时,方差爆炸、更新不稳定</b>。TRPO 用 KL 约束解决,PPO 用更简单粗暴的 clip 解决。</p>
-    <p><b>3. PPO-Clip 目标(核心公式,必须默写对)</b></p>
-    <pre class="code">L^CLIP(θ) = Ê_t [ min( r_t(θ) · Â_t ,
+<span class="c"># r=1 表示新旧策略对该动作的看法一致;&gt;1 说明新策略更倾向这个动作</span></pre>
+        <p>这是<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Importance_sampling">重要性采样</a>的标准操作:想估新分布的期望,手里只有旧分布的样本,就按两个分布的概率之比给每个样本加权纠偏——和你拿灰度前版本的线上日志评估灰度后版本、按流量分布差异折算,是同一个数学。但重要性采样有个致命问题:<b>r 偏离 1 太多时,方差爆炸、更新不稳定</b>——极端比值的少数样本主导整个梯度,就像日志里几个离群请求把整个容量评估带偏。TRPO 用 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1502.05477">KL 约束</a>解决,PPO 用更简单粗暴的 clip 解决。</p>
+        <p><b>3. PPO-Clip 目标(核心公式,必须默写对)</b></p>
+        <pre class="code">L^CLIP(θ) = Ê_t [ min( r_t(θ) · Â_t ,
                         clip(r_t(θ), 1−ε, 1+ε) · Â_t ) ]
 <span class="c"># ε 通常取 0.2;clip 把 r 截在 [0.8, 1.2] 区间</span>
 <span class="c"># 完整目标(最大化):L = L^CLIP − c1·L_VF + c2·S[π_θ]</span>
 <span class="c">#   L_VF:价值函数回归损失;S:熵奖励(鼓励探索)</span></pre>
-    <ul>
-      <li><b>min 的作用</b>:取"未裁剪"和"已裁剪"两者中更小(更保守)的那个。两个分支,谁让目标更"克制"就用谁。</li>
-      <li><b>clip 的作用</b>:把策略更新限制在"安全区"。若 r 超出 [1−ε, 1+ε],就让 clip 项接管,目标对 θ 的梯度为 0——<b>即这个样本不再推动策略继续朝同方向猛改</b>。</li>
-    </ul>
-    <p><b>4. 为什么 clip 能防崩溃(分情况讲,面试官必追问)</b></p>
-    <table>
-      <tr><th>情况</th><th>Â &gt; 0(好动作)</th><th>Â &lt; 0(坏动作)</th></tr>
-      <tr><td><b>r 过大</b></td><td>说明该动作被"过度偏好",clip 到 1+ε,<b>停止继续加码</b>,防止过度自信</td><td>r 过大而 A&lt;0 少见,由 min 取更小的未裁剪项处理</td></tr>
-      <tr><td><b>r 过小</b></td><td>r 过小而 A&gt;0 少见,由 min 处理</td><td>坏动作被压低到 1−ε 后<b>不再压</b>,防止一步把好行为也连带清空</td></tr>
-    </table>
-    <p>一句话:<b>clip 保证了"好动作别一次涨上天、坏动作别一次踩到地",让策略在信任域内平滑更新</b>。这就是 PPO 相比朴素策略梯度/TRPO 更简单又稳定的原因。</p>
-    <p><b>5. Â_t 从哪来:GAE(通用优势估计)</b></p>
-    <pre class="code"><span class="c"># 时序差分残差</span>
+        <ul>
+          <li><b>min 的作用</b>:取"未裁剪"和"已裁剪"两者中更小(更保守)的那个。两个分支,谁让目标更"克制"就用谁——相当于变更评审永远按保守口径批。</li>
+          <li><b>clip 的作用</b>:把策略更新限制在"安全区"。若 r 超出 [1−ε, 1+ε],就让 clip 项接管,目标对 θ 的梯度为 0——<b>即这个样本不再推动策略继续朝同方向猛改</b>。完整目标里的 L_VF 是在顺便训「预测回报的价值网络」(它提供 Â 需要的基线),熵奖励 S 防策略过早缩成只会一招——好比保留一定比例的探索性变更,防止集群僵化。</li>
+        </ul>
+        <p>把 min 的取值画出来,clip 的「限幅」一目了然(两幅小图分别对应好动作、坏动作):</p>
+        <pre class="code">Â&gt;0(好动作):涨到顶就不再加码
+   目标值
+   ↑        (1+ε)Â ─────────── ← clip 段:梯度=0,不再奖励
+   │               /
+   │              /  ← 斜率=Â:正常学习区
+   │             /
+   └────────────┬────┬──────→ r
+               1    1+ε
+
+Â&lt;0(坏动作):压到底就不再踩
+   ↑
+ 0 ┤                     ← 还在随 r 学习(继续调整)
+   │              /
+   │             /  ← 斜率=Â(负)
+ (1−ε)Â ───────┘ ← clip 段:梯度=0,不再惩罚
+   └──────┬─────┬──────→ r
+         1−ε    1</pre>
+        <p><b>4. 为什么 clip 能防崩溃(分情况讲,面试官必追问)</b></p>
+        <table>
+          <tr><th>情况</th><th>Â &gt; 0(好动作)</th><th>Â &lt; 0(坏动作)</th></tr>
+          <tr><td><b>r 过大</b></td><td>说明该动作被"过度偏好",clip 到 1+ε,<b>停止继续加码</b>,防止过度自信</td><td>r 过大而 A&lt;0 少见,由 min 取更小的未裁剪项处理</td></tr>
+          <tr><td><b>r 过小</b></td><td>r 过小而 A&gt;0 少见,由 min 处理</td><td>坏动作被压低到 1−ε 后<b>不再压</b>,防止一步把好行为也连带清空</td></tr>
+        </table>
+        <p>注意一个精妙的不对称:对好动作,只在「已经加码过头」的上侧刹车;对坏动作,只在「已经压过头」的下侧刹车。<b>没越界的那一侧永远保留梯度</b>——比如好动作还被低估(r 偏小)时,它照样被往上拉。这正是「限幅器」和「直接丢弃样本」的区别:限幅只封顶,不误伤。一句话:<b>clip 保证了"好动作别一次涨上天、坏动作别一次踩到地",让策略在信任域内平滑更新</b>。这就是 PPO 相比朴素策略梯度/TRPO 更简单又稳定的原因(原始论述见 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1707.06347">PPO 论文</a>)。</p>
+        <p><b>5. Â_t 从哪来:GAE(通用优势估计)</b></p>
+        <pre class="code"><span class="c"># 时序差分残差</span>
 δ_t = r_t + γ·V(s_{t+1}) − V(s_t)
 <span class="c"># GAE:残差的指数加权和,λ 平衡偏差与方差</span>
 Â_t = Σ_{l=0}^{∞} (γλ)^l · δ_{t+l}      <span class="c"># λ=0 退化为 TD,λ=1 退化为 MC</span></pre>
-    <p><b>6. RLHF 里的 PPO 全景</b>:先训 Reward Model(偏好数据 → 打分),再用 PPO 优化策略 π_θ,奖励 = RM 打分 − β·KL(π_θ ‖ π_ref)(KL 罚防策略偏离人类偏好太远)。讲清楚 PPO 在 RLHF 中的位置,这道题就闭环了。</p>
-  </div>
+        <p>逐行看:δ_t 是「这一步实际拿到的回报 + 价值网络对下一步的预估 − 对这一步的原预估」——本质是个<b>预测残差</b>,和你做容量预测时「实测值 − 预测值」的残差是一个东西。GAE(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/1506.02438">论文</a>)把未来每一步的残差按 (γλ) 的指数衰减加权求和:λ=0 只信眼前一步(低方差但依赖 V 的准确度,偏差大),λ=1 看完整条轨迹(无偏但单次抽样抖动大)。γ 是折扣因子——越远的回报权重越低,像给「未来收益」打了个衰减标签。λ 的作用类似你熟悉的<b>指数加权移动平均窗口</b>:在「只看当下」和「看穿全程」之间调一个平滑档位。</p>
+        <p><b>6. RLHF 里的 PPO 全景</b>:先训 Reward Model(偏好数据 → 打分),再用 PPO 优化策略 π_θ,奖励 = RM 打分 − β·KL(π_θ ‖ π_ref)(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence">KL 散度</a>罚防策略偏离人类偏好太远,整套流程见 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2203.02155">InstructGPT</a>)。一张图闭环:</p>
+        <pre class="code">提示词 x ──→ 策略 π_θ 生成回答 y ──→ RM 打分 score(y)
+                  ↑                         │
+                  │                         ↓
+                  │        总奖励 = score − β·KL(π_θ ‖ π_ref)
+                  │                         │
+                  │                         ↓
+                  └── PPO 更新 θ ←── 优势 Â(GAE 算出)</pre>
+        <p>为什么必须挂 KL 罚?RM 只在训练分布内可靠,策略一旦跑到分布外,就可能专生成「RM 爱打高分但人看是垃圾」的文本。类比:备份成功率作为唯一 KPI,工程师把失败作业直接跳过——报表满分,数据根本没备上(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Goodhart%27s_law">Goodhart 定律</a>的经典翻车)。KL 罚相当于「不许偏离基线配置太远」的审计约束:优化归优化,π_ref(SFT 起点模型)划定的安全边界不许跑出去。讲清楚 PPO 在 RLHF 中的位置,这道题就闭环了。</p>
+      </div>
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:r 超出 [1−ε, 1+ε] 时,clip 项的梯度是什么?</summary><div class="an">clip(r, 1−ε, 1+ε) 在 r 越界区间是<b>常数</b>(被截断),所以 clip 项对 θ 的导数为 0;此时 min 会选这个梯度为 0 的分支,意味着<b>这个样本对策略更新不再产生梯度贡献</b>——策略停在这个"安全边界"上不动,而不是继续猛冲。这正是 clip 能抑制过大更新的数学原因。</div></details>
-    <details class="qa"><summary class="qu">Q:PPO 和 TRPO 的本质区别?</summary><div class="an">两者目标都是"限制策略更新幅度"。TRPO 用<b>硬性 KL 散度约束</b>,每步解一个带约束的优化问题,理论上严格但实现复杂(二阶优化/共轭梯度);PPO 用 <b>clip 把约束"软"地写进目标函数</b>里,一阶梯度就能训,简单稳定,因此成为 RLHF 事实标准。</div></details>
-    <details class="qa"><summary class="qu">Q:RLHF 里 PPO 的奖励从哪来?为什么还要加 KL 罚?</summary><div class="an">奖励 = Reward Model 对策略生成结果的打分。但 RM 只在训练分布内可靠,策略若被 RM "钻空子"(生成 RM 爱给高分但实际差的文本),会 reward hacking;所以在奖励里减掉 β·KL(π_θ‖π_ref),<b>惩罚偏离初始参考模型太远</b>,保证生成质量不塌,这是 RLHF 稳定性的关键。</div></details>
-    <details class="qa"><summary class="qu">Q:为什么 advantage 要做标准化?</summary><div class="an">优势值量级波动大,直接进目标会让不同 batch 的梯度尺度差很多,学习率不好调、训练不稳定。对 Â 做 <b>均值减、标准差除</b>(z-score 标准化)后,梯度量级统一,收敛更稳——这也是 PPO 标准实现里的默认操作。</div></details>
-  </div>
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:r 超出 [1−ε, 1+ε] 时,clip 项的梯度是什么?</summary><div class="an"><b>人话:</b>梯度为 0,这个样本对本次更新「罢工」了——但只是单向罢工,不是永久拉黑。<b>类比:</b>灰度发布里某个变更项已经顶到配额上限,同方向的继续提交会被限流器静默丢弃;等你回退一点、回到配额内,提交立刻恢复放行。<b>技术:</b>clip(r, 1−ε, 1+ε) 在 r 越界区间是常数,对 θ 导数为 0;min 此时会选中这个零梯度分支,样本不再推动策略朝越界方向猛冲。但若参数更新后 r 摆回区间内,梯度立刻恢复——clip 刹的是「单向过度更新」,不是「永久屏蔽」。这正是 clip 能抑制过大更新的数学原因。</div></details>
+        <details class="qa"><summary class="qu">Q:PPO 和 TRPO 的本质区别?</summary><div class="an"><b>人话:</b>目标一模一样——别迈大步;区别在怎么管住这个「大步」:TRPO 上硬约束,PPO 把约束直接焊进损失函数。<b>类比:</b>TRPO 像变更审批流程里「必须先算一份 KL 影响评估报告、审批通过才能放行」,严谨但每步都慢;PPO 像给每个变更自带限幅器,提交即跑,快得多,绝大多数场景够用。<b>技术:</b>TRPO 是带 KL 散度硬约束的优化问题,每步要解约束优化(共轭梯度 + 线性搜索,二阶量级),实现复杂;PPO 用 clip 把约束「软化」进目标函数,标准一阶梯度下降就能训,实现几十行,批量化和工程化都友好——所以成了 RLHF 的事实标准。</div></details>
+        <details class="qa"><summary class="qu">Q:RLHF 里 PPO 的奖励从哪来?为什么还要加 KL 罚?</summary><div class="an"><b>人话:</b>奖励来自 Reward Model 对生成文本的打分;但 RM 会被「钻空子」,所以再挂一个 KL 罚,把策略拴在初始模型附近。<b>类比:</b>备份成功率当唯一 KPI,有人直接跳过失败作业——指标满分、数据没备上;KL 罚就是「不许偏离基线配置太远」的审计红线,优化可以,跑出安全边界不行。<b>技术:</b>奖励 = RM 打分 − β·KL(π_θ‖π_ref),π_ref 通常是 SFT 起点模型。策略若被 RM 钻空子(reward hacking,生成 RM 给高分但实际差的文本),分数会虚高;KL 项惩罚偏离 π_ref 太远,把策略留在 RM 可靠的分布附近,这是 RLHF 稳定性的关键。</div></details>
+        <details class="qa"><summary class="qu">Q:为什么 advantage 要做标准化?</summary><div class="an"><b>人话:</b>把「比平均好多少」换算成统一刻度,不然不同 batch 的梯度忽大忽小,学习率没法调。<b>类比:</b>你管多个集群,备份窗口有的 2 小时有的 20 分钟,拿绝对值横向比较毫无意义;做 z-score(减均值除标准差)后才可比——「比自家基线快几个 σ」是通用语言。<b>技术:</b>Â 的量级随任务和 batch 波动,直接进目标会让梯度尺度不稳、训练抖动。对每个 batch 的 Â 做 (Â−μ)/σ 标准化后梯度量级统一,学习率好调、收敛更稳,这是 PPO 标准实现的默认操作。</div></details>
+        <details class="qa"><summary class="qu">Q:都 2027 年了,现在还用 PPO 吗?和 DPO 什么关系?</summary><div class="an"><b>人话:</b>两者都是「对齐」工具:DPO 省资源、一步到位;PPO 贵,但支持在线试错,Agent 场景仍是主力。<b>类比:</b>DPO 像照着历史工单学故障处置(离线监督,便宜但学不到工单外的情况);PPO 像真上线做容灾演练拿真实反馈(在线试错,贵但能探索新策略)。<b>技术:</b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.18290">DPO</a> 把 RM + RL 两步压成一步偏好分类损失,有闭式解、不需要在线采样;PPO 适合需要在线采样、奖励塑形和 KL 控制的场景——多轮对话、工具调用这类 Agent 训练(及其变体 GRPO)至今以 PPO 系为主。能讲清这个选型权衡,面试官会加分。</div></details>
+      </div>
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>策略梯度</b>:沿"让好动作更可能"的方向更新策略。</div>
-      <div class="term-item"><b>重要性采样</b>:用旧分布样本估计新分布期望,靠概率比纠偏。</div>
-      <div class="term-item"><b>概率比 r(θ)</b>:新策略与旧策略对同一动作的概率之比。</div>
-      <div class="term-item"><b>Clip</b>:把更新幅度截断在 [1−ε, 1+ε] 内。</div>
-      <div class="term-item"><b>GAE</b>:Generalized Advantage Estimation,平衡偏差与方差的优势估计。</div>
-      <div class="term-item"><b>RLHF</b>:用人类偏好训练奖励模型,再强化学习对齐的流程。</div>
-    </div>
-  </div>
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Policy_gradient">策略梯度</a></b>:沿"让好动作更可能"的方向更新策略,梯度 = ∇log π · Â。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Importance_sampling">重要性采样</a></b>:用旧分布样本估计新分布期望,靠概率比纠偏——灰度评估复用旧日志的数学版。</div>
+          <div class="term-item"><b>概率比 r(θ)</b>:新策略与旧策略对同一动作的概率之比,r=1 表示看法一致,越偏离 1 越危险。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1707.06347">Clip</a></b>:把更新幅度截断在 [1−ε, 1+ε] 内,策略版的「单次变更限幅器」。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1506.02438">GAE</a></b>:Generalized Advantage Estimation,用 λ 对残差指数加权,平衡偏差与方差的优势估计。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2203.02155">RLHF</a></b>:用人类偏好训练奖励模型,再强化学习对齐策略的完整流程。</div>
+          <div class="term-item"><b>信任域</b>:新旧策略差异被限制在内的"安全区",TRPO 用 KL 硬约束保它,PPO 用 clip 软保它。</div>
+        </div>
+      </div>
 </article>
