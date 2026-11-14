@@ -8,23 +8,65 @@
     <span class="company">字节、阿里（高频）</span>
   </div>
 
-  <div class="note">与 Q7 同源，本题聚焦「框架对比 + 具体场景适配」：不重复背两个框架的定位表，重点讲怎么把具体业务场景映射到框架选型、以及两者如何组合落地。</div>
+  <div class="note"><b>先说人话:</b>这题问：两大 Agent 框架各擅长什么活、你的业务该把宝押给谁。与 Q7 同源，不考背定位表，考「场景→选型」映射。面试官爱问，因为一句「怎么选」就能分清「看过教程的」和「真做过选型的」——只会背「一个偏编排、一个偏检索」算入门，能讲主矛盾、讲组合分层的才是干过活的。</div>
 
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"框架没有绝对好坏，只看<b>业务的主矛盾是什么</b>。LangChain 的主战场是<b>编排</b>——对话、工具调用、多步 Agent 流程，典型场景是带工具的客服、多步审批、复杂工作流；LlamaIndex 的主战场是<b>数据/检索</b>——私有知识库、文档问答、结构化数据查询，典型场景是 RAG 产品。落地时按『<b>谁占主导就认谁当主力</b>』：检索主导选 LlamaIndex，编排主导选 LangChain（复杂流程用 LangGraph），两者都重就用『<b>LlamaIndex 管数据 + LangGraph 管流程</b>』的组合——是配合，不是二选一。"</p>
+    <p>"框架没有绝对好坏，只看<b>业务的主矛盾是什么</b>。<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/LangChain">LangChain</a> 的主战场是<b>编排</b>——对话、工具调用、多步 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Intelligent_agent">Agent</a> 流程，典型场景是带工具的客服、多步审批、复杂工作流；<a target="_blank" rel="noopener" href="https://www.llamaindex.ai/">LlamaIndex</a> 的主战场是<b>数据/检索</b>——私有知识库、文档问答、结构化数据查询，典型场景是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Retrieval-augmented_generation">RAG</a> 产品。落地时按『<b>谁占主导就认谁当主力</b>』：检索主导选 LlamaIndex，编排主导选 LangChain（复杂流程用 <a target="_blank" rel="noopener" href="https://langchain-ai.github.io/langgraph/">LangGraph</a>），两者都重就用『<b>LlamaIndex 管数据 + LangGraph 管流程</b>』的组合——是配合，不是二选一。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>像<b>开餐厅选设备</b>：LangChain 是<b>整套后厨流水线</b>——切配、炒锅、传菜一条龙，擅长把一道菜从原料到出餐编排出来（流程主导）；LlamaIndex 是<b>专业的食材仓库系统</b>——进货、分类、冷链、快速取料，擅长把海量食材管好、随用随取（数据主导）。你要"按客人点单现炒"的菜（Agent 对话）用流水线；你要"从大仓库里精准翻出食材"的活（RAG 检索）用仓库系统；既要管仓又要现炒，就"仓库管料 + 流水线炒菜"配合着用。</p>
+    <p><b>LangChain（用「备份调度引擎」想）</b>:调度引擎自己不存一份数据、也不碰介质，它管的是「哪个作业先跑、失败怎么重试、状态记在哪、哪一步要人批」。LangChain 干的是同一件事——它既不是模型也不是数据库，而是把 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Large_language_model">LLM</a> 调用、工具、记忆这些零件<b>编排</b>成能跑的应用。</p>
+    <p><b>哪里像</b>:都是「指挥官」角色——依赖管理、失败重试、状态流转、人工审批节点，一个编排引擎该有的素质它都有。<b>哪里不像</b>:备份调度编的是<b>确定性</b>流程（今天凌晨 2 点全量、之后增量，分支条件是写死的）；LangChain 编的是<b>模型驱动</b>的流程——下一步干什么由 LLM 看着上一步结果现场拍板，执行路径每次都可能不同。也正因为流程「不听话」，复杂场景才要上 LangGraph：用一张显式的图把流程钉住，再加 checkpoint（就是你们熟悉的断点续传），才做得到可控、可回放。</p>
+    <p><b>LlamaIndex（用「备份软件的数据面」想）</b>:<a target="_blank" rel="noopener" href="https://docs.llamaindex.ai/">Data Connector</a> 像备份代理，从数据库、文件系统、SaaS 各种源头把数据抽过来；索引环节像「切块 + 重删 + 编目」，把文档切成 chunk、算出 Embedding、建好索引；查询像恢复——不把整库灌给用户，而是查目录、只取回最相关的 top-k 块。</p>
+    <p><b>哪里像</b>:都是「海量数据进、按需小块出」——恢复一个文件不需要扫整个介质库，答一个问题也不需要把整个知识库塞进提问上下文，两边都靠索引把「全量扫描」变成「定点查询」。<b>哪里不像</b>:备份求<b>精确一致</b>，恢复结果必须和源数据一比特不差；RAG 检索求<b>语义相近</b>，召回的块差个大概没关系，后面还有 Rerank 和 LLM 兜底。所以备份数据面盯的是完整性校验，RAG 数据面盯的是召回率和排序质量。</p>
+    <p><b>两者组合（用「<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Control_plane">数据面/控制面分离</a>」想）</b>:这是存储和网络设备的经典架构——转发（数据面）和决策（控制面）拆开、各司其职。LlamaIndex 当数据面，管吞吐和质量；LangGraph 当控制面，管流程和状态。<b>哪里像</b>:都是「干活的」和「决策的」解耦，各自独立演进。<b>哪里不像</b>:交换机里两个面出厂就在同一台设备里、接口天然标准化；这里是两个独立开源库拼装，中间的接口要你自己刻意保持「薄」，没人替你解耦。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p>这一节从零开始铺：先把名词翻成人话，再给选型方法论，最后逐场景映射——没做过 AI 也能顺着读下来。</p>
+    <p><b>0. 预备知识：把名词翻成人话，再对照你的老本行</b></p>
+    <p>先把三个高频名词翻译成大白话（做过 AI 的可跳过，但后面全靠它们）：</p>
+    <ul>
+      <li><b>LLM（大语言模型）</b>:一个「读过全网、但没读过你公司内部文档」的超级实习生——通用知识拉满，私有知识为零，问它公司制度只能一本正经地编（这叫<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)">幻觉</a>）。</li>
+      <li><b>RAG（检索增强生成）</b>:给这个实习生配一间资料库——回答前先检索，把最相关的几段塞进 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Prompt_engineering">prompt</a>（提问上下文），再让它作答。就像值班工程师不背整本 runbook，而是接到告警先查知识库再动手。</li>
+      <li><b>Agent（智能体）</b>:从「问一句答一句」升级成「自己拆任务、挑工具、看结果定下一步」——LLM 当大脑、工具当手脚、外面包一层循环。类比：从定时脚本进化成能看告警自主决策的值班机器人。</li>
+    </ul>
+    <p>两大框架就是分别给「RAG 这类数据密集应用」和「Agent 这类流程密集应用」造轮子的：<b>LangChain 管「步骤怎么串」，LlamaIndex 管「数据怎么管好、查准」</b>。用备份系统对照着看最直观：</p>
+    <table>
+      <tr><th>你熟悉的世界（备份/存储）</th><th>AI 应用里的对应物</th><th>归属</th></tr>
+      <tr><td>备份代理：从 DB/VM/文件系统各种源头抽数据</td><td>Data Connector（数据连接器）</td><td>LlamaIndex</td></tr>
+      <tr><td>切块 + 重删 + 编目：数据切块、去冗余、建元数据目录</td><td>切 chunk + 算 Embedding + 建向量/倒排索引</td><td>LlamaIndex</td></tr>
+      <tr><td>恢复请求：查目录定位，只取需要的块</td><td>查询引擎：向量检索 top-k，再 Rerank 精排</td><td>LlamaIndex</td></tr>
+      <tr><td>作业调度引擎：依赖、重试、备份窗口控制</td><td>Chain / 显式图编排</td><td>LangChain 家</td></tr>
+      <tr><td>断点续传：作业挂了从断点接着跑</td><td>checkpoint：流程状态落盘，可恢复、可回放</td><td>LangGraph</td></tr>
+      <tr><td>容灾切换前的人工审批</td><td>human-in-the-loop 人工介入节点</td><td>LangGraph</td></tr>
+      <tr><td>介质校验、SLA 报表</td><td>调用链追踪、评测等可观测性</td><td>各家生态</td></tr>
+      <tr><td>绕开套件、自己写脚本直调 CLI/REST API</td><td>绕开框架、用原生 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Software_development_kit">SDK</a> 直调模型 API</td><td>无（自研）</td></tr>
+    </table>
+    <p>再把两条链路并排画出来，同构性一眼可见（左边是你的老本行，右边是 RAG）：</p>
+    <pre class="code">
+    备份 / 恢复链路                      RAG 数据链路
+    ───────────────                    ───────────────
+    数据源: DB / VM / 文件系统           文档源: PDF / Wiki / 工单 / 网页
+         │                                  │
+         │ ① 备份代理采集                    │ ① Data Connector 读取
+         ▼                                  ▼
+    切块 + 重删 + 压缩                  切 chunk + 算 Embedding
+         │                                  │
+         │ ② 写入介质 + 建编目目录           │ ② 写入向量库 + 建索引(HNSW/倒排)
+         ▼                                  ▼
+    恢复: 查目录 → 定位 → 取回所需块      查询: 向量检索 top-k → Rerank 精排
+         │                                  │
+         ▼                                  ▼
+    按字节精确还原(一比特不能错)          拼 prompt → LLM 生成答案(语义对即可)
+    </pre>
+    <p>一句话总结这张图：<b>备份是「精确恢复」，RAG 是「模糊召回 + 模型兜底」</b>。这一个差别决定了两边优化指标完全不同——完整性校验 vs 召回率/排序质量，也解释了 LlamaIndex 为什么在检索策略上抠得那么细（切块粒度、混合检索、Rerank 每一层都给了旋钮）。</p>
     <p><b>1. 场景适配的方法论（先讲"怎么想"，再讲"怎么选"）</b></p>
     <ul>
-      <li>第一步<b>识别主矛盾</b>：这个产品到底卡在"检索质量"还是"编排/工具调度"？瓶颈在哪，主力框架就选谁。</li>
-      <li>第二步<b>列硬约束</b>：私有化/合规要求、团队技术栈、长期维护成本——这些可能比框架能力更决定性。</li>
-      <li>第三步<b>PoC 实测</b>：拿自家 3~5 个真实场景各跑一遍，比准率、延迟、踩坑数，而不是只看文档。</li>
-      <li>第四步<b>用组件不用全家桶</b>：核心链路（检索 → 拼 Prompt → 调模型）其实很短，能自研就自研，框架只在"确实省事"的组件上引入。</li>
+      <li>第一步<b>识别主矛盾</b>：这个产品到底卡在"检索质量"还是"编排/工具调度"？瓶颈在哪，主力框架就选谁。（怎么判断？看追问第 4 问的归因法：资料没捞对是数据面的锅，流程走乱了是控制面的锅，先分锅再动手。）</li>
+      <li>第二步<b>列硬约束</b>：私有化/合规要求、团队技术栈、长期维护成本——这些可能比框架能力更决定性。类比选备份介质：不只看 IOPS，还要看合规保留年限、机房条件和预算，约束不清，性能再好也落不了地。</li>
+      <li>第三步<b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Proof_of_concept">PoC</a> 实测</b>：拿自家 3~5 个真实场景各跑一遍，比准率、延迟、踩坑数，而不是只看文档。就像你选存储引擎前一定拿真实业务模型压测——框架 README 里的 benchmark 只能当广告看。</li>
+      <li>第四步<b>用组件不用全家桶</b>：核心链路（检索 → 拼 Prompt → 调模型）其实很短，能自研就自研，框架只在"确实省事"的组件上引入。你的 Python 底子在这里是优势：几百行就能把核心链路写透明，出问题时看得见摸得着，比隔着五层抽象猜快得多。</li>
     </ul>
     <p><b>2. 具体场景 → 选择映射（本题的核心，按场景倒推框架）</b></p>
     <table>
@@ -34,11 +76,25 @@
       <tr><td><b>研报助手/智能搜索</b>（先查资料再总结成文）</td><td>检索 + 编排都重</td><td>LlamaIndex 管数据 + LangGraph 管流程</td><td>各用所长，组合而非二选一</td></tr>
       <tr><td><b>纯单轮问答</b>（无检索无工具）</td><td>都轻</td><td>不用框架 / 裸 SDK</td><td>减少抽象成本和依赖税</td></tr>
     </table>
+    <p>读表的姿势：<b>先看「主矛盾」列，再看「推荐」列</b>——推荐是主矛盾推出来的结论，不是背下来的答案。拿第一行走一遍：企业知识库问答，用户骂的是「答案引错了文档、漏了关键制度」，病根在数据面，所以主力选 LlamaIndex，你的精力该花在检索策略（切块粒度、混合检索、Rerank）上；第二行反过来，资料就那几条，难的是「查订单→退款→审批」每步都可能失败、都要留痕，这是控制面的活，所以上 LangGraph；第四行最容易被忽略——<b>不用框架也是一种选型</b>，单轮问答裸写 SDK 反而最干净。</p>
     <p><b>3. 边界在模糊，组合是主流</b></p>
     <ul>
-      <li>LlamaIndex 现在也有 Agent/Workflow，LangChain 也能做 RAG——"看家本领"不同，但边界在互相渗透。</li>
+      <li>LlamaIndex 现在也有 Agent/Workflow，LangChain 也能做 RAG——"看家本领"不同，但边界在互相渗透。类比：对象存储挂个协议网关也能当文件系统用——能用，但打磨重心回不去，生态和工具链还是沿着原生形态长。</li>
       <li>生产里最稳的姿势是<b>分层组合</b>：数据管道交给 LlamaIndex（连接器 + 索引），流程编排交给 LangGraph（状态机 + checkpoint），LLM 调用用各家原生 SDK，而不是把某一家的全家桶从头用到尾。</li>
     </ul>
+    <p>分层组合的形状：</p>
+    <pre class="code">
+        分层组合 = 数据面 / 控制面各司其职
+
+   控制面 LangGraph —— 管流程、状态、断点、人工审批
+      [提问] → [检索] → [提炼] → [生成] → [质检]
+                  │
+                  │  检索节点把活儿委托给数据面
+                  ▼
+   数据面 LlamaIndex —— 管接入、索引、召回
+      连接器读文档 → 切 chunk → Embedding → 检索 top-k → Rerank
+    </pre>
+    <p>两层之间的接口刻意保持「薄」：控制面只拿到一组带分数的文本块，不关心它们是向量检索还是关键词检索捞出来的——将来换掉任何一层，另一层不用动。这和你们做存储时「控制面协议与数据面格式解耦」是同一个道理。</p>
     <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 574 356" role="img" aria-label="框架选型决策树">
   <rect class="sd-box-rose" x="210" y="14" width="160" height="56" rx="10"/>
   <text class="sd-t" x="290" y="38" text-anchor="middle">业务主矛盾</text>
@@ -76,27 +132,32 @@
   <text class="sd-t" x="445" y="313" text-anchor="middle">裸 SDK / 轻量自研</text>
   <text class="sd-ts" x="445" y="331" text-anchor="middle">别为用而用</text>
 </svg></div>
+    <p>看图顺序：从顶部「业务主矛盾」出发，先问「瓶颈在哪」，四条分支各通向一个结论——左列四框是提问，右列四框是答案。注意最下面那条「都不重」的分支：<b>「不用框架」也是一次正经的选型决策</b>，而且是很多单轮问答场景下最对的那个。</p>
     <p><b>4. Trade-off：框架 vs 自研</b></p>
     <ul>
-      <li>框架收益：生态全、集成快、原型提速明显；成本：<b>依赖树大、抽象泄漏、版本破坏性变更</b>。</li>
-      <li>成熟团队通常"<b>框架打样、自研上产</b>"：先用框架验证思路，再把验证过的核心链路固化成自研轻量实现。</li>
+      <li>框架收益：生态全、集成快、原型提速明显；成本：<b>依赖树大、<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Leaky_abstraction">抽象泄漏</a>、版本破坏性变更</b>。Python 老兵都懂这里的水有多深：引入一个大框架，等于把它的整棵依赖树和升级节奏绑上自己的战车；抽象泄漏意味着出问题时你仍要读进框架源码才能修；而 0.x 版本框架的破坏性变更频率，比存储产品线的 API 变更凶得多。</li>
+      <li>成熟团队通常"<b>框架打样、自研上产</b>"：先用框架验证思路，再把验证过的核心链路固化成自研轻量实现。类比：先拿商用备份软件把策略跑通，确认保留周期、备份窗口、重删比都合理，再把核心调度固化成自研——试错期要快，上产期要稳。</li>
     </ul>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:具体说一个"检索 + 编排都重"的场景，你怎么落地？</summary><div class="an">例：一个"企业研报助手"——先要跨几十个内部文档库检索资料（数据侧重），再按"资料 → 提炼 → 生成 → 质检"多步流程产出报告（编排侧重）。我的落地：数据接入和索引用 LlamaIndex 的连接器 + 向量索引；检索结果的融合、多步推理、质检重试用 LangGraph 的显式图编排；LLM 调用走原生 SDK。两层之间用"检索结果作为图节点输入"衔接，谁擅长谁干，接口保持薄、可替换。</div></details>
-    <details class="qa"><summary class="qu">Q:框架边界在模糊，那选型还有意义吗？</summary><div class="an">有意义，因为"边界模糊"不等于"能力趋同"：两者底层都是同一个 LLM，但<b>抽象视角不同</b>——LangChain 把问题抽象成"节点和边的执行图"，LlamaIndex 抽象成"数据怎么被索引、怎么被查询"。视角决定了整套组件的打磨方向，RAG 场景下 LlamaIndex 的检索器抽象仍然更细，编排场景下 LangGraph 的 checkpoint/人工介入仍然更成熟。选型选的是"谁的抽象更贴你的主矛盾"。</div></details>
-    <details class="qa"><summary class="qu">Q:团队已经用了 LlamaIndex，现在要加 Agent 能力，是引入 LangChain 还是继续用 LlamaIndex 的 Workflow？</summary><div class="an">先看 Agent 需求的复杂度：如果只是"检索 + 简单循环"（查不到就改写 query 重查），LlamaIndex 的 Agent/Workflow 能覆盖，没必要再引入一个框架增加依赖税；如果出现多工具调度、多步审批、断点恢复、人工介入这些工程需求，LlamaIndex 的编排偏弱，这时再引入 LangGraph 做编排层、检索继续复用 LlamaIndex——新增框架的收益要能覆盖它的维护成本，否则就是给系统加债。</div></details>
+    <details class="qa"><summary class="qu">Q:具体说一个"检索 + 编排都重"的场景，你怎么落地？</summary><div class="an"><b>人话:</b>拿「企业研报助手」举例：一半的活是从几十个内部文档库翻资料，另一半是把资料按流程加工成报告，两边都重，就两边各上专业组件。<b>类比:</b>像备份系统里「带流程的数据归档」：采集/编目一摊，作业调度（顺序、重试、关键步骤人审）另一摊，没人会用调度器去干编目的活。<b>技术:</b>数据接入和索引用 LlamaIndex 的连接器+向量索引；检索结果融合、多步推理、质检重试用 LangGraph 的显式图编排；LLM 调用走原生 SDK。两层接口保持薄：控制面只拿「一组带分数的文本块」，不关心数据面怎么捞的——换掉任何一层，另一层不动。</div></details>
+    <details class="qa"><summary class="qu">Q:框架边界在模糊，那选型还有意义吗？</summary><div class="an"><b>人话:</b>有意义——「什么都能做」不等于「什么都顺手」，两家的原生抽象仍然分道扬镳，选型选的是「谁的抽象更贴你的主矛盾」。<b>类比:</b>对象存储挂个网关也能当文件系统用：能用，但打磨重心回不去，生态和工具链还是沿原生形态长。<b>技术:</b>底层都是调同一个 LLM，但 LangChain 把世界抽象成「节点和边的执行图」，LlamaIndex 抽象成「数据怎么被索引、怎么被查询」，视角决定组件的打磨方向：RAG 场景 LlamaIndex 的检索器抽象更细，编排场景 LangGraph 的 checkpoint/人工介入更成熟。边界模糊是「都能干」，能力趋同还远着。</div></details>
+    <details class="qa"><summary class="qu">Q:团队已经用了 LlamaIndex，现在要加 Agent 能力，是引入 LangChain 还是继续用 LlamaIndex 的 Workflow？</summary><div class="an"><b>人话:</b>先看 Agent 需求有多重，别为一个功能引一整棵依赖树进来。<b>类比:</b>现有备份软件要多跑一个归档作业——在现有调度里加个作业就行；但要「跨系统编排+断点续传+人工审批」，才值得换新引擎。<b>技术:</b>如果只是「检索+简单循环」（查不到就改写 query 重查），LlamaIndex 的 Agent/Workflow 能覆盖，没必要再引入 LangChain；一旦出现多工具调度、多步审批、断点恢复、人工介入这些工程需求，它的编排能力偏弱，这时引入 LangGraph 只做编排层、检索继续复用 LlamaIndex。原则：新框架的收益必须覆盖它的维护成本，否则就是给系统加债。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么判断我的场景里，瓶颈在"检索"还是在"编排"？</summary><div class="an"><b>人话:</b>看用户骂什么：骂「答案引错资料、漏了关键文档」是检索瓶颈；骂「流程乱、该审批的没审批、跑到一半丢状态」是编排瓶颈。<b>类比:</b>备份排障先分面：恢复出来的数据不对是数据面问题，作业卡死、顺序错乱、断点丢了是调度面问题——先定面，再动手。<b>技术:</b>做 bad case 归因：top-k 里根本没捞到正确的 chunk，去修切块粒度、Embedding、混合检索、Rerank；资料对了但流程走歪（状态丢失、步骤越权、循环出不来），去上显式图和 checkpoint。最忌讳框架问题让数据背锅——归因错一层，优化全白费。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>LangChain</b>:通用 LLM 应用框架，主攻编排与生态。</div>
-      <div class="term-item"><b>LlamaIndex</b>:数据/RAG 框架，主攻索引与检索。</div>
-      <div class="term-item"><b>LangGraph</b>:LangChain 家的图编排引擎，做复杂 Agent 流程。</div>
-      <div class="term-item"><b>Data Connector</b>:LlamaIndex 的数据接入组件。</div>
-      <div class="term-item"><b>Query Engine</b>:LlamaIndex 里"检索 + 生成"的封装单元。</div>
-      <div class="term-item"><b>主矛盾</b>:决定框架选型的那一个核心瓶颈。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/LangChain">LangChain</a></b>:通用 LLM 应用框架，主攻编排与生态，复杂流程交给它家的 LangGraph。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://www.llamaindex.ai/">LlamaIndex</a></b>:数据/RAG 框架，主攻数据接入、索引与检索。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://langchain-ai.github.io/langgraph/">LangGraph</a></b>:LangChain 家的图编排引擎，显式状态机 + checkpoint，专做复杂 Agent 流程。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Retrieval-augmented_generation">RAG</a></b>:检索增强生成——先查知识库再让 LLM 作答，私有知识问答的主流方案。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://docs.llamaindex.ai/">Data Connector</a></b>:LlamaIndex 的数据接入组件，类比备份代理。</div>
+      <div class="term-item"><b>Query Engine</b>:LlamaIndex 里「检索 + 生成」的封装单元，类比一次按目录定位的恢复请求。</div>
+      <div class="term-item"><b>checkpoint</b>:LangGraph 的状态存档机制，类比断点续传，让长流程可暂停、可恢复、可回放。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Control_plane">数据面/控制面</a></b>:转发与决策分离的经典架构，本文用它类比 LlamaIndex 与 LangGraph 的分工。</div>
+      <div class="term-item"><b>主矛盾</b>:决定框架选型的那一个核心瓶颈——检索质量，还是编排调度。</div>
     </div>
   </div>
 </article>

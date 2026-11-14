@@ -7,21 +7,56 @@
         <span class="tag">#Agent</span><span class="tag">#工作流</span><span class="tag">#状态机</span>
       </div>
 
+      <div class="note"><b>先说人话：</b>这题让你造 Agent 系统的“调度内核”：理解、检索、生成、审查这些步骤串成一张有向图，要跑得稳、挂得起、断了能续。面试官爱考它，是因为一题就能分出“会演示的人”和“能上线的人”：前者满嘴 prompt,后者必须答得出持久化、防环、失败补偿。有备份/容灾底子更是主场——按“自带快照与容灾的引擎”来答就对了。</div>
+
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-        <p>"本质是<b>把流程图变成可执行的程序</b>:节点是函数或 Agent 调用,边分固定边和条件边,共享一个 State 对象在节点间流转。核心设计四件事:① State 每步落库做 <b>checkpoint</b>,支持断点恢复和人工审批挂起;② 条件边实现分支,<b>循环用最大迭代次数 + 状态变化检测双保险</b>防死循环;③ 节点级重试 + 指数退避 + 超时;④ 支持 fan-out/fan-in 并行节点。LangGraph 就是这套思路的标杆实现。"</p>
+        <p>"本质是<b>把流程图变成可执行、可恢复的程序</b>。节点是函数或 LLM 调用，边分固定边和条件边，全图共享一个 State 对象像接力棒一样在节点间流转。核心设计四件事：① State 每步落库做 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Checkpointing">checkpoint</a>,支持断点恢复和人工审批挂起；② 条件边实现分支，<b>循环用最大迭代次数 + 状态变化检测双保险</b>防死循环；③ 节点级重试 + <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Exponential_backoff">指数退避</a> + 双层超时；④ 支持 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Fork%E2%80%93join_model">fan-out/fan-in</a> 并行节点。<a target="_blank" rel="noopener" href="https://langchain-ai.github.io/langgraph/">LangGraph</a> 就是这套思路的标杆实现。"</p>
       </div>
 
       <div class="block ana"><span class="badge b-ana">通俗类比</span>
-        <p>把它想成<b>高铁调度系统</b>:线路图(有向图)规定列车能从哪站到哪站;每站(节点)做一件事(检票/装卸);信号灯(条件边)决定下一站开往哪里;调度中心每过一站就记录"列车已到 X 站"(checkpoint);列车趴窝了从最近一站重新发车(恢复);晚点就启用备用交路(重试/降级)。没有调度记录,一趟车半路出事就只能从头再跑——这就是 checkpoint 的价值。</p>
+        <p><b>整个引擎(用你天天维护的备份策略引擎想)</b>:一条备份策略天生就是张流程图——发现资源、打快照、复制到远端、校验、归档；Agent 工作流引擎只是把执行单元换成 LLM 调用：节点是策略里的各步骤，边是调度顺序，State 是任务元数据表，checkpoint 是任务进度快照。俩系统是同一套老四样：流程图 + 调度器 + 状态持久化 + 失败处理。</p>
+        <p><b>哪里像</b>:都靠“从断点续跑、失败重试”吃饭，都强调留痕可审计、可回放。<b>哪里不像</b>:备份策略的分支在策略创建时就定死(变化率超阈值 → 转全量)，而 Agent 的条件边是<b>运行中被模型输出动态决定</b>的——流程图自己会“思考”，所以防环和预算兜底得比备份域做得更硬。</p>
+        <p><b>State 与 checkpoint(用快照 + 增量 + 冷热分层想)</b>:State 是任务的全量状态，每个节点跑完写一次 checkpoint,相当于“每步一份增量备份”；热副本放 Redis 供毫秒级恢复，冷副本放 DB 供审计回放——副本供恢复、归档供审计，一个都不能少。</p>
+        <p><b>哪里像</b>:崩溃恢复就是容灾切换的语义，<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Recovery_point_objective">RPO</a> 等于 checkpoint 间隔——每步都写，RPO 趋近于零。<b>哪里不像</b>:保护对象是状态字典不是数据块，体量小但每步都变，必须做 diff 和去重；而且“等人审批一等几天”这种挂起，比普通崩溃恢复对持久化的要求更苛刻。</p>
+        <p><b>循环防护(用看门狗 + 熔断想)</b>:max_iterations 是<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Watchdog_timer">看门狗</a>——“N 步没跑完就杀”；“同节点连续 N 次状态不变 → 熔断”是<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Circuit_breaker_design_pattern">熔断器</a>的“连续失败 N 次就跳闸”。</p>
+        <p><b>哪里像</b>:都不信任“它自己会停”，都用外部硬顶来框住爆炸半径。<b>哪里不像</b>:熔断对象不是网络调用而是“模型原地打转”，判断信号是“状态变没变”而不是错误率。</p>
+        <p><b>失败处理(用作业重试 + 残留清理想)</b>:瞬时失败(网络超时、限流)带着指数退避重试，就像复制中断自动重拉；补偿(compensation)像“远端副本写了一半失败 → 清理碎片，不留不一致残留”。</p>
+        <p><b>哪里像</b>:重试都区分瞬时与确定性(策略配错了，重试一万次也没用)；补偿都是对副作用做善后。<b>哪里不像</b>:失败源多了“模型”这一路——除了网络错，还有“生成质量不达标”“拒答”这类语义失败，得靠条件边打回重做，而不是傻重试。</p>
+        <p><b>fan-out/fan-in 与 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Human-in-the-loop">HITL</a>(用 scatter-gather + 变更审批想)</b>:一条条件边返回多个目标，就是一个读请求拆 N 个分片、汇总后返回——scatter-gather;人工节点是变更审批闸口——机器跑流程，人握按钮，图一挂几小时几天，批完从 checkpoint 续跑。</p>
+        <p><b>哪里像</b>:并行都是“拆分 → 执行 → 汇合”，汇合都可以“谁先完成用谁”；审批流同样是“存状态、等人、继续”。<b>哪里不像</b>:这里的“分片”常是异构任务(检索走一路、写代码走另一路)，不是同构副本；审批按钮也不在运维平台上，而是图里的一个节点。</p>
       </div>
 
       <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p>先定调：这个引擎 = 一台<b>允许带环的<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Finite-state_machine">状态机</a></b>(比 <a target="_blank" rel="noopener" href="https://airflow.apache.org/">Airflow</a> 这类调度系统的 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Directed_acyclic_graph">DAG</a> 更放宽，环必须带防护)+ 一层持久化 + 一个并行调度器。下面按“定义图 → 存状态 → 防循环 → 处理错误 → 跑并行”推进，先用一张组件总览搭心智模型：</p>
+        <table>
+          <tr><th>组件</th><th>职责</th><th>备份域对应物</th></tr>
+          <tr><td>图 DSL</td><td>声明节点与边</td><td>策略配置文件</td></tr>
+          <tr><td>调度器</td><td>选出下一批可执行节点</td><td>调度框架</td></tr>
+          <tr><td>State + reducer</td><td>共享状态与合并策略</td><td>任务元数据库</td></tr>
+          <tr><td>Checkpointer</td><td>每步持久化状态与位置</td><td>快照 + 增量备份</td></tr>
+          <tr><td>错误处理</td><td>重试 / 超时 / 补偿</td><td>作业重试 + 残留清理</td></tr>
+          <tr><td>HITL 人工节点</td><td>挂起等人拍板</td><td>变更审批</td></tr>
+        </table>
+        <p>再背一个事实，后面所有设计都由它推导而来：<b>节点分两种</b>——普通函数节点(格式化、查库，毫秒级、稳定)和 LLM 节点(把当前 State 交给大模型，让它生成内容或做判断)。LLM 节点<b>慢</b>(百毫秒到几十秒)、<b>不稳</b>(会超时、会输出不合规内容)、<b>贵</b>(按 token 计费)。重试、超时、预算、打回重做，全是给这三个特性兜底的。</p>
+
         <p><b>1. 图定义(DSL 设计)</b></p>
+        <p>为什么要把控制流从代码里搬进图？写在 Python 里，if/else 埋在函数体内，引擎看不见全貌；搬进图里，引擎才能做 checkpoint 路由、静态环检测、并行调度——就像备份策略写成配置而不是 shell 脚本：配置才能被静态校验、可视化、审计。</p>
         <ul>
-          <li>节点 = 一个函数:输入 State,输出 State 的增量更新。开发者用代码注册:<code>graph.add_node("retrieve", fn)</code>。</li>
-          <li>边 = 跳转规则:固定边(A 完了一定去 B)和<b>条件边</b>(一个函数读当前 State,返回下一个节点名,可返回多个实现并行)。</li>
-          <li>入口/出口:START → … → END;图对象编译后生成可执行单元(编译期做静态检查:悬空节点、不可达节点、无出口环)。</li>
+          <li><b>节点 = 一个函数</b>:输入 State,输出 State 的<b>增量更新</b>(只返回变化的字段，由引擎合并)。开发者用代码注册：<code>graph.add_node("retrieve", fn)</code>。只返回增量的好处：节点无权篡改全量状态，并行写入时由合并策略兜底。</li>
+          <li><b>边 = 跳转规则</b>,分两种：<b>固定边</b>(A 完了一定去 B)和<b>条件边</b>(一个函数读当前 State,返回下一个节点名，<b>可返回多个</b>实现并行)。与传统调度最关键的区别：条件函数可以引用模型的运行时输出——“下一步去哪”由内容决定，而不只由成败决定。</li>
+          <li><b>入口/出口</b>:START → … → END;图对象编译后生成可执行单元(compile() 时顺带做静态检查：悬空节点、不可达节点、无出口环)。</li>
         </ul>
+        <table>
+          <tr><th>边的类型</th><th>注册方式</th><th>下一站由谁决定</th><th>并行支持</th></tr>
+          <tr><td>固定边</td><td>add_edge(A, B)</td><td>定义期写死：A 完必去 B</td><td>否</td></tr>
+          <tr><td>条件边</td><td>add_conditional_edges(A, fn)</td><td>运行期：fn 读 State 返回节点名</td><td>是，返回列表即扇出</td></tr>
+        </table>
+        <table>
+          <tr><th>编译期静态检查</th><th>抓什么问题</th><th>备份域类比</th></tr>
+          <tr><td>悬空节点</td><td>没有入边或没有出边的节点</td><td>任务没挂进任何计划——要么永不执行，要么成孤儿</td></tr>
+          <tr><td>不可达节点</td><td>从 START 出发到不了的节点</td><td>任何数据都命中不了的策略分支</td></tr>
+          <tr><td>无出口环</td><td>环上所有边都指回环内</td><td>没有成功判据的死循环，只能靠人杀</td></tr>
+        </table>
         <pre class="code"><span class="c"># 用户侧 API 大致长这样</span>
 g = Graph()
 g.add_node("understand", understand_fn)     <span class="c"># 意图理解</span>
@@ -34,45 +69,155 @@ g.add_edge("retrieve", "generate")
 g.add_conditional_edges("generate", <span class="c"># 条件边:不合格打回重做</span>
     lambda s: "retrieve" if s.need_retry else END)
 app = g.compile(checkpointer=RedisSaver())  <span class="c"># 带持久化编译</span></pre>
+        <p>代码里三个细节值得咂摸：① 条件边是个 lambda,读 <code>s.need_retry</code>——这是 generate 节点写进 State 的字段，“下一步去哪”和模型产出质量挂了钩；② <code>compile(checkpointer=RedisSaver())</code> 把持久化做成引擎的可插拔组件，业务节点保持干净；③ 顺带一提，review 注册了却没接任何边——真编译时会被静态检查当场拦下(悬空节点)，这个例子恰好演示了编译期检查在干活。这张图画出来是：</p>
+        <pre class="code">      START
+        │
+        ▼
+  ┌────────────┐
+  │ understand │  意图理解
+  └─────┬──────┘
+        ▼
+  ┌────────────┐
+  │  retrieve  │◀───────────┐
+  └─────┬──────┘            │
+        ▼                   │ need_retry=True
+  ┌────────────┐            │ (条件边:打回重做)
+  │  generate  │────────────┘
+  └─────┬──────┘
+        │ need_retry=False
+        ▼
+       END
+
+  防护:此环最多转 max_iterations=5 圈,超限强制走降级出口</pre>
+        <p>“生成不合格 → 打回 retrieve 重做”这个环，就是备份域“复制校验失败 → 重新复制”的环，只是判决由模型的自审给出，所以必须外加硬顶(见第 3 节)。</p>
+
         <p><b>2. 状态设计与持久化</b></p>
+        <p>State 是全图共享的“单一事实来源”，设计核心两个字：<b>分区 + 合并</b>。分区让不同类信息互不踩踏，合并让并行节点写同一字段时不丢数据。</p>
         <ul>
-          <li>State 是一个带 schema 的字典:输入、中间产物、迭代计数、错误信息分区存放,避免互相覆盖(可用 reducer 函数定义合并策略,如追加列表)。</li>
-          <li><b>Checkpoint 策略</b>:每个超节点执行完写一次(内容 + 图位置 + 版本号)到 Redis(热,供快速恢复)/ DB(冷,供审计回放)。</li>
-          <li>恢复:进程重启或人工审批通过后,load 最新 checkpoint,从记录的节点继续执行。<b>时间旅行调试</b>:回放任意历史 checkpoint 重跑,定位问题神器。</li>
+          <li><b>State 是一个带 schema 的字典</b>:输入、中间产物、迭代计数、错误信息分区存放，避免互相覆盖(可用 reducer 函数定义合并策略，如追加列表)。一种合理的分区：</li>
         </ul>
+        <table>
+          <tr><th>分区</th><th>放什么</th><th>例子</th><th>谁写</th></tr>
+          <tr><td>input</td><td>原始输入，只读</td><td>question, user_id</td><td>入口一次性写入</td></tr>
+          <tr><td>artifacts</td><td>中间产物</td><td>retrieved_chunks, draft</td><td>各节点追加</td></tr>
+          <tr><td>counters</td><td>循环与预算计数</td><td>loop_count, tokens_used</td><td>引擎自增</td></tr>
+          <tr><td>errors</td><td>错误记录</td><td>last_error, retry_count</td><td>引擎 / 节点</td></tr>
+        </table>
+        <p>为什么需要 reducer?fan-out 的并行节点会同时写同一字段(比如三路检索各写一份结果)，直接覆盖只剩最后一份，追加式合并(append)则全保得住——这就像多路备份流并发写同一份索引：按策略合并，不许互相覆盖。</p>
+        <ul>
+          <li><b>Checkpoint 策略</b>:每个超节点(superstep:一轮 fan-out 节点组)执行完写一次，内容 = <b>State + 图位置 + 版本号</b>,双写 Redis(热，供快速恢复)/ DB(冷，供审计回放)。</li>
+        </ul>
+        <table>
+          <tr><th>存储层</th><th>Redis(热)</th><th>DB(冷)</th></tr>
+          <tr><td>角色</td><td>快速恢复路径</td><td>审计、回放、时间旅行</td></tr>
+          <tr><td>保留</td><td>最近 N 个版本</td><td>全版本，按合规 TTL</td></tr>
+          <tr><td>恢复速度</td><td>毫秒级</td><td>百毫秒级</td></tr>
+          <tr><td>备份域类比</td><td>本地副本 / 快照</td><td>异地归档</td></tr>
+        </table>
+        <ul>
+          <li><b>恢复</b>:进程重启或人工审批通过后，load 最新 checkpoint,从记录的节点继续执行。写序必须是“checkpoint 落库成功，节点副作用才对外生效”——<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Write-ahead_logging">WAL</a> 先写日志再做事的语义；恢复按 at-least-once 执行，有副作用的节点必须<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Idempotence">幂等</a>。</li>
+          <li><b>时间旅行调试</b>:回放任意历史 checkpoint 重跑(fork 出新线程重跑更稳，不惊动原线程)，定位问题神器——相当于从任意恢复点还原重放。checkpoint 链还天然支持分叉，是“同一轨迹上 A/B 对比两个模型版本”的基础设施。</li>
+        </ul>
+        <pre class="code">  understand ✔      retrieve ✔      generate ✘ (进程被杀)
+       │                 │                 │
+       ▼                 ▼                 ▼
+    ckpt_1            ckpt_2          (未产生)
+       │                 │
+       └────────┬────────┘
+                ▼
+  重启后:load 该线程最新的 ckpt_2
+                │  state = retrieve 完成后的快照
+                │  position = 下一站 generate
+                ▼
+  重跑 generate ──▶ 继续后半程 (at-least-once → 节点须幂等)</pre>
+        <p>频率上再做一笔权衡：每步都写，RPO 趋近于零，代价是每节点一次落库——和“备份频率 vs 存储成本”的权衡一模一样，解法也是同一套：增量 diff、大对象外置(追问里细聊)。</p>
+
         <p><b>3. 分支与循环的安全</b></p>
+        <p>为什么 Agent 图特别需要防护？因为条件边由模型输出驱动，模型完全可能永远判 need_retry=True——这不是 bug,是模型行为的固有怪癖。防护必须按“它自己永远不会停”来设计。</p>
         <ul>
-          <li>循环必须配 <b>max_iterations</b>(如 5 次)和预算上限(token/时间),超限强制走降级出口。</li>
-          <li>环检测:同一节点连续执行 N 次而 State 关键字段无变化 → 判定死循环,熔断。</li>
+          <li><b>循环必须配 max_iterations</b>(如 5 次)和<b>预算上限</b>(token/时间)，超限强制走<b>降级出口</b>——注意是“降级出口”，不是抛异常暴毙：路由到兜底节点，产出安全答案(如“暂时无法核实，请补充信息”)，并把 loop_count、last_error 写进 State 供排查。</li>
+          <li><b>环检测</b>:同一节点连续执行 N 次而 State 关键字段无变化 → 判定死循环，熔断。它抓的是“每圈都很快、预算也烧不到，但状态在原地打转”的那类死循环。</li>
         </ul>
+        <table>
+          <tr><th>防护</th><th>封顶什么</th><th>备份域类比</th></tr>
+          <tr><td>max_iterations</td><td>循环圈数</td><td>看门狗：N 步没完就杀</td></tr>
+          <tr><td>预算上限(token/时间)</td><td>成本天花板</td><td>策略配额：窗口超了就终止</td></tr>
+          <tr><td>状态变化检测</td><td>“无进展”死循环</td><td>熔断：连续 N 次无效果就跳闸</td></tr>
+        </table>
+        <pre class="code">循环防护伪代码:
+if loop_count >= max_iterations:        → 降级出口(强制)
+if tokens_used >= token_budget:         → 降级出口
+if 同节点连续 N 次且关键字段哈希不变:    → 熔断 → 降级出口</pre>
+        <p>再补一刀成本视角：打回重做的每一圈都是完整的 LLM 调用，token 预算必须<b>全图共享</b>而不是按节点各自为政，否则每个节点都“合规”，加起来整体爆炸。</p>
+
         <p><b>4. 错误处理</b></p>
+        <p>原则先行：<b>先分类，再处置</b>——确定性失败重试是浪费，瞬时失败不重试是白白丢可用性。</p>
         <ul>
-          <li><b>节点级重试</b>:可配置(次数、指数退避、哪些异常类型可重试——网络错误可重试,参数错误重试也没用)。</li>
-          <li><b>超时</b>:节点级 + 全图级双层。</li>
-          <li><b>补偿</b>:已产生副作用的节点(如已扣款)失败时执行补偿动作(退款)——参考 Saga 模式。</li>
-          <li>最终失败:状态标记 failed + 保留完整 trace 供排查。</li>
+          <li><b>节点级重试</b>:可配置(次数、指数退避、哪些异常类型可重试——网络错误可重试，参数错误重试也没用)。</li>
+          <li><b>超时</b>:节点级 + 全图级双层。节点级管单步上限(如一次 LLM 调用 30 秒)，全图级管整条链路(如 120 秒)——防止“每个节点都只慢一点，加起来没完没了”。</li>
+          <li><b>补偿</b>:已产生副作用的节点(如已扣款)失败时执行补偿动作(退款)——参考 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Compensating_transaction">Saga 模式</a>。备份域类比：远端副本写一半失败 → 清理碎片、不留不一致残留。补偿节点自身也要幂等、要可靠可达，别让善后变成新的故障源。</li>
+          <li><b>最终失败</b>:状态标记 failed + 保留完整 trace 供排查——每个节点的输入输出摘要、token 消耗、每次分支决策依据。生产事故基本靠这份 trace 定位。</li>
         </ul>
+        <table>
+          <tr><th>异常类别</th><th>例子</th><th>可重试？</th><th>处置</th></tr>
+          <tr><td>瞬时</td><td>网络超时、限流、模型 5xx</td><td>是</td><td>指数退避重试(1s→2s→4s)</td></tr>
+          <tr><td>确定性</td><td>参数错误、鉴权失败</td><td>否</td><td>快速失败 + 告警</td></tr>
+          <tr><td>语义</td><td>输出解析失败、拒答、质量不达标</td><td>部分</td><td>解析失败可带错误信息重试；质量不达标走条件边打回(进第 3 节的循环防护)</td></tr>
+        </table>
+
         <p><b>5. 并行执行</b></p>
         <ul>
-          <li>条件边返回多个目标 = fan-out 并行执行,全部完成(或任一完成,可配)后再 fan-in。</li>
-          <li>子图支持:节点本身可以是另一张图,实现分层编排。</li>
-          <li>人工节点(HITL):执行到审批节点时图挂起,状态入库,人批完再 invoke 恢复——这是和普通工作流引擎最大的差异点之一。</li>
+          <li><b>条件边返回多个目标 = fan-out</b> 并行执行，全部完成(或任一完成，可配)后再 <b>fan-in</b>。两种汇合模式对应两类业务：多源检索要全量(全部完成)，竞速取快可用任一。</li>
+          <li><b>子图支持</b>:节点本身可以是另一张图，实现分层编排——像策略里嵌子策略；子图的执行位置是父图 checkpoint 的一部分，嵌套挂起/恢复天然成立。</li>
+          <li><b>人工节点(HITL)</b>:执行到审批节点时图挂起，状态入库，人批完再 invoke 恢复——<b>这是和普通工作流引擎最大的差异点之一</b>。挂起时长不可控(几分钟到几天)，checkpoint 必须落在持久存储而非进程内存。</li>
+        </ul>
+        <pre class="code">        router (条件边返回列表)
+          │
+          ├────▶ web_search ─────┐
+          ├────▶ code_search ─────┼────▶ merge (fan-in) ───▶ 继续执行
+          └────▶ doc_lookup ─────┘
+          fan-out:三路并发            汇合策略:全部完成 / 任一完成(可配)</pre>
+        <pre class="code">  执行到 approve(人工审批节点)
+      │
+      ▼
+  写 checkpoint {state, position: approve} ──▶ 图 SUSPENDED(进程可退出)
+      │
+      ▼
+  人工审批(几分钟后 / 几天后)
+      │  通过 → 继续 / 驳回 → 走驳回边
+      ▼
+  invoke(thread_id) ──▶ load checkpoint ──▶ 从 approve 的下一站继续执行</pre>
+        <p>两个值得在面试里点破的设计洞察：① HITL 挂起和崩溃恢复<b>共用同一套机制</b>——都是“load checkpoint,继续执行”，区别只是触发方是人还是进程重启，机制统一是这套设计的优雅之处；② 审批/驳回的结果由人写进 State,再由条件边路由——人本质上是一个“慢但权威的节点”。</p>
+
+        <p><b>6. 上线检查单(加分项)</b></p>
+        <ul>
+          <li><b>可观测</b>:每个节点执行留一条 trace——输入输出摘要、token 消耗、时延、分支决策依据；图级 trace_id 串起全程日志。</li>
+          <li><b>流式与延迟</b>:交互场景要支持流式输出——generate 的第一个 token 就推给用户，体感 TTFT 不必等全图跑完。</li>
+          <li><b>限流与预算</b>:全局 token 预算 + QPS 上限，防止图的循环与并行放大流量，把下游打穿。</li>
+          <li><b>幂等与沙箱</b>:副作用节点全部上幂等键；工具调用走白名单，文件/网络进沙箱。</li>
+          <li><b>版本与演练</b>:checkpoint 带 schema 版本，新图版本先灰度发布再全量；定期故障注入杀进程验证可恢复性(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Chaos_engineering">混沌工程</a>)。</li>
         </ul>
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:和 Airflow 这类传统工作流引擎有什么区别?</summary><div class="an">Airflow 面向<b>定时批处理 DAG</b>(天级/小时级任务,失败明早重跑);Agent 引擎面向<b>交互式、低延迟、含 LLM 决策</b>的执行:条件边由模型输出驱动、毫秒级响应、支持人工介入挂起恢复、循环常见。</div></details>
-        <details class="qa"><summary class="qu">Q:状态很大(几 MB 对话历史)每步都存吗?</summary><div class="an">增量存储:只存 diff + 指针,大对象(文档原文)外置对象存储引用。</div></details>
-        <details class="qa"><summary class="qu">Q:怎么保证同一张图不被并发执行出问题?</summary><div class="an">同一线程(thread_id)的执行加分布式锁或用队列串行化;不同线程天然隔离。</div></details>
+        <details class="qa"><summary class="qu">Q:和 Airflow 这类传统工作流引擎有什么区别？</summary><div class="an"><b>人话：</b>Airflow 是跑夜间批处理的引擎，我们要造的是交互式实时决策引擎；最本质的区别是它的流程提交时就定死，我们的流程是运行中被模型一步步决定的。<b>类比：</b>Airflow 像备份软件的 nightly 批调度——作业挂了明早重跑，没人盯着；Agent 引擎像同步复制——用户就在屏幕另一头等，必须快、必须经得起循环、必须容得下人。<b>技术：</b>① 调度：时间触发 DAG vs 事件驱动、带环的状态机；② 时延：分钟/小时级批窗口 vs 秒级交互 SLA;③ 分支：静态配置 vs 模型输出动态决定；④ HITL 挂起恢复、时间旅行调试，Airflow 里几乎不存在。</div></details>
+        <details class="qa"><summary class="qu">Q:状态很大(几 MB 对话历史)每步都存吗？</summary><div class="an"><b>人话：</b>首次全量、之后增量，大对象放外面、State 里只留指针，去重省不回来的才考虑降频。<b>类比：</b>就是全量 + 增量 + 去重那套：首跑全量，后续节点只存 diff;没变的字段靠内容哈希去重；原始文档“下沉”到对象存储，State 只留引用地址。<b>技术：</b>checkpoint 内容 = 位置 + State diff + 大对象指针；value 哈希去重；Redis 热 / DB 冷双写，滚动全量控制 diff 链长度；对话历史还可做窗口化与摘要压缩，防 State 无界增长。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么保证同一张图不被并发执行出问题？</summary><div class="an"><b>人话：</b>同一线程加锁串行，谁抢到谁执行；不同线程天然隔离。<b>类比：</b>就像同一卷并发写要抢分布式锁：一条备份策略(线程)同时只能有一个在跑的作业，抢到锁才执行、跑完或超时释放；不同策略写不同的卷，互不打扰。<b>技术：</b>以 thread_id 为锁键，Redis SET NX EX 互斥，或把同线程 invoke 收进队列串行消费；checkpoint 带版本号做乐观并发控制；节点幂等做兜底——就算意外双跑，也不产生多余副作用。</div></details>
+        <details class="qa"><summary class="qu">Q:崩溃恢复时，怎么避免半途的节点重复执行造成重复扣款？</summary><div class="an"><b>人话：</b>恢复按“至少一次”来：从最新 checkpoint 之后全部重跑，所以有副作用的节点必须幂等。<b>类比：</b>checkpoint 间隔就是这条工作流的 RPO——切换后重做快照之后的一切；“重放复制任务没关系，只要目标端按 seq 去重”就是节点幂等。<b>技术：</b>checkpoint 记录图位置 + 状态，重启后 load 最新者续跑；扣款、下单类节点用幂等键(唯一约束/去重表)，“做事”与“写 checkpoint”放同一事务边界，消除“扣了钱没记账”的窗口。</div></details>
+        <details class="qa"><summary class="qu">Q:图改版了，老 checkpoint 的 schema 不兼容，怎么恢复？</summary><div class="an"><b>人话：</b>checkpoint 带版本号，恢复时做 schema 迁移；真不兼容的，用原始输入在新图上重放。<b>类比：</b>就是备份格式升级：新版本软件必须能读老备份集，恢复时一键转换；时间旅行重放也等于“任意恢复点一键还原”。<b>技术：</b>checkpoint 存 state 版本号，load 时按版本路由：兼容字段直通、缺失字段补默认、破坏性变更走迁移函数；最坏情况从初始输入在新图 replay(重跑)，幂等键防重复副作用。新图先灰度发布、老 case 回放验证后再全量。</div></details>
+        <details class="qa"><summary class="qu">Q:这样的引擎，你怎么测试才能放心上线？</summary><div class="an"><b>人话：</b>两层：引擎层打桩求确定性，业务层重放真实轨迹。<b>类比：</b>就是备份容灾演练：定期拿生产数据在隔离环境还原跑一遍，真出事时才有底气；时间旅行调试就是演练里的“任意恢复点还原”。<b>技术：</b>依赖注入把 LLM 换成 record-replay 桩，老 case 变回归用例；故障注入中途杀进程验证 checkpoint 恢复(混沌工程)；断言分支决策(条件边该返回什么)而不只断言最终答案；图一改，CI 全量回放。</div></details>
       </div>
 
       <div class="block term"><span class="badge b-term">术语卡</span>
         <div class="terms-grid">
-          <div class="term-item"><b>DAG</b>:有向无环图;Agent 工作流常放宽允许有环(带防护)。</div>
-          <div class="term-item"><b>Checkpoint</b>:执行进度快照,恢复/回放的依据。</div>
-          <div class="term-item"><b>Saga 模式</b>:长事务拆成小步,失败逐步补偿。</div>
-          <div class="term-item"><b>Fan-out/Fan-in</b>:并行发散/汇聚。</div>
-          <div class="term-item"><b>HITL</b>:人工介入节点,执行挂起等人。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Directed_acyclic_graph">DAG</a></b>:有向无环图；Airflow 等调度系统的基础，Agent 工作流刻意放宽了无环约束，允许带防护的环。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Finite-state_machine">状态机</a></b>:状态与迁移规则均为有限的模型，工作流引擎是它的图状扩展(多活跃状态 + 条件边)。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Checkpointing">Checkpoint</a></b>:执行进度快照(状态 + 图位置)，断点恢复、审计回放、时间旅行调试的依据。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Compensating_transaction">Saga 模式</a></b>:把长事务拆成小步，每步配一个补偿动作，失败时逆序补偿。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Fork%E2%80%93join_model">Fan-out/Fan-in</a></b>:并行发散/汇聚，即 fork-join 模型，分布式存储里的 scatter-gather 同款。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Human-in-the-loop">HITL</a></b>:Human-in-the-Loop,机器跑流程、人握最终决策按钮的人工节点。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Exponential_backoff">指数退避</a></b>:重试间隔按指数增长(1s→2s→4s),给还在挣扎的下游留喘息时间。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Write-ahead_logging">WAL(预写日志)</a></b>:先记日志再做事；“checkpoint 落库先于副作用生效”的纪律与它同宗。</div>
         </div>
       </div>
 </article>
