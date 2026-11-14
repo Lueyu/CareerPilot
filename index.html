@@ -11,6 +11,7 @@
 <link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <title>AI Agent 面试题库 v2 · 一页一题</title>
+<meta name="description" content="AI Agent 面试题库：161 道真实考点、8 大主题，每题五模块题卡（30 秒电梯稿 / 通俗类比 / 详细拆解 / 面试官追问 / 术语卡 + 自测）。开源、零依赖、离线可用，由 Lueyu（lueyu.github.io）维护。">
 <style>
   :root{
     --accent:#4f46e5; --accent-light:#eef2ff;
@@ -162,6 +163,14 @@
   .top10 a{color:var(--accent);text-decoration:none;font-weight:600}
   .top10 a:hover{text-decoration:underline}
   footer{color:var(--muted);text-align:center;font-size:13px;padding:30px 0}
+  /* ===== 关于站长 ===== */
+  .about-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin:14px 0 18px;font-size:13.6px;line-height:1.75;color:var(--text-soft)}
+  .about-card .about-t{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;color:var(--text);font-size:14px}
+  .about-card .about-t b{color:var(--text);font-size:15px}
+  .about-card .about-role{font-size:11.5px;line-height:1;padding:4px 10px;border:1px solid var(--border);border-radius:999px;color:var(--muted);white-space:nowrap}
+  .about-card a{color:var(--accent);text-decoration:none;font-weight:600}
+  .about-card a:hover{text-decoration:underline}
+  .about-links{display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:13px}
 
   #backtop{position:fixed;right:26px;bottom:calc(30px + env(safe-area-inset-bottom));width:42px;height:42px;border-radius:50%;border:none;background:var(--accent);color:var(--btn-on-accent);font-size:18px;cursor:pointer;box-shadow:0 4px 14px rgba(79,70,229,.4);opacity:0;pointer-events:none;transition:opacity .25s}
   #backtop.show{opacity:1;pointer-events:auto}
@@ -709,6 +718,9 @@ function renderHome(){
        + '<span class="t">上次看到:' + esc(lq.title) + '</span>'
        + '<span class="lvdot lv' + Store.level(lq.id) + '"></span></a>';
   }
+  h += '<div class="about-card"><div class="about-t"><b>关于站长</b><span class="about-role">AI Agent 开发者 · Lueyu</span></div>'
+     + '<p>本站由 <a href="https://github.com/Lueyu" target="_blank" rel="noopener">GitHub @Lueyu</a> 维护的开源 AI Agent 面试题库：' + TOTAL + ' 道真实考点、' + QB.topics.length + ' 大主题、一页一题。每题按五模块题卡（30 秒电梯稿 / 通俗类比 / 详细拆解 / 面试官追问 / 术语卡 + 自测）由 Agent 管道自动维护，构建零错误才发布。</p>'
+     + '<div class="about-links"><a href="https://lueyu.github.io" target="_blank" rel="noopener">个人主页 lueyu.github.io ↗</a><a href="https://github.com/Lueyu/agent-interview" target="_blank" rel="noopener">仓库源码 ↗</a></div></div>';
   h += '<div class="topic-cards">';
   QB.topics.forEach(function(t){
     var qs = byTopic[t.code] || [];

@@ -2,6 +2,10 @@
 
 面向 **AI 应用开发 / Agent 开发 / RAG 系统工程师 / Agent 算法岗**社招的中文面试题库,共 **161 题**,按真实考察主题分为 8 大类。纯静态、零依赖、离线可用——`index.html` 双击即开。
 
+- **在线版**:[agent-interview.icu](https://agent-interview.icu)(每日自动发布)
+- **作者**:[Lueyu](https://github.com/Lueyu) · [个人主页](https://lueyu.github.io)
+- **定位**:一页一题的 AI Agent 面试准备题库,每题按五模块题卡展开(见下),由 Agent 管道自动选题、写卡、构建校验,零错误才入库。
+
 ## 主题分布
 
 | 主题 | 题数 | 覆盖 |
@@ -99,7 +103,7 @@ docs/superpowers/                # 设计文档与实施计划
 
 ```bash
 python build.py                # 扫描 content/ → 校验 → 生成 data.js
-python build.py --selftest     # 内置回归(57 项断言)
+python build.py --selftest     # 内置回归自测(PASS/FAIL 输出)
 python build.py --init-notes   # 创建本地笔记文件(新环境首次使用)
 python build.py --migrate      # (已弃用)旧版单文件 index.html 一次性迁移,输出树已存在时会拒绝执行
 ```
