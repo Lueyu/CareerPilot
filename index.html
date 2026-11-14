@@ -356,6 +356,17 @@
 .gl-links .lb{color:var(--muted);margin-right:6px}
 .gl-links a{display:inline-block;margin:2px 6px 2px 0}
 
+/* ===== vault 作战室三节(v3:人话解读/今日计划/我的项目) ===== */
+.v-sec:first-child .part-title{margin-top:10px}
+.v-sec .meta{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.7}
+.v-digest{background:var(--card);border:1px solid var(--soft-border);border-radius:12px;padding:14px 16px;white-space:pre-wrap;font-size:14.5px;line-height:1.75}
+.v-plan-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:8px 0}
+.v-plan-cell{background:var(--card);border:1px solid var(--soft-border);border-radius:10px;padding:12px}
+.v-plan-when{color:var(--accent);font-size:13px;margin-bottom:6px}
+.v-plan-what{font-size:14px;line-height:1.6}
+.v-proj-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin:8px 0}
+.v-proj-card{background:var(--card);border:1px solid var(--soft-border);border-radius:10px;padding:12px}
+
 /* ===== 移动端最终覆盖(必须在所有 base 规则之后,否则会被覆盖) ===== */
 @media (max-width:620px){
   .notebox{display:none!important}
@@ -772,7 +783,8 @@ function renderVault(){
 }
 function renderVaultBody(d){
   var m = d.mastery || {};
-  var h = '<div class="ring-wrap">' + vaultRadar(m) + '<div><div class="ring-num">掌握度雷达</div>'
+  var h = renderVaultDigest(d) + renderVaultPlan(d);
+  h += '<div class="ring-wrap">' + vaultRadar(m) + '<div><div class="ring-num">掌握度雷达</div>'
     + '<div class="ring-lbl">8 主题 · 三源合流(自评/拉练/闭卷)</div>'
     + '<div class="ring-lbl" style="margin-top:6px">更新:' + esc(d.generatedAt || '—') + '</div></div></div>';
   h += '<h2 class="part-title">主题掌握度</h2><table style="width:100%;border-collapse:collapse;font-size:13px">';
@@ -807,8 +819,42 @@ function renderVaultBody(d){
     return '<div class="topic-card"><h3>' + esc(x.date || '') + ' · ' + esc(x.topic || '') + '</h3><div class="desc">' + esc(x.summary || '') + '</div>'
       + '<div class="meta-row"><span>下次怎么答:' + esc(x.fix || '') + '</span></div></div>';
   }).join('') : '<div class="empty">待生成</div>';
+  h += renderVaultProjects(d);
   if(d.notes) h += '<h2 class="part-title">作战室总评</h2><p style="line-height:1.9">' + esc(d.notes) + '</p>';
   $('#vault-body').innerHTML = h;
+}
+/* ---------- vault 三节(v3):人话解读/今日计划/我的项目 ---------- */
+function renderVaultDigest(d){
+  if(!d || !d.digest) return '';
+  return '<section class="v-sec"><h2 class="part-title">🗣 人话解读</h2>'
+    + '<div class="v-digest">' + esc(d.digest) + '</div></section>';
+}
+function renderVaultPlan(d){
+  var p = d && d.plan;
+  if(!p) return '';
+  var cell = function(icon, label, txt){
+    return '<div class="v-plan-cell"><div class="v-plan-when">' + icon + ' ' + label + '</div>'
+      + '<div class="v-plan-what">' + esc(txt || '—') + '</div></div>';
+  };
+  var basis = (p.basis && p.basis.length) ? esc(p.basis.join(' · ')) : '';
+  return '<section class="v-sec"><h2 class="part-title">📅 今日计划四件套</h2><div class="v-plan-grid">'
+    + cell('🌅', '早上', p.morning) + cell('☀️', '下午', p.afternoon)
+    + cell('🌙', '晚上', p.evening) + cell('🔔', '提醒', p.reminder)
+    + '</div>' + (basis ? '<div class="meta">依据: ' + basis + '</div>' : '') + '</section>';
+}
+function renderVaultProjects(d){
+  var pr = d && d.projects;
+  if(!pr || !pr.projects) return '';
+  var cards = pr.projects.map(function(x){
+    return '<div class="v-proj-card"><b>' + esc(x.id) + '</b>'
+      + '<div class="meta">' + esc(x.note || '')
+      + (x.site ? ' · <a href="' + esc(x.site) + '" target="_blank" rel="noopener">站点</a>' : '')
+      + '</div><div class="meta">repo: ' + esc(x.repo) + ' · 最近同步: ' + esc(x.last_sync)
+      + ' · 关联记忆 ' + esc(String(x.memories_linked)) + ' 条</div></div>';
+  }).join('');
+  return '<section class="v-sec"><h2 class="part-title">🧩 我的项目</h2><div class="v-proj-grid">' + cards
+    + '</div><div class="meta">记忆库累计操作 ' + esc(String(pr.usage_total || '?')) + ' 次 · 生成于 '
+    + esc((pr.generated_at || '').replace('T', ' ').slice(0, 16)) + '</div></section>';
 }
 
 /* ---------- 视图:主题 ---------- */
