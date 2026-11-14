@@ -1,89 +1,126 @@
 <article class="q" id="eval-011" data-topic="eval" data-title="如何设计Agent规划能力的评估实验" data-difficulty="4" data-tags="实验设计,Agent,评估" data-company="阿里 / 腾讯(真题)" data-source="P6Q28" data-kw="实验设计 Agent 规划 评估 数据集 Baseline 评估指标 消融实验 ReAct 成功率 阿里 腾讯">
 
-  <div class="q-no">Agent算法 · Q28</div>
-  <h3>如何设计 Agent 规划能力的评估实验?</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐⭐⭐</span>
-    <span class="tag">#实验设计</span><span class="tag">#Agent</span><span class="tag">#评估</span>
-    <span class="company">阿里 / 腾讯(真题)</span>
-  </div>
+      <div class="q-no">Agent算法 · Q28</div>
+      <h3>如何设计 Agent 规划能力的评估实验?</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#实验设计</span><span class="tag">#Agent</span><span class="tag">#评估</span>
+        <span class="company">阿里 / 腾讯(真题)</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"评估规划能力我按四块设计:<b>数据集</b>——选任务型 benchmark(AgentBench / WebArena / ALFWorld)+ 自建分层测试集(线性→分支→需工具→需重规划),每条标黄金轨迹;<b>Baseline</b>——Zero-shot 直答(无规划)、ReAct、Plan-and-Solve、ToT/Reflexion 这几个梯度,再加 GPT-4 级强模型和人类上界;<b>指标</b>——任务成功率(最终状态)、规划质量(子目标/工具选择正确率)、效率(步数、token、延迟)、鲁棒性(注入失败看恢复率);<b>消融</b>——逐个拆掉 planner、反思模块、工具、few-shot 示例,看指标掉多少,把规划的价值归因清楚。"</p>
-  </div>
+      <div class="note"><b>先说人话:</b>这题在问:你说你的 Agent 会规划,拿什么实验证明它真的会、而且功劳在规划不在模型?面试官爱考它,因为考的是实验素养而非知识点——最常见的翻车答法是只报一个成功率就收工,没有对照组、没有消融、没有扰动,等于备份没做过恢复演练就宣称容灾达标。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>就像考核一个<b>项目经理的"拆解能力"</b>:给他一批从易到难的项目(数据集),简单的"订会议室"到复杂的"跨部门多步骤还中途翻车要补救";再安排几个不同水平的对照组(Baseline)——只会一步到位的实习生、边走边想的普通员工、会先列计划的老员工;打分时既看<b>结果成没成</b>(成功率),也看<b>过程有没有瞎绕路</b>(步数/成本),最后故意在项目里埋几个坑(扰动),看他会不会"重排计划"救回来——这才能评出真正的规划能力,而不是只会背流程。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"评估规划能力,我按四块搭实验:<b>数据集</b>——先用公开 benchmark(AgentBench / WebArena / ALFWorld)保证可对标,再自建<b>分层测试集</b>(线性→分支→需工具→需重规划),每条标注黄金轨迹和程序化判据;<b>Baseline</b>——搭一条从弱到强的对照梯度:Zero-shot 直答(无规划)、ReAct、Plan-and-Solve、ToT/Reflexion,再加 GPT-4 级强模型和人类上界;<b>指标</b>——别只报成功率:任务成功率(最终状态)、规划质量(子目标/工具选择正确率)、效率(步数、token、延迟)、鲁棒性(注入失败看恢复率)、稳定性(多次运行报方差)一起报;<b>消融</b>——逐个拆掉 planner、反思模块、工具、few-shot 示例,看各指标掉多少,把『规划』的价值单独归因清楚。"</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 先定义"规划能力"(否则无法打分)</b></p>
-    <ul>
-      <li>规划 = 把目标<b>分解为子任务</b> + 确定<b>动作/工具序列与依赖顺序</b> + 执行中<b>失败时重规划(replan)</b>。</li>
-      <li>因此实验要同时测三件事:分解对不对、顺序对不对、失败能不能救——缺一个都不叫规划能力。</li>
-    </ul>
-    <p><b>2. 数据集设计</b></p>
-    <ul>
-      <li><b>现成 benchmark</b>:AgentBench(OS/DB/网页等多环境)、WebArena(真实网页任务)、ALFWorld(文本交互式家务)、GAIA(通用助手推理)、PlanBench(纯规划逻辑题)。用它们保证可复现、可对标。</li>
-      <li><b>自建分层集</b>(按规划复杂度分级,是本题亮点):</li>
-    </ul>
-    <table>
-      <tr><th>层级</th><th>任务形态</th><th>考察点</th></tr>
-      <tr><td><b>L1 线性</b></td><td>单一固定步骤链</td><td>能否按序执行</td></tr>
-      <tr><td><b>L2 分支</b></td><td>按条件选不同路径</td><td>条件判断与分支选择</td></tr>
-      <tr><td><b>L3 多工具</b></td><td>需调用多个工具并传参</td><td>工具选择与参数正确性</td></tr>
-      <tr><td><b>L4 重规划</b></td><td>中途工具失败/环境变化</td><td>能否感知失败并改道</td></tr>
-    </table>
-    <ul>
-      <li><b>标注</b>:每条含目标、<b>黄金轨迹</b>(正确动作序列)、<b>最终状态判据</b>(可程序化校验:订单状态/页面元素/文件内容),避免只靠人工。</li>
-    </ul>
-    <p><b>3. Baseline 梯度(对照要"有梯度"才说明问题)</b></p>
-    <ul>
-      <li><b>Zero-shot 直答</b>:不给规划,直接让 LLM 一步输出答案——下界。</li>
-      <li><b>ReAct</b>:思考-行动交替,无显式事前规划——中间态。</li>
-      <li><b>Plan-and-Solve / ReWOO</b>:先出计划再执行——规划主力变体。</li>
-      <li><b>ToT / Reflexion</b>:树搜索或自我反思重规划——更强变体。</li>
-      <li><b>强模型 + 人类</b>:GPT-4/Claude 作模型上界,人类完成率作理论上界。</li>
-    </ul>
-    <p><b>4. 评估指标(别只报成功率)</b></p>
-    <table>
-      <tr><th>维度</th><th>指标</th><th>说明</th></tr>
-      <tr><td><b>结果</b></td><td>任务成功率 / 目标达成率</td><td>最终状态是否满足判据</td></tr>
-      <tr><td><b>规划质量</b></td><td>子目标分解正确率、动作序列正确率、工具选择准确率</td><td>过程对错,和结果分开看</td></tr>
-      <tr><td><b>效率</b></td><td>平均步数、token 成本、P50/P99 延迟、重规划次数</td><td>规划要"省"才有价值</td></tr>
-      <tr><td><b>鲁棒性</b></td><td>扰动后成功率、失败恢复率</td><td>注入工具故障/干扰信息后能否 replan</td></tr>
-      <tr><td><b>稳定性</b></td><td>同 prompt 多次运行的方差</td><td>LLM 有随机性,报均值+方差</td></tr>
-    </table>
-    <p><b>5. 消融实验(把"规划"的价值单独拎出来)</b></p>
-    <ul>
-      <li><b>拆 planner</b>:Plan-and-Solve → 退化成 ReAct → 再退化成 Zero-shot,看每层掉多少分。</li>
-      <li><b>拆反思</b>:去掉 Reflexion 的重规划回路,专门在 L4 集上看恢复率崩多少——证明"失败恢复"的贡献。</li>
-      <li><b>拆工具</b>:削减可用工具集,看工具选择准确率与成功率如何变化。</li>
-      <li><b>拆 few-shot 规划示例</b>:去掉 prompt 里的示例,证明示例是"教"而非"撞"。</li>
-      <li><b>采样策略</b>:temperature/多次采样取多数,看规划稳定性。</li>
-    </ul>
-    <p><b>6. 实验控制(严谨性)</b></p>
-    <ul>
-      <li>固定模型版本与 prompt;每任务<b>多次运行取平均 + 报告方差</b>;用<b>配对检验/bootstrap</b>判显著性,而非"看着高了 2 个点"。</li>
-      <li>训练/测试严格隔离:自建集的黄金轨迹不得进入任何 prompt 示例。</li>
-      <li>程序化判据优先,人工/LLM-as-judge 兜底,并抽 5% 对齐 judge 与人的一致率。</li>
-    </ul>
-  </div>
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>把这题想成:怎么证明一套自动化容灾系统真的比人工靠谱</b>。跑通一次恢复不叫证据,你得设计一场完整的评估:造一批<b>从易到难的故障场景</b>(数据集)——从单盘损坏一路到机房级多系统连锁故障;安排<b>对照组</b>(Baseline)——值班工程师手动恢复、半自动脚本、全自动编排引擎,同一批故障三队各演一遍;打分既看<b>恢复成没成、RTO 达没达标</b>(结果),也看<b>操作步数有没有瞎绕、是不是照着 runbook 走</b>(过程与效率);最后演练进行到一半<b>故意再砸一台机器</b>(扰动注入),看系统是死在原地、还是能改道救回来(重规划)。Agent 规划评估就是这套打法的翻版,只是被测对象从编排引擎换成了 LLM。</p>
+        <p><b>Baseline 梯度就是一支「从实习生到总工」的恢复队伍</b>:Zero-shot 直答像让新来的实习生凭记忆一把梭,简单题能对、难题就翻车;ReAct 像值班工程师边看告警边敲命令,走一步看一步,能干活但没有全局盘算;Plan-and-Solve 像老工程师先把 runbook 写全、再按步执行;ToT/Reflexion 像带复盘机制的团队,失败了停下来总结教训再改道。而<b>黄金轨迹</b>就是那份标注好的标准 runbook——每一步该做什么、该检查什么,过程分全靠它来对。</p>
+        <p><b>哪里像</b>:都得先把「什么算成功」定成可执行的判据(演练的 RTO/RPO 达标线 ↔ Agent 的最终状态校验),没判据就全是主观打分;都得有对照组,否则分数没有参照系;都得专门考「中途出意外能不能救」——顺境人人都会,改道恢复才是编排/规划最值钱的能力。<b>哪里不像</b>:容灾演练一次成本极高、且环境基本确定;Agent 实验便宜到可以同一题跑一百次,但代价是被测对象是 LLM,同题十次运行结果可能各不相同——所以 Agent 实验的每条结论都必须「多次运行 + 报均值和方差」,这一点演练里反而不愁。</p>
+      </div>
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:怎么证明"规划"真的有用,而不是模型本身更强?</summary><div class="an">用同一个基座模型跑所有 Baseline:Zero-shot 和 Plan-and-Solve 用完全相同的模型和工具,唯一变量是"是否显式规划"。若后者显著更好,提升就归因于规划机制而非模型能力;再做消融把 planner 拆掉看回退,双保险锁定因果。</div></details>
-    <details class="qa"><summary class="qu">Q:Agent 是多步的,中间对了最后错了怎么算分?</summary><div class="an">过程和结果分开计:轨迹级指标(子目标/工具/参数正确率)看"是不是真会规划",结果级(成功率)看"最终有没有成";再加"有效步占比"(多少调用是白干的)衡量绕路程度,避免只看终点掩盖过程混乱。</div></details>
-    <details class="qa"><summary class="qu">Q:规划 benchmark 会不会被刷(数据泄漏)?</summary><div class="an">会,公开集如 WebArena 的题目可能进过某些模型训练语料,分数虚高。对策:自建私域分层集 + 定期轮换题目 + 用程序化判据(而非选择题式可背的答案)+ 关键结论用私域任务二次验证,不把公开榜分数当绝对真理。</div></details>
-    <details class="qa"><summary class="qu">Q:规划能力和"多步调用工具能力"怎么区分?</summary><div class="an">规划强调"先想清楚整体再动"(事前分解+依赖排序+失败预案),工具调用强调"单步动作是否选对、参数是否正确"。实验上可对比:去掉事前计划、纯 ReAct 照样能正确调用工具但步数多、遇挫易卡死——两者在"工具准确率"上接近、在"重规划恢复率"上拉开差距,这个 gap 就是规划独有的贡献。</div></details>
-  </div>
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>第 0 步:整场实验的施工图</b></p>
+        <p>别一上来就堆指标,先把这个实验想成一条流水线,六个站口,后面每一节各管一站:</p>
+        <pre class="code">①定义能力 → ②造数据集 → ③搭 Baseline 梯度 → ④定指标 → ⑤跑实验 → ⑥消融归因
+「什么算规划」 「考什么题」  「和谁比」           「怎么打分」 「多次+方差」 「功劳归谁」
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>ReAct</b>:Reasoning+Acting,思考与行动交替的范式。</div>
-      <div class="term-item"><b>ToT</b>:Tree of Thoughts,树状搜索多路推理路径。</div>
-      <div class="term-item"><b>Replan</b>:执行失败后重新生成计划的机制。</div>
-      <div class="term-item"><b>黄金轨迹</b>:标注好的正确动作序列,用于过程判分。</div>
-      <div class="term-item"><b>Bootstrap</b>:重采样做置信区间/显著性检验的方法。</div>
-    </div>
-  </div>
+漏任何一站的对应扣分点:
+  没数据集分层 → 考不出能力差异(题太难太难都白考)
+  没对照组     → 分数没有参照系(自说自话)
+  没消融       → 归因不清(不知道是谁的功劳)
+  没扰动注入   → 只考顺境(顺境人人都会)</pre>
+        <p><b>1. 先定义「规划能力」(否则无法打分)</b></p>
+        <p>动手前必须把「会规划」翻译成可打分的行为——这一步等价于容灾验收前先定死 RPO/RTO 指标,指标没定义,验收就是各说各话。规划能力拆成三件事,后面所有设计都围绕它们铺开:</p>
+        <ul>
+          <li>规划 = 把目标<b>分解为子任务</b> + 确定<b>动作/工具序列与依赖顺序</b> + 执行中<b>失败时重规划(replan)</b>。</li>
+          <li>因此实验要同时测三件事:分解对不对、顺序对不对、失败能不能救——缺一个都不叫规划能力。对应到后文:L1~L2 考分解与顺序,L3 考工具编排,L4 专考失败自救;指标表里「规划质量」盯前两件,「鲁棒性」盯第三件。</li>
+        </ul>
+        <p><b>2. 数据集设计(考什么题)</b></p>
+        <ul>
+          <li><b>现成 benchmark</b>(标准测试集,作用同<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Benchmark_(computing)">性能基准测试</a>——分数可复现、可横向对标):<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2308.03688">AgentBench</a>(OS/DB/网页等多环境)、<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2307.13854">WebArena</a>(真实网页任务)、<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2010.03768">ALFWorld</a>(文本交互式家务)、<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2311.12983">GAIA</a>(通用助手推理)、<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2206.10498">PlanBench</a>(纯规划逻辑题)。用它们保证可复现、可对标。</li>
+          <li><b>自建分层集</b>(按规划复杂度分级,是本题亮点):公开集是「通用体检」,自建分层集是「专项查漏」——像容灾演练从单盘故障一路演到机房级故障,每升一级,考的能力就换一种:</li>
+        </ul>
+        <table>
+          <tr><th>层级</th><th>任务形态</th><th>考察点</th></tr>
+          <tr><td><b>L1 线性</b></td><td>单一固定步骤链</td><td>能否按序执行</td></tr>
+          <tr><td><b>L2 分支</b></td><td>按条件选不同路径</td><td>条件判断与分支选择</td></tr>
+          <tr><td><b>L3 多工具</b></td><td>需调用多个工具并传参</td><td>工具选择与参数正确性</td></tr>
+          <tr><td><b>L4 重规划</b></td><td>中途工具失败/环境变化</td><td>能否感知失败并改道</td></tr>
+        </table>
+        <p>分层的目的在<b>隔离变量</b>:L1 都过不了,说明连顺序执行都不可靠,先别谈规划;L1 过、L2 挂,是条件判断不行;L3 挂,是工具编排不行;L4 才考到「重规划」这个最值钱的环节——相当于演练里只有「中途追加故障」才考得出真容灾水平,顺境下人人都达标。</p>
+        <ul>
+          <li><b>标注</b>:每条含目标、<b>黄金轨迹</b>(正确动作序列——相当于标注好的标准 runbook,拿它给「过程」打分)、<b>最终状态判据</b>(可程序化校验:订单状态/页面元素/文件内容——相当于演练的达标线,代码判 pass/fail,不靠人眼),避免只靠人工。</li>
+        </ul>
+        <p><b>3. Baseline 梯度(对照要「有梯度」才说明问题)</b></p>
+        <p>只有被测系统没有对照组,分数没有参照系;只有下界没有上界,你不知道天花板在哪。梯度摆出来,相邻两级一对比,每种机制的增量贡献就现形:</p>
+        <pre class="code">同一基座模型、同一套工具、同一批任务,唯一变量是「规划方式」:
+
+  人类 ────────────────────── 理论上界(天花板在哪)
+  强模型(GPT-4 级) ────────── 模型上界
+  ToT / Reflexion ─────────── 树搜索 / 自我反思重规划(更强变体)
+  Plan-and-Solve / ReWOO ──── 先出完整计划再执行(规划主力)
+  ReAct ───────────────────── 思考-行动交替,无显式规划(中间态)
+  Zero-shot 直答 ──────────── 无规划,下界(起点在哪)
+
+读法:拿相邻两级对比,差值就是中间那层机制的贡献——
+  Plan-and-Solve 高于 ReAct  → 「事前规划」的贡献
+  Reflexion 在 L4 集上高     → 「失败重规划」的贡献</pre>
+        <ul>
+          <li><b>Zero-shot 直答</b>:不给规划,直接让 LLM 一步输出答案——下界。</li>
+          <li><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a></b>:思考-行动交替,无显式事前规划——中间态。</li>
+          <li><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.04091">Plan-and-Solve</a> / <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.18323">ReWOO</a></b>:先出计划再执行——规划主力变体。</li>
+          <li><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.10601">ToT</a> / <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2303.11366">Reflexion</a></b>:树搜索或自我反思重规划——更强变体。</li>
+          <li><b>强模型 + 人类</b>:GPT-4/Claude 作模型上界,人类完成率作理论上界。</li>
+        </ul>
+        <p><b>4. 评估指标(别只报成功率)</b></p>
+        <p>只报成功率,等于验收备份时只问一句「恢复成功了吗」——两个 Agent 都成功,一个 5 步直线完成、一个 30 步绕路还重启三次,成功率一样,质量天差地别。所以五个维度一起报:</p>
+        <table>
+          <tr><th>维度</th><th>指标</th><th>说明</th></tr>
+          <tr><td><b>结果</b></td><td>任务成功率 / 目标达成率</td><td>最终状态是否满足判据</td></tr>
+          <tr><td><b>规划质量</b></td><td>子目标分解正确率、动作序列正确率、工具选择准确率</td><td>过程对错,和结果分开看</td></tr>
+          <tr><td><b>效率</b></td><td>平均步数、token 成本、P50/P99 延迟、重规划次数</td><td>规划要"省"才有价值</td></tr>
+          <tr><td><b>鲁棒性</b></td><td>扰动后成功率、失败恢复率</td><td>注入工具故障/干扰信息后能否 replan</td></tr>
+          <tr><td><b>稳定性</b></td><td>同 prompt 多次运行的方差</td><td>LLM 有随机性,报均值+方差</td></tr>
+        </table>
+        <p>表里最常被漏报的是<b>稳定性</b>:LLM 有随机性,同一任务跑十次可能五成五败,只报一次结果等于掷骰子——这也是第 6 节强制「多次运行 + 报方差」的原因。<b>鲁棒性</b>一行则是规划能力的灵魂考题:相当于演练中途追加一次故障注入(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Chaos_engineering">混沌工程</a>的老套路),看它是死循环、假装成功,还是真的改道救回来——只有这个指标能区分「会走流程」和「会救火」。</p>
+        <p><b>5. 消融实验(把「规划」的价值单独拎出来)</b></p>
+        <p>Baseline 是「往上加」出梯度,<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Ablation_(artificial_intelligence)">消融(ablation)</a>是「往下拆」做复核,一加一拆归因才锁得死。思路你一定熟:想证明重删模块对备份窗口的贡献,就把它关掉再跑一轮,看时间涨多少——消融就是对 Agent 干同样的事:</p>
+        <ul>
+          <li><b>拆 planner</b>:Plan-and-Solve → 退化成 ReAct → 再退化成 Zero-shot,看每层掉多少分。</li>
+          <li><b>拆反思</b>:去掉 Reflexion 的重规划回路,专门在 L4 集上看恢复率崩多少——证明「失败恢复」的贡献。</li>
+          <li><b>拆工具</b>:削减可用工具集,看工具选择准确率与成功率如何变化。</li>
+          <li><b>拆 few-shot 规划示例</b>:去掉 prompt 里的示例,证明示例是「教」而非「撞」。</li>
+          <li><b>采样策略</b>:temperature/多次采样取多数,看规划稳定性。</li>
+        </ul>
+        <p>读消融结果有个铁律:<b>拆掉哪个模块、哪个指标掉得最狠,那个指标就是它的「职责」</b>。比如拆掉反思模块后 L4 恢复率暴跌、L1 成功率几乎不动——说明反思的贡献集中在「失败自救」,这正是你要向面试官证明的因果链。</p>
+        <p><b>6. 实验控制(严谨性)</b></p>
+        <p>这节全是给结论上保险的老规矩,和你做性能测试的纪律一一对应:</p>
+        <ul>
+          <li>固定模型版本与 prompt(版本一漂,前后两轮实验就不可比);每任务<b>多次运行取平均 + 报告方差</b>;用<b>配对检验/bootstrap</b>(重采样做显著性检验,见<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Student's_t-test">配对 t 检验</a>与<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Bootstrapping_(statistics)">bootstrap</a>)判显著性,而非「看着高了 2 个点」——在 LLM 的随机性面前,2 个点大概率是噪声。</li>
+          <li>训练/测试严格隔离:自建集的黄金轨迹不得进入任何 prompt 示例——进了示例再考,就是考前泄题。</li>
+          <li>程序化判据优先,人工/<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">LLM-as-judge</a> 兜底,并抽 5% 对齐 judge 与人的一致率。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:怎么证明「规划」真的有用,而不是模型本身更强?</summary><div class="an"><b>人话:</b>锁死变量——所有对照组共用同一个基座模型、同一套工具,唯一差别是「有没有规划环节」,提升才能归因给规划本身。<b>类比:</b>像验证新重删算法:同一批备份数据、同一套存储硬件,只换重删模块,备份窗口缩短了才归因给算法,而不是「新机器本来更快」。<b>技术:</b>同一基座模型跑全部 Baseline,Zero-shot 与 Plan-and-Solve 除「是否显式规划」外条件完全一致;若后者显著更好,再消融拆掉 planner 看分数回退到哪一级——正向搭梯度、反向拆模块,双向锁定因果;强模型和人类上界用来判断离天花板还有多远。</div></details>
+        <details class="qa"><summary class="qu">Q:Agent 是多步的,中间对了最后错了怎么算分?</summary><div class="an"><b>人话:</b>过程分和结果分分开记,两头都不能瞒——只看结果,会把「差一步就成」和「全程乱来」算成同一种失败。<b>类比:</b>容灾演练同理:两人 RTO 都没达标,但一个 90% 步骤按 runbook 走、只在最后回切方案选错,另一个从头乱敲命令——前者离可用一步,后者根本不行,得分必须拉开。<b>技术:</b>轨迹级指标(子目标分解、工具选择/参数正确率)看「是不是真会」,结果级成功率看「最终成没成」,再加「有效步占比」(多少次调用对最终目标有贡献)衡量绕路程度;过程分高、结果分低的样本单独拉出来,分析失败发生在哪一步,再决定修 prompt 还是补工具。</div></details>
+        <details class="qa"><summary class="qu">Q:规划 benchmark 会不会被刷(数据泄漏)?</summary><div class="an"><b>人话:</b>会。公开题库可能进过模型训练语料,分数虚高相当于「背过题的考生」,榜上第一不代表临场能力。<b>类比:</b>就像拿一套演了三年的容灾预案考新值班员——他早背熟了,满分也说明不了遇到新故障行不行;要考真本事,得换一套他没见过的故障场景。<b>技术:</b>对策:自建私域分层集做主考、公开榜(AgentBench/WebArena)只做横向对标;定期轮换题目;判据用程序化的最终状态校验而非可背诵的选择题式答案;关键结论必须在私域任务上二次验证,不把公开榜分数当绝对真理。</div></details>
+        <details class="qa"><summary class="qu">Q:规划能力和「多步调用工具能力」怎么区分?</summary><div class="an"><b>人话:</b>规划是「先想清楚整体再动手、出事能改道」,工具调用是「单步选对工具、填对参数」——一个是排兵布阵,一个是单兵枪法。<b>类比:</b>像区分应急总指挥和手速快的值班员:单机故障两人都处理得漂亮;机房级连锁故障时,总指挥会先盘全局依赖再定恢复顺序,值班员容易头痛医头——差距在编排,不在手艺。<b>技术:</b>对比 ReAct(无显式规划)与 Plan-and-Solve(先规划后执行):两者工具选择准确率接近,但在步数效率和 L4 重规划集的恢复率上拉开差距,这个 gap 就是规划独有的贡献;消融拆 planner 时最先崩的也是这些指标,可作交叉验证。</div></details>
+        <details class="qa"><summary class="qu">Q:人工标注太贵,用 LLM-as-judge 打分靠谱吗?</summary><div class="an"><b>人话:</b>能用,但要人盯着校准——裁判自己也是模型,会偷懒、会偏心,不能无监督放权。<b>类比:</b>像请一位资深工程师当评委:大部分判断靠谱,但有主观偏好;正规做法是定期抽一部分样本让独立评委复核,对不上就修评分标准,而不是无条件信任。<b>技术:</b>程序化判据优先,凡最终状态能用代码校验的都不交给 judge;LLM-as-judge 只兜主观维度;抽 5% 人工双标,报 judge 与人的一致率(如 kappa),低于阈值就修 judge prompt;还要防位置偏好、长度偏好这类系统性偏差——交换回答顺序再打分取平均。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a></b>:Reasoning+Acting,思考与行动交替的 Agent 范式,走一步看一步、无显式事前规划。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.10601">ToT</a></b>:Tree of Thoughts,把推理组织成树状多路探索,可回溯换路。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2303.11366">Reflexion</a></b>:失败后自我复盘、把教训写进记忆再重试的机制,L4 恢复率的主要来源。</div>
+          <div class="term-item"><b>Replan</b>:执行中感知失败后重新生成计划的机制,规划能力里的「灾备预案」环节。</div>
+          <div class="term-item"><b>黄金轨迹</b>:标注好的正确动作序列,Agent 版的标准 runbook,用于过程判分。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Ablation_(artificial_intelligence)">消融实验</a></b>:逐个拆模块看指标掉多少的归因方法,用来证明「功劳是谁的」。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Bootstrapping_(statistics)">Bootstrap</a></b>:对样本重采样估计置信区间/显著性的统计方法,替代「看着高了 2 个点」。</div>
+        </div>
+      </div>
 </article>

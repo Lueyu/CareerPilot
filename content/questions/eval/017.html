@@ -1,28 +1,32 @@
 <article class="q" id="eval-017" data-topic="eval" data-title="设计长上下文模型压力测试表现退化" data-difficulty="4" data-tags="长上下文,压力测试,实验" data-company="" data-source="P6Q34" data-kw="长上下文 压力测试 实验 上下文长度 退化 针落草堆 NIAH 位置 迷失在中段 RULER">
 
-  <div class="q-no">Agent算法 · Q34</div>
-  <h3>设计长上下文模型的压力测试</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐⭐⭐</span>
-    <span class="tag">#长上下文</span><span class="tag">#压力测试</span><span class="tag">#实验</span>
-  </div>
+      <div class="q-no">Agent算法 · Q34</div>
+      <h3>设计长上下文模型的压力测试</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#长上下文</span><span class="tag">#压力测试</span><span class="tag">#实验</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"我会做<b>长度扫描 + 位置扫描</b>的二维压力测试:① 用『针落草堆』测检索——在 4K→128K 不同长度、head/middle/tail 不同位置埋一条关键事实,看能否答对;② 用 RULER 式复合任务(多针、聚合、跨段问答)逼近真实负载;③ <b>指标</b>:检索准确率、端到端正确率,按长度和位置分桶画曲线,同时记 KV cache 显存与延迟;④ 对照组:短上下文全量(上界)、随机猜(下界);⑤ 报告『准确率-长度』退化曲线和 <b>lost in the middle</b> 拐点。"</p>
-  </div>
+      <div class="note"><b>先说人话:</b>模型宣传页写着「支持 128K 上下文」,这题问的就是你怎么验证这句话——本质是给「恢复能力」做满规模演练。面试官爱考它,因为它一眼分出「背参数的」和「真做过压测设计的」:前者只会报长度数字,后者讲得出对照、分桶、归因。答错的暴露点:把「塞得下」当「用得好」,没有资源墙和能力墙的意识。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>就像<b>让你在越来越厚的电话簿里找一个人的号码</b>:簿子薄(4K)一翻就中;厚到 128K,号码又偏偏夹在正中间,人就容易漏——这就是"针落草堆"和"迷失在中段"。压力测试就是系统地量:多厚的簿子、号码放在哪一页、会漏多少,而不是笼统地说"它支持 128K"。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"我会做<b>长度扫描 + 位置扫描</b>的二维压力测试,而且<b>资源墙和能力墙分开量</b>:① 用『针落草堆』测检索——4K→128K 分档,把一条关键事实分别埋在头/中/尾,看找不找得到;② 用 RULER 式复合任务(多针、聚合、跨段问答)逼近真实负载;③ <b>指标双轨</b>:按长度、按位置分桶的检索准确率 + 端到端正确率,同时记 KV cache 峰值显存和首 token 延迟;④ 设对照:短上下文直接问同一事实(上界)、随机猜(下界),位置编码外推设置进消融;⑤ 产出『准确率-长度』退化曲线、长度×位置热力图和 <b>lost in the middle</b> 拐点,答错的再做分层归因——是没检索到,还是检索到了但用错。"</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 为什么要专门测:长上下文有两个独立的"墙"</b></p>
-    <ul>
-      <li><b>资源墙</b>:标准注意力复杂度 O(n²·d),KV cache 显存和首 token 延迟随长度超线性/平方级增长,可能直接 OOM。</li>
-      <li><b>能力墙</b>:长度够了不代表"用得上",模型对长文中不同位置的信息利用能力不均,中段尤其容易丢——两者必须分开测。</li>
-    </ul>
-    <p><b>2. 数据集:从单针到复合任务,难度递进</b></p>
-    <div class="svgwrap">
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>整个测试像给备份系统做满规模恢复演练</b>。厂商宣传页写「单引擎支持 PB 级数据集」,你敢直接信吗?不敢——你会上压力测试台,从 1TB 到 1PB 分档跑,看备份窗口怎么涨、暂存区什么时候爆。长上下文测试就是给 LLM 做的同一种演练:「支持 128K」只保证显存塞得下、不报错(<b>资源墙</b>之内),不保证它真用得上塞进去的信息(<b>能力墙</b>)。<b>哪里像</b>:都是拿真实规模去打宣传口径,都扫两个维度——多大规模、关键数据放在哪个位置。<b>哪里不像</b>:备份软件是确定性系统,慢就是慢,重复跑结果一样;LLM 是概率系统,同一道题这次对下次错,所以每格要重复几十上百条、按准确率说话——更像压测时看统计分布,而不是看单次成败。</p>
+        <p><b>『针落草堆』相当于单文件精确恢复演练</b>:PB 级目录里藏一个关键文件,看索引能不能捞出来、恢复得对不对。文件放在目录开头、中间还是结尾,成功率不一样——模型和人速读一样,开头结尾记得牢、中段容易漏,这条 U 形曲线就是 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2307.03172">lost in the middle</a>。而单文件恢复全过,只证明「索引查得到」,不证明「应用级一致性恢复」做得好——对应到 LLM:单针过了只说明「能找」,多针聚合、跨段综合才是真实负载,这正是 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2404.06654">RULER</a> 式复合任务要补的位。</p>
+        <p><b>资源墙更直观</b>:标准注意力的 O(n²·d) 像全量块比对的暴力去重——数据量翻倍,比对量翻四倍;<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2309.06180">KV cache</a> 像备份过程里一路增长的变更日志暂存区,长度翻倍显存翻倍,staging buffer 撑爆就是 OOM。关键是:撞资源墙的位置,不一定等于能力退化开始的位置,所以两面必须分开测、分开报。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 为什么要专门测:长上下文有两个独立的“墙”</b></p>
+        <ul>
+          <li><b>资源墙</b>(能不能跑):标准注意力复杂度 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1706.03762">O(n²·d)</a>,KV cache 显存随长度线性涨、prefill 阶段耗时近平方涨,可能直接 OOM。它是工程问题,可以用量化、稀疏注意力等手段往后推——但推墙不等于能力没退化,墙推过去了还得测能力。</li>
+          <li><b>能力墙</b>(用得好不好):长度够了不代表“用得上”。模型对长文中不同位置的信息利用能力不均,中段尤其容易丢——这是模型本身的性质,工程手段绕不掉,只能换模型或改使用方式。两者混在一个分数里,报告就没法指导决策,所以必须分开测。</li>
+        </ul>
+        <p><b>2. 数据集:从单针到复合任务,难度递进</b></p>
+        <div class="svgwrap">
 <svg class="sdiagram" viewBox="0 0 440 258" role="img" aria-label="长上下文压力测试难度递进">
   <rect class="sd-box2" x="40" y="16" width="380" height="58" rx="10"/>
   <text class="sd-t" x="230" y="41" text-anchor="middle">L1 · 单针 NIAH</text>
@@ -38,46 +42,69 @@
   <text class="sd-l" x="24" y="128" text-anchor="middle" transform="rotate(-90 24 128)">难度递进</text>
 </svg>
 </div>
-    <ul>
-      <li>单针 NIAH 是检索的"最小能力测试",过了只说明"能找",不代表"能综合推理"。</li>
-      <li>复合任务(参考 RULER 思路)才逼近真实:多跳问答、变量追踪、跨段信息合成。</li>
-    </ul>
-    <p><b>3. 指标:效果 + 效率双轨</b></p>
-    <table>
-      <tr><th>维度</th><th>指标</th><th>说明</th></tr>
-      <tr><td><b>检索</b></td><td>针检索准确率(按长度、按位置分桶)</td><td>画位置热力图,找 lost in the middle</td></tr>
-      <tr><td><b>推理</b></td><td>端到端正确率、多针聚合准确率</td><td>区分"找到"和"用对"</td></tr>
-      <tr><td><b>退化</b></td><td>长上下文 vs 短上下文的分差</td><td>量化"越长越差"的斜率</td></tr>
-      <tr><td><b>效率</b></td><td>首 token 延迟、总延迟、KV cache 峰值显存</td><td>找资源墙/工程上界</td></tr>
-    </table>
-    <p><b>4. 对照组与消融</b></p>
-    <ul>
-      <li><b>上界</b>:模型在短上下文下直接给该事实的准确率,剔除"这题模型本来就不会"的噪声。</li>
-      <li><b>下界</b>:随机猜。</li>
-      <li><b>消融</b>:长度档位、针位置、位置编码外推设置(原始 vs 线性插值 vs NTK-aware)、是否开滑动窗口。</li>
-    </ul>
-    <p><b>5. 结果呈现</b></p>
-    <ul>
-      <li>画<b>准确率-长度曲线</b> + <b>长度×位置热力图</b>,报退化拐点(如"32K 后准确率掉 10 个百分点")和显存/延迟墙。</li>
-      <li>关键区分:同一道题答错,是"没检索到"(检索层问题)还是"检索到了但推理错"(推理层问题)——用"能否复述出针内容"做中间探测。</li>
-    </ul>
-  </div>
+        <ul>
+          <li><b>L1 单针 <a target="_blank" rel="noopener" href="https://github.com/gkamradt/LLMTest_NeedleInAHaystack">NIAH</a></b>:构造方式——用无关文本(噪声文、重复新闻)填充到目标长度,插入一句「魔法数字是 12345」这样的关键事实,再提问。长度取 4K/8K/16K/32K/64K/128K 档位,位置取 0%/25%/50%/75%/100%。它是检索的“最小能力测试”:过了只说明“能找”,不代表“能综合推理”——就像单文件恢复演练全过,不代表一致性恢复没问题。合成数据还有个隐藏好处:网上没有现成答案,不容易被训练数据污染。</li>
+          <li><b>L2 复合任务(参考 RULER 思路)</b>才逼近真实:多跳问答、变量追踪(多个变量的赋值散在长文各处,问最终值)、跨段信息合成、多针聚合(找到 10 个数还要算对总和——找齐了但加错,是另一种失败)。这一层直接对应「应用级一致性恢复」:索引都查得到,不代表跨文件对齐、聚合校验做得对。</li>
+          <li><b>L3 真实长文</b>(长文档 QA、多轮长对话、代码库理解)最接近线上负载,但难度不可控。三层配合使用:合成任务控变量、真实任务看分布,L1 的分数是 L2/L3 的诊断基线。</li>
+        </ul>
+        <p><b>3. 指标:效果 + 效率双轨</b></p>
+        <table>
+          <tr><th>维度</th><th>指标</th><th>说明</th></tr>
+          <tr><td><b>检索</b></td><td>针检索准确率(按长度、按位置分桶)</td><td>画位置热力图,找 lost in the middle;概率系统每格至少 50~100 条,看的是分布不是单次</td></tr>
+          <tr><td><b>推理</b></td><td>端到端正确率、多针聚合准确率</td><td>区分“找到”和“用对”——10 根针找齐 8 根但总和算错,检索层小伤、推理层大伤,药方完全不同</td></tr>
+          <tr><td><b>退化</b></td><td>长上下文 vs 短上下文的分差</td><td>量化“越长越差”的斜率,报「32K 后每翻倍掉 N 个百分点」,比一个总分有用得多</td></tr>
+          <tr><td><b>效率</b></td><td>首 token 延迟、总延迟、KV cache 峰值显存</td><td>找资源墙/工程上界——对应备份压测里的备份窗口和缓冲区峰值,撞墙长度要和退化拐点分开报</td></tr>
+        </table>
+        <pre class="code">长度 × 位置扫描矩阵(示例数据,每格 = 100 条单针测试的平均准确率,%):
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:NIAH 高分就能说长上下文能力强吗?</summary><div class="an">不能。NIAH 只测"大海捞针"的检索,单针场景太理想;真实任务要同时综合多处信息、做推理。所以必须叠加多针聚合、跨段问答等复合任务,否则会被"只会在长文里找关键词"的模型骗过。</div></details>
-    <details class="qa"><summary class="qu">Q:位置编码外推会影响测试吗?</summary><div class="an">会,而且是常被忽略的变量。训练只到 4K 的模型靠 RoPE 外推(插值/NTK)才能跑 128K,外推方式直接影响长文下的位置敏感度。所以外推设置要作为消融变量固定并报告,否则不同模型的分数不可比。</div></details>
-    <details class="qa"><summary class="qu">Q:显存不够跑满 128K 怎么办?</summary><div class="an">用 KV cache 量化、分块注意力或减少 batch,先测到能跑的最大长度;同时用外推(只测注意力分数不完整解码)估趋势。要如实报告"测试上限",别拿没跑满的长度吹能力。</div></details>
-    <details class="qa"><summary class="qu">Q:lost in the middle 能缓解吗?</summary><div class="an">能部分缓解:把关键信息放到开头/结尾、对长文做结构重排、用检索把相关信息捞到前面。实验里可以把它作为一个干预变量,看位置热力图是否变平。</div></details>
-  </div>
+             针位置:   0%(头)    25%       50%(中)    75%       100%(尾)
+ 长度 4K   →             98         97         96         97         98    ← 短文,位置几乎无关
+ 长度 16K  →             95         88         80         87         94    ← U 形开始出现
+ 长度 64K  →             90         74         58         72         88    ← 中段明显塌陷
+ 长度 128K →             84         60         41         57         80    ← 能力墙肉眼可见
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>NIAH</b>:针落草堆,长文里找一条关键事实的最小测试。</div>
-      <div class="term-item"><b>Lost in the middle</b>:长文中间位置的信息最容易被模型忽略。</div>
-      <div class="term-item"><b>RULER</b>:长上下文复合任务基准,多针/聚合/多跳。</div>
-      <div class="term-item"><b>RoPE 外推</b>:旋转位置编码靠插值/NTK 支持超长序列。</div>
-      <div class="term-item"><b>KV cache</b>:缓存的键值,随长度线性涨,显存压力大。</div>
-      <div class="term-item"><b>O(n²·d)</b>:标准注意力复杂度,长文下的主要瓶颈。</div>
-    </div>
-  </div>
+读图三步:
+ ① 看行(长度):   128K 头部 84 vs 4K 头部 98  → 「越长越差」的退化斜率
+ ② 看列(位置):   128K 中段 41 vs 头尾 84/80  → lost in the middle,U 形
+ ③ 看档位(拐点): 32K 之前基本持平,之后每翻倍掉 8~12 个百分点 → 拐点在 32K</pre>
+        <p><b>4. 对照组与消融</b></p>
+        <ul>
+          <li><b>上界</b>:模型在短上下文下直接给该事实的准确率,剔除“这题模型本来就不会”的噪声——如同恢复演练前先验证源端数据本身完好,否则你分不清是恢复慢还是源就是坏的。上界低于 95% 的事实不要拿来做针。</li>
+          <li><b>下界</b>:随机猜。数字题下界约等于 0,选择题下界等于 1/选项数;分数必须显著甩开下界,才算「能力」而不是「运气」。</li>
+          <li><b>消融</b>(一次只动一个变量):长度档位、针位置、位置编码外推设置(原始 RoPE vs <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2104.09864">线性插值</a> vs NTK-aware)、是否开滑动窗口/稀疏注意力;温度等采样参数全程固定。</li>
+        </ul>
+        <p><b>5. 结果呈现</b></p>
+        <ul>
+          <li>画<b>准确率-长度曲线</b> + <b>长度×位置热力图</b>,报退化拐点(如“32K 后准确率掉 10 个百分点”)和显存/延迟墙。最终给业务三句话:能跑到的长度上界(资源墙)、敢承诺的长度上界(能力拐点)、信息摆放建议(位置效应)。</li>
+          <li>关键区分:同一道题答错,是“没检索到”(检索层问题)还是“检索到了但推理错”(推理层问题)——用“能否复述出针内容”做中间探测,归因链如下。</li>
+        </ul>
+        <pre class="code">同一个红叉,两种病,药方完全不同:
+
+  Q: “埋在文中的那串魔法数字是多少?”
+   └─ 追加探测: “请原样复述文中含『魔法数字』的那句话”
+        ├─ 复述正确 → 针已经检索到,错在推理/解码 → 推理层问题
+        │             药方: 缩短上下文、Prompt 要求聚焦、换更强模型
+        └─ 复述错误 / 凭空编 → 信息压根没被注意力抓到 → 检索层问题
+                      药方: 关键信息前置或置尾、长文结构重排,
+                            或干脆用外置检索替代「把整本文塞给模型」</pre>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:NIAH 高分就能说长上下文能力强吗?</summary><div class="an"><b>人话:</b>不能,NIAH 只是「找得到」的最小验证,不是「用得好」的证明。<b>类比:</b>单文件恢复演练全过,不等于应用级一致性恢复没问题——索引能查到文件,不代表能跨文件对齐版本、算准聚合校验。<b>技术:</b>单针场景太理想:针显眼、没有干扰答案、不需要推理。真实任务要同时综合多处信息,所以必须叠加 RULER 式复合任务(多针、变量追踪、聚合)。实测中不少模型单针 128K 全对、聚合任务 32K 就崩——所以报告里两类分数必须一起给,单报 NIAH 就是在骗人。</div></details>
+        <details class="qa"><summary class="qu">Q:位置编码外推会影响测试吗?</summary><div class="an"><b>人话:</b>会,而且是最容易漏掉的变量——同一个模型,外推配置不同,长文表现能差一大截;不固定它,测出的分数没法比。<b>类比:</b>像拿为 4TB 规模设计的编目硬撑 16TB,不同扩容方案表现完全不同——都「能跑」,但都不等于原生 16TB 的水平。<b>技术:</b>训练只到 4K 的模型靠 RoPE 外推(线性插值 / NTK-aware / YaRN)才能跑 128K,外推方式直接改变长文下的位置敏感度。所以外推设置要作为消融变量固定并写进报告;横向比较不同模型时,训练长度和外推方式都要对齐,否则分数不可比。</div></details>
+        <details class="qa"><summary class="qu">Q:显存不够跑满 128K 怎么办?</summary><div class="an"><b>人话:</b>先把资源墙往后推,推不动就如实报「实测到 64K」,绝不拿没跑满的长度吹能力。<b>类比:</b>暂存区不够跑 PB 级全量时,你的做法是压测到能扛的档位、给出外推容量趋势、把实测上界写进容灾预案——而不是跟业务说「理论上支持 1PB」。<b>技术:</b>① KV cache 量化(FP8/INT8),显存减一半以上;② 分块/稀疏注意力、滑动窗口——注意这会牺牲能力,必须标记为消融变量;③ 降 batch 甚至单条跑;④ 实在不行只测 prefill 注意力分数(不完整解码)估趋势。报告里明确:64K 是实测、128K 是外推估计,两者不能混着说。</div></details>
+        <details class="qa"><summary class="qu">Q:lost in the middle 能缓解吗?</summary><div class="an"><b>人话:</b>能缓解、不能根治,而且缓解手段主要在「你怎么摆信息」,不完全在「模型多强」。<b>类比:</b>像大家评审变更单时注意力天然是 U 形的——你控制不了人脑的注意力曲线,但可以控制文档结构:关键变更写进标题和结论,中间只放细节。<b>技术:</b>① 应用层:关键信息前置/置尾、长文结构重排(摘要前置)、用检索把相关段落捞到 prompt 头部——本质是用外置检索替代「把一切都塞给模型」;② 模型层:训练数据中段增强。实验里把「信息摆放位置」作为干预变量做 A/B,对比干预前后位置热力图是否变平。</div></details>
+        <details class="qa"><summary class="qu">Q:为什么不直接用公开长文本基准,要自己造压测数据?</summary><div class="an"><b>人话:</b>公开基准是「考试卷」,自建压测是「演练」——考试卷长度固定、题型固定,压不出你自己场景的墙。<b>类比:</b>公开基准像厂商公布的 SPEC 分数,自建压测像拿自己的真实数据集跑备份窗口——上线前必须以后者为准,但前者用来校准,防止自己测了个寂寞还自以为领先。<b>技术:</b>公开基准(LongBench、∞-Bench 等)给横向排名锚点,但长度档位少、位置效应不可控、还可能被训练数据污染;只有自建才能扫满长度×位置矩阵、按你的真实负载调难度。正确姿势:自建为主、公开基准为锚,报告里两个都放。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://github.com/gkamradt/LLMTest_NeedleInAHaystack">NIAH</a></b>:针落草堆,长文里找一条关键事实的最小检索测试——过了只证明「能找」。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2307.03172">Lost in the middle</a></b>:长文中间位置的信息最容易被模型忽略,位置-准确率曲线呈 U 形。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2404.06654">RULER</a></b>:长上下文复合任务基准,多针/聚合/变量追踪/多跳,专治「只会找关键词」的模型。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2104.09864">RoPE 外推</a></b>:旋转位置编码靠线性插值/NTK 支持超出训练长度的序列,外推方式是压测必固定的变量。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2309.06180">KV cache</a></b>:推理时缓存的键值,随上下文长度线性涨显存,是资源墙的主角。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1706.03762">O(n²·d)</a></b>:标准注意力复杂度,长度翻倍计算量翻四倍,长文下的第一瓶颈。</div>
+        </div>
+      </div>
 </article>

@@ -7,28 +7,49 @@
     <span class="tag">#RAG</span><span class="tag">#实验设计</span><span class="tag">#对比实验</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题不发代码,考的是"让你当一次评测负责人":BM25、向量、混合三路检索器到底谁好,不靠背结论,要拿出一份控制变量、有数据、能分桶对比的实验设计。面试官爱考它,是因为一张口就能分清"背过'混合最好'"的人和真跑过评测的人——变量不控、桶不分,答案再"标准"也是露怯。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"对比三种检索器,我分<b>检索层</b>和<b>端到端</b>两层评估。检索层看 Recall@k、nDCG@k、MRR,并且<b>按 query 类型分桶</b>——这是灵魂:BM25 擅长精确关键词(专有名词、编号),向量擅长语义改写,所以分开看才能看清各自长短板;端到端看生成答案的忠实度/引用率和正确率。实验设计:固定 chunk 策略与 topk,控制变量只换检索器;混合检索用 RRF 或加权融合,再叠加一层 Cross-Encoder rerank 看增量。结论通常不是"谁绝对赢",而是<b>混合 &gt; 单路,且 rerank 是性价比最高的提升手段</b>。"</p>
+    <p>"对比三种检索器,我分<b>检索层</b>和<b>端到端</b>两层评估。检索层看 Recall@k、nDCG@k、MRR,并且<b>按 query 类型分桶</b>——这是灵魂:BM25 擅长精确关键词(专有名词、编号),向量擅长语义改写,所以分开看才能看清各自长短板;端到端看生成答案的忠实度/引用率和正确率。实验设计上,先搭带相关性标注的黄金评测集,再固定 chunk 策略与 topk、embedding 模型、生成 LLM,控制变量只换检索器;混合检索用 RRF 或加权融合,再叠加一层 Cross-Encoder rerank 做消融,逐级看增量;同时报 P99 延迟和 token 成本,做质量-成本权衡。结论通常不是'谁绝对赢',而是<b>混合 &gt; 单路,且 rerank 是性价比最高的提升手段</b>——但这个结论必须是我自己的桶级数据推出来的。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>就像<b>三种找书的方式</b>:BM25 是"按书名/索书号的精确匹配",查编号、专业术语一把准,但你换个说法它就懵;向量检索是"按意思找",你说"怎么报销出差费"它能联想到"差旅报销流程",但精确编号它可能漂移;混合检索是<b>两本目录一起查再合并结果</b>。实验就是要分别考它们,再考"两本一起查 + 请专家(重排模型)把最相关的排前面"到底好多少。</p>
+    <p><b>先把整个实验想成你在备份系统里"选检索方案"</b>:系统里有千万级条目,你要对比三种"找东西"的方式。BM25 像<b>按文件名/编号精确查目录</b>——查备份集编号、策略名、错误码一把命中,但你换个说法("上个月那个出问题的库的备份")它就懵,因为它只认字面不认意思;向量检索像<b>按内容指纹找相似</b>——你说"怎么报销出差费",它能捞出"差旅报销管理办法",意思对得上,但让它找精确编号,它可能给你一堆"意思相近"的邻居,编号本身反而漂了;混合检索就是<b>两套目录一起查、再合并结果</b>。哪里像:这是你熟悉的"精确索引 vs 相似度扫描"的经典取舍。哪里不像:备份目录的对错非黑即白(编号在或不在),而"相关性"是灰度——所以评测必须多档标注,这和容灾演练"恢复了/没恢复"的二值世界是最大的差别。</p>
+    <p><b>整套实验设计,其实就是你已经练了十年的"基准测试 + 恢复演练"方法论</b>:①<b>先有金标准</b>——演练前得有"应该恢复什么"的清单,对账才有依据,对应实验里的相关性标注;②<b>控制变量</b>——对比两种备份引擎,要固定同一份数据、同一批硬件、同一种负载,只换引擎,对应固定 chunk、topk、embedding 和 LLM,只动检索器;③<b>分桶汇报</b>——"平均备份成功率 99%"会掩盖某类大文件作业全挂,按作业类型切开才知道真相,对应按 query 类型分桶;④<b>端到端验收</b>——<b>备份作业全绿 ≠ 出事时恢复得了</b>,这个每个备份工程师都见过的伤疤,对应"检索指标好看 ≠ 用户拿到的答案对",所以必须再评端到端一层。</p>
+    <p><b>四个检索指标用恢复演练来记</b>:Recall@k 是"该恢复的 100 个关键文件,前 k 步捞回来几个"——捞得全不全;Precision@k 是"捞回的一堆里,几个是任务真要的"——捞得准不准;nDCG@k 是"关键业务是不是排在恢复队列最前面"——顺序乱了 RTO 就炸,LLM 也一样重点只看前几条;MRR 是"第一个相关结果排第几"——头名命中率。指标各有分工,组合起来才是一份完整的体检报告。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>0. 实验总览(先给面试官一张施工图)</b></p>
+    <pre class="code">整体流程(六步,每步有验收物,像跑一次完整演练):
+  ① 搭数据集:文档库 + 查询集 + 相关性标注        → 产出:黄金评测集(金标准)
+  ② 定指标:检索层(Recall/nDCG/MRR)+ 端到端    → 产出:指标口径文档
+  ③ 控制变量:固定 chunk/topk/embedding/LLM,只换检索器
+  ④ 消融:单BM25 → 单向量 → 混合RRF → +rerank   → 产出:增量表
+  ⑤ 分桶分析:按 query 类型切开看,拒绝只看平均
+  ⑥ 权衡:质量 vs P99 延迟 vs token 成本          → 产出:结论 + 推荐配置</pre>
     <p><b>1. 数据集与标注(地基)</b></p>
     <ul>
-      <li><b>文档库</b>:可用公开集(BEIR、MS MARCO、Natural Questions)保证可对标,再叠加<b>私有领域语料</b>贴近业务。</li>
-      <li><b>查询集</b>:覆盖多种 query 类型——精确关键词(型号/编号/专名)、语义改写(同义不同词)、多跳问题、长尾稀疏问题、跨语言。</li>
-      <li><b>相关性标注</b>:每条 query 标 relevant 文档(专家标注,或 LLM 初筛 + 人工校验);建议用<b>多档相关度</b>(0/1/2)而非二元,方便算 nDCG。</li>
+      <li><b>文档库</b>:可用公开集(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2104.08663">BEIR</a>、<a target="_blank" rel="noopener" href="https://microsoft.github.io/msmarco/">MS MARCO</a>、<a target="_blank" rel="noopener" href="https://arxiv.org/abs/1906.03767">Natural Questions</a>)保证可对标——像用业界标准基准测备份引擎吞吐,分数有参照系;再叠加<b>私有领域语料</b>贴近业务——真实负载才是验收标准,两者缺一不可。</li>
+      <li><b>查询集</b>:覆盖多种 query 类型——精确关键词(型号/编号/专名)、语义改写(同义不同词)、多跳问题、长尾稀疏问题、跨语言。类型分布决定分桶方式,设计时就按桶配额,别跑完再归因。</li>
+      <li><b>相关性标注</b>:每条 query 标 relevant 文档(专家标注,或 LLM 初筛 + 人工校验的两阶段流程——先指纹粗筛再人工精查,和你审重复块数据是一个套路);建议用<b>多档相关度</b>(0/1/2)而非二元,方便算 nDCG。</li>
     </ul>
+    <table>
+      <tr><th>query 类型</th><th>例子</th><th>预期强项</th></tr>
+      <tr><td>精确关键词</td><td>"错误码 ORA-600 怎么处理"</td><td>BM25</td></tr>
+      <tr><td>语义改写</td><td>"怎么报销出差费"→差旅报销办法</td><td>向量</td></tr>
+      <tr><td>多跳问题</td><td>要 A、B 两篇文档拼起来才答得了</td><td>拼 Recall,谁都别漏</td></tr>
+      <tr><td>长尾稀疏</td><td>生僻专名、低频文档</td><td>单独成桶,防平均掩盖</td></tr>
+      <tr><td>跨语言</td><td>中英混查</td><td>多语言 embedding</td></tr>
+    </table>
     <p><b>2. 检索层指标(先独立评检索,不混入生成)</b></p>
     <pre class="code">Recall@k    前 k 个里捞回的相关文档数 / 全部相关文档数   <span class="c"># 衡量"捞得全不全"</span>
 Precision@k 前 k 个里相关占比                          <span class="c"># 衡量"捞得准不准"</span>
 nDCG@k      考虑排序位置的相关度折损                    <span class="c"># 衡量"排得对不对"</span>
 MRR         第一个相关文档的倒数排名均值                <span class="c"># 看"头名命中"</span></pre>
     <ul>
-      <li>k 分层看:检索召回常看 k=10/20/50;进 LLM 前实际只用 k=3/5,所以<b>小 k 的 Precision 和 MRR 往往比大 k 的 Recall 更贴近真实体验</b>。</li>
+      <li>k 分层看:检索召回常看 k=10/20/50;进 LLM 前实际只用 k=3/5,所以<b>小 k 的 Precision 和 MRR 往往比大 k 的 Recall 更贴近真实体验</b>——就像恢复演练里,决定 RTO 的是恢复队列<b>最前面那几步</b>,不是清单后半段。Recall@50 再漂亮,LLM 只看头三条、头三条全不相关,用户照样拿不到答案。</li>
+      <li>评估脚本要固化进版本库:同一份测试集、同一套代码跑所有方案,保证分数可比——不同脚本跑出的分数就像不同口径算出的"去重率",数字放一起没有意义。</li>
     </ul>
     <p><b>3. 三路检索器(控制变量)</b></p>
     <table>
@@ -38,7 +59,8 @@ MRR         第一个相关文档的倒数排名均值                <span clas
       <tr><td><b>混合</b></td><td>两路召回 + RRF/加权融合</td><td>互补,通常最强;多一路成本</td></tr>
     </table>
     <ul>
-      <li>固定不变:chunk 大小、embedding 模型、topk、LLM(生成层)——只让"检索器"这一个变量动。</li>
+      <li>固定不变:chunk 大小、embedding 模型、topk、LLM(生成层)——只让"检索器"这一个变量动。这是跑基准的铁律:换引擎时数据集、硬件、IO 模式一个都不许动,否则分数差异说不清是谁贡献的。</li>
+      <li>BM25 底下是倒排索引 + TF-IDF 家族的打分(加了词频饱和、文档长度归一两个改良),理解成"会自动降权烂大街词的精确索引"就够;向量检索则是把 query 和文档都变成 embedding,在 HNSW 近邻图里找语义邻居——两者强弱天然互补,这正是混合的动机。</li>
     </ul>
     <p><b>4. 混合与重排的消融(逐级加码看增量)</b></p>
     <pre class="code">单独 BM25
@@ -46,38 +68,51 @@ MRR         第一个相关文档的倒数排名均值                <span clas
 混合(RRF)
 混合 + Cross-Encoder rerank(top50→top5)   <span class="c"># 每加一级,看指标增量</span></pre>
     <ul>
-      <li><b>RRF</b>:对两路各自的排名取倒数融合 score = Σ 1/(k + rank),不依赖分数尺度、无需调权重,工程上最省事。</li>
-      <li><b>Cross-Encoder rerank</b>:把 query 与候选拼接进编码器打分,精排;通常<b>增量最显著</b>,是 RAG 里性价比最高的优化。</li>
+      <li><b>RRF</b>:对两路各自的排名取倒数融合 score = Σ 1/(k + rank),不依赖分数尺度、无需调权重,工程上最省事。为什么只用名次:BM25 分数无上界、余弦相似度压在 0~1 之间,<b>两把刻度不一样的尺子不能直接加权</b>——就像合并两套监控系统的评分,一套按毫秒、一套按 0~1 健康分,硬加等于胡来;而"名次"是天然无量纲的:一台机器在两份榜单都排前几,融合后必在前。</li>
+      <li><b>Cross-Encoder rerank</b>:把 query 与候选拼接进编码器打分,精排;通常<b>增量最显著</b>,是 RAG 里性价比最高的优化。成本上完全算得过来:粗排捞 50 条,精排只编码这 50 对,几十次编码的开销,远小于生成侧多塞 50 条长上下文的 token 钱——这就是存储里"指纹粗筛海量块、只对疑似重复的几对做字节级比对"的粗精两级套路,贵的工序只留给小规模候选。</li>
     </ul>
-    <p><b>5. 端到端指标(检索好≠答案好)</b></p>
+    <p><b>5. 端到端指标(检索好 ≠ 答案好)</b></p>
     <ul>
-      <li><b>忠实度 / 引用率</b>:答案是否真的来自检索到的文档(幻觉检测)。</li>
-      <li><b>正确率 / 解决率</b>:LLM-as-judge 按 rubric 打分,或任务可程序化校验。</li>
-      <li><b>成本与延迟</b>:混合+rerank 会加延迟,报 P99 和 token 成本,做"质量-成本"权衡。</li>
+      <li><b>忠实度 / 引用率</b>:答案是否真的来自检索到的文档(幻觉检测),可参考 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2309.15217">RAGAS</a> 这类评估框架的自动化做法——备份成功率再高,也得靠恢复演练验证可恢复性,这一层就是恢复演练。</li>
+      <li><b>正确率 / 解决率</b>:用 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">LLM-as-judge</a> 按 rubric 打分,或任务可程序化校验(像日志里有没有那个错误码这种,直接断言,比让裁判打分更硬)。</li>
+      <li><b>成本与延迟</b>:混合+rerank 会加延迟,报 P99 和 token 成本,做"质量-成本"权衡——方案的先进性要放在预算里称重,选型和给业务定 RTO/RPO 一样,永远是在几个约束里找平衡点。</li>
     </ul>
     <p><b>6. 关键陷阱</b></p>
     <ul>
-      <li><b>分桶必做</b>:若只看整体平均,BM25 和向量可能分数接近,但"关键词型 query BM25 强、语义型 query 向量强"的真相被平均掩盖——分桶后"混合检索"的价值才显形。</li>
-      <li><b>embedding 不可比</b>:对比不同 embedding 模型时,必须用<b>同一套测试集与同一评测脚本</b>,否则向量相似度阈值都不可比。</li>
-      <li><b>标注模糊</b>:相关性判断本身有噪声,用多档标注 + 双人 Kappa 一致性,别把评测误差当成了算法差距。</li>
+      <li><b>分桶必做</b>:若只看整体平均,BM25 和向量可能分数接近,但"关键词型 query BM25 强、语义型 query 向量强"的真相被平均掩盖——分桶后"混合检索"的价值才显形。示例数字(仅为说明问题,假设各桶均等):</li>
+    </ul>
+    <table>
+      <tr><th>分桶</th><th>BM25 nDCG@10</th><th>向量 nDCG@10</th><th>混合 nDCG@10</th></tr>
+      <tr><td>关键词型</td><td>0.82</td><td>0.51</td><td>0.85</td></tr>
+      <tr><td>语义型</td><td>0.45</td><td>0.79</td><td>0.81</td></tr>
+      <tr><td><b>整体平均</b></td><td><b>0.64</b></td><td><b>0.65</b></td><td><b>0.83</b></td></tr>
+    </table>
+    <ul>
+      <li>看平均,两路打成平手(0.64 vs 0.65),似乎"随便选一个都行";分桶才看见它们<b>互补到什么程度</b>、混合为什么赢——只看平均会直接做出错误决策。</li>
+      <li><b>embedding 不可比</b>:对比不同 embedding 模型时,必须用<b>同一套测试集与同一评测脚本</b>,否则向量相似度阈值都不可比——不同模型输出向量的维度、分布、分数区间各不相同,跨模型直接搬阈值,就像拿 A 厂商的去重率口径套 B 厂商的报表。</li>
+      <li><b>标注模糊</b>:相关性判断本身有噪声,用多档标注 + 双人 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Cohen%27s_kappa">Kappa 一致性</a>校验(两位值班同学对"这条告警算不算真故障"的一致率,剔掉"纯属巧合都同意"的部分),别把评测误差当成了算法差距。</li>
+      <li><b>噪声当差距</b>:指标差 0.02 就敢宣布胜者,是新手最常见的翻车点——I/O 基准跑一次和跑三次的方差都能差出这点。每个桶至少几百条 query,重要结论做重复实验或 bootstrap 置信区间,<b>差值小于波动幅度就别下结论</b>。</li>
     </ul>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:混合检索为什么用 RRF 而不是分数加权?</summary><div class="an">BM25 分数和向量余弦分数<b>尺度完全不同</b>,直接加权要先归一化,归一化又对数据分布敏感、要调超参。RRF 只依赖排名(倒数),天然无量纲、免调参、鲁棒,是实践中最常用的融合方式;若两路分数本身有可信校准,也可用加权并网格搜索权重。</div></details>
-    <details class="qa"><summary class="qu">Q:rerank 成本高,什么时候值得加?</summary><div class="an">当"进 LLM 的 topk 很小(3~5)且答案质量对排序敏感"时,rerank 最值得:粗排捞 50 条,精排压缩到 5 条,几十次编码的成本远低于一次生成出错或多塞长上下文的成本。若下游只做粗检索、或延迟预算极紧,可先不加,用 Recall@50 评估粗排是否够。</div></details>
-    <details class="qa"><summary class="qu">Q:向量检索用哪个 embedding 模型,实验里怎么选?</summary><div class="an">先按领域选:通用用 BGE、E5 这类开源强模型或商用 embedding;领域特殊则用领域语料微调。实验上固定其他变量、只换 embedding 模型跑同一套 Recall@k/nDCG,选得分最高且延迟可接受的;注意不同模型的向量维度与相似度阈值不可通用,评测必须同一套脚本。</div></details>
-    <details class="qa"><summary class="qu">Q:检索质量提升了,但端到端答案没提升,怎么解释?</summary><div class="an">说明瓶颈转移了:要么检索提的指标(如大 k 的 Recall)对生成没用(LLM 只看前几条),要么生成侧(模型/提示/答案组织)成了短板。用"不同 topk 下生成质量"的曲线定位瓶颈:若 topk 增大答案不变,瓶颈在生成;若 topk 增大答案明显变好,瓶颈仍在检索。</div></details>
+    <details class="qa"><summary class="qu">Q:混合检索为什么用 RRF 而不是分数加权?</summary><div class="an"><b>人话:</b>两路检索器打的分"单位"不一样,直接加权等于把毫秒和摄氏度相加。<b>类比:</b>合并两套监控系统的评分——A 按毫秒报延迟、B 按 0~1 打健康分,硬加权毫无意义;但"名次"天然无量纲,一台机器在两份榜单都靠前,融合后必然靠前。<b>技术:</b>BM25 分数无上界,余弦相似度压在固定区间,先归一化才能加权,而归一化对数据分布敏感、要调超参;RRF 用 score = Σ 1/(k + rank) 只依赖排名,免调参、对分数畸变鲁棒,是实践默认;若两路分数有可信校准,也可用加权融合并网格搜索权重。</div></details>
+    <details class="qa"><summary class="qu">Q:rerank 成本高,什么时候值得加?</summary><div class="an"><b>人话:</b>粗筛便宜但糙、精排贵但准,值不值取决于下游窗口有多小、排序有多要命。<b>类比:</b>重删时先做指纹粗筛海量数据块,只对疑似重复的几对做字节级比对——要是全量字节比对,成本直接爆炸;贵的工序只配给小规模候选。<b>技术:</b>当"进 LLM 的 topk 只有 3~5 且答案质量对顺序敏感"时最值得:粗排捞 50 条、Cross-Encoder 压到 5 条,几十次编码远便宜于一次生成出错或多塞长上下文的 token 成本;若下游只做粗检索或延迟预算极紧,可先不加,用 Recall@50 评估粗排是否够用,必要时并行编码兜住延迟。</div></details>
+    <details class="qa"><summary class="qu">Q:向量检索用哪个 embedding 模型,实验里怎么选?</summary><div class="an"><b>人话:</b>别迷信榜单,拿自己的语料当考场。<b>类比:</b>选备份引擎不看厂商 SPEC 数字,拿自家真实负载跑容量和吞吐基准——榜单数据集的分布不等于你生产里备份作业的分布,冷暖自知。<b>技术:</b>固定其他所有变量、同一套测试集与评测脚本只换 embedding 模型,跑 Recall@k/nDCG@k 对比,选得分最高且延迟、维度、成本可接受的;通用场景用 BGE、E5 这类开源强模型或商用 API,领域特殊则用领域语料微调;注意不同模型的向量维度和相似度阈值不可互相移植,评测必须同脚本同测试集。</div></details>
+    <details class="qa"><summary class="qu">Q:检索质量提升了,但端到端答案没提升,怎么解释?</summary><div class="an"><b>人话:</b>瓶颈转移了——上游的改善没有传导到用户那一端。<b>类比:</b>备份成功率上去了,恢复演练却还是失败:要么提的是没人用的备份(冷数据、没价值的部分),要么瓶颈根本在恢复流程本身,备份做得再好也白搭。<b>技术:</b>先查提的是哪种指标——如果提的是大 k 的 Recall 而 LLM 只看前几条,该看的是 Precision@5/MRR;再画"不同 topk 下生成质量"曲线定位瓶颈:topk 增大答案不变,瓶颈在生成侧(模型/提示/答案组织);topk 增大答案明显变好,瓶颈仍在检索,继续优化有收益。</div></details>
+    <details class="qa"><summary class="qu">Q:两个方案指标只差 0.02,能直接说谁更好吗?</summary><div class="an"><b>人话:</b>不能——你得先知道评测本身有多大噪声,差值小于噪声的结论都是幻觉。<b>类比:</b>跑 I/O 基准,第一次比第二次快 3%,你不会据此下结论,先多跑几轮看方差;某晚备份作业成功率差 0.5%,可能只是那晚网络抖,不是引擎退步。<b>技术:</b>先看每桶样本量(至少几百条),对指标做多次重采样或 bootstrap 得到置信区间,差值小于区间宽度就判"无显著差异",要么补数据要么换更有区分度的指标;再用不同标注人复验,排除标注噪声;把"统计上分不出胜负"如实写进结论,本身就是评测成熟度的加分项。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>BM25</b>:基于词频的经典稀疏检索算法。</div>
-      <div class="term-item"><b>nDCG</b>:归一化折损累计增益,带排序位置的指标。</div>
-      <div class="term-item"><b>RRF</b>:倒数排名融合,免调参的多路合并。</div>
-      <div class="term-item"><b>Cross-Encoder</b>:query 与文档拼接精排的重排模型。</div>
-      <div class="term-item"><b>MRR</b>:首个相关文档排名倒数的均值。</div>
-      <div class="term-item"><b>忠实度</b>:答案是否真实来自检索到的证据。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Okapi_BM25">BM25</a></b>:基于词频和逆文档频率的经典稀疏打分,精确词强、语义盲,走倒排索引。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Precision_and_recall">Recall@k</a></b>:前 k 个结果捞回的相关文档占比,衡量"捞得全不全"。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Discounted_cumulative_gain">nDCG@k</a></b>:把"排得越靠前、内容越相关"折算成分数的排序质量指标,支持多档相关度。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Mean_reciprocal_rank">MRR</a></b>:第一个相关文档名次倒数的均值,专盯"头名命中率"。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://dl.acm.org/doi/10.1145/1836444.1836489">RRF</a></b>:倒数排名融合,只用名次不用原始分数,天然免调参的多路合并。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1908.10084">Cross-Encoder</a></b>:query 与文档拼接后统一打分的精排模型,准但贵,只喂少量候选。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2309.15217">忠实度</a></b>:答案是否真的来自检索证据、没编内容,端到端的"恢复演练"式指标。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Ablation_(machine_learning)">消融实验</a></b>:逐级开关组件、看每级指标增量,把每个优化手段的真实贡献单独记账。</div>
     </div>
   </div>
 </article>

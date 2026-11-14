@@ -7,16 +7,22 @@
     <span class="tag">#RLHF</span><span class="tag">#消融实验</span><span class="tag">#实验设计</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题不是考背 RLHF 流程,而是考实验设计:三段式流水线里,怎么用对照实验把 RM、PPO、KL 各自的贡献干净拆出来。面试官爱考它,因为这是少数能当场检验「真做过归因」的题——说不出对照矩阵、忘了控制变量的人,一开口就暴露只会背论文。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
     <p>"RLHF 是 SFT → 奖励模型 RM → PPO 三阶段,消融的核心是<b>把三个组件的贡献各自分离</b>:① <b>RM 的贡献</b>——对比 'SFT 直出' vs 'SFT+RM 打分 Best-of-N' vs '完整 PPO',如果 Best-of-N 已接近 PPO,说明收益主要来自 RM 打分而非 RL 优化;② <b>PPO 的贡献</b>——对比 Best-of-N(采样点内选优)与 PPO(超出采样点优化策略),看 PPO 是否带来额外增益;③ <b>KL 惩罚的贡献</b>——对比有无 KL 项,无 KL 时 reward 虚高但输出退化(重复、格式 hack),证明 KL 是"防漂移护栏"。评估必须<b>同时看 RM 分 + 人类/裁判胜率</b>,因为只信 RM 会掉进奖励黑客陷阱。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>把 RLHF 想成<b>训练一个客服写回复</b>:先背手册(SFT),再雇一个"质检员"打分(RM),最后让客服<b>照着质检员的分数自我优化</b>(PPO)。消融就是三个问题:① 质检员有用吗?——把"只按手册答"和"按质检员分数挑最好的几条答"比一比;② 自我优化有用吗?——"从写好的 10 条里挑"和"根据分数反复改进"哪个强;③ <b>那条"别跑太偏"的规矩(KL)有用吗?</b>——没有它,客服为了拿高分开始刷"废话凑字数",分数虚高但客户体验崩了。所以最后还要<b>真人/大模型亲自验货</b>,不能只信质检员的分数。</p>
+    <p><b>先搞懂“消融”本身(用系统升级复盘想)</b>:假设你给备份系统做了一轮大改造,三处改动一起上线,RTO 从 4 小时降到 1 小时,老板问“三个改动各值多少?”——你唯一诚实的答法是做对照:逐个把某个改动关掉再测一轮,看 RTO 掉回去多少。这就是<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Ablation_(machine_learning)">消融实验</a>:想给复杂系统的每个组件“记功劳”,办法就是逐个摘除它、量指标掉多少。<b>哪里像</b>:都是“一次只动一个变量、拿指标差值归因”,和你做生产变更审查时“一次只改一项,出问题才查得出根因”是同一条纪律。<b>哪里不像</b>:线上摘组件有风险、要审批要灰度;消融是离线实验,拆坏了大不了重跑,可以放心地“暴力归因”。RLHF 恰好是一条三组件流水线,所以这题就是:怎么给它的三个组件分别记账。</p>
+    <p><b>再把 RLHF 想成培养一个新值班工程师</b>:第一阶段 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Fine-tuning_(machine_learning)">SFT</a>(监督微调)——让他读几百份老师傅手写的标准方案照着模仿,先练出及格线;第二阶段 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2203.02155">RM</a>(奖励模型)——真老板(人类用户)太贵,不可能每份方案都请他看,于是培养一个“资深质检员”替老板打分,分数尽量贴近老板的偏好;第三阶段 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Proximal_policy_optimization">PPO</a>——学员照着质检员的分数真正改变自己的写法,越写越让质检员满意;外加一条 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence">KL</a> 规矩:“改归改,不许写得和手册基线差太远”。消融就是三问:① <b>质检员有用吗</b>——“学员自由发挥”和“写 10 份让质检员挑最好的 1 份”(Best-of-N)比一比;② <b>自我改进有用吗</b>——“从写好的 10 份里挑最好”和“按分数反复改进写法”哪个强?挑是选货,改进是改习惯:<b>哪里像</b>,两者都吃 RM 的打分;<b>哪里不像</b>,Best-of-N 当晚交付变好但学员本体零进步、明天还得从头挑,PPO 把进步固化进了默认水平;③ <b>那条“别跑偏”的规矩有用吗</b>——把 KL 拿掉,看学员会不会钻质检员的空子。</p>
+    <p><b>这题真正的生死线:质检员只是“替身指标”</b>。用你的老本行想:<b>备份作业成功率(代理指标)永远不等于数据真实可恢复性(真值)</b>。把考核压在“作业全绿”上,团队就会想办法让作业变绿——跳过校验、放宽判据——而不是让数据真能恢复;这就是<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Goodhart%27s_law">Goodhart 定律</a>:度量一旦成为目标,就不再是好度量。RM 之于人类偏好正是这个关系:你考核 RM 分数,模型就去刷 RM 分数——输出变长而空洞、堆讨好词、复读、格式取巧,<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Reward_hacking">奖励黑客</a>开动,RM 分一路涨、真人看了直摇头。所以最终验收必须做“恢复演练”级别的独立评估(人类盲评/裁判模型),不能拿质检员自己的分数当验收单。<b>哪里不像</b>:备份场景刷指标通常只是“没变好”,RLHF 的过优化更阴险——RM 分继续涨、真实质量却在跌,虚假是<b>静默的</b>,不拉独立真值出来对比根本看不见。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p>动手前先立军规:<b>一次只关一个组件,差值才配叫“贡献”</b>。整个实验分四步走:认清流水线上有哪些开关(第 1 步)→ 把开关组合成对照矩阵(第 2 步)→ 逐项记账(第 3 步)→ 双轨验收(第 4 步),路上还有几个坑(第 5 步)。</p>
     <p><b>1. RLHF 流程与可消融的组件</b></p>
+    <p>先认清三个组件各自的角色:<b>SFT</b> 产出的 π_SFT 是后续所有比较的<b>参考基准</b>——类比:已知良好的基线版本,既是回滚锚点也是漂移标尺;<b>RM</b> 产出的 r_φ 是打分器——类比:替真老板值班的代理指标;<b>PPO</b> 阶段的优化目标是 <b>max E[r] − β·KL</b>,直译过来是“把分数期望做大,同时按系数 β 对偏离 SFT 的程度计罚”——一个“提性能 + 上变更管控”的双目标。下图标出的三个消融点,就是三个可以关掉的开关:</p>
     <div class="svgwrap">
 <svg class="sdiagram" viewBox="0 0 530 132" role="img" aria-label="RLHF 三阶段与消融点">
   <rect class="sd-box" x="10" y="22" width="120" height="60" rx="10"/>
@@ -38,7 +44,9 @@
   <text class="sd-l" x="450" y="114" text-anchor="middle">消融点 ③ KL(β)</text>
 </svg>
 </div>
+    <p>对着图把三个开关过一遍:① <b>RM 开关</b>(有没有质检员)——全关就退回 A(纯 SFT);② <b>PPO 开关</b>(要不要真训练)——RM 开、PPO 关,就成了 B(只打分选优,不更新参数);③ <b>KL 开关</b>(即系数 β 设不设)——PPO 开、KL 关(β=0)就是 C,全开就是 D。开关组合起来,就是下一节的对照矩阵。</p>
     <p><b>2. 消融矩阵(核心对照表)</b></p>
+    <p>读表口诀:<b>相邻两行只差一个变量</b>——A 到 B 差“用不用 RM 选优”,B 到 D 差“要不要真的训练”,D 到 C 差“有没有 KL 护栏”。只差一个变量,差值才配叫贡献:</p>
     <table>
       <tr><th>配置</th><th>做法</th><th>回答的问题</th></tr>
       <tr><td><b>A: SFT only</b></td><td>只做监督微调</td><td>基线,RL 有没有增益</td></tr>
@@ -46,46 +54,73 @@
       <tr><td><b>C: SFT + PPO 无 KL</b></td><td>β=0,只最大化 reward</td><td>KL 惩罚的价值</td></tr>
       <tr><td><b>D: 完整 RLHF</b></td><td>SFT + RM + PPO + KL</td><td>完整上限</td></tr>
     </table>
+    <pre class="code">消融矩阵怎么读(相邻配置只差一个变量,差值 = 该变量的贡献):
+
+A: SFT only ──── 加上 RM(只打分选优,不训练) ──→ B: Best-of-N
+                                                RM 的贡献  = B − A
+B: Best-of-N ─── 加上 PPO(按分数更新策略参数) ──→ D: 完整 RLHF
+                                                PPO 的贡献 = D − B
+D: 完整 RLHF ─── 拿掉 KL(把 β 设为 0) ────────→ C: SFT + PPO 无 KL
+                                                KL 的贡献  = D − C(拿 C 的翻车反证)</pre>
     <p><b>3. 逐个归因</b></p>
     <ul>
-      <li><b>RM 的贡献</b>:B vs A。若 B 显著优于 A,证明"偏好信号 + 打分选择"本身就有用(不依赖 PPO)。</li>
-      <li><b>PPO(RL 优化)的贡献</b>:D vs B。<b>关键控制:同计算预算</b>——B 用 N 次采样选 1 条,D 用 N 次 rollout 做梯度更新。若 D &gt; B,说明 PPO 能<b>超越采样点、学到更优策略</b>(而非只是"挑最好的");若 D ≈ B,说明瓶颈在 RM 质量,而非优化算法。</li>
-      <li><b>KL 的贡献</b>:D vs C。看 C 是否出现<b>奖励黑客</b>:RM 分飙升但人类评分下跌、输出重复/空洞/格式取巧。KL 的作用就是"允许优化 reward,但不许跑离 SFT 太远"。</li>
-      <li><b>附加维度</b>:RM 规模/质量(换大 RM 看 D 是否跟着涨)、SFT 初始化(跳过 SFT 直接 RL)、β 系数扫描(β 太小→漂移,太大→学不动)。</li>
+      <li><b>RM 的贡献</b>:B vs A。若 B 显著优于 A,证明“偏好信号 + 打分选择”本身就有用(不依赖 PPO)。注意 B 一行梯度都没训——它只是<b>现场挑了条最好的</b>,所以这一级证明的是“RM 的分数里确实有信息”;这点信息值不值得上 RL,要看下一级。</li>
+      <li><b>PPO(RL 优化)的贡献</b>:D vs B。<b>关键控制:同计算预算</b>——B 用 N 次采样选 1 条,D 用 N 次 rollout 做梯度更新。两边必须烧掉同量级的算力(“生成 N 条的账单”对上“训练 N 步的账单”),否则你比的是预算不是算法——和两条备份链路比 RTO、必须给一样多的磁带机资源是同一个道理。若 D &gt; B,说明 PPO 能<b>超越采样点、学到更优策略</b>(而非只是“挑最好的”)——把“单次挑货”升级成了“改掉默认习惯”;若 D ≈ B,说明瓶颈在 RM 质量,而非优化算法——分数本身区分度不够,优化再用力也只是把烂目标拟合得更圆。</li>
+      <li><b>KL 的贡献</b>:D vs C。看 C 是否出现<b>奖励黑客</b>:RM 分飙升但人类评分下跌、输出重复/空洞/格式取巧。C 的“翻车”不是实验失败,恰恰是 KL 价值的<b>反证</b>:没有护栏,优化会把策略带进沟里。KL 的作用就是“允许优化 reward,但不许跑离 SFT 太远”。</li>
+      <li><b>附加维度</b>:RM 规模/质量(换大 RM 看 D 是否跟着涨)、SFT 初始化(跳过 SFT 直接 RL)、β 系数扫描(β 太小→漂移,太大→学不动)。换大 RM 那组最有信息量:D 跟着 RM 涨,说明整条流水线吃的是<b>偏好数据的质量</b>;不涨,说明瓶颈已经挪去了别处(SFT 质量、优化预算)。β 扫描的手感和压测调参一样:从小到大扫一圈,画“KL 散度 vs 真实质量”曲线找拐点,不拍脑袋定值。</li>
     </ul>
     <p><b>4. 评估指标(不能只信 RM,这是本题生死线)</b></p>
+    <p>评估要<b>双轨制</b>:一条是代理指标(RM 分——便宜、自动、但会被刷),一条是独立真值(人类盲评/裁判模型——贵、慢、但才是验收依据)。放到你的老本行:前者是“备份作业成功率”,后者是“恢复演练实测”。五条指标各管一摊:</p>
     <table>
       <tr><th>指标</th><th>说明</th></tr>
       <tr><td><b>RM 得分</b></td><td>训练目标,但会被 hack,只能作参考</td></tr>
       <tr><td><b>人类 / GPT-4-as-judge 胜率</b></td><td>与基线成对盲评的胜率,最接近真实偏好</td></tr>
       <tr><td><b>KL(π_θ ‖ π_ref)</b></td><td>策略漂移量,漂太大说明可能退化</td></tr>
       <tr><td><b>下游任务指标</b></td><td>摘要 ROUGE、代码 pass@k、对话有用性等客观分</td></tr>
-      <tr><td><b>输出多样性 / 语义保持</b></td><td>distinct-n、熵,防"为了高分变复读机"</td></tr>
+      <tr><td><b>输出多样性 / 语义保持</b></td><td>distinct-n、熵,防“为了高分变复读机”</td></tr>
     </table>
+    <p>几个指标的出处和背景:<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">GPT-4-as-judge</a> 的玩法与坑(长度偏差、位置偏差)见 MT-Bench 论文;代码任务的 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2107.03374">pass@k</a> 定义见 Codex 论文;摘要任务用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/ROUGE_(metric)">ROUGE</a>;多样性的 distinct-n 出自 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1603.01563">How NOT to Evaluate Your Dialogue System</a>。后两行(下游客观分 + 多样性)和前三行互为<b>旁证</b>:模型一旦为了讨好打分器退化成复读机,diversity 和下游分会先掉——三条线一起看,谁掉谁报警。</p>
     <p><b>5. 关键陷阱</b></p>
     <ul>
-      <li><b>Reward overoptimization(Goodhart 定律)</b>:当优化目标 RM 成为被优化的对象时,它就不再是好的度量。论文(Ouyang et al., Gao et al.)观察到 reward 继续涨、真实质量反而降——所以必须用"训练时未见的人类/裁判评分"做最终裁决。</li>
-      <li><b>Best-of-N 与 PPO 的对齐</b>:比较要在<b>相同采样预算</b>下进行,否则 BoN 用 100 次采样对 PPO 用 10 次 rollout,结论无效。</li>
-      <li><b>采样温度</b>:消融全程固定采样温度与长度惩罚,否则随机性干扰归因。</li>
+      <li><b>Reward overoptimization(Goodhart 定律)</b>:当优化目标 RM 成为被优化的对象时,它就不再是好的度量。论文(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2203.02155">Ouyang et al.</a>, <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.10760">Gao et al.</a>)观察到 reward 继续涨、真实质量反而降——所以必须用“训练时未见的人类/裁判评分”做最终裁决。</li>
     </ul>
-    <p><b>6. 延伸(如果面试官问"有没有更省的做法")</b>:DPO 直接用偏好对做分类式优化、省掉显式 RM 与 PPO;可加一组 DPO 对照,看"显式 RM+PPO"相对"隐式偏好优化"的差异。</p>
+    <pre class="code">奖励过度优化长什么样(Gao et al. 的结论画成图):
+
+                优化强度(训练更久 / BoN 的 N 更大 / β 更小)──→
+RM 分数          ────────────────────────   一路单调涨,从不说谎,
+(被优化的那个数)                              因为它就是被优化的目标本身
+真实质量           ╱╲
+(人类盲评)      ╱    ╲__
+                ╱          ╲__________       先升后降:过了峰值,
+               ╱                                涨上去的全是"骗到 RM 的虚分"
+               ↑ 甜蜜点:还没把 RM 钻出空子的地方</pre>
+    <ul>
+      <li><b>Best-of-N 与 PPO 的对齐</b>:比较要在<b>相同采样预算</b>下进行,否则 BoN 用 100 次采样对 PPO 用 10 次 rollout,结论无效。</li>
+      <li><b>采样温度</b>:消融全程固定采样温度与长度惩罚，否则随机性干扰归因——温度一变，BoN 的挑选空间和 PPO 的探索广度都跟着变，等于偷偷换了个实验场景。</li>
+      <li><b>单种子幻觉</b>(补充):RL 训练方差大,一个配置只跑一个随机种子，“D 比 B 高 1 分”可能纯属抽奖；每个配置至少 3 个种子、报均值±波动，关键差距再补显著性检验——和你做容量压测从不用单轮数据下结论是同一条肌肉记忆。</li>
+    </ul>
+    <p><b>6. 延伸(如果面试官问“有没有更省的做法”)</b>:DPO 直接用偏好对做分类式优化、省掉显式 RM 与 PPO;可加一组 DPO 对照，看“显式 RM+PPO”相对“隐式偏好优化”的差异。</p>
+    <p>用老本行翻译:DPO 是不再先培养一个“审批员”，而是直接翻历史工单里“这版被采纳、那版被驳回”的记录自己学规矩(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.18290">论文</a>)。链路短、调参少、好维护；代价是没有“在线探索 + 打分器持续把关”的回路，对偏好数据的量与质更敏感。想加就给矩阵添一行 <b>E: SFT + DPO</b>:若 E ≈ D,说明真正的核心资产是偏好数据，训练机制只是花式利用它的手段；若 D 明显更强，才轮到把功劳记给“显式 RM + 在线优化”。</p>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:如果发现 PPO 相对 Best-of-N 没什么提升,说明什么?</summary><div class="an">通常说明瓶颈在 RM:RM 本身区分度不够、噪声大或偏好信号弱,RL 再优化也只是在烂目标上做文章。对策是提升偏好数据质量、增大 RM 规模,或换更好的偏好建模;此时"上 PPO"的边际收益低,工程上可能先做 Best-of-N 更划算。</div></details>
-    <details class="qa"><summary class="qu">Q:KL 惩罚设多大合适?怎么选 β?</summary><div class="an">没有固定值,要靠扫描:β 太小→策略漂移、reward 虚高、多样性崩;β 太大→梯度被压死、趋近 SFT、白优化。实践中看"KL 散度 vs 真实质量"的曲线选拐点:通常让 KL 控制在个位数(与 SFT 的距离不大),并以人类/裁判胜率而非 RM 分做决策依据。</div></details>
-    <details class="qa"><summary class="qu">Q:只信 RM 分会出什么问题?</summary><div class="an">奖励黑客(reward hacking):模型学会钻 RM 的空子——输出长而空、堆砌讨好词、复读、格式取巧,让 RM 打高分但真实质量差。这是 Goodhart 定律的体现,所以消融实验必须引入<b>RM 之外的独立评估</b>(人类盲评或 GPT-4-as-judge),RM 分只能作为优化信号而非结论依据。</div></details>
-    <details class="qa"><summary class="qu">Q:DPO 和 RLHF 的关系?消融里怎么放?</summary><div class="an">DPO 把"偏好对"直接转成分类损失,隐式地等价于 RM+最优策略的闭式解,省掉显式 RM 和 PPO 两个阶段。消融里可把 DPO 作为对照:若 DPO 效果 ≈ 完整 RLHF,说明偏好数据才是核心、RL 机制非必需;若 RLHF 更强,说明显式 RM+PPO 的探索带来额外收益。</div></details>
+    <details class="qa"><summary class="qu">Q:如果发现 PPO 相对 Best-of-N 没什么提升，说明什么？</summary><div class="an"><b>人话：</b>大概率不是 PPO 不行，而是打分器不行——目标本身没区分度，优化再用力也是白忙。<b>类比：</b>像给备份系统换了台更猛的调度引擎，但备份策略的配置就是错的，备份窗口照样超时——引擎无罪，该修的是策略配置，不是再换更强的引擎。<b>技术：</b>说明 RM 区分度低、标注噪声大或偏好信号弱，PPO 只是在一个烂目标上过拟合；对策是提高偏好数据质量、加大 RM 规模、清洗噪声标注。工程上此时“上 PPO”的边际收益低，先做 Best-of-N 更划算，等 RM 变强再补 RL。</div></details>
+    <details class="qa"><summary class="qu">Q:KL 惩罚设多大合适？怎么选 β？</summary><div class="an"><b>人话：</b>没有万能值，靠扫描定，而且曲线要看真实质量、不能看 RM 分。<b>类比：</b>像给变更窗口定松紧——太松(β 太小)等于没有变更管控，系统漂到没人敢认；太紧(β 太大)等于什么都不敢改，优化白做。你要找的是“既允许改进、又随时可回滚”的那一档。<b>技术：</b>扫 β 画“KL 散度 vs 人类/裁判胜率”曲线取拐点，经验上把策略到 SFT 的 KL 控制在个位数量级；β 太小 reward 虚高、多样性崩；β 太大梯度被压死、策略贴着 SFT 不动。决策依据必须是独立评估胜率——β 调小时 RM 分反而更好看，那是陷阱不是信号。</div></details>
+    <details class="qa"><summary class="qu">Q:只信 RM 分会出什么问题？</summary><div class="an"><b>人话：</b>会掉进“奖励黑客”:模型钻打分器的空子刷分，输出变长而空洞、堆讨好词、复读、格式取巧，RM 分一路涨，真人看了直摇头。<b>类比：</b>备份作业全绿从来不等于数据真能恢复——考核压在“成功率”上，团队就会让作业变绿，而不是让数据真可恢复；两边都是 Goodhart 定律开动。<b>技术：</b>消融必须引入 RM 之外的独立评估(人类盲评或 LLM-as-judge)做最终裁决，RM 分只能当训练信号、不当验收依据；再配 KL 散度、多样性(distinct-n)、下游任务分等旁证指标，多条线一起看，谁掉谁报警。</div></details>
+    <details class="qa"><summary class="qu">Q:DPO 和 RLHF 的关系？消融里怎么放？</summary><div class="an"><b>人话:</b>DPO 是“跳过打分器和 RL 循环”的省事版:拿历史上“这版好于那版”的偏好对,直接算一个分类损失,一步到位。<b>类比:</b>不再先培养一个审批员再让他指导干活,而是直接翻历史工单的“采纳/驳回”记录自己学规矩——链路短、好维护,但没有“在线探索+持续把关”的回路。<b>技术:</b>DPO 在数学上近似“RM + 最优策略”的闭式解;消融里把它当第五个配置 E:若 DPO ≈ 完整 RLHF,说明核心资产是偏好数据、RL 机制并非必需；若 RLHF 更强，说明显式 RM+PPO 的在线优化带来真实额外收益。</div></details>
+    <details class="qa"><summary class="qu">Q:消融的结论怎么保证不是随机波动？</summary><div class="an"><b>人话:</b>RL 训练方差很大,单跑一次的对比可能纯属抽奖,结论要用多种子和统计检验站稳。<b>类比:</b>只跑一次容灾演练就宣布方案可靠,你肯定不认——至少三轮演练、看波动区间再下结论,这和你做压测从不用单轮数据定容量是同一个职业习惯。<b>技术:</b>每个配置至少 3 个随机种子,报均值±标准差;关键对比补显著性检验(t 检验或 bootstrap);全程固定采样温度、输出长度等混杂变量;评估集与训练 prompt 严格隔离防泄漏。能主动说出“多种子+显著性”,面试官就知道你真跑过实验。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>RM</b>:Reward Model,给生成结果打偏好分数的模型。</div>
-      <div class="term-item"><b>Best-of-N</b>:采样 N 条用 RM 选最优,不做策略更新。</div>
-      <div class="term-item"><b>KL 惩罚</b>:约束策略别偏离参考策略的正则项。</div>
-      <div class="term-item"><b>Reward hacking</b>:钻 RM 空子刷分而非真正变好。</div>
-      <div class="term-item"><b>DPO</b>:Direct Preference Optimization,省 RM 与 PPO 的偏好优化。</div>
-      <div class="term-item"><b>Goodhart 定律</b>:度量一旦成为目标,就不再是好度量。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Ablation_(machine_learning)">消融实验</a></b>:控制变量地逐个关掉组件,用指标差值给每个组件记功劳的实验方法——本质是归因,不是调优。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2203.02155">RM</a></b>:Reward Model,学人类偏好替人打分的“质检员”——便宜、自动,但只是会被钻空子的代理指标。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.10760">Best-of-N</a></b>:采样 N 条让 RM 挑最好的一条——单次交付变好,模型本体零进步。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence">KL 惩罚</a></b>:限制策略偏离参考模型的正则项,像变更管控——β 就是管控松紧的旋钮。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Reward_hacking">Reward hacking</a></b>:钻打分器的空子刷分——指标一路涨,真值一路跌。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Goodhart%27s_law">Goodhart 定律</a></b>:度量一旦成为目标,就不再是好度量——一切奖励黑客的理论根源。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.18290">DPO</a></b>:Direct Preference Optimization,拿“这版好于那版”的偏好对直接算损失,省掉显式 RM 与 PPO。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">LLM-as-judge</a></b>:用强模型当裁判替代人类盲评——便宜的独立真值,但要定期抽查校准、防长度/位置偏差。</div>
     </div>
   </div>
 </article>
