@@ -8,64 +8,124 @@
     <span class="company">字节 / 阿里 / 腾讯（高频）</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题在问:Agent 聊完就失忆,怎么给它装上「工作内存 + 档案柜」——存什么、怎么取、怎么忘、用什么工具。面试官爱考,因为这是 Agent 题里最像存储系统设计的一道:只会答「存进向量库」的人,一追「新旧记忆打架怎么办」就露馅,暴露的是没有写入管道、不会做遗忘的工程思维。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"记忆分两层设计:<b>短期记忆</b> = 当前上下文窗口内的对话原文 + 滑动窗口截断 + 递归摘要(必要时用向量检索把历史拉回窗口);<b>长期记忆</b> = 从对话里异步抽取的「事实/偏好/事件」,embedding 后进向量库,按话题检索 top-k 注入上下文。工具上:短期用 Redis,长期用向量库(Milvus/Qdrant/pgvector),现成方案 Mem0/Zep/Letta 可直接用。三个必答点:<b>抽取→冲突消解→更新</b>的写入管道、<b>按需检索</b>的读取策略、<b>时间衰减+访问频率</b>的遗忘机制。"</p>
+    <p>"分两层,像操作系统分内存和磁盘:<b>短期记忆</b> = 当前对话的工作集,窗口内放对话原文,放不下的用滑动窗口截断、递归摘要压缩,必要时把历史分块向量化、按相关性拉回窗口(MemGPT 的分页思路);<b>长期记忆</b> = 一条异步写入管道:LLM 从对话抽取「主体-属性-值」事实 → 冲突消解(去重/最新覆盖/合并)→ embedding + 元数据入库,读取时按当前话题检索 top-k 注入上下文。工具:热数据 Redis(带 TTL),语义检索 Milvus/Qdrant/pgvector,图记忆 Neo4j/Zep,现成框架 Mem0/Zep/Letta 可直接用。三个必答点:<b>写入管道(抽取→冲突消解→更新)</b>、<b>按需检索的读取策略</b>、<b>时间衰减 × 访问频率的遗忘机制</b>。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>把人脑搬进系统:<b>短期记忆是"手边便签"</b>——当前正在聊的这几句,记清就行,聊完可扔;<b>长期记忆是"档案柜"</b>——把重要的事(客户叫啥、喜欢简洁回答、公司政策)写成卡片归档,下次遇到相关话题,系统先翻柜子把相关卡片抽出来放到眼前(注入上下文)。便签满了就把旧内容浓缩成一句话摘要(递归摘要);档案太久没翻、不重要的就慢慢归档遗忘(时间衰减)。</p>
+    <p><b>总类比一句话:给 Agent 配一套「内存 + 归档存储」的存储层次。</b>LLM 的上下文窗口就是进程的工作内存——模型每次生成回复,能「看见」的全部内容都在这一块里,容量有硬上限(为什么有限:token 按量计费、注意力计算对长度是平方级、塞太长还会「中间失忆」,后面细说)。于是记忆天然分两层:<b>短期记忆是工作集</b>——正在聊的对话原文,加上被压缩过的旧对话;<b>长期记忆是归档存储</b>——把重要的事实(客户叫什么、偏好简洁回答、对什么过敏)写成卡片,编好索引(向量库)存起来,下次聊到相关话题,再把相关卡片检索出来放回眼前(注入上下文)。</p>
+    <p><b>长期记忆的写入管道,像备份系统旁路的元数据采集线:</b>对话是生产系统,不停吐出原始日志;你在旁路异步跑采集任务——从对话流里抽出「事实卡片」(相当于 catalog 里的元数据条目),去重、消解冲突、写库,全程不阻塞主业务,挂了还能重放。<b>遗忘机制</b>像备份的生命周期策略叠加 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Cache_replacement_policies">LRU</a> 淘汰:太久没被检索、又不重要的记忆,先降冷库、再归档、最后删除——记忆的分数随时间往下掉,形状和心理学里的<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Forgetting_curve">遗忘曲线</a>一模一样。</p>
+    <p><b>哪里像:</b>冷热分层、写入要清洗去重、读取按需检索、容量不够靠淘汰——和存储系统的每一层都同构,你天天在管这套东西。<b>哪里不像(关键差异):</b>传统存储是「字节进去、字节出来」,复制多少遍都不变形;记忆存的是<b>语义</b>——旧内容可以被压缩、改写、合并,有损是允许的,<b>有假不行</b>。而且取舍方向相反:备份策略「宁多勿删」,记忆策略「宁忘勿噪」——注入一条无关或过时的记忆,模型会一本正经地拿它回答,噪音直接污染推理。所以这道题的难点从来不在「存」,而在<b>抽取、消解、遗忘</b>这三步。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 为什么要拆短期/长期</b></p>
+    <p><b>1. 为什么非要拆短期/长期(窗口大了也不行)</b></p>
+    <p>上下文窗口是 LLM 单次能「看见」的 token 上限,128K、1M 看着在涨,但三笔账决定了它替代不了记忆系统:</p>
     <ul>
-      <li>上下文窗口有限:尽管 128K/1M 越来越大,但 token 成本与噪音随长度上升(注意力复杂度 O(n²·d))。</li>
-      <li>短期要「快、全、当前相关」;长期要「持久、可检索、可更新」。</li>
+      <li><b>算力账</b>:自注意力要求序列里每个 token 和其他 token 两两配对,复杂度 O(n²·d),长度翻倍、计算翻四倍(原理见 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1706.03762">Transformer 论文</a>);而且每轮对话都要把整个历史重发一遍,token 成本随轮数线性涨——一个工作日的客服对话就轻松超窗。</li>
+      <li><b>效果账</b>:塞得进去不等于看得见——<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2307.03172">Lost in the Middle</a> 实验显示,埋在长上下文中部的关键信息,利用率明显低于头部和尾部。窗口大 ≠ 窗口里每句话都「被想起」。</li>
+      <li><b>生命周期账</b>:会话一结束窗口就清空;长期记忆要跨会话持久、可更新、可遗忘,合规上还要可查可删——这是「档案管理」问题,不是「容量」问题。</li>
     </ul>
-    <p><b>2. 短期记忆设计(四档递进)</b></p>
-    <ul>
-      <li><b>全量上下文</b>:窗口内的对话原文直接进 prompt。</li>
-      <li><b>滑动窗口</b>:超出窗口的轮次截断,只保留最近 N 轮(简单但会"失忆")。</li>
-      <li><b>递归摘要</b>:把旧对话压缩成摘要,和最近原文一起拼(记忆密度高、细节会丢)。</li>
-      <li><b>检索增强式(类 MemGPT)</b>:把历史对话分块向量化,每轮按相关性拉回 top-k——在"窗口限制"和"记忆完整"之间折中,是当前主流。</li>
-    </ul>
-    <p><b>3. 长期记忆设计</b></p>
-    <ul>
-      <li><b>写入</b>:异步抽取(LLM 把对话抽成"主体-属性-值"事实/偏好)→ <b>冲突消解</b>(去重 / 最新覆盖 / 合并)→ embedding + 元数据入库。</li>
-      <li><b>读取</b>:每轮用话题 embedding 检索 top-k(5~10)注入 system prompt,不追求全量。</li>
-      <li><b>更新/遗忘</b>:打分 = 近期性(时间衰减)× 访问频率 × 重要性;低分降冷存储;用户可查可删(合规)。</li>
-    </ul>
+    <p>两层的定位由此定死:<b>短期记忆要「快、全、当前相关」</b>,像内存;<b>长期记忆要「持久、可检索、可更新」</b>,像归档存储。任何单层方案要么贵、要么丢。</p>
+    <pre class="code">一轮对话中,记忆系统的全景(数据流):
+
+  用户消息
+     │
+     ├─────────────→ [短期记忆] 上下文窗口 ── 类比:进程内存/工作集
+     │                  最近对话原文 + 旧对话的压缩形态
+     │                  (放不下时:截断 / 摘要 / 换出,见下文四档)
+     │
+     │   回合结束后异步执行(不阻塞回复,像旁路备份代理)
+     └─写入管道→ [抽取] 压出事实卡片 → [冲突消解] 去重/覆盖/并存 → [入库]
+                        │
+                        ▼
+                [长期记忆] 向量库 + 关系库 + 图 ── 类比:归档存储 + catalog
+                        │
+  回复生成前:按当前话题 embedding 检索 top-k 记忆卡片,注入 prompt(把档案放回工作台)</pre>
+    <p><b>2. 短期记忆:四档递进,每档都是你眼熟的手段</b></p>
+    <table>
+      <tr><th>档位</th><th>做法</th><th>类比</th><th>优点</th><th>坑</th></tr>
+      <tr><td>① 全量上下文</td><td>窗口内对话原文直接全塞进 prompt</td><td>全量数据常驻内存</td><td>无损、零实现成本</td><td>token 最贵;窗口一满就失效</td></tr>
+      <tr><td>② 滑动窗口</td><td>只保留最近 N 轮,更早的直接截断</td><td>环形缓冲区</td><td>简单,成本恒定</td><td>硬失忆:第 N+1 轮之前说过的关键信息直接消失</td></tr>
+      <tr><td>③ 递归摘要</td><td>旧对话反复压缩成摘要,与最近原文拼接</td><td>日志压缩 / 增量定期合成全量</td><td>记忆密度高,成本可控</td><td>细节有损,关键锚点可能被压掉</td></tr>
+      <tr><td>④ 检索增强式(类 MemGPT)</td><td>历史对话分块向量化,每轮按相关性拉回 top-k</td><td>OS 虚拟内存分页</td><td>窗口限制与记忆完整之间的折中,当前主流</td><td>引入检索噪音与延迟,要调 top-k</td></tr>
+    </table>
+    <pre class="code">四档演进示意(8 轮对话 A~H,窗口只放得下 3 轮):
+
+①全量     [A][B][C][D][E][F][G][H]            超窗,被服务端拒绝或预算爆炸
+②滑动窗口  丢弃 [A][B][C][D][E],保留 [F][G][H]      简单,但 E 里说过的偏好永久失忆
+③递归摘要  [摘要:A~E 的要点 x/y/z][F][G][H]          旧细节压成一段,细节有损
+④检索增强  [摘要打底] + 按本轮话题从历史块拉回 [C][E]   相关旧细节按需换回窗口</pre>
+    <p>第 ④ 档的祖师爷是 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2310.08560">MemGPT</a>(产品化后叫 Letta),思路直接照搬操作系统:上下文窗口是内存、外部存储是磁盘、LLM 自己当内核——装不下就把最旧内容换出归档,检索到相关历史再换入,活脱脱页面调度;对存储工程师这就是一句话:给 LLM 配了个带 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Virtual_memory">虚拟内存</a> 的 swap。</p>
+    <p>配套的会话级热数据(对话原文、窗口快照)放 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Redis">Redis</a> 这类内存库,键上带 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Time_to_live">TTL</a>,到期自动清——一个现成的会话级遗忘机制。</p>
+    <p><b>3. 长期记忆:一条异步写入管道 + 按需检索 + 一套生命周期</b></p>
+    <p><b>写入(旁路、异步):</b>每个回合结束,旁路触发一次抽取——LLM 把对话压成「主体-属性-值」式的事实/偏好卡片,每张带元数据(类比 catalog 条目:来源、时间、校验字段):</p>
+    <pre class="code">对话:"最近胃不太舒服,咖啡从拿铁改美式了,下周还要去深圳出差"
+抽取出的记忆卡片:
+  (user, 咖啡偏好, 美式,       conf 0.9,  来源 msg#82)
+  (user, 健康状况, 胃部不适,    conf 0.6,  来源 msg#82)   ← 低置信,挂"待确认"
+  (user, 出差计划, 深圳·下周,   conf 0.95, 来源 msg#82)
+
+元数据 schema ≈ catalog 表:user_id / session_id / ts / content /
+embedding / source_msg_id / confidence / importance</pre>
+    <p><b>冲突消解(面试的得分点):</b>新事实入库前,与库内同「主体+属性」的旧事实对账,像 catalog 的版本对账/恢复点选择——多版本并存,默认取最新,必要时能回溯:</p>
+    <pre class="code">库内旧事实:(user, 咖啡偏好, 拿铁, 3月)
+新到事实:  (user, 咖啡偏好, 美式, 5月)
+
+  完全一致                 → NOOP:不写,顶多刷新时间戳(去重)
+  同属性、值矛盾(拿铁→美式) → UPDATE:主记录改美式,拿铁降为历史版本
+                           (仍能答"以前喝拿铁,最近改喝美式")  ← 最新覆盖且保留历史
+  属性互补、不矛盾           → ADD 并存:"常住北京"+"下周出差深圳"各留各的(合并)
+  用户要求删除/纠正          → DELETE:合规硬要求,审计留痕
+
+Mem0 把这类操作显式建模为 ADD / UPDATE / DELETE / NOOP 四类。</pre>
+    <p><b>读取(按需,不贪多):</b>每轮生成前,拿当前话题 embedding 在长期记忆里检索 top-k(5~10 张),先按元数据过滤(时间、类型、置信度)再算相似度,注入 system prompt;如果同一轮同时还要检索 RAG 文档,用 RRF 之类的融合排序,防止记忆淹没知识(或反过来)。原则一句话:<b>检索质量优先于记忆总量</b>——注入 10 条相关的,好过 100 条沾边的。</p>
+    <p><b>更新/遗忘(生命周期策略):</b>每条记忆打分,低于阈值降冷存储,再低就归档/删除;用户可查可删(合规):</p>
+    <pre class="code">score = 近期性(时间衰减) × 访问频率 × 重要性
+  近期性   = exp(-Δt/τ)           Δt=距上次使用的时长,τ=半衰期(遗忘曲线的形状)
+  访问频率 = log(1 + 检索命中数)    加 log 防止单次热门卡片永久霸榜
+  重要性   = 抽取时 LLM 打 1~10 分   "对花生过敏"=10,"随口提过一部剧"=2
+
+score 低于阈值 → 降冷存储(类比生命周期规则把旧对象挪到低频层)
+再低           → 归档或删除(类比到期清理备份;删除前留审计窗口)</pre>
     <p><b>4. 外部工具/技术选型</b></p>
     <table>
-      <tr><th>用途</th><th>选型</th><th>说明</th></tr>
-      <tr><td>短期热数据</td><td>Redis(带 TTL)</td><td>快,会话级</td></tr>
-      <tr><td>语义记忆检索</td><td>Milvus / Qdrant / Pinecone / pgvector</td><td>向量库,按相似度取记忆</td></tr>
-      <tr><td>结构化属性</td><td>Postgres / SQLite</td><td>称呼、偏好等强字段</td></tr>
-      <tr><td>知识图谱</td><td>Neo4j / Zep(Graphiti)</td><td>实体关系 + 时序</td></tr>
-      <tr><td>现成框架</td><td>Mem0 / Zep / Letta(MemGPT)/ LangChain Memory</td><td>抽取+检索易集成;时间感知图;虚拟上下文;接口规范</td></tr>
+      <tr><th>用途</th><th>选型</th><th>说明</th><th>你眼熟的对应物</th></tr>
+      <tr><td>短期热数据</td><td>Redis(带 TTL)</td><td>快,会话级</td><td>内存缓存 + 过期淘汰</td></tr>
+      <tr><td>语义记忆检索</td><td>Milvus / Qdrant / Pinecone / pgvector</td><td>向量库,按相似度取记忆</td><td>带索引的可检索存储</td></tr>
+      <tr><td>结构化属性</td><td>Postgres / SQLite</td><td>称呼、偏好等强字段</td><td>元数据 catalog 表</td></tr>
+      <tr><td>知识图谱</td><td>Neo4j / Zep(Graphiti)</td><td>实体关系 + 时序</td><td>配置管理数据库 CMDB</td></tr>
+      <tr><td>现成框架</td><td>Mem0 / Zep / Letta(MemGPT)/ LangChain Memory</td><td>抽取+检索易集成;时间感知图;虚拟上下文;接口规范</td><td>不自研引擎时的现成套件</td></tr>
     </table>
-    <p><b>5. 设计权衡</b></p>
+    <p>报名字要能各带一句定位:<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2504.19413">Mem0</a> 把「抽取→冲突消解→检索」整条管道产品化,论文在 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2402.17753">LoCoMo</a> 多轮长对话基准上报告了比「历史全塞窗口」基线更高的准确率与更低的延迟;<b>Zep</b> 用 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2501.13956">Graphiti</a> 把记忆建成时间感知的实体关系图——时间是最要紧的事实,「以前住北京、现在住深圳」必须可区分;<b>Letta(MemGPT)</b> 用虚拟上下文分页管理,窗口小也撑得住长任务;<b>LangChain Memory</b> 提供接口规范和常用实现,适合快速原型。</p>
+    <p><b>5. 设计权衡(能讲出这几条,才算设计过)</b></p>
     <ul>
-      <li>记忆越多,检索噪音越大、注入 token 越贵 → 检索质量和 top-k 控制是关键。</li>
-      <li>抽取可能引入幻觉 → 带置信度、可纠正、可溯源。</li>
-      <li>短期 vs 长期的边界没有银弹,按业务「记忆跨会话是否重要」决定投入。</li>
+      <li><b>记忆越多 ≠ 越好:</b>每多注入一条记忆就多占窗口、多一分噪音——无关记忆不但浪费 token,还会被模型一本正经地当真。所以<b>检索质量和 top-k 控制是关键</b>,比记忆总量重要得多。</li>
+      <li><b>抽取会出错:</b>抽取本身是 LLM 任务,有幻觉风险——记忆必须带置信度、可纠正、可溯源(能点开看到它来自哪句原话),否则错误会滚雪球:记错一次、被检索到、再被强化一次。</li>
+      <li><b>并发更新:</b>手机和网页两端同时聊,同一用户的记忆会并发写——同属性事实按最新时间戳为准并保留旧版本,像分布式存储的 last-write-wins 加版本化兜底;强字段可上乐观锁。</li>
+      <li><b>边界没有银弹:</b>先问业务「记忆跨会话是否重要」再定投入,像定容灾先定 RPO/RTO——闲聊客服,滑动窗口+摘要就够;医疗/法律助理,一条过敏史都不能错,抽取要人工确认、图记忆和审计日志都得配齐。先想清楚「允许忘掉什么」。</li>
     </ul>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:现在上下文窗口 128K 甚至 1M,还需要 Memory 系统吗?</summary><div class="an">需要。原因:① token 成本随长度增长(注意力复杂度 O(n²·d)),全塞历史不经济;② 长上下文的"中间信息"易被遗忘(lost in the middle),检索式记忆把关键信息放到相关位置更可靠;③ 长期记忆要跨会话持久、可更新、可遗忘,不是"无限上下文"能替代的。窗口变大只是让短期记忆的截断压力变小,长期记忆系统依然必要。</div></details>
-    <details class="qa"><summary class="qu">Q:Memory 和 RAG 有什么区别?</summary><div class="an">目标不同、更新主体不同。RAG 检索的是「外部静态知识库」(文档),主要是读;Memory 记录的是「与用户交互产生的个性化状态」(事实/偏好/事件),且要写(抽取-更新-遗忘),是活的、随对话演化的。实现上底层都可复用向量检索,但 Memory 多了写入管道和冲突消解。</div></details>
-    <details class="qa"><summary class="qu">Q:抽取出的记忆是错的怎么办?</summary><div class="an">抽取时带置信度 + 来源对话 ID;低置信度标记待确认;用户纠正时反向覆盖/删除;高风险的记忆(如医疗/权限类)不作为唯一决策依据;重要记忆加"用户确认"环节。核心是让记忆可溯源、可撤销。</div></details>
+    <details class="qa"><summary class="qu">Q:现在上下文窗口 128K 甚至 1M,还需要 Memory 系统吗?</summary><div class="an"><b>人话:</b>窗口变大只是把临时工作台加长,档案柜照样得有——贵、会漏、会清零,三个问题一个都没解决。<b>类比:</b>内存从 64G 升到 512G,你也不会把全部历史数据常驻内存:内存按容量计费,进程一重启什么都不剩;冷数据照样落盘、建索引、走生命周期。<b>技术:</b>① token 成本随长度线性涨,注意力计算 O(n²·d);② 长上下文存在 lost in the middle 现象,埋在中间的关键信息利用率低,检索式记忆把关键内容放到贴近提问的位置反而更可靠;③ 长期记忆要跨会话持久、可更新、可遗忘、可审计,这是管理问题,窗口再大只缓解「容量」。</div></details>
+    <details class="qa"><summary class="qu">Q:Memory 和 RAG 有什么区别?</summary><div class="an"><b>人话:</b>RAG 查的是公共教科书,Memory 记的是这个用户的私人档案——前者以读为主,后者必须会写。<b>类比:</b>RAG 像恢复时翻产品文档,基本静态、谁查都一样;Memory 像备份 catalog,记的是「这个客户的环境和偏好」,每次交互都要更新,catalog 不更新就是错的。<b>技术:</b>底层都复用向量检索,但 Memory 多一整条写入管道(抽取→冲突消解→入库)和遗忘策略;检索单位不同——RAG 取文档 chunk,Memory 取事实卡片;失败模式也不同——RAG 怕检索不到,Memory 还怕「记错的卡片被检索进来当真用」。</div></details>
+    <details class="qa"><summary class="qu">Q:抽取出的记忆是错的怎么办?</summary><div class="an"><b>人话:</b>抽取是 LLM 干的活,必然出错,所以记忆要按「可能脏的元数据」来设计:可溯源、可撤销、可纠正。<b>类比:</b>像备份 catalog 的采集——扫描出来的元数据可能过时或错判,所以每条带来源(哪次作业、哪个客户端),关键操作前要校验确认;宁可标记「待验证」,不能拿错的元数据直接执行恢复。<b>技术:</b>抽取时带置信度和来源消息 ID,低置信度挂「待确认」;用户一纠正就触发反向 UPDATE/DELETE;高风险记忆(健康、权限类)不作为唯一决策依据;回复中引用记忆可点开溯源;线上监控「用户改口重问率」,一升高就收紧抽取阈值并回放修正。</div></details>
+    <details class="qa"><summary class="qu">Q:记忆越攒越多,检索又慢又噪,怎么办?</summary><div class="an"><b>人话:</b>记忆库像 catalog 一样会无限膨胀,不主动治理,噪音先杀死你,慢还是其次。<b>类比:</b>恢复点无限保留,恢复时就得在一万个版本里挑对的那个——所以备份要生命周期策略,记忆必须有遗忘机制,不能只进不出。<b>技术:</b>按 user_id 分区隔离;检索先走元数据过滤(时间/类型)再算相似度;重要性打分分层,低分降冷库;top-k 控制注入量;定期把重复、过时的记忆做合并归档——类似 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Log-structured_merge-tree">LSM-tree</a> 的 compaction 收掉旧版本;再监控注入记忆的「实际引用率」,长期不用的记忆降级甚至删除。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么评估一个 Memory 系统的好坏?</summary><div class="an"><b>人话:</b>不看「记了多少」,看「该记的记得准、该用的用得上、记错的能改掉」。<b>类比:</b>备份系统好不好不看备了多少 TB,看恢复演练成功率——记忆系统也要定期做「恢复演练」:隔几十轮,回头再问早前说过的细节。<b>技术:</b>多轮长对话基准测远期事实召回(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2410.10813">LongMemEval</a>、LoCoMo);注入噪音率——检索进来的记忆有多少与当前话题无关;更新正确率——冲突时新事实是否正确覆盖旧事实;再配端到端任务成功率和线上用户负反馈率。一场「隔 30 轮问用户过敏史」的恢复演练,比任何离线指标都直观。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>短期记忆</b>:当前上下文窗口内的对话。</div>
-      <div class="term-item"><b>长期记忆</b>:跨会话持久化的事实/偏好/事件。</div>
-      <div class="term-item"><b>递归摘要</b>:反复把旧内容压缩成摘要,控制上下文长度。</div>
-      <div class="term-item"><b>冲突消解</b>:新旧记忆矛盾时的去重/覆盖/合并策略。</div>
-      <div class="term-item"><b>时间衰减</b>:记忆分数随"最近使用时间"下降。</div>
-      <div class="term-item"><b>MemGPT/Letta</b>:用虚拟上下文管理把记忆分层,突破窗口。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Short-term_memory">短期记忆</a></b>:当前上下文窗口内的对话原文及其压缩形态——Agent 的「工作内存」,名字借自认知科学。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Long-term_memory">长期记忆</a></b>:跨会话持久化的事实/偏好/事件——Agent 的「归档存储」,必须可更新、可遗忘、可删除。</div>
+      <div class="term-item"><b>递归摘要</b>:反复把旧内容压缩成更短摘要来控制上下文长度——有损压缩,每压一层细节丢一点。</div>
+      <div class="term-item"><b>冲突消解</b>:新旧记忆打架时的去重/最新覆盖/并存策略(ADD/UPDATE/DELETE/NOOP)——记忆系统最容易翻车、也最加分的一步。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Forgetting_curve">时间衰减</a></b>:记忆得分随「距上次使用的时长」指数下降——遗忘曲线的工程版。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2310.08560">MemGPT/Letta</a></b>:照搬操作系统分页管理记忆——窗口当内存、外部存储当磁盘、LLM 自己当内核。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2307.03172">Lost in the Middle</a></b>:长上下文中部的信息利用率显著更低——所以窗口大不等于记得牢。</div>
     </div>
   </div>
 </article>
