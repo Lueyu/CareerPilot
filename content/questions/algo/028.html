@@ -7,46 +7,60 @@
     <span class="tag">#Temperature</span><span class="tag">#采样</span><span class="tag">#理论</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题问的是大模型采样时那个 temperature 参数到底干了什么——它不是玄学调参,背后有一条能一行行推出来的数学结论:温度升高,输出分布单调变"平"、随机性变大。面试官爱考它,是因为它一个参数就串起了 softmax、熵、知识蒸馏、概率校准四块知识。答错的暴露点也很典型:只会背"T 高随机、T 低确定",追问一句"为什么熵一定随 T 增大"就卡壳——能现场推 dH/dT = Var(z)/T³ 的,才是真正理解了分布层面的机制,而不是把 temperature 当 API 里一个摸黑试的旋钮。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
     <p>"温度 T 是对 softmax 输入的<b>缩放因子</b>:pᵢ = exp(zᵢ/T) / Σⱼ exp(zⱼ/T)。三个关键结论:① T=1 是标准 softmax;② <b>T→0 退化成 argmax</b>(只留概率最大那一个);③ <b>T→∞ 退化成均匀分布</b>。数学上可以严格证明:<b>熵 H 关于 T 单调不减</b>,导数 dH/dT = Var(z)/T³ ≥ 0——温度越高,分布越平、熵越大、采样越"随机探索";温度越低,分布越尖、越确定。所以高温用于采样多样性和知识蒸馏,低温用于贪心解码和校准修正。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>把 logits 想象成<b>几个候选人的"能力分"</b>,温度就是面试官的<b>严格程度</b>:温度很低时,面试官只把 Offer 给第一名,几乎不看别人(接近 argmax);温度适中,能力强的概率大、弱的概率小;温度很高时,面试官<b>佛系了</b>,大家机会几乎一样(均匀)。所谓"熵变大",就是结果从"基本确定"变成"谁都可能",这就是温度调节采样随机性的本质。</p>
+    <p><b>logits(用备份系统里的"优先级分数"想)</b>:模型给每个候选词打一个原始分(logit),就像备份调度器给每个任务算优先级分数——分数本身还没变成决策,只是排序依据。softmax 这一步相当于把分数<b>归一化成调度权重</b>:分数高的任务多分时间片,分数低的少分,但只要优先级 &gt; 0,人人都有非零份额。</p>
+    <p><b>温度(用"调度策略激进度"想)</b>:温度就是调度策略里那个<b>抢占强度旋钮</b>。T 很低 = 严格抢占式调度,最高优先级的任务几乎吃掉整个 CPU(argmax);T 适中 = 加权公平调度,高优先级多拿、低优先级少拿;T 很高 = 完全轮转 Round-Robin,大家时间片均分(均匀分布)。<b>哪里像</b>:都是"一个旋钮控制资源分配的集中程度",只调锐度、不改排序。<b>哪里不像</b>:调度器分配的是 CPU 时间片,softmax 分配的是<b>概率质量</b>——概率是采样的"抽签权重",同一次前向计算的分数是固定的,而调度场景里任务的分数可能随负载动态变。</p>
+    <p><b>熵(用"不确定性水位"想)</b>:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Entropy_(information_theory)">熵 H</a> 度量"抽签结果有多难猜",类似容灾演练里问"这次切换会落到哪个站点"——如果策略是"永远切 A 站",熵为 0(完全确定);如果 A/B/C 三站均等随机,熵最大(最难猜)。温度升高就是把确定性策略慢慢调成随机策略的过程。<b>哪里像</b>:都是把"确定的单点"摊平成"可能的多点"。<b>哪里不像</b>:熵有精确的数学定义 −Σp ln p,可以求导、可以证明单调性;容灾里的"不确定性"是定性感觉。</p>
+    <p>把候选人视角也补一句:logits 是<b>几个候选人的"能力分"</b>,温度就是面试官的<b>严格程度</b>:温度很低时,面试官只把 Offer 给第一名(接近 argmax);温度适中,能力强的概率大、弱的概率小;温度很高时,面试官<b>佛系了</b>,大家机会几乎一样(均匀)。所谓"熵变大",就是结果从"基本确定"变成"谁都可能",这就是温度调节采样随机性的本质。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
     <p><b>1. 定义</b></p>
     <pre class="code">pᵢ(T) = exp(zᵢ/T) / Σⱼ exp(zⱼ/T)      <span class="c"># zᵢ 为第 i 类的 logit,T &gt; 0 为温度</span></pre>
     <ul>
-      <li>温度不改变排序:zᵢ &gt; zⱼ ⟺ zᵢ/T &gt; zⱼ/T,所以 argmax 永远不变,<b>T 只改变概率的"集中程度",不改冠军归属</b>。</li>
+      <li>温度不改变排序:zᵢ &gt; zⱼ ⟺ zᵢ/T &gt; zⱼ/T,所以 argmax 永远不变,<b>T 只改变概率的"集中程度",不改冠军归属</b>。这一点类比存储里的场景很直观:给所有副本的权重分数同乘一个系数,副本的优先级顺序一个都不会变,变的只是权重之间的<b>差距比例</b>——差距被压缩(高温)或放大(低温)。</li>
     </ul>
+    <pre class="code">直观感受一下 T 的"压缩/放大"效果(两个 logit: z₁=2, z₂=0):
+
+T=0.5 : p₁ ≈ 0.98,  p₂ ≈ 0.02   ← 低温:差距被放大,几乎 one-hot
+T=1   : p₁ ≈ 0.88,  p₂ ≈ 0.12   ← 标准 softmax
+T=4   : p₁ ≈ 0.62,  p₂ ≈ 0.38   ← 高温:差距被压缩,趋于平
+T→∞  : p₁ → 0.50,  p₂ → 0.50   ← 极限:均匀分布</pre>
     <p><b>2. 两个极限(直接看定义即可证)</b></p>
     <pre class="code">T → 0⁺ :  pᵢ → 1(若 zᵢ 最大),否则 → 0     <span class="c"># 退化为 one-hot / argmax,熵 → 0</span>
 T → ∞  :  zᵢ/T → 0, pᵢ → 1/K            <span class="c"># 退化为均匀分布,熵 → ln K(K 为类别数)</span></pre>
     <ul>
       <li>严格说 T→0⁺ 要求最大值唯一;若最大值并列,则概率均分到这些并列项上。</li>
+      <li>直觉:T→∞ 时所有 zᵢ/T → 0,exp 项全部趋于 exp(0)=1,谁都拉不开差距;T→0 时差距被无限放大,exp 里最大的那一项把其他项压成 0。</li>
     </ul>
     <p><b>3. 核心证明:熵随温度单调不减</b></p>
-    <p>定义配分函数 Z = Σⱼ exp(zⱼ/T),期望 ⟨z⟩ = Σᵢ pᵢ zᵢ。由 pᵢ = exp(zᵢ/T)/Z 可得:</p>
+    <p>先建立一套符号,别被配分函数这个词吓到——Z 就是 softmax 的分母,即所有 exp(zⱼ/T) 加起来;<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Partition_function_(statistical_mechanics)">配分函数 Z</a> 这个名字来自统计物理,物理学家用同样的公式描述粒子在不同能级上的分布,温度的叫法就是从那借来的。定义 Z = Σⱼ exp(zⱼ/T),期望 ⟨z⟩ = Σᵢ pᵢ zᵢ(即按当前概率加权平均的 logit 值)。由 pᵢ = exp(zᵢ/T)/Z 可得:</p>
     <pre class="code">H = −Σᵢ pᵢ ln pᵢ = ln Z − (1/T)⟨z⟩</pre>
-    <p>对 T 求导,分两步:</p>
+    <p>这一步是把 ln pᵢ 拆开:ln pᵢ = zᵢ/T − ln Z,代回熵定义就得到上式。对 T 求导,分两步:</p>
     <pre class="code">dZ/dT = Σⱼ exp(zⱼ/T)·(−zⱼ/T²) = −(1/T²)Σⱼ zⱼ exp(zⱼ/T)
 d(ln Z)/dT = (1/Z)(dZ/dT) = −(1/T²)⟨z⟩</pre>
     <p>再算 ⟨z⟩ 对 T 的导数。由 d(ln pᵢ)/dT = −zᵢ/T² + ⟨z⟩/T² = (⟨z⟩ − zᵢ)/T²,得 dpᵢ/dT = pᵢ(⟨z⟩ − zᵢ)/T²,于是:</p>
     <pre class="code">d⟨z⟩/dT = Σᵢ zᵢ (dpᵢ/dT) = (1/T²)[⟨z⟩² − ⟨z²⟩] = −(1/T²)Var(z)</pre>
-    <p>合并两段:</p>
+    <p>注意这里的 Var(z) 是 logits 在<b>当前概率分布 p 下</b>的方差,不是均匀权重下的方差——它衡量"logit 分数本身有多参差不齐"。合并两段:</p>
     <pre class="code">dH/dT = d(ln Z)/dT − d[(1/T)⟨z⟩]/dT
       = −(1/T²)⟨z⟩ − [ −(1/T²)⟨z⟩ + (1/T)(d⟨z⟩/dT) ]
       = −(1/T)(d⟨z⟩/dT) = Var(z)/T³ ≥ 0</pre>
     <ul>
       <li>因为方差 Var(z) ≥ 0、T³ &gt; 0,所以 <b>dH/dT ≥ 0 恒成立</b>——温度升高,熵只增不减,分布单调变"平"。</li>
-      <li>这严格证明了"T 越大越均匀、越随机"不是经验感觉,而是数学结论。</li>
+      <li>什么时候取等号?当所有 logit 完全相等(Var(z)=0)时——此时分布本来就是均匀的,加不加温度都一样,熵卡在最大值 ln K 上不动。这也和直觉对齐:一条已经全均匀的权重表,你怎么压缩差距都压缩不动。</li>
+      <li>这严格证明了"T 越大越均匀、越随机"不是经验感觉,而是数学结论。面试时能把这三行推导写出来,基本就是本题的分水岭。</li>
+      <li>顺带一提 d⟨z⟩/dT = −Var(z)/T² ≤ 0:升温时,加权平均的 logit 会<b>下移</b>(概率质量从高 logit 流向低 logit),这正好解释了为什么校准时升温会压低模型的置信度。</li>
     </ul>
     <p><b>4. 与自由能/优化的联系(进阶理解)</b></p>
     <ul>
-      <li>可把带温度 softmax 看作带熵正则的优化解:p(T) 是"在给定能量 z 下最大化 H、且 −log Z 是对应自由能"的分布族。T 即温度,对应正则强度。</li>
-      <li>T→0 即去掉熵正则,回到硬最大;T→∞ 即只最大化熵,回到均匀。</li>
+      <li>可把带温度 softmax 看作带熵正则的优化解:p(T) 是"在给定能量 z 下最大化 H、且 −log Z 是对应<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Helmholtz_free_energy">自由能</a>"的分布族。T 即温度,对应正则强度。</li>
+      <li>T→0 即去掉熵正则,回到硬最大;T→∞ 即只最大化熵,回到均匀。这个视角在物理里叫<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Principle_of_maximum_entropy">最大熵原理</a>:温度就是"我要多确定"和"我要多保守(留余地)"之间的权衡系数——像备份策略里 RPO 一样,是一个连续旋钮而非开关。</li>
     </ul>
     <p><b>5. 三个实战用途</b></p>
     <table>
@@ -55,22 +69,35 @@ d(ln Z)/dT = (1/Z)(dZ/dT) = −(1/T²)⟨z⟩</pre>
       <tr><td><b>知识蒸馏</b></td><td>T ↑(教师)</td><td>软标签保留类别间相对关系,给学生更多"暗知识"(Hinton 2015)</td></tr>
       <tr><td><b>校准(Calibration)</b></td><td>T ↑(通常)</td><td>过自信模型调大 T 使概率更贴合真实频率,降低 ECE(Guo 2017)</td></tr>
     </table>
-    <p><b>6. 与 top-p/top-k 的关系</b>:温度改变整个分布的锐度,top-k/top-p 则是"截断 + 重归一化",两者正交,常组合使用(如 temperature=0.7 + top_p=0.9)。</p>
+    <ul>
+      <li><b>采样多样性</b>:LLM 每个 token 都是从这个分布里抽签。低温下模型容易"复读机"(反复抽到同一个词),升高温度让低分词也有中奖机会,产出更多样。类比:如果备份调度永远把活派给最快的节点,那个节点会被压垮、其他节点闲置——适度随机化反而是系统层面的健康设计。</li>
+      <li><b>知识蒸馏</b>:类比"老工程师带新人"——one-hot 标签只告诉你"这是主备切换",什么都没了;教师的高温软标签会额外透露"这个场景更像双活、而不是像异地容灾"这种<b>类间相对关系</b>,即所谓暗知识,信息量天差地别。</li>
+      <li><b>校准</b>:类比"容量水位上报"——如果系统报"剩余空间 98%"但实际只剩 85%,报告就是危险的过自信;校准就是让上报的置信度对齐真实频率,下游的告警阈值才敢信这个数字。</li>
+    </ul>
+    <p><b>6. 与 top-p/top-k 的关系</b>:温度改变整个分布的锐度,top-k/top-p 则是"截断 + 重归一化",两者正交,常组合使用(如 temperature=0.7 + top_p=0.9)。类比:温度是调"时间片分配的悬殊程度",top-k/top-p 是"直接把排名靠后的任务踢出队列"——一个是连续调权,一个是硬截断,作用在分布的不同环节,所以可以叠加。下面的示意图把三者的作用点画在一起:</p>
+    <pre class="code">logits ──&gt; 除以 T ──&gt; softmax ──&gt; [截断: top-k/top-p] ──&gt; 重归一化 ──&gt; 采样
+                ↑                    ↑
+         温度:调整"尖/平"        截断:砍掉长尾候选
+         (连续、全局)           (离散、尾部)
+         两者作用点不同,可正交组合</pre>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:温度会把 argmax 变掉吗?</summary><div class="an">不会。T &gt; 0 时 exp 是单调增函数,除以 T 只是单调缩放,zᵢ/T 的相对大小不变,argmax 恒等。温度只重分配概率质量,不重排顺序——所以"调温度"改变的是随机性,不是"该选哪个最好"。</div></details>
-    <details class="qa"><summary class="qu">Q:知识蒸馏里为什么老师用高温、学生推理时又用 T=1?</summary><div class="an">训练时对老师 logits 除以高温再 softmax,得到平滑的"软标签",它能透露"猫更像狗还是更像卡车"这类类间相似结构,信息量远大于 one-hot;学生训练完、推理时恢复 T=1,得到正常的校准概率。若学生也用同样高温推理,概率会被过度抹平、置信度失真。</div></details>
-    <details class="qa"><summary class="qu">Q:校准为什么通常要把 T 调大于 1?</summary><div class="an">现代大模型普遍"过自信"——softmax 输出的概率(如 0.98)高于真实正确率(如 0.85)。调大 T 使分布变平、峰值下降,让预测概率逼近经验频率,从而降低 ECE。T 本身是在验证集上最小化 NLL 学出来的单标量,不改变任何预测结果,纯属后处理。</div></details>
+    <details class="qa"><summary class="qu">Q:温度会把 argmax 变掉吗?</summary><div class="an"><b>人话:</b>不会,冠军永远是冠军,温度只改"冠军赢多少",不改"谁是冠军"。<b>类比:</b>就像备份策略里给所有副本权重同乘一个系数——第一名的权重还是最大,只是它和其他人的差距被压缩或放大了;排序一个不动。<b>技术:</b>T &gt; 0 时 exp 是单调增函数,除以 T 只是单调缩放,zᵢ/T 的相对大小不变,argmax 恒等。温度只重分配概率质量,不重排顺序——所以"调温度"改变的是随机性,不是"该选哪个最好"。也正因此,当 temperature=0(等价于 greedy/argmax 解码)时,输出就是确定性的。</div></details>
+    <details class="qa"><summary class="qu">Q:知识蒸馏里为什么老师用高温、学生推理时又用 T=1?</summary><div class="an"><b>人话:</b>训练时要"多泄密",推理时要"说人话"。高温软标签透露类间相似结构,推理时必须恢复正常置信度。<b>类比:</b>像老工程师写交接文档时故意把每个方案的"倾向度"写得比较平——不只说"选方案A",还说"A 七分像 B、三分像 C"——这些相对关系是新人最缺的暗知识;但新人真正值班做决策时,该果断还得果断,不能拿"大家都差不多"的文档当行动依据。<b>技术:</b>训练时对老师 logits 除以高温再 softmax,得到平滑的"软标签",它包含类间相似信息,信息量远大于 one-hot;学生训练完、推理时恢复 T=1,得到正常校准概率。若学生也用同样高温推理,概率会被过度抹平、置信度失真,下游基于概率的决策全会出问题。</div></details>
+    <details class="qa"><summary class="qu">Q:校准为什么通常要把 T 调大于 1?</summary><div class="an"><b>人话:</b>模型普遍"吹牛",说 98% 确信的事实际只对 85%,把温度调大一点让它学会谦虚。<b>类比:</b>像监控上报"服务健康度 98%"但历史成功切换率只有 85%——上报值和真实频率脱节,下游阈值定得再准也会误判;校准就是把上报口径修正到和历史频率对齐,而且这个修正是零成本的后处理。<b>技术:</b>现代大模型普遍过自信,softmax 输出概率(0.98)高于真实正确率(0.85)。调大 T 使分布变平、峰值下降,让预测概率逼近经验频率,降低 ECE。T 本身是在验证集上最小化 NLL 学出来的单标量,不改变任何预测结果(argmax 不变),纯属后处理。</div></details>
+    <details class="qa"><summary class="qu">Q:采样时 temperature=0 和 top_p=1 是什么行为?有没有坑?</summary><div class="an"><b>人话:</b>temperature=0 就是 greedy,永远选分数最高的词,输出完全确定。<b>类比:</b>像把调度器设成"永远派给最快节点"——看似最优,但所有流量压一台机器,一旦它有抖动就全局出问题;greedy 解码同理,容易陷入复读循环和退化的重复文本。<b>技术:</b>T=0 时分布退化为 one-hot/argmax,每步确定性选取。实践中很多框架用 top_k=1 等价实现。已知坑:某些采样库在 T=0 时不走 softmax,数值上更稳;而极小的 T(如 0.01)可能在浮点下 exp 溢出或 underflow。另外 greedy 并不等于"质量最高",开放域生成里适度温度(0.7 左右)+ top_p 截断通常比纯 greedy 更不容易重复退化。</div></details>
+    <details class="qa"><summary class="qu">Q:Agent 场景里,工具调用应该用什么温度?自由对话呢?</summary><div class="an"><b>人话:</b>要"选对"的地方低温,要"有料"的地方高温。<b>类比:</b>像容灾切换——切换指令必须确定性、可审计,一个字都不能漂移;但事后写故障复盘报告时,你反而希望措辞多样一些。<b>技术:</b>工具调用/结构化输出是"选哪个 token"决定语义的场景(函数名、参数值),低温(T≈0~0.2)保证解析稳定、可复现,高温会导致幻觉出不存在的方法名;自由闲聊、创意写作则用 T≈0.7~1.0 提升多样性。很多 Agent 框架干脆对工具调用路径强制 greedy 或加 JSON Schema 约束——用约束兜结构,用温度调风格,各管一段。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>Temperature</b>:softmax 的缩放因子,控制分布锐度。</div>
-      <div class="term-item"><b>熵 H</b>:分布不确定性的度量,−Σp ln p。</div>
-      <div class="term-item"><b>argmax</b>:T→0 的极限,只取概率最大的类别。</div>
-      <div class="term-item"><b>ECE</b>:期望校准误差,预测概率与真实频率之差。</div>
-      <div class="term-item"><b>软标签</b>:蒸馏中教师输出的平滑概率向量。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Softmax_function">Temperature</a></b>:softmax 输入的缩放因子,控制输出概率分布的锐度与随机性。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Entropy_(information_theory)">熵 H</a></b>:分布不确定性的度量,H = −Σp ln p,均匀分布时最大、one-hot 时为 0。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Argmax">argmax</a></b>:T→0 的极限行为,只取分数最大的类别,等价于 greedy 解码。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Calibration_(statistics)">ECE(期望校准误差)</a></b>:模型预测置信度与真实正确频率之间的平均偏差,校准的常用指标。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Knowledge_distillation">软标签</a></b>:知识蒸馏中教师经高温 softmax 输出的平滑概率向量,携带类间相似结构。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Statistical_ensemble_(mathematical_physics)">配分函数 Z</a></b>:softmax 的分母 Σexp(z/T),源自统计物理,连接概率分布与自由能。</div>
     </div>
   </div>
 </article>

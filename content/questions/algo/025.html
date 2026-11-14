@@ -8,21 +8,39 @@
     <span class="company">无公司</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题问的是:让模型生成一句话时,「同时养 k 条候选路线」这种解码策略,到底要多算多少倍的账。面试官爱考它,是因为复杂度推导能瞬间分清「背结论的人」和「会算账的人」——背出 O(n·k·V) 但说不清 k、V、n 各自是哪来的,暴露的就是没亲手推过;而能顺手补一句「log 因子通常忽略」的,才是真理解。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
     <p>"Beam Search 每步维护 k 个最优候选(beam),每个候选向词表扩展出 V 个下一步,共 k·V 个候选,从中选 top-k 保留。n 步下来时间复杂度是 <b>O(n·k·V)</b>;若计入模型计算 logits 的隐藏维度 d,则每步一次前向是 O(k·V·d),总复杂度 <b>O(n·k·V·d)</b>。它比贪心 O(n·V) 慢 k 倍,但比暴力搜索 O(Vⁿ) 指数级快。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>Beam Search 像"<b>同时养 k 条候选路线</b>"的导航:每到一个路口(每一步),把当前 k 条路线各自延伸出 V 个可能的下一站(共 k·V 条),然后只留分数最高的 k 条继续走。走 n 步,每步都要评估 k·V 条候选再挑 k 条,所以总工作量约 n·k·V。k=1 就退化成贪心(只养 1 条),k 大到穷举则爆炸——beam size 是"快"和"准"之间的旋钮。</p>
+    <p><b>Beam Search(用备份系统的「多副本候选恢复」想)</b>:你做过容灾演练就知道,恢复路径不能只押一条——单路恢复(贪心)快但一旦中途某步选错,整条链报废;全量枚举所有恢复路径(穷举)又根本跑不完。所以折中方案是:每一步同时保住 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Beam_search">Beam Search</a> 的 k 条「最有希望」的路径,其余淘汰,像热数据只留 SSD、其余下沉一样,资源只供养头部候选。</p>
+    <p><b>哪里像</b>:都是「保留 top-k、淘汰其余」的剪枝思路;都面临 k 取多大才划算的容量规划问题;k=1 退化成单路贪心,k 无穷大退化成穷举,和「全内存 vs 全磁盘」的分层光谱一模一样。</p>
+    <p><b>哪里不像</b>:备份系统的淘汰看的是冷热访问频率(事后统计),Beam Search 的淘汰看的是累计分数(每步都实时算);而且备份不会「指数爆炸」,穷举所有恢复路径只是慢,而文本生成的穷举是 Vⁿ 级,天文数字,物理上不可行——所以 Beam Search 的剪枝不是优化项,是生存必需项。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 算法回顾</b></p>
+    <p><b>1. 算法回顾:每一步到底发生什么</b></p>
+    <p>自回归生成的模型(如 GPT、机器翻译的 decoder)一次吐一个 token。每吐一个 token 前,模型对所有 V 个词各给一个分数(logit,再过 softmax 变成概率)。「下一步选谁」就是解码策略要回答的问题:</p>
     <ul>
       <li>维护一个大小为 k 的候选集(beam)。每步:对 beam 里每个部分序列 → 计算下一个 token 的 V 个 logits → 得到 k·V 个候选 → 按累计 log 概率取 top-k 更新 beam。</li>
       <li>终止:生成长度到 n 或全部命中 EOS;最终选累计分数最高的一条(注意长度惩罚)。</li>
     </ul>
-    <p><b>2. 复杂度推导</b></p>
+    <p>一句话:贪心只开一条道,Beam Search 同时开 k 条道,每步把 k 条道各自往前伸 V 个岔口,再从 k·V 个岔口里留最好的 k 个。</p>
+    <pre class="code">每步的扇出(以 k=2, V=6 为例):
+
+  beam1 ●──┬── a(0.3) ─┐         ┐
+           ├── b(0.5) ─┤ 总共     │  按「路径累计分」排序
+           ├── c(0.1)  │ k·V=12   │  只留 top-k=2
+           └── ...(V个)┘ 个候选   │
+  beam2 ●──┬── a(0.2) ─┼─────────┘
+           ├── d(0.4)  │
+           └── ...(V个)┘
+
+  下一步: 2 个 beam 继续同样的扩展
+  n 步之后: 每步都干一遍「扩展 k·V + 选 k」</pre>
+    <p><b>2. 复杂度推导:一步步算账</b></p>
     <pre class="code"><span class="c"># 每步</span>
 k 个 beam × V 个候选扩展 = k·V 个候选
 从中选 top-k(排序或用堆维护)
@@ -33,33 +51,48 @@ k 个 beam × V 个候选扩展 = k·V 个候选
 <span class="c"># 若计入模型计算 logits 的隐藏维度 d</span>
 每步一次前向(k 个 beam 批量计算): O(k · V · d)
 总:  O(n · k · V · d)</pre>
+    <p>推导心法,套用你熟悉的容量估算思路:</p>
+    <ul>
+      <li><b>第一步,找「最小重复单元」</b>:和算备份窗口期一样,先算单步开销。单步要评估 k·V 个候选,这就是最小单元。</li>
+      <li><b>第二步,乘重复次数</b>:循环 n 步,单步 × n,得 O(n·k·V)。</li>
+      <li><b>第三步,补上大头</b>:如果算力瓶颈在模型前向(实际工程中几乎总是),每个候选的打分要过隐藏维度 d 的投影层,单步前向 O(k·V·d),总 O(n·k·V·d)——这才是 GPU 真正感受到的成本。</li>
+    </ul>
     <p><b>3. 各项含义与对照</b></p>
+    <table>
+      <tr><th>策略</th><th>复杂度</th><th>直观解释</th><th>类比(备份视角)</th></tr>
+      <tr><td>贪心解码(k=1)</td><td>O(n·V·d)</td><td>每步只养 1 条路</td><td>单路恢复:最快,一步选错全盘皆输</td></tr>
+      <tr><td>Beam Search(k 条)</td><td>O(n·k·V·d)</td><td>k 条路并行养着,每步剪枝</td><td>保留 k 个恢复点:线性多花 k 倍资源</td></tr>
+      <tr><td>暴力穷举</td><td>O(Vⁿ)</td><td>所有路径都走</td><td>枚举所有可能恢复序列:组合爆炸</td></tr>
+    </table>
     <ul>
       <li>n = 生成序列长度,V = 词表大小,k = beam size,d = 隐藏维度。</li>
       <li><b>贪心(k=1)</b>:O(n·V) 或 O(n·V·d)。</li>
       <li><b>暴力/穷举</b>:O(Vⁿ),指数爆炸,不可行。</li>
-      <li>Beam Search 是对"贪心太贪、穷举太慢"的折中。</li>
+      <li>Beam Search 是对“贪心太贪、穷举太慢”的折中。给个数量级感受:V=50000,n=20,穷举是 50000²⁰ 条路径,beam=5 只需 5·50000·20=500 万次候选评估——从宇宙尺度压到一次心跳。</li>
     </ul>
     <p><b>4. trade-off 与工程优化</b></p>
     <ul>
       <li><b>k 越大</b>:候选更多、找到更优解的概率大,但计算量线性增加、生成多样性下降、更容易复读短句。</li>
-      <li>工程优化:批量前向(把 k 个 beam 拼成一个 batch 一次算)、早期剪枝(每 beam 先取 top-m)、长度惩罚修正短句偏好。</li>
+      <li>工程优化:批量前向(把 k 个 beam 拼成一个 batch 一次算,GPU 的甜点区)、早期剪枝(每 beam 先取 top-m)、长度惩罚修正短句偏好。</li>
     </ul>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:为什么 beam size 越大效果不一定越好?</summary><div class="an">更大的 beam 在"找全局最优序列"上更强,但下游 BLEU/ROUGE 等指标会随 k 增大<b>先升后降</b>:k 太大时更偏好短句、复读、多样性低,翻译任务里大 beam 反而更差的现象很常见。所以 beam size 是任务相关的超参,不是越大越好。</div></details>
-    <details class="qa"><summary class="qu">Q:复杂度里要不要算排序的 log 因子?</summary><div class="an">严格说选 top-k 需要 O(k·V·log(k·V))(排序)或用堆降到 O(k·V·log k)。但复杂度惯例里,主导项是 k·V 个候选的评估与 logit 计算,log 因子是常数级且远小于 V,通常略去,记为 O(n·k·V)。面试里主动提一句"选 top-k 还有 log 因子,通常忽略"会更严谨。</div></details>
-    <details class="qa"><summary class="qu">Q:长度惩罚是干什么的?</summary><div class="an">因为每步 log 概率 ≤ 0,序列越长累计分数越低,模型会偏向提前输出 EOS 生成短句。长度惩罚把分数除以长度^α(或加上长度项)来抵消这个 bias,让长短句公平比较。</div></details>
-    <details class="qa"><summary class="qu">Q:采样(sampling)和 beam search 怎么选?</summary><div class="an">需要多样性/创造性(对话、写作)用温度采样 + top-p/top-k;需要确定性、接近最优(翻译、代码、数学)用 beam search。现代对话系统多用采样,因为 beam search 输出偏保守、多样性差。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么 beam size 越大效果不一定越好?</summary><div class="an"><b>人话:</b>k 调大后机器翻译的 BLEU 分数常见「先升后降」,不是单调涨——所以 k 是要调的超参,不是无脑拉满。<b>类比:</b>像副本数:多副本提升可靠性,但副本太多,写入放大、一致性开销、成本全上来,总收益反而下滑;「安全冗余」和「过度冗余」有条分界线。<b>技术:</b>更大的 beam 在“找全局最优序列”上更强,但 k 太大时会偏好高频组合、输出短句和复读、多样性坍缩,下游 BLEU/ROUGE 等指标随 k 增大先升后降,翻译任务里大 beam 反而更差的现象很常见。所以 beam size 是任务相关的超参,不是越大越好。</div></details>
+    <details class="qa"><summary class="qu">Q:复杂度里要不要算排序的 log 因子?</summary><div class="an"><b>人话:</b>严格算要带 log,但工程惯例里它小到可以忽略,主动提一句反而加分。<b>类比:</b>做容量估算时你也不会把日志轮转的开销算进备份窗口——不是不存在,是量级差太远,算进去反而模糊主线。<b>技术:</b>严格说选 top-k 需要 O(k·V·log(k·V))(排序)或用堆降到 O(k·V·log k)。但复杂度惯例里,主导项是 k·V 个候选的评估与 logit 计算,log 因子是常数级且远小于 V,通常略去,记为 O(n·k·V)。面试里主动提一句“选 top-k 还有 log 因子,通常忽略”会更严谨。</div></details>
+    <details class="qa"><summary class="qu">Q:长度惩罚是干什么的?</summary><div class="an"><b>人话:</b>不加它,模型会偷懒只生成短句,因为分数规则天然「惩罚长句」。<b>类比:</b>像备份任务的成功率考核只看「失败步数」——链路越长、经过的组件越多,累计扣分越多,大家就都只做最短链路的活儿;长度惩罚就是把考核按链路长度归一化。<b>技术:</b>因为每步 log 概率 ≤ 0,序列越长累计分数越低,模型会偏向提前输出 EOS 生成短句。长度惩罚把分数除以长度^α(或加上长度项)来抵消这个 bias,让长短句公平比较。</div></details>
+    <details class="qa"><summary class="qu">Q:采样(sampling)和 beam search 怎么选?</summary><div class="an"><b>人话:</b>要「稳、准、像标准答案」用 beam search,要「活、有创意」用采样——这是按任务性质选的,不是按性能选的。<b>类比:</b>像恢复策略选择:金融级核心库要确定性 RPO,用严格的预定流程;开发测试环境允许你随机挑个可用快照,灵活优先。<b>技术:</b>需要多样性/创造性(对话、写作)用温度采样 + <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Language_model#Top-k_sampling">top-p/top-k 采样</a>;需要确定性、接近最优(翻译、代码、数学)用 beam search。现代对话系统多用采样,因为 beam search 输出偏保守、多样性差。</div></details>
+    <details class="qa"><summary class="qu">Q:Beam Search 能并行化吗?GPU 上怎么跑?</summary><div class="an"><b>人话:</b>能,而且现代推理框架都是这么干的:把 k 条 beam 拼成一个大 batch,一次前向全算完。<b>类比:</b>就是备份系统里的并发流——单流串行恢复慢,多流并行吞吐翻倍;beam 的扩展天然是「同一模型、不同输入前缀」,和并发跑 k 个恢复任务同构。<b>技术:</b>每步把 k 个 beam 的当前序列拼成 batch 维度为 k 的输入,一次前向得到 k×V 的 logits,再在 k·V 个候选上做 top-k 选择;配合 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Large_language_model#KV_caching">KV Cache</a> 缓存已生成前缀,单步只算新 token 一层,总吞吐接近贪心的 k 倍以内。瓶颈通常在 top-k 选择这步要跨 beam 全局排序,GPU 上常用近似或分桶优化。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Beam_search">Beam Search</a></b>:每步保留 top-k 候选、淘汰其余的启发式搜索解码策略。</div>
       <div class="term-item"><b>Beam</b>:每步保留的 top-k 候选集合。</div>
-      <div class="term-item"><b>贪心解码</b>:每步只取概率最大的 token(k=1)。</div>
-      <div class="term-item"><b>长度惩罚</b>:修正长序列累计分数偏低的问题。</div>
-      <div class="term-item"><b>top-k 采样</b>:只从概率最高的 k 个 token 里采样。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Greedy_algorithm">贪心解码</a></b>:每步只取概率最大的 token(k=1),快但易陷入局部最优。</div>
+      <div class="term-item"><b>长度惩罚</b>:修正长序列累计 log 概率偏低、模型偏向短句的问题。</div>
+      <div class="term-item"><b>top-k 采样</b>:只从概率最高的 k 个 token 里随机采样,兼顾质量与多样性。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Logit">logit</a></b>:模型输出层对每个词的原始打分,过 softmax 后变成概率。</div>
     </div>
   </div>
 </article>
