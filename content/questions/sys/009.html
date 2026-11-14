@@ -8,20 +8,28 @@
     <span class="company">字节(真题)</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这道题问两件事:多轮对话的「记忆」放在哪、怎么管才不丢不爆;几千个会话同时读写时,怎么不互相把对方写的内容踩掉。面试官爱考它,是因为它一秒分清「只会拼 Agent 框架回调的人」和「有后端工程底子的人」——答不出状态外置、只会一句「加个锁」,就暴露了没扛过真实并发系统。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"核心是<b>状态外置 + 会话隔离</b>:对话历史、槽位状态统一存 Redis(key = session_id),Agent 本身无状态、可水平扩展。一致性靠三点:① <b>每会话串行化</b>——同一会话的写操作加锁/单队列,保证顺序;② <b>版本号 + 乐观锁</b>(CAS)防并发覆盖;③ <b>关键业务状态走状态机/事务</b>。上下文管理上区分"给程序的持久状态"(结构化)和"给模型的上下文"(摘要+窗口压缩),并设 token 预算——状态要小、要能迁移、要版本化。"</p>
+    <p>"核心是<b>状态外置 + 会话隔离</b>:对话历史、槽位状态统一存 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Redis">Redis</a>(key 按 session_id 隔离),Agent 进程本身无状态、随时可水平扩展。一致性靠三板斧:① <b>每会话串行化</b>——同一会话的写操作排成单队列,顺序天然正确;② <b>版本号 + 乐观锁(CAS)</b>——写回前比对版本号,并发覆盖当场暴露;③ <b>关键业务状态走状态机/事务</b>,状态迁移带幂等。上下文管理上严格区分'给程序的持久状态'(结构化、精确)和'给模型的上下文'(摘要+窗口压缩、够用就行),并设 token 预算——状态要小、要版本化、要能恢复。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>就像<b>餐厅一桌客人的点菜本</b>:每桌一张点菜单(会话状态),服务员的脑子不记菜(无状态),谁都能拿这桌的菜单继续服务(水平扩展)。客人催菜时,服务员先翻菜单看点到哪了(读状态),加菜就往上写(写状态)。如果两个服务员同时往同一张单子上加菜,容易覆盖——所以规定"一桌同一时刻只一个服务员动笔"(串行化),或写之前看版本号对得上才写(乐观锁)。菜上完,菜单归档(持久化),客人下次来能查历史(恢复)。</p>
+    <p><b>把会话状态想成备份作业的 manifest(作业清单)</b>:每个备份作业有一份清单,记录进度、参数、已执行到哪一步;执行器(Agent)脑子里不记任何东西,所有进度都写在清单上。节点挂了?另一台节点拿起清单接着干——这就是「Agent 无状态、可水平扩展」;谁接管都行,因为<b>脑子在外面的清单里</b>。会话状态就是 Agent 的 manifest:对话到第几轮、用户要订什么票、工具已经查到了什么,全部外置。<b>哪里像</b>:状态外置、单写者、可恢复、可审计,和备份系统的 catalog 设计是同一套哲学。<b>哪里不像</b>:备份的 manifest 是纯结构化元数据,压缩是无损的;会话状态里一半是<b>对话原文这种自然语言</b>,「压缩」靠 LLM 摘要、<b>必然有损</b>——这是做对话系统最要警惕的差异,后面会讲关键事实为什么要单独走结构化槽位「投保」。</p>
+    <p><b>并发一致性,就是两个调度实例同时改一份作业清单</b>:A 实例和 B 实例都读到 v1 版清单,各自加了自己的内容,后写的把先写的整个覆盖——经典的「丢更新」,和两个运维同时改同一个备份策略、互相踩掉对方的修改一模一样。解法也一模一样:要么清单带 revision,写回时对得上版本才许写(<b>乐观锁</b>);要么规定同一作业 ID 同一时刻只归一个执行器(<b>串行化/单写者</b>)。<b>哪里像</b>:都是「同一资源一个写者」的老规矩。<b>哪里不像</b>:备份系统里同卷冲突是常态,排队是默认;对话场景里一个用户很少真的同时发 N 条消息,<b>冲突是稀疏的</b>——所以默认先上便宜的乐观锁,只有热点会话才升级到排队。</p>
+    <p><b>上下文压缩,就是存储分层</b>:最近 N 轮原文放「快层」(SSD),早期对话压成滚动摘要放「温层」(容量层),更久的关键事实向量化归档、按需召回放「冷层」(归档带)。<b>哪里像</b>:都是容量预算逼出来的分层。<b>哪里不像</b>:归档的东西能无损还原、能重新拉回快层;摘要过的对话<b>原文找不回来了</b>——想找回细节,只能靠冷层的向量检索,而不是指望摘要。所以分层的同时要给关键事实单独留无损副本,这是和纯存储方案最大的思路差别。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
     <p><b>1. 存什么:上下文的两种形态(关键区分)</b></p>
+    <p>做对话系统第一个要掰清楚的,就是「状态」其实是两种东西,混着管必然出事:</p>
+    <table>
+      <tr><th>形态</th><th>典型内容</th><th>给谁消费</th><th>一致性要求</th></tr>
+      <tr><td><b>给程序的状态(结构化)</b></td><td>意图、槽位、工具执行结果、迭代计数</td><td>程序代码(if/else 判断)</td><td>强:槽位里的金额错了就是资损事故,必须精确、可校验</td></tr>
+      <tr><td><b>给模型的上下文(自然语言)</b></td><td>对话历史(可能被摘要/裁剪)、工具结果文本</td><td>LLM(读进去生成下一句)</td><td>弱:够用就行,裁掉一轮天塌不下来,丢了还能从结构化状态重新渲染</td></tr>
+    </table>
     <ul>
-      <li><b>给程序的状态(结构化)</b>:意图、槽位、工具执行结果、迭代计数——确定性、可校验。</li>
-      <li><b>给模型的上下文(自然语言)</b>:对话历史(可能被摘要/裁剪)、工具结果——喂给 LLM。</li>
-      <li>二者分离:结构化状态做持久化与并发控制,模型上下文是它的"投影"。</li>
+      <li><b>二者分离</b>:结构化状态做持久化与并发控制,模型上下文是它的「投影」——类比备份系统里的关系:catalog(元数据)是真相源,报表/展示是从元数据渲染出来的,报表弄丢了重新生成一份就行。<b>所以模型上下文可以激进压缩,结构化状态一个字节都不能错</b>,这是整篇方案的分水岭。</li>
     </ul>
     <p><b>2. 存哪:存储选型</b></p>
     <table>
@@ -30,21 +38,46 @@
       <tr><td><b>PostgreSQL/MongoDB</b></td><td>冷历史/审计</td><td>持久、可查询</td></tr>
       <tr><td><b>对象存储</b></td><td>大对象引用</td><td>状态本体保持小</td></tr>
     </table>
+    <p>这就是标准的<b>热冷分层</b>:热状态进 Redis(对话每轮都要读写,延迟敏感),冷历史进 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/PostgreSQL">PostgreSQL</a>(审计、回放、训练数据沉淀),大文件(截图、长文档)进<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Object_storage">对象存储</a>、状态里只存引用——和备份系统 catalog 只存数据块指针不存数据本体,是同一个套路:</p>
+    <pre class="code">        ┌─ Agent实例A(无状态) ─┐
+用户消息 → 负载均衡 → ├─ Agent实例B(无状态) ─┤ → 读写 → Redis(热状态, 亚毫秒)
+        └─ Agent实例C(无状态) ─┘                    │ 活跃时异步落库
+                                                ↓
+                                 PostgreSQL(冷历史/审计) + 对象存储(大对象只存引用)</pre>
     <ul>
-      <li>key:<code>state:{tenant_id}:{session_id}</code>,TTL 会话级(如 7 天),活跃续期。</li>
+      <li>key:<code>state:{tenant_id}:{session_id}</code>——tenant_id 前缀做多租户隔离(防串号,就是目录命名空间隔离的思路);TTL 会话级(如 7 天),活跃续期——这就是一份<b>租约</b>:会话活着就续,7 天不来自动过期清理,不用手工 GC。</li>
+      <li>结构选型加一句:结构化槽位用 <b>Hash</b> 存(改一个槽位不用把整份 JSON 反序列化再写回),对话历史用 List/Stream 追加——读写路径分开,也为下面的并发控制打基础。</li>
     </ul>
     <p><b>3. 上下文压缩(token 预算)</b></p>
+    <p>LLM 的窗口是有限资源,和磁盘容量一样要配预算、做分层:</p>
+    <pre class="code">单次请求 token 预算 = 系统prompt + 滚动摘要 + 最近N轮原文 + 本轮工具结果 ≤ 上限
+┌──────────────────────────────────────┐
+│ 系统提示词(固定开销,优先保障)          │
+│ 滚动摘要(早期对话压缩成的一段"温层")   │
+│ 最近 N 轮原文(热层,保持无损)          │
+│ 本轮工具结果(可能巨大,截断/引用化)     │
+└──────────────────────────────────────┘
+超预算 → 把最旧一轮折进摘要;再超 → 摘要再压缩;底线 → 结构化槽位永远不摘要</pre>
     <ul>
-      <li>窗口裁剪:只保留最近 N 轮,更早的做摘要。</li>
-      <li>分层:原始历史 + 滚动摘要 + 长期记忆(关键事实向量化检索)。</li>
-      <li>预算控制:给"系统 prompt + 历史 + 工具结果"设总 token 上限,超了就摘要,再超就丢最旧。</li>
+      <li>窗口裁剪:只保留最近 N 轮,更早的做摘要——「保留最近 3 个全量、更早的归档」的保留策略。</li>
+      <li>分层:原始历史 + 滚动摘要 + 长期记忆(关键事实向量化,后续对话按需向量检索召回)——三层对应热/温/冷。</li>
+      <li>预算控制:给「系统 prompt + 历史 + 工具结果」设总 token 上限,超了先摘要、再超丢最旧——<b>先保结构化槽位和最近轮次,牺牲的永远是最老的背景细节</b>。</li>
     </ul>
     <p><b>4. 高并发一致性(核心考点)</b></p>
+    <p>先说清楚<b>什么时候会打架</b>,不然锁就是白加的。三种典型冲突:① 用户多端/双击同时发两条消息;② Agent 并行调多个工具,各自回写会话;③ 多个子 Agent 共享同一个会话状态。共同点是「两个执行流同时读-改-写同一份状态」:</p>
+    <pre class="code">不加保护的"读-改-写"(经典丢更新):
+  写者A: GET state(v=3) ──修改──→ 写回(v=4, 包含A的改动)
+  写者B:  GET state(v=3) ──修改──→ 写回(v=4', 只含B的改动)
+                                    ↑ 后写的把A的改动整个抹掉, A的更新无声丢失
+
+加乐观锁后:
+  写者A: GET(v=3) → CAS(3→4) 成功
+  写者B: GET(v=3) → CAS(3→4) 失败(版本已变4) → 重新GET(v=4) → 重试写入</pre>
     <ul>
-      <li><b>每会话串行化</b>:同一 session 的消息按到达顺序排队处理(分布式锁 SETNX 或按 session hash 分区到单队列),不同 session 天然并行——既保证一致性又保吞吐。</li>
-      <li><b>乐观锁/CAS</b>:读状态带版本号,写回时比对版本,不一致说明有并发写,重试或合并。</li>
-      <li><b>原子操作</b>:用 Redis Lua/事务把"读-改-写"合并为原子,避免竞态窗口。</li>
-      <li><b>关键业务状态</b>:订单/退款等用状态机 + 事务,状态迁移幂等(带版本/乐观锁)。</li>
+      <li><b>每会话串行化</b>:同一 session 的消息按到达顺序排队处理——分布式锁 SETNX,或按 session_id hash 分区到单队列(和 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Apache_Kafka">Kafka</a> 分区内有序是同一个思想:分区内串行、分区间并行)。不同 session 天然并行——既保证一致性又保吞吐。这就是「同一数据卷同一时刻只归一个作业」的排队机。</li>
+      <li><b>乐观锁/CAS</b>(原理见 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Optimistic_concurrency_control">Optimistic Concurrency Control</a>/<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Compare-and-swap">CAS</a>):读状态带版本号,写回时比对版本,不一致说明有并发写,重试或合并。适合冲突稀疏的场景——一个用户通常只有一条消息在处理,冲突率天然低。</li>
+      <li><b>原子操作</b>:用 Redis <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Lua_(programming_language)">Lua</a>/事务把「读-改-写」合并为原子,消灭中间被插队的竞态窗口——「比对版本+写入」必须是原子的,否则乐观锁自己就有缝。</li>
+      <li><b>关键业务状态</b>:订单/退款等不能只靠对话状态兜,用<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Finite-state_machine">状态机</a> + DB 事务,状态迁移幂等(带版本/乐观锁)——和备份作业状态机同理:重试不会把「已下单」再下一次。</li>
     </ul>
     <pre class="code"><span class="c"># 乐观锁更新(Redis Lua 保证原子性)</span>
 cur = GET key
@@ -52,31 +85,35 @@ new = transform(cur)          <span class="c"># 追加消息 / 改槽位</span>
 <span class="c"># 仅当版本仍为 cur.version 时才写入,否则重试</span>
 if CAS(key, cur.version, new): done
 else: retry from GET</pre>
+    <p>选型口诀:<b>冲突少用乐观锁(便宜、无死锁),冲突高(热点会话、多 Agent 共写)升级为分区串行化</b>。注意分布式锁要带 TTL 防持有者宕机造成永久死锁——这份权衡在 <a target="_blank" rel="noopener" href="https://redis.io/docs/latest/develop/use/patterns/distributed-locks/">Redis 官方的分布式锁文档</a>里讲得很透,面试能引用是加分项。</p>
     <p><b>5. 状态版本化与恢复</b></p>
     <ul>
-      <li>状态 schema 带版本号,代码升级时跑迁移函数;反序列化宽容(缺字段给默认值)。</li>
-      <li>恢复:从 checkpoint 重放;LLM 重放不确定 → 恢复点选"已完成的节点",已执行的副作用标记跳过。</li>
+      <li>状态 schema 带版本号,代码升级时跑迁移函数;反序列化宽容(缺字段给默认值)——就是 catalog 格式升级要「向前兼容读」的老规矩:旧格式能被新代码读,新字段缺了给默认值,不能升级一次就废掉所有在线会话。schema 变更上线配合灰度发布,先小流量验证迁移函数。</li>
+      <li>恢复:从 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Application_checkpointing">checkpoint</a> 重放——类比备份系统的检查点+重放:作业失败从最近检查点续跑,不是从头再来。<b>关键差异在哪</b>:普通 WAL 重放是确定性的,重放一百遍结果一样;而 LLM 节点的输出每次可能不同,<b>重放会得到不同的中间结果</b>。所以恢复点必须选「已完成的节点边界」,已执行的副作用(下单、发通知)打标记跳过,绝不重放——重放安全的前提是幂等。</li>
     </ul>
     <p><b>6. 高并发的经验值</b></p>
     <ul>
-      <li>无状态 Agent + Redis 状态,单机数千并发不难;瓶颈常在下游 LLM/工具,而非状态读写。</li>
-      <li>热 key(高频活跃会话)本地缓存 + 定期同步;写多读多时用分片 + 每会话单写者。</li>
+      <li>无状态 Agent + Redis 状态,单机支撑数千并发会话不难;瓶颈几乎总在下游 LLM/工具,而非状态读写——和备份系统一个道理:<b>元数据操作从来不是瓶颈,数据面才是</b>。系统 QPS 上限由 LLM 侧决定,状态层留足余量即可。</li>
+      <li>热 key(高频活跃会话,比如被疯狂刷新的客服大客户会话):本地缓存 + 定期同步;写多读多时用 Redis 分片 + 每会话单写者——又是「热数据上缓存、热点行上排队」的分布式常识。</li>
     </ul>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:同一用户并发发两条消息,怎么定顺序?</summary><div class="an">语义上对话有先后,应按到达顺序串行。实现:网关给每条消息打递增序号,进入按 session 分区的队列,消费者按序处理;或同一 session 的请求路由到同一处理单元加锁。若必须真并发,则处理后按序号合并,冲突字段以最后序号为准并记录。</div></details>
-    <details class="qa"><summary class="qu">Q:状态存 Redis,Redis 挂了怎么办?</summary><div class="an">分层:Redis 挂不影响"服务可用",降级为"该会话失忆"(提示用户重述)+ 写 DB 冷备异步兜底;用 Redis 主从/哨兵/集群保可用。关键业务状态(订单)不以 Redis 为唯一真相源,DB 才是真相源,Redis 只是缓存——缓存丢了能重建。</div></details>
-    <details class="qa"><summary class="qu">Q:上下文很长,摘要会丢关键信息怎么办?</summary><div class="an">摘要只压缩"背景/已办事项",关键事实(订单号、金额、用户明确要求)用结构化槽位单独存、永不摘要;摘要用"抽取式要点 + 生成式压缩"结合,重要信息先抽取再压缩;长期记忆走向量检索,按需召回,而不是全塞进摘要。</div></details>
+    <details class="qa"><summary class="qu">Q:同一用户并发发两条消息,怎么定顺序?</summary><div class="an"><b>人话:</b>对话天然有先后,同一会话的消息必须排成一条队,谁先到谁先处理,不能各跑各的。<b>类比:</b>像两个备份作业抢同一个数据卷——系统约定一个卷同一时刻只归一个作业;消息也一样,按到达顺序进队。<b>技术:</b>网关给每条消息打递增序号,按 session_id 分区进队列,消费者按序处理(正是 Kafka 分区有序的用法);或同一 session 的请求路由到同一处理单元加锁。若必须真并发,则各自处理完后按序号合并,冲突字段以最后序号为准,并把冲突记录进审计日志。</div></details>
+    <details class="qa"><summary class="qu">Q:状态存 Redis,Redis 挂了怎么办?</summary><div class="an"><b>人话:</b>先分清谁是真相源:Redis 只是缓存,DB 才是账本。缓存挂了不等于数据挂了。<b>类比:</b>和容灾里「副本不可用 ≠ 数据丢失」一个道理——降级是让这个会话「失忆」,不是让整个服务宕机,优先保服务可用。<b>技术:</b>三层兜底:① Redis 主从/哨兵/集群保自身可用;② 真挂了,服务降级为「该会话失忆」,提示用户重述关键信息,关键业务状态早已异步落 DB 兜底;③ 订单等关键状态以 DB 为唯一真相源,Redis 只是加速层,丢了可从 DB 重建。冷历史本来就在 PostgreSQL,还能救回大部分上下文。</div></details>
+    <details class="qa"><summary class="qu">Q:上下文很长,摘要会丢关键信息怎么办?</summary><div class="an"><b>人话:</b>别把鸡蛋全放摘要一个篮子——关键事实单独投保,摘要丢就丢背景,丢不了事实。<b>类比:</b>增量备份链可以激进压缩,但 catalog/索引必须单独完整保存——数据块丢了能找回,索引丢了全完。结构化槽位就是那份「必须完整保存的索引」。<b>技术:</b>① 摘要只压「背景/已办事项」;订单号、金额、用户明确要求等关键事实走结构化槽位单独存、永不摘要。② 摘要采用「抽取式要点+生成式压缩」结合,先抽取再压缩。③ 长期记忆向量化,后续靠向量检索按需召回原文细节,而不是指望摘要里还有。④ 上线后用关键事实核对集做回归,验证压缩管线没把事实压丢。</div></details>
+    <details class="qa"><summary class="qu">Q:乐观锁和分布式锁,什么时候用哪个?</summary><div class="an"><b>人话:</b>冲突少就乐观——直接试,撞了重来;冲突多就悲观——先排队拿号再动笔。<b>类比:</b>就是数据库里 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Multiversion_concurrency_control">MVCC</a> 和行锁的选择:读多写少相安无事,热点行才上锁排队。<b>技术:</b>会话状态冲突率低(一个用户通常一条消息在处理),乐观锁+重试足够,开销小、无死锁问题,这是默认选型。热点会话或多个子 Agent 并发回写同一会话时,冲突率上升,重试成本反超锁成本,升级为按 session 分区串行化(分布式锁或单队列)。分布式锁必须带 TTL 和续期,防持有者宕机死锁;乐观锁的 CAS 必须用 Lua 做成原子,否则锁自身有竞态缝。</div></details>
+    <details class="qa"><summary class="qu">Q:消息重试/重放导致重复执行(比如重复下单)怎么办?</summary><div class="an"><b>人话:</b>网络重试是常态,同一个请求处理两次,效果必须和处理一次一样——这就是幂等。<b>类比:</b>备份作业失败重试,不会把已传完的数据块再传一遍——靠块级标记断点续传,不是靠「希望重试不发生」。<b>技术:</b>① 每条消息带唯一 message_id,处理前用 Redis SETNX 查重,已处理过直接返回上次结果;② 对外部副作用(下单/退款/发通知)带幂等键,下游按键去重;③ checkpoint 恢复时,已执行节点按标记跳过,只重放未完成部分。幂等是「重放安全」的唯一前提,Agent 的所有写路径都要过这一关。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>乐观锁(CAS)</b>:写回时比对版本号,冲突则重试。</div>
-      <div class="term-item"><b>分布式锁</b>:跨进程保证同一时刻只有一个写者。</div>
-      <div class="term-item"><b>无状态服务</b>:会话状态外置,服务器可随意扩缩容。</div>
-      <div class="term-item"><b>滚动摘要</b>:只保留最近对话 + 更早内容的摘要。</div>
-      <div class="term-item"><b>状态机</b>:限定状态合法迁移,业务一致性基础。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Compare-and-swap">乐观锁(CAS)</a></b>:写回时比对版本号,对得上才许写,对不上说明有人插队,重试。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://redis.io/docs/latest/develop/use/patterns/distributed-locks/">分布式锁</a></b>:跨进程保证同一时刻只有一个写者,必须带 TTL 防持有者宕机死锁。</div>
+      <div class="term-item"><b>无状态服务</b>:会话状态全部外置到 Redis/DB,进程本身不记东西,所以扩缩容、故障接管都随叫随到。</div>
+      <div class="term-item"><b>滚动摘要</b>:只保留最近对话原文+更早内容的压缩摘要,窗口有限时的标准省钱姿势——但有损,关键事实别指望它。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Finite-state_machine">状态机</a></b>:限定状态只能沿合法路径迁移,业务一致性的地基,重试/重放不越轨。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Idempotence">幂等</a></b>:同一操作执行一次和执行 N 次效果相同——重试和重放安全的唯一前提。</div>
     </div>
   </div>
 </article>

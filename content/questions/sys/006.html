@@ -1,30 +1,52 @@
 <article class="q" id="sys-006" data-topic="sys" data-title="大规模Agent系统多线程多进程资源调度策略" data-difficulty="4" data-tags="资源调度,并发" data-company="字节(真题)" data-source="P5Q16" data-kw="资源调度 并发 多线程 多进程 协程 GIL 任务队列 Worker池 信号量 背压 优先级 字节">
 
-  <div class="q-no">Agent核心 · Q16</div>
-  <h3>大规模 Agent 系统在多线程/多进程场景下的资源调度策略如何设计？</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐⭐⭐</span>
-    <span class="tag">#资源调度</span><span class="tag">#并发</span>
-    <span class="company">字节(真题)</span>
-  </div>
+      <div class="q-no">Agent核心 · Q16</div>
+      <h3>大规模 Agent 系统在多线程/多进程场景下的资源调度策略如何设计？</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐⭐</span>
+        <span class="tag">#资源调度</span><span class="tag">#并发</span>
+        <span class="company">字节(真题)</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"按'<b>选型 → 分层 → 限流 → 隔离 → 可观测</b>'讲。选型上,Python 受 <b>GIL</b> 限制,采用<b>多进程 + 协程(asyncio)组合</b>:IO 密集的 LLM/工具调用走协程,CPU 密集或需强隔离的任务走进程池。分层上用<b>任务队列 + Worker 池</b>解耦生产消费,配<b>优先级队列</b>和<b>信号量限并发</b>;GPU 侧用动态批处理提吞吐;再做按租户/任务类型的资源隔离和背压,最后用队列深度、利用率、P99 等指标驱动扩缩容。"</p>
-  </div>
+      <div class="note"><b>先说人话:</b>当成千上万个 Agent 任务一起跑,线程/协程/进程/GPU/下游配额怎么分才不乱、不崩,就是这道题。面试官爱考,因为它是「背过概念」和「扛过生产流量」的分水岭——最暴露的两个坑:GIL 与协程的关系讲不清;只会说「加机器」,讲不出限流、背压、隔离这套组合拳。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>像<b>餐厅后厨</b>:前台接单(请求)→ 传菜口按单排队(任务队列)→ 灶台分档口(进程/协程)——炖菜档(长任务)和快炒档(短任务)分开,避免一个慢菜堵死整条出菜线;每个档口同时最多炒几锅(信号量限并发);高峰期外面取号排队(背压),不让后厨被压垮;老板看翻台率(监控)决定加灶还是撤灶(扩缩容)。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"按'<b>选型 → 分层 → 限流 → 隔离 → 可观测</b>'讲。选型上,Python 受 <b>GIL</b> 限制,采用<b>多进程 + 协程(asyncio)组合</b>:IO 密集的 LLM/工具调用走协程,CPU 密集或需强隔离的任务走进程池。分层上用<b>任务队列 + Worker 池</b>解耦生产消费,配<b>优先级队列</b>和<b>信号量限并发</b>;GPU 侧用动态批处理提吞吐;再做按租户/任务类型的资源隔离和背压,最后用队列深度、利用率、P99 等指标驱动扩缩容。"</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 并发模型选型(GIL 是关键考点)</b></p>
-    <ul>
-      <li><b>GIL</b>让 CPython 的线程无法并行执行 Python 字节码——多线程对<b>纯 CPU 计算无加速</b>,只对 IO 等待(等 LLM、等下游 API)有效。</li>
-      <li>所以 Agent 系统的组合拳:<b>协程(asyncio)扛 IO 并发</b>——成千上万个 LLM 调用在等网络,单线程事件循环就能高并发;<b>多进程扛 CPU/隔离</b>——重度计算(如本地 Embedding、规则引擎)或需强隔离的任务丢进进程池。</li>
-      <li>需要真并行的 CPU 密集 + IO 混合时,用"多进程 + 每个进程内跑协程"的经典结构。</li>
-    </ul>
-    <p><b>2. 分层架构</b></p>
-    <div class="svgwrap">
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>先搞懂 GIL(用机房门禁想)</b>:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Global_interpreter_lock">全局解释器锁</a>是 CPython 进程里「唯一的机房门禁卡」:你开 16 个线程,同一时刻也只有一个人能刷卡进机房执行 Python 字节码,其他人在门外排队——所以多线程对纯 CPU 计算<b>没有加速</b>。<b>哪里像</b>:单一资源串行化所有人,和一条单通道存储控制器下挂再多块盘也提不了并行吞吐是同一个道理。<b>哪里不像</b>:持卡人一走进「等网络 IO」的休息室,就会把卡交出来给别人刷——所以「等 LLM 返回、等工具调用」这类等待型负载,人多照样有收益;而「本地疯狂算 Embedding」这种从头算到尾不撒手的,16 个人还是 1 个人的效率。这条分界线,就是整套选型策略的地基。</p>
+        <p><b>整套调度就是你天天摸的备份作业调度器</b>:API 层=各客户端上报备份请求;任务队列=作业队列,高/普通/低优先级分道入列,就是「生产/归档/测试」分池;Worker 池=并发作业槽位;每 Worker 挂的<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Semaphore_(programming)">信号量</a>=「同时最多 8 个备份作业」的并发上限;<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Token_bucket">令牌桶</a>=客户端限速,别把生产库打挂;<a target="_blank" rel="noopener" href="https://reactivex.io/documentation/operators/backpressure.html">背压</a>=备份窗口满了就让新任务取号排队,而不是全压进系统压垮调度器;控制面看「队列积压」决定加 Worker 还是压并发,和看介质池水位扩容是同一个动作。<b>哪里像</b>:削峰、限流、分池隔离、按积压扩缩容,四板斧一模一样。<b>哪里不像</b>:Agent 负载里多了一台金贵的 GPU,推理侧还有「攒批提吞吐」这个备份领域没有的杠杆——所以详细拆解第 5 节那本 GPU 账,是这道题的 Agent 特色所在。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p>这是道设计题,答题要有骨架:按「为什么这么选 → 骨架怎么搭 → 并发怎么限 → 资源怎么分 → GPU 怎么省 → 怎么兜底」六步走。先看负载画像:一次典型 Agent 请求,九成以上时间在「等」——等 LLM 吐 token、等工具返回、等检索;真正占 CPU 的只有文档解析、本地 Embedding 几小段。选型的全部逻辑就来自这个画像:IO 和 CPU 必须分开伺候。</p>
+        <p><b>1. 并发模型选型(GIL 是关键考点)</b></p>
+        <ul>
+          <li><b>GIL</b>让 CPython 的线程无法并行执行 Python 字节码——多线程对<b>纯 CPU 计算无加速</b>,只对 IO 等待(等 LLM、等下游 API)有效。原因:线程进入 IO 等待时会释放 GIL,别的线程才能跑;CPU 计算不释放,16 个线程照样被串行化。两个加分细节:NumPy 这类 C 扩展干重活时会主动释放 GIL,所以「多线程 + NumPy」并不白搭;Python 3.13 起有实验性 free-threading 构建(<a target="_blank" rel="noopener" href="https://peps.python.org/pep-0703/">PEP 703</a>)可以关掉 GIL,但生产采用还早——面试提一句,说明你跟得住语言演进。</li>
+          <li>所以 Agent 系统的组合拳:<b>协程(<a target="_blank" rel="noopener" href="https://docs.python.org/3/library/asyncio.html">asyncio</a>)扛 IO 并发</b>——成千上万个 LLM 调用在等网络,单线程事件循环就能高并发,切换是用户态的函数级切换,开销比线程低两三个数量级;<b><a target="_blank" rel="noopener" href="https://docs.python.org/3/library/multiprocessing.html">多进程</a>扛 CPU/隔离</b>——重度计算(如本地 Embedding、规则引擎)或需强隔离的任务丢进进程池,进程各有各的 GIL,能真正吃满多核,而且子进程崩了不连累主进程——和备份软件把去重、校验这类重活交给独立 worker 进程是同一个设计。</li>
+          <li>需要真并行的 CPU 密集 + IO 混合时,用"多进程 + 每个进程内跑协程"的经典结构:N 个进程是 N 根能真并行的骨架,每根骨架里再挂海量 IO 等待。</li>
+        </ul>
+        <p>三种并发单元一张表选型(这是追问高发区,值得背下来):</p>
+        <table>
+          <tr><th>并发单元</th><th>切换开销</th><th>受 GIL?</th><th>真并行</th><th>故障隔离</th><th>Agent 里的典型岗位</th></tr>
+          <tr><td>线程(threading)</td><td>内核级,微秒级</td><td>受(CPU 密集被串行化)</td><td>否</td><td>差(共享内存,一崩全崩)</td><td>适配阻塞式老库;少量后台任务</td></tr>
+          <tr><td>协程(asyncio)</td><td>用户级,纳秒级</td><td>单线程,不涉及</td><td>不能,但并发量极大</td><td>无(同一进程)</td><td>LLM/工具/检索等 IO 等待的主力</td></tr>
+          <tr><td>进程(multiprocessing)</td><td>最重(启动+IPC 序列化)</td><td>不受(各有一把)</td><td>能,吃满多核</td><td>好(崩了不传染)</td><td>本地 Embedding、文档解析、不可信插件</td></tr>
+        </table>
+        <pre class="code">"多进程 + 进程内协程"经典组合(CPU 和 IO 都吃得到):
+
+  主进程(API 接入 · 队列消费 · 控制面)
+      │
+      ├── CPU Worker 进程 ×4 ── 各自独立 GIL,吃满 4 核
+      │      干:本地 Embedding / 文档解析 / 规则引擎
+      │
+      └── IO Worker 进程 ×2 ── 每个进程一个事件循环
+             循环里挂上万个协程:等 LLM / 等工具 / 等检索
+             await 处让出执行权,响应回来接着跑</pre>
+        <p><b>2. 分层架构</b></p>
+        <p>为什么要分层:生产者和消费者解耦。API 层只管把请求收进来变成任务,队列管缓冲削峰,Worker 池管干活,控制面管看盘拉闸——任何一层过载,压力都会先在队列里「排队显形」,而不是当场把下游打挂。这和备份系统「接入层 → 作业队列 → 执行池 → 调度控制台」四层完全同构。</p>
+        <div class="svgwrap">
 <svg class="sdiagram" viewBox="0 0 480 380" role="img" aria-label="大规模 Agent 分层资源调度">
   <rect class="sd-box-rose" x="80" y="34" width="150" height="56" rx="10"/>
   <text class="sd-t" x="155" y="58" text-anchor="middle">API 层</text>
@@ -58,46 +80,63 @@
   <text class="sd-ts" x="279" y="262" text-anchor="middle">监控/扩缩容/熔断</text>
 </svg>
 </div>
-    <p><b>3. 并发控制(限流三件套)</b></p>
-    <ul>
-      <li><b>信号量</b>:每 Worker 内限制"同时在跑的 LLM 调用数",防止把模型网关打挂。</li>
-      <li><b>令牌桶</b>:对下游内部 API 限速(如订单系统只扛 100 QPS),Agent 超了就排队或降级。</li>
-      <li><b>优先级队列</b>:高优先(交互请求、付费用户)先消费,低优先(批量、离线)让路。</li>
-    </ul>
-    <p><b>4. 资源调度策略</b></p>
-    <table>
-      <tr><th>策略</th><th>做法</th><th>适用</th></tr>
-      <tr><td><b>公平调度</b></td><td>轮询/加权轮询分摊</td><td>多租户均等场景</td></tr>
-      <tr><td><b>优先级 + 抢占</b></td><td>高优先级抢占低优先级资源</td><td>在线 > 离线</td></tr>
-      <tr><td><b>亲和性</b></td><td>同会话路由到同 Worker</td><td>需要局部顺序/缓存</td></tr>
-      <tr><td><b>背压</b></td><td>队列满则拒绝/排队凭证</td><td>削峰防雪崩</td></tr>
-    </table>
-    <p><b>5. GPU 资源调度(Agent 特有)</b></p>
-    <ul>
-      <li>推理服务用<b>动态/连续批处理</b>:把到达的请求攒成 batch 一起算,吞吐大幅提升;但 batch 越大、排队越久、时延越高,要在"吞吐 vs 时延"间调超参。</li>
-      <li>显存并发度单独控:并发请求数 × 单请求 KV cache 不能超显存,否则 OOM。</li>
-      <li>长连接任务(流式生成)要单独记账:流式期间一直占用计算和显存,调度器要把它当"常驻负载"看待。</li>
-    </ul>
-    <p><b>6. 隔离与可观测</b></p>
-    <ul>
-      <li><b>隔离</b>:按租户/任务类型分队列或分池,单个租户的流量尖峰不拖垮全局。</li>
-      <li><b>指标</b>:队列深度与积压、CPU/内存/GPU 利用率、并发上限、P50/P95/P99 延迟、任务失败率——用队列积压驱动自动扩缩容(K8s HPA)。</li>
-    </ul>
-  </div>
+        <p>对照图从上往下读:请求经 API 层进来,按优先级分道进任务队列;Worker 池里跑 asyncio 事件循环,把任务分发给 LLM 调用(动态批处理)、工具/检索(信号量限流)、结果回写(Redis 状态);右侧控制面收 Worker 心跳、盯指标,执行监控/扩缩容/<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Circuit_breaker_design_pattern">熔断</a>。控制面不干活,像备份软件的调度台:只看积压和健康度,决定加 Worker 还是拉闸限流。</p>
+        <p><b>3. 并发控制(限流三件套)</b></p>
+        <ul>
+          <li><b>信号量</b>:每 Worker 内限制"同时在跑的 LLM 调用数",防止把模型网关打挂。它管的是<b>并发度</b>——关键词是「同时」。</li>
+          <li><b>令牌桶</b>:对下游内部 API 限速(如订单系统只扛 100 QPS),Agent 超了就排队或降级。它管的是<b>速率</b>——关键词是「每秒」。</li>
+          <li><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Priority_queue">优先级队列</a></b>:高优先(交互请求、付费用户)先消费,低优先(批量、离线)让路。</li>
+        </ul>
+        <p>一个分布式坑要主动提:限流值配在「每个 Worker 实例」上时,扩容到 10 个副本,全局并发就悄悄翻了 10 倍——要么按「实例数 × 单实例配额」全局核算,要么用 Redis 集中发令牌,否则限流形同虚设。</p>
+        <pre class="code">三件套各管一段,谁也替代不了谁:
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:Python 里多线程到底能不能用?</summary><div class="an">能,但要分清负载类型:IO 密集(等网络、等模型)多线程有效,因为线程在等 IO 时释放 GIL;CPU 密集多线程无效(被 GIL 串行化),甚至因切换开销更慢。所以 Agent 场景里"LLM/工具调用"这类 IO 等待可以用线程或协程,而"本地推理、数据处理"要用多进程或用 C 扩展库(NumPy 等内部会释放 GIL)。一句话:<b>IO 用协程/线程,CPU 用进程</b>。</div></details>
-    <details class="qa"><summary class="qu">Q:GPU 推理并发怎么控才不 OOM?</summary><div class="an">三层:① <b>上游限流</b>——信号量把并发请求数压到显存能承受的阈值;② <b>服务端显存预算</b>——按"并发上限 × 单请求最大 KV cache"预估峰值显存,留安全余量;③ <b>动态批处理</b>里 batch 大小也受显存约束,超了就排队。还有工程手段:KV cache 量化、paged attention(vLLM)复用显存、超长输入先截断或摘要。核心是<b>显存是硬上限,调度必须先算这个账</b>。</div></details>
-    <details class="qa"><summary class="qu">Q:怎么避免一个超长任务饿死其他任务?</summary><div class="an">靠<b>分级 + 限时 + 隔离</b>:长任务和短任务分不同队列/池,短任务永远有独立资源;单个任务设硬超时(如 30s)和 token 预算,超了就降级或转人工;若同池不可避免,用公平调度(轮询)而非"先来先服务一条道跑到黑",并在任务内做阶段性 checkpoint,让长任务可被暂停让路、之后恢复。</div></details>
-  </div>
+  请求 ──→ 优先级队列:决定"谁先被取走"(轻重缓急)
+                │
+                ▼
+  Worker 池(事件循环)──→ 信号量:同时在跑 ≤ 50(管并发度,保 LLM 网关)
+                │
+                ▼
+  调下游内部 API ──→ 令牌桶:≤ 100 QPS(管速率,保下游系统),超速排队/降级
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>GIL</b>:全局解释器锁,限制 CPython 线程并行。</div>
-      <div class="term-item"><b>协程</b>:单线程内的轻量并发,扛 IO 等待。</div>
-      <div class="term-item"><b>信号量</b>:限制同时执行数量的并发原语。</div>
-      <div class="term-item"><b>背压</b>:下游慢/满时向上游反压减速。</div>
-      <div class="term-item"><b>动态批处理</b>:攒请求成 batch 一起推理提吞吐。</div>
-    </div>
-  </div>
+  一句话分清:信号量限"同时几个人在电梯里",令牌桶限"每分钟放几个人进大堂"</pre>
+        <p><b>4. 资源调度策略</b></p>
+        <table>
+          <tr><th>策略</th><th>做法</th><th>适用</th></tr>
+          <tr><td><b>公平调度</b></td><td>轮询/加权轮询分摊</td><td>多租户均等场景</td></tr>
+          <tr><td><b>优先级 + 抢占</b></td><td>高优先级抢占低优先级资源</td><td>在线 &gt; 离线</td></tr>
+          <tr><td><b>亲和性</b></td><td>同会话路由到同 Worker</td><td>需要局部顺序/缓存</td></tr>
+          <tr><td><b>背压</b></td><td>队列满则拒绝/排队凭证</td><td>削峰防雪崩</td></tr>
+        </table>
+        <p>逐行补充设计意图:<b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Fair-share_scheduling">公平调度</a></b>解决「多租户谁也别想独占」,像介质池按业务线配额轮转;<b>优先级+抢占</b>解决「在线碾压离线」,像容灾时刻恢复作业可以暂停备份作业——但被抢占的前提是任务留了 checkpoint,能停能续,不然只能杀;<b>亲和性</b>解决「局部性」,同会话粘同一 Worker,复用连接和上下文缓存,像客户端粘住同一台备份服务器复用元数据;<b>背压</b>解决「高峰不自伤」,队列满了就发排队凭证或直接拒绝——把「马上失败」给用户,好过「排 10 分钟然后超时」。还要主动说一个副作用:优先级调度的经典毛病是低优先级<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Starvation_(computer_science)">饥饿</a>——批量任务高峰期可能永远排不上,对策是给低优先级留保底配额,或错峰调度(批量放凌晨,和备份窗口规划同款思路)。</p>
+        <p><b>5. GPU 资源调度(Agent 特有)</b></p>
+        <ul>
+          <li>推理服务用<b>动态/连续批处理</b>(continuous batching,经典设计见 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.02414">Orca 论文</a>):把到达的请求攒成 batch 一起算,吞吐大幅提升;但 batch 越大、排队越久、时延越高,要在"吞吐 vs 时延"间调超参。像物流「凑车发货」:车装满单位成本最低,但队头必须等凑车——所以攒批窗口要设上限(比如 50ms),到点就发车,不为凑满让人干等。</li>
+          <li>显存并发度单独控:并发请求数 × 单请求 KV cache 不能超显存,否则 OOM。这本质是容量规划:按「并发上限 × 单请求最大 KV cache ≤ 显存预算 − 模型权重 − 激活开销,再留水位线」做预算——和存储池超配必爆是同一条物理定律。</li>
+          <li>长连接任务(流式生成)要单独记账:流式期间一直占用计算和显存,调度器要把它当"常驻负载"看待——账面并发可能是 2,实际有 200 个没吐完的流各占一份 KV cache;要按「未完结流的数量 × 各自 KV 占用」实时计账,像统计复制长连接的带宽要看链路在不在,而不是看任务提交次数。</li>
+        </ul>
+        <p><b>6. 隔离与可观测</b></p>
+        <ul>
+          <li><b>隔离</b>:按租户/任务类型分队列或分池,单个租户的流量尖峰不拖垮全局。这是分布式里的<b>舱壁模式</b>(<a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/azure/architecture/patterns/bulkhead">bulkhead</a>):一个舱进水,船不沉。落到备份领域就是生产、归档、测试各用各的存储池,测试环境凌晨全量压测也碰不到生产窗口。</li>
+          <li><b>指标</b>:队列深度与积压、CPU/内存/GPU 利用率、并发上限、P50/P95/P99 延迟、任务失败率——用队列积压驱动自动扩缩容(<a target="_blank" rel="noopener" href="https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/">K8s HPA</a>)。选指标有个门道:利用率是「现在干多满」,积压是「还有多少活没干」——利用率高但积压趋零说明刚好够用;积压持续上涨才是加 Worker 的真信号,它比 CPU/GPU 利用率更前瞻。</li>
+        </ul>
+        <p>收尾串一条主线:「为什么这么选(GIL)→ 骨架怎么搭(队列+池)→ 并发怎么限(三件套)→ 资源怎么分(调度策略)→ GPU 怎么省(攒批+显存账)→ 怎么兜底(隔离+指标)」。面试时按这六步走,每步都能落到具体参数和坑,就是一份可信的施工图。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:Python 里多线程到底能不能用?</summary><div class="an"><b>人话:</b>能用,但先看这个线程是「在等」还是「在算」——等网络就有效,拼 CPU 就白搭。<b>类比:</b>备份作业的两种姿势:等源端慢慢传数据的作业,10 个并发各等各的网络,互不耽误;本地疯狂算哈希的作业,10 个并发挤的还是同一颗 CPU——在 Python 里还要挤同一把锁。<b>技术:</b>IO 密集(等网络、等模型)多线程有效,因为线程在等 IO 时释放 GIL;CPU 密集多线程无效(被 GIL 串行化),甚至因切换开销更慢。所以 Agent 场景里"LLM/工具调用"这类 IO 等待可以用线程或协程,而"本地推理、数据处理"要用多进程或 C 扩展库(NumPy 等内部会释放 GIL)。一句话:<b>IO 用协程/线程,CPU 用进程</b>。</div></details>
+        <details class="qa"><summary class="qu">Q:GPU 推理并发怎么控才不 OOM?</summary><div class="an"><b>人话:</b>显存是硬上限,先按显存倒推并发和 batch,再谈调度——这笔账不算,OOM 只是时间问题。<b>类比:</b>就是备份容量规划:能同时跑几个作业,由「作业数 × 每作业缓存占用 ≤ 池水位线」决定,超配必爆池。<b>技术:</b>三层:① 上游限流——信号量把并发请求数压到显存能承受的阈值;② 服务端显存预算——按"并发上限 × 单请求最大 KV cache"预估峰值显存,留安全余量;③ 动态批处理里 batch 大小也受显存约束,超了就排队。再加工程手段:KV cache 量化、paged attention(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2309.06180">vLLM 论文</a>)复用显存碎片、超长输入先截断或摘要。核心是<b>显存是硬上限,调度必须先算这个账</b>。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么避免一个超长任务饿死其他任务?</summary><div class="an"><b>人话:</b>别把大象和兔子关一个笼子——长任务单独一队、单独设限,短任务永远保住自己的跑道。<b>类比:</b>磁带库被一个 50TB 大副本独占,后面的小作业全饿死;备份软件的做法是给大任务配专用驱动器、设作业超时,小任务走快车道。<b>技术:</b>靠<b>分级 + 限时 + 隔离</b>:长任务和短任务分不同队列/池,短任务永远有独立资源;单个任务设硬超时(如 30s)和 token 预算,超了就降级或转人工;若同池不可避免,用公平调度(轮询)而非"先来先服务一条道跑到黑",并在任务内做阶段性 checkpoint,让长任务可被暂停让路、之后恢复。</div></details>
+        <details class="qa"><summary class="qu">Q:任务队列为什么必须外置(Redis/消息队列),asyncio.Queue 不行吗?</summary><div class="an"><b>人话:</b>进程内队列和进程同生共死——进程一重启,没跑的任务全丢,还跨不了机器;要扛「大规模」,队列必须外置且持久化。<b>类比:</b>备份调度器的作业队列也从不在自己进程里:调度进程挂了,作业还在队列里,换台机器接着调度——队列是有状态的数据,必须放在能活过进程崩溃的地方,这是容灾基本功。<b>技术:</b>外置带来三个能力:① 持久化,Worker 崩溃任务不丢(配合消费确认+重试);② 多节点共享,扩 Worker 副本即扩消费能力;③ 按优先级/租户分队列更顺手。asyncio.Queue 只适合单进程内流程编排,当不了分布式调度骨架;配套还要给任务设计幂等键,防重试导致重复执行。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Global_interpreter_lock">GIL</a></b>:全局解释器锁——CPython 里那把让多线程无法并行执行字节码的「全进程唯一门禁卡」,等 IO 时会让出来。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Coroutine">协程</a></b>:单线程事件循环里的轻量并发,等待时主动让出执行权,专扛海量 IO。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Semaphore_(programming)">信号量</a></b>:限制「同时」执行数量的并发原语——管并发度,不管速率。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Token_bucket">令牌桶</a></b>:按固定速率发令牌的限速器——管速率,不管并发度,和信号量互补。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://reactivex.io/documentation/operators/backpressure.html">背压</a></b>:下游扛不住时向上游反压减速或拒单,防止雪崩的泄压阀。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.02414">动态批处理</a></b>:把先后到达的请求动态攒成一批一起推理,吞吐倍增,代价是排队时延,要设攒批窗口上限。</div>
+        </div>
+      </div>
 </article>
