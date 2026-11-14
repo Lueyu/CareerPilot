@@ -1,66 +1,109 @@
 <article class="q" id="eval-023" data-topic="eval" data-title="LLM-as-a-Judge用大模型评估大模型的优点与偏见" data-difficulty="3" data-tags="LLM评估,自动评估" data-company="字节 / 阿里 / OpenAI（前沿）" data-source="P7Q3" data-kw="LLM评估 自动评估 LLM-as-judge 位置偏见 长度偏见 自我偏好 pairwise pointwise 裁判 一致性">
 
-  <div class="q-no">评估讨论 · Q3</div>
-  <h3>什么是"LLM-as-a-Judge"？使用 LLM 来评估另一个 LLM 的输出，有哪些优点和潜在的偏见？</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐⭐</span>
-    <span class="tag">#LLM评估</span><span class="tag">#自动评估</span>
-    <span class="company">字节 / 阿里 / OpenAI（前沿）</span>
-  </div>
+      <div class="q-no">评估讨论 · Q3</div>
+      <h3>什么是"LLM-as-a-Judge"？使用 LLM 来评估另一个 LLM 的输出，有哪些优点和潜在的偏见？</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐</span>
+        <span class="tag">#LLM评估</span><span class="tag">#自动评估</span>
+        <span class="company">字节 / 阿里 / OpenAI（前沿）</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"LLM-as-a-Judge 就是<b>用一个(更强的)大模型,按照评分标准(rubric)去给另一个模型的输出打分或做两两对比</b>,用来替代昂贵的人工评估。优点:可扩展、快、便宜、能评主观维度(相关性、连贯、有帮助性)、和人类判断在不少任务上高度相关。但有一堆已知偏见:<b>位置偏见</b>(偏爱先出现的)、<b>长度偏见</b>(偏爱长答案)、<b>自我偏好</b>(偏爱自己家族模型)、<b>顺序/模板敏感</b>。对策:随机交换顺序、写死 rubric、换不同家族裁判、人工抽检校准一致性。"</p>
-  </div>
+      <div class="note"><b>先说人话:</b>这题在问:能不能让一个更强的大模型当裁判,自动给其他模型的回答打分,好处和坑各在哪。面试官爱考,是因为模型迭代快、人工评估贵,自动评估已经是团队日常。答错的暴露点:偏见只会背"位置、长度"几个词,却说不出怎么测、怎么防——等于喊"备份可能失败"却讲不出校验方案。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>就像<b>让资深老师给一堆学生作文打分</b>:不用每篇都靠人工批,又快又能规模化。但老师也有"偏心":两篇作文一起看时<b>更容易记住先看的那篇</b>(位置偏见);<b>下意识觉得写得多就是写得好</b>(长度偏见);<b>看到自己教过的学生就多给两分</b>(自我偏好)。所以要随机打乱顺序、明确定好评分标准、再让别的老师交叉复核。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"LLM-as-a-Judge 就是<b>用一个(通常更强的)大模型当裁判,按评分标准 rubric 给其他模型的输出打分或做两两对比</b>——把'请人评估'变成'请模型评估',让人工评不起来的量变得评得起。优点:可扩展、快、便宜;能评'有用/连贯/安全'这类<b>没有标准答案的主观维度</b>;rubric 固定 + temperature=0,结果可复现、可回放;在不少任务上与人类判断的一致率已被验证相当高。但它是<b>有脾气的裁判</b>:<b>位置偏见</b>(偏爱先出现的)、<b>长度偏见</b>(偏爱长答案)、<b>自我偏好</b>(偏爱自己家族)、<b>模板敏感</b>(措辞一换结论就换)、<b>能力边界</b>(难题自己也会判错)。对策:随机换位双向评、rubric 写死、多家族裁判投票、人工抽检校准。"</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 它是什么(两种主流形式)</b></p>
-    <ul>
-      <li><b>Pointwise(单点打分)</b>:给一个输出,按 rubric 逐维度打分(如相关性 1~5 分)。适合监控单模型质量。</li>
-      <li><b>Pairwise(两两对比)</b>:给两个输出,判断 A 好、B 好还是平局。适合模型选型、RLHF 偏好数据。业内常用 <b>Elo/胜率</b> 汇总。</li>
-      <li>实现上把"评分标准 + 问题 + 参考答案 + 待评输出"一起喂给裁判模型,输出结构化 JSON 分数 + 理由。</li>
-    </ul>
-    <p><b>2. 优点</b></p>
-    <ul>
-      <li><b>可扩展、成本低</b>:人工评估贵且慢,LLM 裁判几分钟跑完几千条,单条成本极低。</li>
-      <li><b>能评主观维度</b>:相关性、连贯性、有帮助性、安全性这些"没有标准答案"的维度,传统指标完全测不了,LLM 裁判可以按 rubric 打分。</li>
-      <li><b>一致性与可复现</b>:同一个 rubric 反复用,结果可比、可回放;配合固定 temperature=0 更稳定。</li>
-      <li><b>接近人类</b>:在不少任务上与人类偏好的一致性(如 MT-Bench 里 GPT-4 裁判与人类一致率)已被证明相当高。</li>
-    </ul>
-    <p><b>3. 潜在的偏见(面试重点,必须能列全)</b></p>
-    <table>
-      <tr><th>偏见</th><th>表现</th><th>缓解</th></tr>
-      <tr><td><b>位置偏见</b></td><td>pairwise 里系统性地偏爱第一个/第二个位置</td><td>答案位置随机交换,双向各评一次再合并</td></tr>
-      <tr><td><b>长度偏见</b></td><td>倾向更长的回答,哪怕内容是废话</td><td>rubric 里写明"长度不加分",控制长度</td></tr>
-      <tr><td><b>自我偏好</b></td><td>偏爱与自己同家族/同风格的输出</td><td>换不同家族模型当裁判,或用多裁判投票</td></tr>
-      <tr><td><b>模板/顺序敏感</b></td><td>prompt 措辞、选项顺序微调就改变结论</td><td>固定模板、多 prompt 平均、few-shot 校准</td></tr>
-      <tr><td><b>能力边界</b></td><td>复杂推理/事实题裁判自己也会判错</td><td>难判的题人工介入,裁判只用于简单维度</td></tr>
-    </table>
-    <p><b>4. 工程化落地的三个保障</b></p>
-    <ul>
-      <li><b>rubric 越细越稳</b>:把"好不好"拆成可判定的子维度 + 打分锚点示例,减少裁判自由发挥。</li>
-      <li><b>人工校准</b>:抽 5%~10% 样本让人和裁判同判,算一致率(如 Cohen's kappa / 一致率 &gt; 85% 才敢上线)。</li>
-      <li><b>多裁判 + 投票</b>:关键决策用多个不同家族模型投票,抵消单点偏见。</li>
-    </ul>
-  </div>
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>整个做法像备份界的"自动化校验"</b>:你不可能对每天几千个备份作业逐个做全量人工恢复演练,所以上自动化校验——checksum、抽样挂载、一致性比对,让"每个备份都验过"在成本上成为可能。LLM-as-a-Judge 就是 AI 团队的同款思路:模型每迭代一版就有几千条评测,人工评一轮要几周,让裁判模型按 rubric 批量打分,几分钟出报告。<b>哪里像</b>:都是用"便宜、可扩展的自动检查"替代"昂贵、难以规模化的人工检查",把评估从抽检变成常态。<b>哪里不像</b>:备份校验验证的是客观事实——CRC 对就是对、错就是错,工具没有脾气;LLM 裁判评的是"回答好不好"这种主观维度,它带偏好、有盲区,结论还会被措辞和顺序影响——更像一个大体靠谱但先入为主的验收方,而不是一台冰冷的 checksum。</p>
+        <p><b>三个核心偏见,存储行当都有影子</b>。<b>位置偏见</b>像容灾方案评审会上先汇报的那套:它先入为主地成了基准,后来的都被拿去和它比。<b>自我偏好</b>像拿厂商甲自家的校验工具去验厂商甲的备份:工具和备份软件共享同一套设计假设,同一类问题彼此都看不见——检查者与被检查者同源,盲区也同源;LLM 裁判更直接,它认得出自己的文风,像老师认得出学生的字迹,下意识多给两分。<b>长度偏见</b>像把"备份文件大"当"备份好"——灌水的 10GB 不如干净的 2GB,但看报告的人下意识觉得写得长就是认真。<b>哪里像</b>:这些都是系统性偏向而非随机抖动,每次都往同一个方向偏,所以可测量、可用流程压制。<b>哪里不像</b>:备份世界的偏向多半是 bug(意外引入,修代码就消);LLM 裁判的偏向是训练出来的"性格"(统计上稳定),治它不是修裁判,而是改评测流程——换位、换人、交叉复核。</p>
+        <p><b>判断裁判靠不靠谱,和新校验工具上岗是同一套流程</b>:拿一批人已经判过的样本,让人和裁判背靠背各判一遍,一致率达标才敢让它值班——"5% 抽检校准"的逻辑就在这。有个容易漏看的坑:算一致率要防"瞎蒙也算对"——两个值班同学把所有告警全标 P3,裸一致率 100% 但毫无信息量,所以要用能扣除偶然一致的 kappa 类指标。<b>哪里像</b>:都是"新自动工具先和资深人对齐再放行"。<b>哪里不像</b>:巡检工具一是一二是二,一次对齐长期有效;LLM 裁判和被评的模型都在升级,校准会漂移,必须周期性重新抽检对齐。</p>
+      </div>
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:什么场景不适合用 LLM-as-judge？</summary><div class="an">① 需要<b>精确对错</b>的场景(数学、代码、事实核查)——用执行式校验/外部知识库,别让裁判"猜";② <b>裁判能力不如被测模型</b>的复杂推理题,弱裁判会误判;③ 高风险/合规场景,LLM 裁判不能作为唯一依据,必须有人工兜底。总之:能程序化验证的绝不用裁判,裁判只负责"程序化做不了的主观维度"。</div></details>
-    <details class="qa"><summary class="qu">Q:怎么量化"裁判到底靠不靠谱"？</summary><div class="an">和人工做<b>一致性对齐</b>:抽一批样本,让裁判和多位标注员分别打分,算<b>一致率 / Cohen's kappa / 相关系数</b>;pairwise 场景还能看裁判和人工偏好的一致比例。通常要求裁判-人工一致率接近"人工-人工"的一致率(标注员之间本来也有分歧),才认为裁判可用。</div></details>
-    <details class="qa"><summary class="qu">Q:自我偏好具体怎么测、怎么防？</summary><div class="an"><b>测</b>:构造内容质量相同、但分别由"A 家族"和"B 家族"模型生成的答案对,看裁判是否系统性偏向自己家族。业内观察到裁判常偏爱自己训练来源的模型。<b>防</b>:① 用<b>不同家族</b>的裁判做交叉验证;② 匿名化、随机位置;③ 关键结论多裁判投票。单裁判 + 同家族组合是最容易翻车的。</div></details>
-  </div>
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p>按"是什么 → 优点 → 偏见 → 落地保障"四步走。这条路线的标志性工作是 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">MT-Bench 论文</a>,答到细节时能报出它的实验结论,面试官就知道你读过原文。</p>
+        <p><b>1. 它是什么(两种主流形式)</b></p>
+        <p>先分清两种评法,它们答的问题不一样:Pointwise 答"这个输出本身值几分",Pairwise 答"两个输出谁更好"。</p>
+        <ul>
+          <li><b>Pointwise(单点打分)</b>:给一个输出,按 rubric 逐维度打分(如相关性 1~5 分)。像给单个节点出体检报告,适合监控单模型质量——每迭代一版跑一次回归,看分数曲线掉没掉。</li>
+          <li><b>Pairwise(两两对比)</b>:给两个输出,判断 A 好、B 好还是平局。像擂台赛,适合模型选型、<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Reinforcement_learning_from_human_feedback">RLHF</a> 偏好数据。业内常用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Elo_rating_system">Elo</a>/胜率 汇总——几千场两两对战后聚合成一个排行榜,竞技场式评测走的就是这条路线。</li>
+          <li>实现上把"评分标准 + 问题 + 参考答案 + 待评输出"一起喂给裁判模型,输出<b>结构化 JSON</b> 分数 + 理由——结构化是为了让程序直接解析汇总,不用再解析自然语言。</li>
+        </ul>
+        <table>
+          <tr><th>形式</th><th>一句话</th><th>输出</th><th>典型用途</th><th>汇总方式</th></tr>
+          <tr><td><b>Pointwise</b></td><td>给单个输出做体检</td><td>各维度分数(1~5)</td><td>单模型质量监控、迭代回归</td><td>平均分、分数分布</td></tr>
+          <tr><td><b>Pairwise</b></td><td>两个答案打架,判胜负</td><td>A胜/B胜/平局</td><td>模型选型、RLHF 偏好数据</td><td>胜率、Elo 排名</td></tr>
+        </table>
+        <pre class="code">裁判模型的输入(Prompt 拼装):
+  [1] rubric   : 评分维度 + 每档分数的锚点示例
+  [2] 问题     : 用户原始 query(可选附参考答案)
+  [3] 待评内容 : 答案A ┃ 答案B(pairwise)或单个答案(pointwise)
+  [4] 格式约束 : 只许输出 JSON,必须含分数和理由
+裁判模型的输出(结构化,程序可直接解析):
+  {"winner": "A", "reason": "A 的引用可追溯, B 存在事实错误"}
+稳定化开关: temperature=0 · 模板版本固定 · 位置随机交换</pre>
+        <p>还有一个提升质量的小机关:让裁判<b>先写理由、后给分数</b>(裁判版的<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2201.11903">思维链</a>),评分明显更稳——<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2303.16634">G-Eval</a> 是这条路线的经典实现,理由还能顺手沉淀成评测报告。</p>
+        <p><b>2. 优点</b></p>
+        <ul>
+          <li><b>可扩展、成本低</b>:人工评估贵且慢,LLM 裁判几分钟跑完几千条,单条成本极低。这是它存在的根本理由——和"自动校验让备份验证可以天天做"一模一样:成本够低,评估才能从"上线前抽一次"变成"每次迭代全量回归"。</li>
+          <li><b>能评主观维度</b>:相关性、连贯性、有帮助性、安全性这些"没有标准答案"的维度,传统指标完全测不了——准确率需要标准答案,<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/BLEU">BLEU</a> 这类文本匹配指标只认字面重叠,换个说法就瞎。LLM 裁判可以按 rubric 对"好不好"本身打分。</li>
+          <li><b>一致性与可复现</b>:同一个 rubric 反复用,结果可比、可回放;配合固定 temperature=0 更稳定(temperature 是<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Temperature_%28natural_language_processing%29">采样随机性</a>的旋钮,设 0 基本输出确定)。注意一个辩证点:裁判甚至比人还一致——但代价是它会把偏见也"一致地"复现出来,错得很有纪律。</li>
+          <li><b>接近人类</b>:在不少任务上与人类偏好的一致性已被证明相当高——MT-Bench 论文实测 GPT-4 裁判与人类一致率超过 80%,和人类标注员彼此之间的一致率同一量级。</li>
+        </ul>
+        <p><b>3. 潜在的偏见(面试重点,必须能列全)</b></p>
+        <table>
+          <tr><th>偏见</th><th>表现</th><th>缓解</th></tr>
+          <tr><td><b>位置偏见</b></td><td>pairwise 里系统性地偏爱第一个/第二个位置</td><td>答案位置随机交换,双向各评一次再合并</td></tr>
+          <tr><td><b>长度偏见</b></td><td>倾向更长的回答,哪怕内容是废话</td><td>rubric 里写明"长度不加分",控制长度</td></tr>
+          <tr><td><b>自我偏好</b></td><td>偏爱与自己同家族/同风格的输出</td><td>换不同家族模型当裁判,或用多裁判投票</td></tr>
+          <tr><td><b>模板/顺序敏感</b></td><td>prompt 措辞、选项顺序微调就改变结论</td><td>固定模板、多 prompt 平均、few-shot 校准</td></tr>
+          <tr><td><b>能力边界</b></td><td>复杂推理/事实题裁判自己也会判错</td><td>难判的题人工介入,裁判只用于简单维度</td></tr>
+        </table>
+        <p><b>位置偏见(追问率最高,优先讲透)</b>:pairwise 时裁判系统性地偏爱某个位置。MT-Bench 论文里有个值得记的实测细节:强裁判(GPT-4)位置偏见较轻,开源/小裁判明显更重——裁判够不够强,直接决定这条偏见的浓度。检测方法就是交换法:</p>
+        <pre class="code">位置偏见检测(交换法):
+  第1轮: [A在前, B在后] ──→ 裁判判 A 胜
+  第2轮: [B在前, A在后] ──→ 裁判判 B 胜
+  同一对答案, 位置一换结论跟着翻 ── 位置偏见实锤
+合格线: 换位后结论保持一致的比例 ≥ 95%(位置一致性)</pre>
+        <p><b>长度偏见</b>:裁判统计上偏爱更长的答案,哪怕长的部分是废话。这不是玄学,AlpacaEval 团队专门做了<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2404.04475">长度控制版</a>评测,把"赢因为长"和"赢因为好"拆开计量。缓解:rubric 写明"长度不加分,冗长扣分",评测报告里把"答案长度 vs 胜率"的相关性画出来盯着。</p>
+        <p><b>自我偏好</b>:裁判偏爱与自己同家族/同风格的输出。已有研究(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2404.13076">LLM Evaluators Recognize and Favor Their Own Generations</a>)证实:裁判能隐式认出"这是我们家说的话",胜率上给自己人加成。缓解:换家族裁判交叉、匿名化、多裁判投票。</p>
+        <p><b>模板/顺序敏感</b>:prompt 措辞、选项顺序微调就改变结论——这意味着评测结论本身不稳定,今天 A 赢明天 B 赢,报告没法看。缓解:模板版本化锁定,关键结论用多套 prompt 取平均。各种偏见的系统梳理可以读 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2411.15594">LLM-as-a-Judge 综述</a>。</p>
+        <p><b>能力边界</b>:复杂推理/事实题裁判自己也会判错,而且是<b>自信地错</b>——它不会举手说"这题我不会",只会硬给一个分。强裁判评弱模型尚可,弱裁判评强模型等于盲人摸象。缓解:能程序判的(数学对答案、代码跑测试)交给程序,裁判只负责主观维度。</p>
+        <p><b>4. 工程化落地的三个保障</b></p>
+        <ul>
+          <li><b>rubric 越细越稳</b>:把"好不好"拆成可判定的子维度 + 打分锚点示例,减少裁判自由发挥。"论据充分"不可判定,"每个关键论断都有引用支撑"才可判定——和你把"尽快恢复"写成"RTO ≤ 15 分钟"是同一个手艺:把弹性空间变成检查单。再给每档分数配 1 个正反例,few-shot 塞进 prompt,裁判的发挥空间进一步压掉。</li>
+          <li><b>人工校准</b>:抽 5%~10% 样本让人和裁判同判,算一致率(如 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Cohen%27s_kappa">Cohen's kappa</a> / 一致率 &gt; 85% 才敢上线)。两个细节:① kappa 会扣除"瞎蒙也能一致"的偶然成分,比裸一致率严格;② 校准不是一锤子买卖——裁判升级、被测模型升级都会让校准漂移,要周期性重抽检。</li>
+          <li><b>多裁判 + 投票</b>:关键决策(选型、上线)用多个<b>不同家族</b>模型投票,抵消单点偏见。用分布式的眼光看:单裁判 = 单点,它的家族偏见就是它独有的故障模式;多家族投票 = 用非同源的几套校验工具交叉验证,一家看不见的盲区由另一家兜住——<b>同源冗余防不了同源 bug</b>,这和你做容灾坚持异构/异地是同一课。</li>
+        </ul>
+        <pre class="code">裁判上线 checklist:
+  1. rubric 固定并版本化(维度 + 分数锚点 + few-shot 示例)
+  2. temperature=0, 输出锁 JSON schema, 模板改动走评审
+  3. 位置自检: 双向各评一遍, 结论翻转率 &lt; 5%
+  4. 人工校准: 抽 5%~10% 双盲对齐, kappa ≥ 0.85 才放行
+  5. 关键结论(选型/上线)用 ≥3 个不同家族的裁判投票
+  6. 上线后每周抽检, 监控裁判判决分布漂移(裁判和模型都会升级)</pre>
+      </div>
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>LLM-as-judge</b>:用大模型按 rubric 给输出打分或对比。</div>
-      <div class="term-item"><b>Pairwise</b>:两两对比输出,汇总成胜率/Elo。</div>
-      <div class="term-item"><b>位置偏见</b>:pairwise 中偏爱某个固定位置的答案。</div>
-      <div class="term-item"><b>长度偏见</b>:无根据偏爱更长答案。</div>
-      <div class="term-item"><b>Rubric</b>:评分细则(维度+锚点+分值)。</div>
-      <div class="term-item"><b>Kappa</b>:衡量两位评分者一致性(扣除偶然一致)。</div>
-    </div>
-  </div>
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:什么场景不适合用 LLM-as-judge？</summary><div class="an"><b>人话:</b>能用程序判对错的题,永远别让裁判"凭感觉猜";裁判只该负责程序做不了的主观维度。<b>类比:</b>备份校验一个道理——块 CRC 对不对、能不能挂载,交给工具一是一二是二;只有"这份数据对业务够不够新"这种没有硬指标的判断才需要人拍板。<b>技术:</b>① 精确对错场景(数学、代码、事实核查)用执行式校验——跑测试用例、对知识库,别让裁判猜;② 复杂推理题,裁判能力跟不上时误判会被放大(弱裁判评强模型,盲人摸象);③ 高风险/合规场景(医疗、金融)裁判不能当唯一依据,必须人工兜底。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么量化"裁判到底靠不靠谱"？</summary><div class="an"><b>人话:</b>让裁判和人对同一批样本背靠背各判一遍,看意见重合多少,重合率够高才敢让它独立值班。<b>类比:</b>新上的巡检工具不能直接信,先拿一批已知结论的故障单测它——它和资深 SRE 判断一致率达标,才放它自动派单。<b>技术:</b>抽样让裁判和多位标注员分别打分,算一致率、Cohen's kappa(扣除"瞎蒙也能一致"的偶然成分,比裸一致率严)、相关系数;pairwise 另看裁判与人工偏好一致比例。达标线不是 100%,而是逼近"人-人一致率"——标注员之间本来就有分歧(往往 80% 上下),裁判能到这个量级就可用了。</div></details>
+        <details class="qa"><summary class="qu">Q:自我偏好具体怎么测、怎么防？</summary><div class="an"><b>人话:</b>测,做双盲实验;防,别让一个家族既当运动员又当裁判。<b>类比:</b>拿厂商甲的工具验厂商甲的备份,设计假设同源、盲区同源;换厂商乙的工具交叉验,盲区才暴露。<b>技术:</b>测——构造内容质量相当、分别来自 A/B 两家的答案对,统计裁判对"自家"答案的胜率是否系统性偏高(有研究证实裁判能隐式认出自家生成)。防——① 换不同家族裁判交叉验证;② 匿名化 + 随机位置,不给裁判认文风的机会;③ 关键结论多裁判投票。单裁判 + 同家族,是最容易翻车的组合。</div></details>
+        <details class="qa"><summary class="qu">Q:把 LLM 裁判接进训练循环当打分器(比如给 RLHF 供偏好数据),会有什么坑？</summary><div class="an"><b>人话:</b>偏见被接进训练循环后,就不只是"报告难看"——它会被模型学进参数里,一代代放大。<b>类比:</b>备份 KPI 只考核压缩率,系统很快学会激进去重来刷指标,恢复性能反被牺牲——考核什么,什么就会被优化。<b>技术:</b>① <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Reward_hacking">reward hacking</a>:裁判偏爱长答案,模型学会啰嗦灌水换高分;② 回声室效应:裁判的文风偏好被策略模型模仿,几代之后输出趋同、多样性塌掉;③ 裁判的系统性错误直接成为训练信号,错上加错。对策:裁判/reward 定期用新的人工标注刷新校准,训练全程监控输出长度与风格漂移,两边一起设护栏。</div></details>
+        <details class="qa"><summary class="qu">Q:同一条评测,裁判前后两次给的分差很多,不稳定怎么办？</summary><div class="an"><b>人话:</b>裁判在"抖",先把随机性拧掉,再把评分标准收紧。<b>类比:</b>像监控告警阈值抖动——先查探测本身是不是随机,再查告警规则写得含不含糊,先排自身噪声再排规则。<b>技术:</b>① temperature=0 消掉采样随机;② 模板版本化,prompt 改动走评审,防止悄悄漂移;③ 输出锁 JSON schema,格式漂移直接判无效重评;④ rubric 加分数锚点示例 + few-shot 校准,把弹性空间压掉;⑤ 仍抖就对同条多评几次取中位数。稳定性是裁判可用性的下限——先稳,再谈准。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">LLM-as-judge</a></b>:用大模型按 rubric 给其他模型的输出打分或两两对比的自动评估方法,MT-Bench 是标志性工作。</div>
+          <div class="term-item"><b>Pointwise</b>:单点打分——一个输出按维度 1~5 分,相当于给单模型出体检报告。</div>
+          <div class="term-item"><b>Pairwise</b>:两两对比——判 A 胜/B 胜/平局,汇总成胜率或 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Elo_rating_system">Elo</a>。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Elo_rating_system">Elo</a></b>:从棋类比赛沿用的实力积分,把海量两两胜负聚合成一个总排名。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Rubric_%28academic%29">Rubric</a></b>:评分细则(维度 + 分数锚点 + 示例),把"好不好"变成可判定条款。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.17926">位置偏见</a></b>:pairwise 裁判系统性偏爱某个固定位置,换位即翻案,用交换法可测。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2404.04475">长度偏见</a></b>:无依据偏爱更长答案,长 ≠ 好,可用长度控制版评测拆开计量。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2404.13076">自我偏好</a></b>:裁判认出自家文风就加分的同源盲区,单家族单裁判时最危险。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Cohen%27s_kappa">Cohen's kappa</a></b>:扣除"瞎蒙也能一致"之后的评分者一致性系数,比裸一致率严格。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Reward_hacking">Reward hacking</a></b>:被考核方钻指标空子;裁判接进训练循环时,它偏爱什么模型就学会什么。</div>
+        </div>
+      </div>
 </article>

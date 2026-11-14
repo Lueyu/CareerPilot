@@ -1,73 +1,117 @@
 <article class="q" id="eval-019" data-topic="eval" data-title="设计模型蒸馏效果评估对比三种蒸馏策略" data-difficulty="3" data-tags="蒸馏,实验设计,对比实验" data-company="" data-source="P6Q36" data-kw="蒸馏 KD 特征匹配 响应式 实验设计 对比 消融 温度 教师模型 软标签">
 
-  <div class="q-no">Agent算法 · Q36</div>
-  <h3>设计模型蒸馏效果的评估实验</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐⭐</span>
-    <span class="tag">#蒸馏</span><span class="tag">#实验设计</span><span class="tag">#对比实验</span>
-  </div>
+      <div class="q-no">Agent算法 · Q36</div>
+      <h3>设计模型蒸馏效果的评估实验</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐</span>
+        <span class="tag">#蒸馏</span><span class="tag">#实验设计</span><span class="tag">#对比实验</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"我会做<b>四组对照 + 双维度评估</b>:① 同一学生模型分别用三种策略训练——<b>KD(软标签/温度蒸馏)</b>、<b>Feature Matching(中间特征对齐)</b>、<b>Response-based(教师生成文本当监督)</b>,外加 hard-label 基线;② <b>指标</b>看效果(学生 vs 教师性能差、校准度、OOD 泛化)+ 效率(参数量/延迟/显存);③ 控制变量:同学生架构、同训练数据、同训练步数;④ <b>消融</b>:温度 τ、软损失权重 α、对齐哪一层;⑤ 报告每种策略的『性能-成本』画像,而不是只吹一个数字。"</p>
-  </div>
+      <div class="note"><b>先说人话:</b>这题考的不是「蒸馏是什么」,而是「怎么科学地比出三种蒸馏方法谁好」——你得设计对照组、锁变量、选指标、做消融,像给三个容灾方案做选型基准测试一样出一分可信的评测报告。面试官爱考它,是因为能直接筛掉「背了概念没下过实验场」的人:答不出控制变量和消融,基本暴露你没真正跑过对比实验。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>就像<b>老师教学生三种学法</b>:第一种抄老师给的"解题概率分布"(KD——连"哪题多难"都学);第二种抄老师"演算过程的中途草稿"(特征匹配);第三种直接背老师写好的"标准答案"(Response-based)。评估就是考同一个人,看哪种学法练出来的分数最高、还没把学生喂成和老师一样胖。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"我会做<b>四组对照 + 双维度评估</b>:① 同一学生模型分别用三种策略训练——<b>KD(软标签/温度蒸馏)</b>、<b>Feature Matching(中间特征对齐)</b>、<b>Response-based(教师生成文本当监督)</b>,再加一组 hard-label 基线做下界;② <b>指标分两层</b>:效果层(学生 vs 教师性能差、校准度、OOD 泛化)+ 效率层(参数量/延迟/显存/吞吐);③ <b>控制变量</b>:学生架构、训练数据、优化器、训练步数全部锁死,唯一变量是『从教师那里拿什么信号』;④ <b>消融</b>:温度 τ、软损失权重 α、特征对齐哪一层、蒸馏数据量;⑤ 最后报告每种策略的『性能-成本』画像,而不是只吹一个数字。"</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 先把三种策略讲准(别把黑话混为一谈)</b></p>
-    <ul>
-      <li><b>KD(Knowledge Distillation)</b>:Hinton 式,用教师 logits 经温度 τ 软化的软标签,学生最小化与教师的 KL 散度——学的是"输出的概率分布"。</li>
-      <li><b>Feature Matching</b>:让学生中间层特征回归到教师对应层特征(FitNets 的 L2 对齐,或注意力图对齐)——学的是"中间表征"。</li>
-      <li><b>Response-based</b>:用教师<b>生成的文本/轨迹</b>作为监督,学生做 SFT——学的是"教师怎么答",LLM 时代主流(无需教师 logits)。</li>
-    </ul>
-    <pre class="code"><span class="c"># 温度软化 softmax</span>
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>先搞懂蒸馏在干嘛(用部署搬迁想)</b>:教师模型是你那套跑了很多年、能力很强但「又贵又重」的生产大集群;学生模型是你要新建的<b>精简部署单元</b>——小机房、低配资源,但要求新负载来了照样能干活。蒸馏就是想办法把大集群的能力「搬」进小单元。<b>哪里像</b>:都是把大系统的产出能力压缩到一个低成本副本上,目标是副本顶得上主体。<b>哪里不像</b>:备份搬的是数据本身,逐字节一致就算成功;蒸馏搬的是「行为能力」——学生拿到没见过的请求也要答对,这叫<b>泛化</b>,不是复制粘贴。所以评估蒸馏不能只看「背下了多少题」,要看「新题答得怎么样」。</p>
+        <p><b>三种策略 = 三条搬知识的通道</b>:① <b>KD</b> 像做副本时不止记「这条记录属于哪个表」,还把<b>相似度元数据</b>一起带走——它和谁像、像到几分,信息最富但要求你能进主库读内部信息(白盒);② <b>Feature Matching</b> 像不光要求两边<b>最终状态</b>一致,还同步对齐「写过程的中间日志」——管过程对不对齐,不管结果;③ <b>Response-based</b> 像只能拿到主库<b>吐出来的成品文件</b>,照着成品学——黑盒也能干,门槛最低,但成品之外的信息全丢了。</p>
+        <p><b>整个评估实验 = 三套容灾方案选型测试</b>:同步复制、异步复制、快照三条路线,谁好?不能各吹各的,而是<b>同一套负载、同一批资源</b>下跑基准,看多个指标(RPO/RTO/成本),再逐个关掉组件定位谁在起作用(消融),最后每个方案交一份画像,让选型的人自己权衡。<b>哪里像</b>:都是控制变量 + 多指标 + 消融定位 + 画像报告。<b>哪里不像</b>:容灾选型输了不部署就行;蒸馏对比里三条通道可以<b>叠加</b>着用,所以实验还要多设计「组合组」。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>第 0 步:画出实验全景图——四组学生,唯一的差别是「教师喂了什么」</b></p>
+        <pre class="code">                         ┌─ 通道A: KD 软标签(要教师 logits,白盒,学"输出的概率分布")
+同一教师(大模型)════════╠─ 通道B: 特征匹配(白盒,学"中间层的表征/过程")
+                         ├─ 通道C: 教师生成的文本(黑盒可用,学"教师怎么答")
+                         └─ 通道D: 只有数据集自带的硬标签(不给教师信号 → 基线/下界)
+
+   A、B、C、D 各训练一个"学生"——同一个模型架构、同一份数据、同样的训练步数
+                                  │
+                    同一套考卷(多个测试集)批改
+                                  │
+              效果(性能差) + 可靠性(校准/OOD) + 效率(延迟/显存) 三维打分
+                                  │
+                     输出:每种策略的"性能-成本"画像</pre>
+        <p>这张图就是整个实验的灵魂:<b>四个组除了「监督信号」以外,其他全部一致</b>。只要有一个组多训了两步、多喂了一批数据,结论立刻作废——和 AB 测试里两组流量不均匀是同一种事故。</p>
+
+        <p><b>1. 先把三种策略讲准(别把黑话混为一谈)</b></p>
+        <ul>
+          <li><b>KD(Knowledge Distillation,知识蒸馏)</b>:Hinton 式,原始论文见 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1503.02531">Distilling the Knowledge in a Neural Network</a>。用教师 logits 经温度 τ 软化后的<b>软标签</b>监督学生,学生最小化与教师分布的 <a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/相对熵">KL 散度</a>——学的是「输出的概率分布」。</li>
+          <li><b>Feature Matching(特征匹配)</b>:让学生中间层特征回归到教师对应层特征,经典做法是 FitNets 的 L2 对齐(论文见 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1412.6550">FitNets: Hints for Thin Deep Nets</a>),也有对齐注意力图的做法——学的是「中间表征」,即解题的<b>过程草稿</b>而不是最终答案。</li>
+          <li><b>Response-based(响应式蒸馏)</b>:用教师<b>生成的文本/轨迹</b>作为监督,学生在其上做 <a target="_blank" rel="noopener" href="https://huggingface.co/docs/trl/sft_trainer">SFT</a>(监督微调)——学的是「教师怎么答」。LLM 时代的主流路线,因为只要教师是个 API 就能干(无需 logits)。</li>
+        </ul>
+
+        <p><b>为什么软标签比硬标签信息多?这是 KD 的灵魂,面试讲清这个能加分</b>:硬标签只告诉你「这张图是猫」;软标签告诉你「是猫的概率 0.9,是狗 0.07,是老虎 0.02」——<b>狗比老虎像猫</b>这条「暗知识」,硬标签里完全没有。对类间关系的学习,这一条比一千条硬标签都值钱。类比:备份元数据里「这两个块相似度高、可去重」的信息,远比「两个块各自是什么」更能指导后续压缩。</p>
+
+        <pre class="code"><span class="c"># 温度软化 softmax</span>
 p^τ_i = exp(z_i / τ) / Σ_j exp(z_j / τ)      <span class="c">τ 越大分布越"软"</span>
 
 <span class="c"># KD 总损失:硬标签 CE + 软标签 KL</span>
 L = (1−α)·L_CE(y, p_s) + α·τ²·KL(p_t^τ ‖ p_s^τ)   <span class="c">α 为软损失权重</span></pre>
-    <p><b>2. 实验设置:只变"监督信号",其余全锁死</b></p>
-    <ul>
-      <li>学生(同一小模型)、教师(同一大模型)、训练数据、优化器、训练步数全部一致——唯一变量是"从教师那里拿什么信号"。</li>
-      <li>KD / Feature Matching 用任务硬标签 + 教师软信号;Response-based 需要教师生成的样本(SFT 数据)。</li>
-    </ul>
-    <p><b>3. 指标:效果 + 效率双维度</b></p>
-    <table>
-      <tr><th>维度</th><th>指标</th><th>说明</th></tr>
-      <tr><td><b>效果</b></td><td>测试集准确率、相对教师的性能差</td><td>多 benchmark 平均 + 方差</td></tr>
-      <tr><td><b>可靠性</b></td><td>校准度 ECE、OOD 泛化、幻觉率</td><td>蒸馏可能牺牲校准</td></tr>
-      <tr><td><b>效率</b></td><td>参数量、推理延迟、显存、吞吐</td><td>蒸馏的初衷就是降本</td></tr>
-    </table>
-    <p><b>4. 对照组与消融</b></p>
-    <ul>
-      <li><b>对照</b>:教师(上界)、学生从零训练 / 纯 hard-label(下界)、随机基线。</li>
-      <li><b>消融</b>:温度 τ ∈ {2,4,8,16}、软损失权重 α、特征对齐的层(浅/中/深)、蒸馏数据量。</li>
-    </ul>
-    <p><b>5. 高频坑</b></p>
-    <ul>
-      <li>只报一个 benchmark 会过拟合:多集平均 + 多 seed 方差。</li>
-      <li>τ 太小 ≈ 硬标签,蒸馏退化;τ 太大信息太稀,都要扫。</li>
-      <li>Response-based 高度依赖教师生成质量,要控制教师采样(温度、是否 CoT),否则垃圾进垃圾出。</li>
-      <li>蒸馏后 <b>校准度(ECE)</b> 常变差,要单独看,不能只看准确率。</li>
-    </ul>
-  </div>
+        <p>逐项人话解读:<b>τ(温度)</b>是分布的「软化旋钮」——τ=1 时基本还是原始判断,τ 越大分布越平缓、越能暴露「类间相似度」;<b>α</b> 是两路监督的配比,α=0 退化为普通训练,α=1 只学教师;公式里的 <b>τ²</b> 不是玄学,是补偿软化后梯度过小、保持两路损失梯度量级一致的缩放项(类比:两路日志采样粒度不同,汇总前要乘个归一化系数);<b>L_CE 项</b>不能省——只学教师会跟着教师的偏差跑,硬标签是防止学生「学老师学歪」的地基。</p>
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:KD 和 Response-based 的本质区别是什么,什么时候选哪个?</summary><div class="an">KD 要教师输出 logits(软标签),学生学分布,信息更密集、但要求能拿到教师内部输出(白盒);Response-based 只要教师生成的文本(黑盒也行),适合只能调 API 的大模型蒸馏,但信息有损、依赖生成质量。能拿 logits 且任务有明确标签选 KD;只有 API 时选 Response-based。</div></details>
-    <details class="qa"><summary class="qu">Q:温度 τ 怎么调?</summary><div class="an">没有固定值,要扫(常见 2~16)。τ 小分布接近硬标签、丢失"类间相似性"信息;τ 大分布过软、噪声放大。做法是在验证集上扫 τ 和 α,报告曲线,而不是拍脑袋用一个值。</div></details>
-    <details class="qa"><summary class="qu">Q:学生超越了老师怎么办,正常吗?</summary><div class="an">可能发生,尤其老师本身有噪声或标签本身比老师更"正确"时,软标签能起到正则化作用。出现这种情况要检查指标口径和数据泄漏,确认无误就正常,说明老师也有犯错被纠正的空间。</div></details>
-    <details class="qa"><summary class="qu">Q:三种策略能叠加吗?</summary><div class="an">能,而且常见:KD 软标签 + Feature Matching 一起用、或 Response-based 数据 + KD 软标签联合训练。叠加要作为额外的实验组,配合消融证明"1+1 &gt; 1",别默认叠加一定更好。</div></details>
-  </div>
+        <p><b>2. 实验设置:只变「监督信号」,其余全锁死</b></p>
+        <ul>
+          <li>学生(同一小模型)、教师(同一大模型)、训练数据、优化器、训练步数全部一致——唯一变量是「从教师那里拿什么信号」。这是整个实验的<b>有效性前提</b>:四个组就像四台配置完全相同的服务器,只允许换上面跑的备份软件,跑出来的数据才能归因到软件本身。</li>
+          <li>KD / Feature Matching 用「任务硬标签 + 教师软信号」联合训练;Response-based 需要教师生成的样本作为 SFT 数据——注意这条通道<b>多了一个隐藏变量:教师生成时的采样设置</b>(温度、是否 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2201.11903">思维链</a>),必须在实验前固定死,不然四组对比里混进了「教师发挥稳定性」这个噪声源。</li>
+        </ul>
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>KD</b>:用教师软标签(logits)训练学生。</div>
-      <div class="term-item"><b>软标签</b>:经温度 τ 软化后的概率分布,含类间相似信息。</div>
-      <div class="term-item"><b>特征匹配</b>:对齐学生与教师的中间层表征。</div>
-      <div class="term-item"><b>Response-based 蒸馏</b>:用教师生成文本做监督信号。</div>
-      <div class="term-item"><b>ECE</b>:Expected Calibration Error,衡量置信度校准。</div>
-      <div class="term-item"><b>教师/学生模型</b>:大模型输出知识,小模型学习它。</div>
-    </div>
-  </div>
+        <p><b>3. 指标:效果 + 效率双维度</b></p>
+        <table>
+          <tr><th>维度</th><th>指标</th><th>说明</th></tr>
+          <tr><td><b>效果</b></td><td>测试集准确率、相对教师的性能差</td><td>多 benchmark 平均 + 方差</td></tr>
+          <tr><td><b>可靠性</b></td><td>校准度 ECE、OOD 泛化、幻觉率</td><td>蒸馏可能牺牲校准</td></tr>
+          <tr><td><b>效率</b></td><td>参数量、推理延迟、显存、吞吐</td><td>蒸馏的初衷就是降本</td></tr>
+        </table>
+        <p>这张表要重点解释两个容易被忽略的格子。<b>校准度 ECE</b>(Expected Calibration Error,论文见 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1706.04599">On Calibration of Modern Neural Networks</a>):模型自报「90% 置信」的样本,实际有没有 90% 答对?类比监控系统自报健康度 99.9%,可容灾演练老失败——自报数字和真实成功率对不上,就是校准差。蒸馏把教师的分布压进更小的模型,自报置信度经常失真,<b>只看准确率根本发现不了</b>。<b>OOD 泛化</b>(分布外泛化,经典论文 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1812.05962">A Baseline for Detecting Misclassified and OOD Examples</a>):容灾做得好不好,不能只在演练过的故障场景下考核——预案之外的故障来了才算真本事。学生模型容量小,最容易在没见过的数据分布上露馅,所以 OOD 测试集必须单独留一组。</p>
+
+        <p><b>4. 对照组与消融</b></p>
+        <ul>
+          <li><b>对照</b>:教师本人(上界参照,学生离它多近就是「保真度」)、学生从零训练 / 纯 hard-label(下界,证明「教师信号确实带来了增益」——A/B/C 组赢不了 D 组,说明蒸馏白干了)、随机基线(防测试集本身有问题)。</li>
+          <li><b>消融(逐个关组件)</b>:温度 τ ∈ {2,4,8,16} 扫描;软损失权重 α 扫描;特征匹配对齐浅层/中层/深层各跑一组;蒸馏数据量从 10% 到 100% 扫曲线。消融逻辑和容灾演练逐个下线组件一样——想知道「双通道容灾里到底是哪路在兜底」,就一路一路关了看。每一组消融都要在<b>验证集</b>上做,别用测试集调参(那是把考卷泄给学生)。</li>
+        </ul>
+
+        <p><b>5. 高频坑(每一条都有人栽过)</b></p>
+        <ul>
+          <li><b>只报一个 benchmark 会过拟合</b>:多测试集平均 + 多个随机种子(至少 3~5 个 seed)报方差。一次演练成功不代表容灾合格,一次跑分高也可能只是抽到好种子。</li>
+          <li><b>τ 太小 ≈ 硬标签,蒸馏退化</b>;τ 太大信息被稀释、噪声放大。这就是为什么 τ 必须扫而不是拍脑袋——它和压缩率的旋钮一样,拧太松没效果,拧太紧出事故。</li>
+          <li><b>Response-based 高度依赖教师生成质量</b>:教师采样温度、是否开思维链都要固定,并抽查生成样本的质量(答错的、格式坏的剔除)。垃圾进垃圾出——拿带坏块的备份去恢复,恢复得再快也是错的。</li>
+          <li><b>蒸馏后校准度(ECE)常变差,要单独看</b>:准确率持平但置信度失真,上线后过不了置信度阈值这一关的下游逻辑就废了,不能只看准确率。</li>
+        </ul>
+
+        <p><b>6. 最终交付物:一份「性能-成本」画像,而不是一个冠军数字</b></p>
+        <p>把四组的结果整理成画像表交给决策方,让他们按业务需求选型——和容灾方案选型报告的最后一页是同一个角色:</p>
+        <table>
+          <tr><th>组</th><th>监督信号</th><th>效果(离教师差)</th><th>校准/OOD</th><th>教师访问要求</th></tr>
+          <tr><td>教师</td><td>—</td><td>上界参照</td><td>—</td><td>—</td></tr>
+          <tr><td>D 基线</td><td>纯硬标签</td><td>下界</td><td>—</td><td>不需要教师</td></tr>
+          <tr><td>A KD</td><td>软标签 + 硬标签</td><td>待填</td><td>待填</td><td>白盒(要 logits)</td></tr>
+          <tr><td>B 特征匹配</td><td>中间层对齐 + 硬标签</td><td>待填</td><td>待填</td><td>白盒(要中间层)</td></tr>
+          <tr><td>C 响应式</td><td>教师生成文本</td><td>待填</td><td>待填</td><td>黑盒可用(API 即可)</td></tr>
+        </table>
+        <p>注意最后一列经常被忽略但极有工程价值:<b>「能不能拿到教师的内部输出」本身就是一条选型约束</b>。教师是自家开源模型,白盒通道随便用;教师只能通过 API 调用时,KD 和特征匹配直接出局,只剩 Response-based——这也是 LLM 时代 Response-based 成为主流的根本原因,不是因为它效果好,而是因为<b>它是唯一可行的</b>。画像里带上这一列,面试官会看出你有工程落地的意识。</p>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:KD 和 Response-based 的本质区别是什么,什么时候选哪个?</summary><div class="an"><b>人话:</b>一个偷看老师的「内心概率」(哪个对、哪个接近对都告诉你),一个只能抄老师的「成品作业」(只有对错结果本身)。<b>类比:</b>KD 像能进主库读块指纹和相似度元数据来建副本,信息密;Response-based 像只拿得到恢复出来的成品文件,门槛低但信息有损。<b>技术:</b>KD 要教师输出 logits 做软标签、最小化 KL 散度,信息密集但要求白盒访问;Response-based 只要教师生成的文本做 SFT,API 即可,但依赖采样质量(温度、思维链要固定)。能拿 logits 且任务有明确标签选 KD;教师只有 API 时选 Response-based——LLM 黑盒场景下它常常不是「更优」而是「唯一可行」。</div></details>
+        <details class="qa"><summary class="qu">Q:温度 τ 怎么调?</summary><div class="an"><b>人话:</b>没有万能值,只能在验证集上扫出来,报曲线不报单点。<b>类比:</b>像日志粒度的旋钮——拧太粗只记最终结果,「类间相似」这条信息全丢了;拧太细连噪声一起记,真信号被稀释。<b>技术:</b>常见扫描范围 τ ∈ {2,4,8,16},同时扫软损失权重 α,报告「性能-τ」曲线。τ 太小分布接近 one-hot、退化成硬标签;τ 太大分布趋于平坦、梯度信噪比劣化。选定后在测试集上只测不调,防止把测试集当验证集泄漏进调参过程。</div></details>
+        <details class="qa"><summary class="qu">Q:学生超越了老师怎么办,正常吗?</summary><div class="an"><b>人话:</b>可能发生,但先别庆祝,先查口径。<b>类比:</b>精简副本在某个特定负载下跑赢主库并不离奇——主库背着全量负担,小系统专注单一场景反而快;但先要确认是不是测量方法出了问题。<b>技术:</b>两个来源:① 软标签 + 硬标签联合训练起了正则化作用,教师的错误被数据集真值纠正;② 虚假的超越——测试集泄漏进蒸馏数据、指标口径不一致。所以出现超越时先做泄漏检查和口径对齐,确认无误就如实报告,这不是事故反而是实验严谨的证明;如果某个 benchmark 上普遍超越,要怀疑该基准是否对教师不公平。</div></details>
+        <details class="qa"><summary class="qu">Q:三种策略能叠加吗?</summary><div class="an"><b>人话:</b>能叠加,而且工程上常见,但叠加必须单独立组验证「1+1 &gt; 1」,不能默认更好。<b>类比:</b>同步复制加快照双通道可以互补兜底,但两路也可能互相抢资源、互相干扰——组合好不好,演练过才知道。<b>技术:</b>常见组合:KD 软标签 + 特征匹配联合(多任务损失加权);Response-based 生成数据 + KD 软标签联合训练。做法上作为额外实验组加入矩阵,配合逐信号消融看各自边际贡献;注意信号冗余的情况——特征对齐权重过大可能压制软标签的学习,此时叠加只涨成本不涨效果。</div></details>
+        <details class="qa"><summary class="qu">Q:蒸馏、剪枝、量化都是「把模型变小」,有什么区别,什么时候用蒸馏?</summary><div class="an"><b>人话:</b>三条路:蒸馏是「重新教一个小模型」,剪枝是「删掉不重要的连接」,量化是「降低数值精度」。<b>类比:</b>蒸馏像按精简需求新建异地小机房并重新培训运维;剪枝像下架利用率最低的设备;量化像把双精度盘换成低精度盘。<b>技术:</b>蒸馏可以自由指定学生架构、上限最高,但要付出完整训练成本且需要教师信号;剪枝和量化几乎不用重训(PTQ 量化零训练),见效快但掉精度风险更高。实践常组合使用:先蒸馏出合适尺寸的学生,再量化到 INT8 部署。评估时要分清各自贡献——这正好回到本题的实验设计:每种手段单独立组消融。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1503.02531">KD(知识蒸馏)</a></b>:用教师软标签训练小模型的方法,把大模型的知识「压缩」进低成本学生。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1503.02531">软标签</a></b>:经温度 τ 软化后的概率分布,携带「类间相似度」这类硬标签里没有的暗知识。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/Softmax函数">温度 τ</a></b>:软化 softmax 分布的旋钮——τ 大分布平缓多暴露相似性,τ 小接近硬标签。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1412.6550">特征匹配</a></b>:让学生的中间层表征对齐教师对应层(FitNets 式 L2),学「过程」而非「结果」。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1911.12983">Response-based 蒸馏</a></b>:拿教师生成的文本当监督信号做 SFT,黑盒可用,LLM 时代主流。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1706.04599">ECE(校准误差)</a></b>:衡量「模型自报的置信度」和「实际答对率」的偏差——自报健康度是否可信。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/相对熵">KL 散度</a></b>:衡量两个概率分布差多远的指标,KD 里用它量「学生和教师想得差多远」。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Ablation_(machine_learning)">消融实验</a></b>:逐个关掉/更换组件看影响的实验法——定位「到底是谁在起作用」。</div>
+          <div class="term-item"><b>教师/学生模型</b>:教师是大而强的知识来源,学生是小而省的学习者;蒸馏的目标是学生逼近教师。</div>
+        </div>
+      </div>
 </article>

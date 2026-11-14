@@ -1,64 +1,124 @@
 <article class="q" id="eval-020" data-topic="eval" data-title="设计Few-shot学习的样本数量实验(0/1/5/10-shot性能曲线)" data-difficulty="3" data-tags="FewShot,实验设计,性能分析" data-company="" data-source="P6Q37" data-kw="Few-shot 样本数量 实验设计 性能曲线 0-shot 1-shot 5-shot 10-shot 上下文学习 方差 置信区间">
 
-  <div class="q-no">Agent算法 · Q37</div>
-  <h3>设计 Few-shot 学习的样本数量实验</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐⭐</span>
-    <span class="tag">#FewShot</span><span class="tag">#实验设计</span><span class="tag">#性能分析</span>
-  </div>
+      <div class="q-no">Agent算法 · Q37</div>
+      <h3>设计 Few-shot 学习的样本数量实验</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐</span>
+        <span class="tag">#FewShot</span><span class="tag">#实验设计</span><span class="tag">#性能分析</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>我把实验拆成四步:<b>① 控变量</b>——模型、任务、评估集、prompt 模板全部固定,只让"样例数 k"这一个变量动;<b>② 样例怎么选</b>——按标签均衡 + 多样性采样,并对样例顺序做多次打乱(顺序对 few-shot 影响很大);<b>③ 报方差</b>——few-shot 对样例高度敏感,每组 k 要跑多组随机样例,报"均值 ± 方差",不报单次点估计;<b>④ 读曲线</b>——典型结论是 0→1 收益最大、之后边际递减、10-shot 可能饱和甚至因样例风格偏置而掉点。最终交一条 0/1/5/10-shot 性能曲线 + 方差带 + 上下文成本分析。</p>
-  </div>
+      <div class="note"><b>先说人话:</b>这题在问:大模型不重新训练、只在输入里塞几个"参考样例",塞 0/1/5/10 个分别考多少分?要你设计这个实验并读出结论。面试官爱考它,是因为一开口就能筛出"真跑过实验的人"——不提控变量、不提多组采样和方差,只会背"few-shot 比零样本强"的,当场露馅。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>像<b>教新手炒菜</b>:0-shot 是"凭说明书自己发挥"(没示例);1-shot 是"给你看一道成品菜";5-shot 是"给你看五道不同做法";10-shot 是"整本菜谱摆你面前"。实验要回答的是——多给几个例子他炒得更好吗?答案是:给一个例子提升最大,再多给提升越来越小,给太多他反而只照着例子模仿、不会举一反三了。所以我们要测"每多给一个例子水平涨多少",找到性价比最高的那个数。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>我把实验拆成四步:<b>① 控变量</b>——模型、任务、评估集、prompt 模板、解码参数全部锁死,只让"样例数 k"这一个变量动;<b>② 样例怎么选</b>——只从训练集抽、标签均衡 + 多样性采样,并对样例顺序多次打乱(顺序对 few-shot 影响很大);<b>③ 报方差</b>——few-shot 对样例高度敏感,每个 k 跑 10 组随机样例,报"均值 ± 标准差"画置信带,不报单次点估计;<b>④ 读曲线</b>——典型结论是 0→1 收益最大、之后边际递减、10-shot 可能饱和甚至因样例风格偏置掉点。最终交一条 0/1/5/10-shot 性能曲线 + 方差带 + token 成本分析,给出"性价比拐点"作为工程决策。</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 实验目标与变量控制(先说清要回答什么)</b></p>
-    <ul>
-      <li>研究问题:<b>样本数量 k 与性能的关系</b>,k ∈ {0, 1, 5, 10}——即 In-Context Learning 的边际收益到底怎么衰减。</li>
-      <li>控制变量:同一模型、同一任务(数据集)、同一评估集、同一 prompt 模板、同一采样设置(测性能时尽量用 greedy 或固定种子)。只有样例数在变。</li>
-    </ul>
-    <p><b>2. 样例怎么选(本题最容易丢分的地方)</b></p>
-    <ul>
-      <li><b>标签均衡</b>:分类任务里正负例按比例取,别让 5 个样例全是同一类。</li>
-      <li><b>多样性 + 代表性</b>:从训练集里挑"最接近测试分布"的样例,而不是随手抓;可选基于 embedding 的聚类中心采样。</li>
-      <li><b>顺序敏感</b>:few-shot 对样例排列顺序敏感,同一组样例要多次打乱(shuffle)后取均值。</li>
-      <li>进阶:区分"<b>标签正确性</b>"与"<b>标签格式</b>"两个变量——是标签对错影响大,还是"只给 label"和"label + 解释"这种格式影响大。</li>
-    </ul>
-    <p><b>3. 指标与方差控制</b></p>
-    <ul>
-      <li>分类用 Accuracy/F1,生成任务用 EM/ROUGE,推理用 pass@k;同一指标贯穿所有 k 值。</li>
-      <li>每组 k 用<b>多组随机样例(如 10 组)+ 多次打乱</b>,报均值 ± 方差,画<b>置信区间带</b>。few-shot 单次结果方差很大,只报一个数没有说服力。</li>
-    </ul>
-    <p><b>4. 读曲线的方法论(要能说出"典型形状")</b></p>
-    <table>
-      <tr><th>区间</th><th>典型现象</th><th>解释</th></tr>
-      <tr><td>0-shot → 1-shot</td><td><b>收益最大</b></td><td>从"没有样例指引"到"有示例",模型突然知道该按什么格式、什么思路答了</td></tr>
-      <tr><td>1-shot → 5-shot</td><td>仍上升,边际递减</td><td>更多样例覆盖更多模式,但已进入递减区</td></tr>
-      <tr><td>5-shot → 10-shot</td><td>可能饱和甚至微降</td><td>样例带来的风格/标签偏置开始反噬,且上下文变长</td></tr>
-    </table>
-    <p><b>5. 成本与上下文上限(把实验落到决策)</b></p>
-    <ul>
-      <li>k 越大,输入 token 越多 → 延迟、成本上升,还有上下文窗口上限。</li>
-      <li>结论往往不是"越大越好",而是给出<b>性价比拐点</b>:"本任务 4~5-shot 即达平台期,再往上边际收益 ≈ 0"——这样实验才从"跑分"变成"工程决策"。</li>
-    </ul>
-  </div>
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>先搞懂 Few-shot / 上下文学习(用交接值班想)</b>:新来的值班工程师入职,你不送他去培训班(<b>不更新模型权重</b>),只在他工位上放几份"历史工单/备份作业配置样例",他照着就能上手干活——这就是 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2005.1416">In-Context Learning</a>(GPT-3 论文里的原始定义:示例全放进输入,模型参数一个不动)。k 就是放几份:0-shot 是只给一句口头需求"帮我配个备份作业,自己发挥";1-shot 是递给他一份填好的完整样例;5-shot 是给五份覆盖不同场景的;10-shot 是把整本手册拍他面前。<b>哪里像</b>:能力来自"现场参考资料"而非重新培训,资料撤走能力就退回去。<b>哪里不像</b>:人会举一反三、越看越通透;模型可能越看越死板——样例里的措辞风格、答案长度习惯会被它当成"任务规则"照抄(风格偏置),资料给太多反而掉分。</p>
+        <p><b>整个实验像"副本数 vs 恢复时长"的调参压测</b>:想知道备份系统开几副本最划算,你的职业本能一定是——其他配置全锁死,只动副本数这一档旋钮,每档多跑几轮取均值报区间,最后找拐点。这题一模一样:模型/数据集/评估集/prompt 模板/解码参数全锁死,只让样例数 k 动,每个 k 换 10 组随机样例多跑几轮,画出"性能曲线 + 方差带",读出性价比拐点。<b>哪里像</b>:控变量、重复测量、报置信带、找拐点,实验纪律完全同源。<b>哪里不像</b>:副本是确定性资源,多加只会更稳;样例是"信息",会夹带噪声——错标签、偏风格,10 个可能比 5 个还差。硬件扩容很少"越扩越糟",样例会——所以这条曲线必须真测,不能拍脑袋外推。</p>
+      </div>
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:为什么 few-shot 结果方差那么大,还值得信吗?</summary><div class="an">方差大恰恰说明"样例选择"是变量而非误差。对策:① 多组随机样例 + 多次打乱,报置信区间而不是单点;② 用"最好组/最差组"展示样例敏感度;③ 若要稳定上线,把"找到一组稳定好样例"本身当优化目标(用样例检索/选择策略),而不是只调 k。</div></details>
-    <details class="qa"><summary class="qu">Q:0-shot 到 1-shot 为什么提升最大?</summary><div class="an">因为 0-shot 时模型缺的不是知识,而是"任务格式与输出规范"——1 个样例就补上了"该怎么读题、怎么组织答案、答案长什么样";之后再多的样例主要是补"少数难例的模式覆盖",属于长尾收益,所以边际递减。</div></details>
-    <details class="qa"><summary class="qu">Q:如果 10-shot 掉点了,你怎么办?</summary><div class="an">先查样例质量:是否混入错误标签、是否和测试分布偏差大、是否过拟合到样例的措辞风格。常见修法:加一个样例检索/去噪模块、减小 k、或换"示例选择"策略(按与 query 的相似度动态挑样例),而不是无脑加数量。</div></details>
-  </div>
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. 实验目标与变量控制(先说清要回答什么)</b></p>
+        <ul>
+          <li><b>研究问题</b>:样本数量 k 与性能的关系,k ∈ {0, 1, 5, 10}——即 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2005.1416">In-Context Learning</a> 的边际收益到底怎么衰减。0-shot 就是纯指令不带样例,k-shot 就是输入里摆 k 个"输入→标准输出"的示例对。</li>
+          <li><b>控制变量</b>:同一模型、同一任务(数据集)、同一评估集、同一 prompt 模板、同一采样设置(测性能时尽量用 greedy 或固定种子)。只有样例数在变。为什么不能两个变量一起动?和压测时同时改副本数+压缩算法再测恢复时长一个道理——指标涨了不知道归功给谁,掉了不知道赖谁,这条曲线就白画了。</li>
+        </ul>
+        <table>
+          <tr><th>锁死的变量</th><th>锁法</th></tr>
+          <tr><td>模型</td><td>同一 checkpoint、同一版本,中途绝不换</td></tr>
+          <tr><td>任务/数据集</td><td>固定一个任务;想比多个任务就各画一条曲线,别混</td></tr>
+          <tr><td>评估集</td><td>所有 k 共用同一批测试样本,样本和顺序都不换</td></tr>
+          <tr><td>prompt 模板</td><td>指令文字一字不动,只有样例区块随 k 变</td></tr>
+          <tr><td>解码参数</td><td><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Large_language_model">temperature</a>=0(贪心)或固定随机种子,保证可复现</td></tr>
+          <tr><td>样例池</td><td>只从训练集抽,抽样规则全程固定(防数据泄漏,见追问)</td></tr>
+        </table>
+        <pre class="code">整条实验流水线一图流:
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>In-Context Learning</b>:不更新权重、靠上下文示例让模型学会任务。</div>
-      <div class="term-item"><b>边际收益递减</b>:每多一个样例带来的提升越来越小。</div>
-      <div class="term-item"><b>样例敏感</b>:few-shot 结果随样例选择/顺序大幅波动。</div>
-      <div class="term-item"><b>置信区间</b>:衡量多次采样结果波动范围的统计量。</div>
-    </div>
-  </div>
+第 0 步 锁死一切,只留一个旋钮
+   模型 ● 任务数据集 ● 评估集 ● prompt模板 ● 解码参数 ●   ← 全固定
+                              样例数 k ∈ {0, 1, 5, 10}    ← 惟一变量
+
+第 1 步 每个 k,重复测量
+   对每个 k:
+     从样例池(只来自训练集!)随机抽 10 组样例(标签均衡)
+       └→ 每组内部把样例顺序再打乱 3 次
+            └→ 跑完整评估集,记录指标
+                 └→ 每个 k 攒下 30 个成绩 → 汇总成 均值 ± 标准差
+
+第 2 步 出图
+   曲线:x 轴 = k,y 轴 = 性能,带方差带(置信区间)
+   附表:每个 k 的输入 token 成本 / 平均延迟
+
+第 3 步 读拐点,给工程结论
+   "本任务 4~5-shot 达平台期,线上固定用 5-shot,动态挑样例另立项验证"</pre>
+        <p><b>2. 样例怎么选(本题最容易丢分的地方)</b></p>
+        <ul>
+          <li><b>标签均衡</b>:分类任务里正负例按比例取,别让 5 个样例全是同一类。反例很好懂:如果 10 个样例里有 8 个是"正",模型很容易学成"无脑答正"的捷径——这往往就是 10-shot 掉点的头号嫌疑犯。二分类 5-shot 可以 3 正 2 负。</li>
+          <li><b>多样性 + 代表性</b>:从训练集里挑"最接近测试分布"的样例,而不是随手抓;可选基于 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Word_embedding">Embedding</a> 的聚类中心采样——把训练集样例按语义聚类,每个簇取中心附近的代表。别抓前 5 条完事:它们通常高度相似,等于花钱买了 5 份重复信息。</li>
+          <li><b>顺序敏感</b>:few-shot 对样例排列顺序敏感,同一组样例换顺序成绩能差好几个点(有专门论文研究过这件事:<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2104.08786">Fantastically Ordered Prompts</a>)。所以同一组样例要多次打乱后取均值;这同时提示线上系统:样例顺序也应固定,别每次请求随机排。</li>
+          <li>进阶:区分"<b>标签正确性</b>"与"<b>标签格式</b>"两个变量——是标签对错影响大,还是"只给 label"和"label + 解释"这种格式影响大?可设计 2×2 对照(标签对/错 × 有/无解释)单独验证。不少研究的反直觉结论是:格式与样例分布的影响常常不小于标签对错本身。</li>
+        </ul>
+        <p><b>3. 指标与方差控制</b></p>
+        <p>指标按任务类型选,但<b>一条曲线从头到尾必须用同一个指标</b>,半路换指标曲线就没法比了:</p>
+        <table>
+          <tr><th>任务类型</th><th>指标</th><th>一句话说明</th></tr>
+          <tr><td>分类</td><td><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/F1_score">Accuracy / F1</a></td><td>类别不均衡时看 F1,别只看 Accuracy</td></tr>
+          <tr><td>问答/摘要</td><td><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1606.05250">EM</a> / <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/ROUGE_%28metric%29">ROUGE</a></td><td>EM 是"一字不差才算对",ROUGE 看 n-gram 重叠程度</td></tr>
+          <tr><td>代码生成</td><td><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2107.03374">pass@k</a></td><td>采 k 个答案、至少一个通过测试用例的比例</td></tr>
+        </table>
+        <ul>
+          <li>每组 k 用<b>多组随机样例(如 10 组)+ 多次打乱</b>,报"均值 ± 标准差"(口语常说报方差),画<b>置信区间带</b>。few-shot 单次结果方差很大,只报一个数没有说服力——就像只做一次容灾演练就宣布 RTO 达标,换个日子再演练一次你自己都不敢信。</li>
+          <li>加分细节:两档 k 的置信区间如果互相重叠,严格说不能断言谁更好——要么加采样组数,要么老老实实写"差异不显著"。能主动讲出这句,面试官就知道你真被统计教育过。</li>
+        </ul>
+        <p><b>4. 读曲线的方法论(要能说出"典型形状")</b></p>
+        <table>
+          <tr><th>区间</th><th>典型现象</th><th>解释</th></tr>
+          <tr><td>0-shot → 1-shot</td><td><b>收益最大</b></td><td>从"没有样例指引"到"有示例",模型突然知道该按什么格式、什么思路答了</td></tr>
+          <tr><td>1-shot → 5-shot</td><td>仍上升,边际递减</td><td>更多样例覆盖更多模式,但已进入递减区</td></tr>
+          <tr><td>5-shot → 10-shot</td><td>可能饱和甚至微降</td><td>样例带来的风格/标签偏置开始反噬,且上下文变长</td></tr>
+          <tr><td>整条曲线</td><td>先陡后平,近似对数形</td><td>工程上只关心拐点:拐点左边是白捡的收益,右边是纯烧 token</td></tr>
+        </table>
+        <pre class="code">典型曲线长这样(k 为横轴,带方差带):
+
+ 性能
+  ↑
+  │                            ┌─────────● 10-shot:平台期(偏置反噬时 ↘ 微降)
+  │                     ┌──────╯    ║
+  │              ┌─────╯           ║ ← 方差带:10 组随机样例的均值±区间
+  │        ┌─────╯                 ║   (k=1 时最宽, k≥5 后收窄)
+  │     ┌──╯                       ║
+  │ ●───╯  ↑ 0→1 跳升最陡
+  └──┼──────────┼────────────┼──────────┼─────→ 样例数 k
+     0          1            5          10
+
+ 读图口诀:0→1 补说明书(大跳);1→5 补长尾(爬坡变缓);
+           5→10 进平台(横盘甚至下弯)。</pre>
+        <p><b>5. 成本与上下文上限(把实验落到决策)</b></p>
+        <ul>
+          <li>k 越大,输入 token 越多 → 延迟、成本上升,还有<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Large_language_model">上下文窗口</a>上限。粗算:一个样例约 100~200 token,10-shot 光样例就吃掉 1000~2000 token,用户的首字时间(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Time_to_first_byte">TTFT</a>)也跟着涨。</li>
+          <li>结论往往不是"越大越好",而是给出<b>性价比拐点</b>:"本任务 4~5-shot 即达平台期,再往上边际收益 ≈ 0"——这样实验才从"跑分"变成"工程决策"。</li>
+          <li>工程加分项:线上固定一组样例,意味着每次请求的 prompt 前缀相同,推理引擎的 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2309.06180">KV Cache</a> 前缀复用能命中,省钱又提速;而"按 query 相似度动态挑样例"质量可能更好,却吃不到前缀缓存——这是实验报告里值得一起权衡的真实成本,不只是 token 数。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:为什么 few-shot 结果方差那么大,还值得信吗?</summary><div class="an"><b>人话:</b>方差大不是实验失败,而是一个重要发现——"选哪组样例"本身就是影响成绩的真变量,实验要做的是把它量出来,而不是假装它不存在。<b>类比:</b>像容灾演练只跑一次就宣布 RTO 达标——换台机器、换个时段再跑一次结果可能完全不同;正确姿势从来是多轮演练报区间,而不是挑最好那次汇报。<b>技术:</b>每个 k 至少抽 10 组随机样例、组内多次打乱,报均值 ± 95% 置信区间并画方差带;用"最好组/最差组"的差距展示样例敏感度;若线上要稳定,就把"选一组好样例"本身当优化目标(按 Embedding 相似度做样例检索),而不是死磕 k。</div></details>
+        <details class="qa"><summary class="qu">Q:0-shot 到 1-shot 为什么提升最大?</summary><div class="an"><b>人话:</b>0-shot 时模型缺的往往不是知识,而是"这题怎么读、答案长什么样"的说明书——一个样例就把说明书补齐了。<b>类比:</b>新同事接手备份作业,你口头把需求描述得再细,他也未必写得出一份字段齐全的作业定义;递给他一份现成的作业样例,格式、字段、套路立刻全懂。之后再给几份,只是帮他覆盖少见场景。<b>技术:</b>1 个样例消除了输出格式与任务边界的歧义,属于"消除不确定性"的大额收益;后续样例主要补长尾模式覆盖,收益天然递减。推论:如果 0-shot 的格式类指令写得足够好,0→1 的差距会明显收窄。</div></details>
+        <details class="qa"><summary class="qu">Q:如果 10-shot 掉点了,你怎么办?</summary><div class="an"><b>人话:</b>先别急着下结论"样例太多没用",挨个查三个嫌疑人:标签错了、样例风格偏了、上下文太长了。<b>类比:</b>像恢复演练集体翻车,先查是不是拿了旧版本脚本、再查环境、最后查流程本身,而不是立刻推翻整个演练体系。<b>技术:</b>① 查样例质量:错标签、与测试分布偏差大的样例做去噪或换掉;② 查风格偏置:样例的措辞/长度被模型当成了任务规则,做样例风格归一化;③ 查长上下文:样例把关键指令挤到窗口深处,撞上 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2307.03172">Lost in the Middle</a> 效应;④ 都不行就退回 5-shot,或改用"按 query 相似度动态挑 2~3 个样例"——数量换质量。</div></details>
+        <details class="qa"><summary class="qu">Q:样例可以直接从评估集里挑吗?</summary><div class="an"><b>人话:</b>绝对不行,这叫数据泄漏——考卷混进了复习资料,成绩再高也是假的。<b>类比:</b>像容灾演练前把"今天的故障场景"提前泄题给演练组,演练成功率 100%,真实故障来了照样趴窝。<b>技术:</b>样例只能来自训练集或独立样例池,并在实验报告里写清样例来源;如果任务实在没有训练集、必须从测试数据里抽,那被抽走的部分必须从评估指标里剔除——否则那部分等于"开卷考试",指标系统性虚高,曲线结论全部作废。</div></details>
+        <details class="qa"><summary class="qu">Q:1-shot 只有 1 个样例,二分类怎么做标签均衡?</summary><div class="an"><b>人话:</b>均衡不了——这正是 1-shot 方差最大的原因之一,实验设计里要明说这一点,而不是装作没看见。<b>类比:</b>值班表只排 1 个人,你没法同时覆盖白班和夜班;想覆盖,只能靠"多排几轮"取平均。<b>技术:</b>在样例组层面轮换类别:10 组里一半放正例、一半放负例,报整体均值;或把 1-shot 单独纳入敏感性分析讨论。读曲线时注明"1-shot 点的组间方差包含类别覆盖缺失的贡献",避免把这部分波动误读成"模型本身不稳定"。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2005.1416">In-Context Learning</a></b>:不更新模型权重,只在输入里摆几个示例让它"现学现卖"完成任务——few-shot 的学名。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Few-shot_learning">Few-shot</a></b>:靠极少量(个位数)示例完成任务的学习设定;0/1/5/10-shot 就是数输入里有几个示例。</div>
+          <div class="term-item"><b>样例敏感</b>:换一组样例、换个顺序,few-shot 成绩就大幅波动——所以必须多组采样报方差,不能报单点。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Confidence_interval">置信区间</a></b>:多次测量结果的波动范围;两条曲线的区间互相重叠时,不能断言谁更强。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Diminishing_returns">边际收益递减</a></b>:每多塞一个样例,新增的提升越来越小——曲线先陡后平,实验要找的就是拐点。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Leakage_%28machine_learning%29">数据泄漏</a></b>:样例不小心从测试集里拿,等于考前看过考卷,指标虚高不可信。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2107.03374">pass@k</a></b>:代码任务常用指标——采 k 个答案、至少一个通过测试用例的比例。</div>
+        </div>
+      </div>
 </article>

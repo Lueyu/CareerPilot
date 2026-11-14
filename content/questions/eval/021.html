@@ -8,54 +8,81 @@
     <span class="company">字节 / 阿里 / 腾讯（高频）</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题问的是——那套「拿生成结果和标准答案数重合度」的老指标,为什么量不准现代 LLM。它是评估模块的高频暖场题,面试官用它三分钟分档:只会背 BLEU 定义的是背题人,能讲出「语义等价」「参考答案依赖」「不查事实」三条根本缺陷的,才是真给生成系统搭过评估的人。答错暴露的是:对评估体系没有分层认知,后面的追问根本没法展开。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"一句话:BLEU/ROUGE 量的是<b>字面重合度</b>,而现代 LLM 考的是<b>语义正确 + 遵循指令 + 事实准确</b>,两者根本不在一个维度。三点局限:① <b>n-gram 重叠 ≠ 语义等价</b>——同一意思换个说法分数就暴跌;② <b>强依赖参考答案</b>——开放式生成往往没有唯一标准答案;③ <b>不检查事实与推理</b>——流畅但胡编的答案照样拿高分。所以现在都转向语义相似度(BERTScore/BLEURT)、程序化校验和 LLM-as-judge。"</p>
+    <p>"一句话:BLEU/ROUGE 量的是<b>字面重合度</b>,而现代 LLM 考的是<b>语义正确 + 遵循指令 + 事实准确</b>,两者根本不在一个维度上。三点局限:① <b>n-gram 重叠 ≠ 语义等价</b>——同一意思换个说法分数就暴跌,模型越会表达越吃亏;② <b>强依赖参考答案</b>——开放式生成往往没有唯一标准答案,打分的前提本身就不成立;③ <b>不检查事实与推理</b>——流畅但胡编的答案照样拿高分,还完全照不到格式、语气这类指令要求。所以业界已经整体迁移:语义相似度(BERTScore/BLEURT)、程序化校验(代码单测、数学验算)、LLM-as-judge 三条路分工,老指标退守到『有标准答案的翻译/摘要回归监控』这个岗位。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>就像用<b>「错别字数量」给作文打分</b>:两篇作文可以表达完全相同的意思,但一篇用了"她很伤心"、另一篇用了"她泪流满面",逐字对比就会判成"完全不一样"。更糟的是,一篇<b>通篇胡扯但字词和范文重合度高</b>的文章,反而能拿高分——这就是只看字面重合、不看"说得对不对"的荒谬之处。</p>
+    <p><b>先搞懂它们在数什么(用数据去重想)</b>:BLEU/ROUGE 的基本动作是数 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/N-gram">n-gram</a>——把句子切成「连续两三个词」的小片段,数生成结果里的片段有多少也出现在参考答案中。这和备份系统里的<b>精确去重</b>是一个套路:两块数据必须字节完全一致、指纹完全相同,才算「重复」。<b>哪里像</b>:都只认逐字逐位的命中,判定便宜、确定、可复现,适合机器批量跑。<b>哪里不像(也是整道题的题眼)</b>:数据块没有「换个说法」这回事——字节相同就是真的相同;但语言可以「她很伤心」=「她泪流满面」,意思一模一样、字面零重合。拿一把只认字面的尺子去量天生就会改写的 LLM,<b>模型表达越灵活、分数反而越低</b>——第一层局限就藏在这。</p>
+    <p><b>「必须先有标准答案」像拿某一次演练日志当唯一验收剧本</b>:这两个指标都是<b>参考式评估</b>——打分前必须先备好一份 gold 答案,再看生成结果和它重合多少。可容灾切换根本没有唯一正确剧本:切同步副本、把异步副本升主再补回放,都算成功,验收靠的是不变量(RTO 达标、数据一致、应用能起来),而不是「操作日志和某次标准演练逐行一致」。开放式生成(对话、写作、代码)同理——正确答法有无穷种,gold 写不完,「数重合度」这件事<b>前提就不成立</b>。这是第二层局限。</p>
+    <p><b>「形式分很高、内容全错」像备份包校验全绿、恢复出来的库却是坏的</b>:备份验证最忌只做 bit 级校验——包完整、指纹对,只说明「没坏在半路」,不说明恢复出来的库能起来、数据是新版本。BLEU/ROUGE 正好只做了这一层:只查「字面像不像范文」,不查事实对不对(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)">幻觉</a>照放行)、推理通不通、格式听不听话。一句「复读范文 + 夹带错误事实」的回答能拿高分,一句「换个说法但完全正确」的回答被判零分——方向和「生成质量」完全拧着。这是第三层局限。三层叠起来:尺子单位错(n-gram)、尺子前提错(必须有唯一 gold)、尺子只量形式不量内容——所以不是参数没调好,是范式整体过时了。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
     <p><b>1. 先搞清 BLEU / ROUGE 在算什么</b></p>
     <ul>
-      <li><b>BLEU</b>:Bilingual Evaluation Understudy,算<b>精确率</b>——生成文本里有多少 n-gram 出现在参考答案里,再乘一个 <b>brevity penalty(长度惩罚)</b>防止答案过短刷分。原本为<b>机器翻译</b>设计,有标准译文可对齐。</li>
-      <li><b>ROUGE</b>:Recall-Oriented Understudy,算<b>召回率</b>——参考答案里有多少 n-gram 被生成文本覆盖(ROUGE-N 看 n-gram,ROUGE-L 看最长公共子序列)。原本为<b>文本摘要</b>设计。</li>
-      <li>共性:都是<b>基于参考答案的字符串重叠</b>,本质是"和标准答案字面上像不像",而不是"对不对、好不好"。</li>
+      <li><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/BLEU">BLEU</a></b>:Bilingual Evaluation Understudy,算<b>精确率</b>——生成文本里有多少 n-gram 也出现在参考答案里(「你写出来的片段,多少是范文里的」),再乘一个 <b>brevity penalty(长度惩罚)</b>防止只写最保险的短句刷分。原本为<b>机器翻译</b>设计,有标准译文可对齐。用存储的话说:它在查「准」——备份集里有多少块确实在源数据清单内,不掺垃圾块。</li>
+      <li><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/ROUGE_(metric)">ROUGE</a></b>:Recall-Oriented Understudy,算<b>召回率</b>——参考答案里的 n-gram 有多少被生成文本覆盖(ROUGE-N 看 n-gram 重合,ROUGE-L 看<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Longest_common_subsequence">最长公共子序列</a>)。原本为<b>文本摘要</b>设计。它在查「全」——源数据的块有多少被备份覆盖,别漏。顺带一提:召回方向天然偏爱超长答案,和 BLEU 的超短偏好正好是对称的毛病。</li>
+      <li><b>共性</b>:都是<b>基于参考答案的字符串重叠</b>。精确率防「多说」、召回率防「漏说」,两个方向看似补齐了,但补的全是<b>字面</b>这一个维度——本质是「和标准答案像不像」,而不是「对不对、好不好」。</li>
     </ul>
-    <p><b>2. 三大核心局限(逐个讲)</b></p>
+    <p><b>2. 一个最小的翻车例子(看它们怎么失灵)</b></p>
+    <pre class="code">n-gram 重叠示意(以 bigram = 连续两个词为例):
+
+参考答案:  "珠穆朗玛峰 高 | 高 8844 | 8844 米"
+
+候选A(换个说法,意思完全正确):
+  "世界最高峰的海拔接近 8844 米"
+  和参考的重叠 bigram ≈ 0 个   → BLEU ≈ 0, ROUGE ≈ 0   ← 模型答对了,被判死刑
+
+候选B(复读范文 + 夹带私货):
+  "珠穆朗玛峰高 8844 米,也是世界第二高峰"
+  范文 bigram 全命中            → BLEU 反而不低        ← 编了假事实,拿了高分
+
+结论:这把尺子既惩罚「换种正确说法」,又奖励「复读+夹带错误」,
+      惩罚和奖励的方向恰好和「生成质量」拧着——不适用的根源就在这。</pre>
+    <p><b>3. 三大核心局限(逐个讲,面试建议就按这个顺序说)</b></p>
     <ul>
-      <li><b>① 语义等价 ≠ 字面重叠</b>:LLM 的回答是生成式、高度复述的。"她情绪低落"和"她很难过"语义相同,但 n-gram 几乎不重合,BLEU 会给出极低分。模型越好、表达越灵活,传统指标反而越"吃亏"。</li>
-      <li><b>② 依赖参考答案,开放式任务没有唯一答案</b>:对话、写作、创意、代码这类任务,同一需求有无数种正确答法。BLEU/ROUGE 需要"标准答案",一旦答案多样,指标就失效;且"多个参考答案"也只能有限缓解。</li>
-      <li><b>③ 不评估正确性与推理</b>:它只看<b>形式</b>不看<b>内容</b>。一句流畅但捏造事实的话("珠穆朗玛峰高 8844 米")和正确的话得分一样高;一段结论对但推理链错乱的数学题,也可能因为关键词重合而蒙混过关。它还完全无视<b>指令遵循</b>(格式、语气、长度要求)。</li>
+      <li><b>① 语义等价 ≠ 字面重叠</b>:LLM 的回答是生成式、高度灵活的。「她情绪低落」和「她很难过」语义相同,但 n-gram 几乎不重合,BLEU 给出接近 0 的分。更荒谬的是方向性:<b>模型能力越强、表达越自由,传统指标反而越「惩罚」它</b>——在同义改写场景里,指标分和人的质量判断甚至会呈负相关。</li>
+      <li><b>② 依赖参考答案,而开放式任务没有唯一答案</b>:对话、写作、创意、代码这类任务,同一个需求有无数种正确答法。BLEU/ROUGE 必须有 gold 才能算;答案空间开放时 gold 写不完,凑「多个参考答案」也只能有限缓解——治标不治本。对 Agent 场景尤其致命:多轮任务的「好」体现在过程是否高效、工具调用是否正确,这些维度<b>根本没有参考文本可对</b>。</li>
+      <li><b>③ 不评估正确性与推理</b>:它只看<b>形式</b>不看<b>内容</b>。一句流畅但捏造事实的话和正确的话得分一样高;一段结论蒙对、推理链错乱的数学解答,也能靠关键词重合蒙混过关。它还完全无视<b>指令遵循</b>——要求「输出 JSON、限 50 字、语气正式」,字面重叠一概照不到,而这恰恰是 LLM 应用最常考核的维度。</li>
     </ul>
+    <p><b>4. 评估范式的整体迁移(局限讲完要落到「那用什么」)</b></p>
     <table>
       <tr><th>评估范式</th><th>测的是什么</th><th>典型指标/方法</th><th>适用</th></tr>
-      <tr><td><b>字面重叠</b></td><td>和参考答案像不像</td><td>BLEU、ROUGE、METEOR</td><td>机器翻译/摘要(有标准答案)</td></tr>
-      <tr><td><b>语义相似度</b></td><td>意思近不近</td><td>BERTScore、BLEURT、COMET</td><td>生成质量、复述</td></tr>
+      <tr><td><b>字面重叠</b></td><td>和参考答案像不像</td><td>BLEU、ROUGE、<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/METEOR">METEOR</a></td><td>机器翻译/摘要(有标准答案)</td></tr>
+      <tr><td><b>语义相似度</b></td><td>意思近不近</td><td><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1904.09675">BERTScore</a>、<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2004.04696">BLEURT</a>、<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2009.09025">COMET</a></td><td>生成质量、复述</td></tr>
       <tr><td><b>程序化校验</b></td><td>对错是否可执行验证</td><td>代码跑单测、数学验算、Schema 校验</td><td>代码/数学/工具调用</td></tr>
-      <tr><td><b>模型裁判</b></td><td>综合质量、多维度打分</td><td>LLM-as-judge(人工校准)</td><td>开放式、主观维度</td></tr>
+      <tr><td><b>模型裁判</b></td><td>综合质量、多维度打分</td><td><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">LLM-as-judge</a>(人工校准)</td><td>开放式、主观维度</td></tr>
+      <tr><td><b>人工评估</b></td><td>真实质量锚点</td><td>黄金集标注、上线负反馈</td><td>里程碑把关、校准裁判</td></tr>
     </table>
-    <p><b>3. 为什么还没被完全淘汰</b></p>
+    <p>顺着表往下读:语义相似度一档,把「数词」换成「比向量」——BERTScore 用 Embedding 加<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Cosine_similarity">余弦相似度</a>做软对齐,BLEURT 更进一步,直接用模型从人工评分数据里学出「质量分」;程序化校验是「直接把恢复出来的库拉起来跑业务」,最可靠但只覆盖可执行验证的任务;模型裁判覆盖最广但有偏,必须配人工抽检校准——细节放在下面追问里讲。</p>
+    <p><b>5. 为什么还没被完全淘汰</b></p>
     <ul>
-      <li>在<b>机器翻译、单文档摘要</b>等"有标准答案、重字面"的场景,BLEU/ROUGE 仍便宜、快、可复现,做<b>回归监控</b>仍有价值。</li>
-      <li>面试加分点:能说出"指标要<b>按任务选</b>,字面重叠指标只在参考式(有 gold)场景兜底,生成式场景交给语义/裁判式指标"。</li>
+      <li>在<b>机器翻译、单文档摘要</b>这类「有标准答案、重字面」的场景,BLEU/ROUGE 便宜、快、可复现,做<b>回归监控</b>仍有价值——就像 bit 级校验验不了恢复,但每天跑回归时,它仍是性价比最高的第一道闸。</li>
+      <li>面试加分点:能说出「指标要<b>按任务选</b>——字面重叠指标只在参考式(有 gold)场景兜底,生成式场景交给语义/裁判式指标,贵的指标配便宜的指标做分层」。会讲「分层组合」的人,比只会罗列指标名的人高一档。</li>
     </ul>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:BERTScore 和 BLEU 到底差在哪？</summary><div class="an">BLEU 比的是<b>离散的 n-gram 字符串</b>,要求完全一致才算命中;BERTScore 把生成文本和参考答案都编码成 <b>embedding</b>,逐 token 算余弦相似度再做贪心对齐取平均(还能按 IDF 加权,让稀有词权重更高)。所以"伤心"和"难过"在 BERTScore 里相似度很高,在 BLEU 里就是 0。代价是 BERTScore 更贵、更依赖预训练模型的语义空间。</div></details>
-    <details class="qa"><summary class="qu">Q:加了长度惩罚(BP)是不是就够了？</summary><div class="an">不够。BP 只解决"答案太短刷精确率"的问题,没解决语义等价、参考答案依赖、事实正确性这三个根本问题。它只是 BLEU 内部的一个修正项,不改变"字面重叠"这一前提。</div></details>
-    <details class="qa"><summary class="qu">Q:那现在实际工作中用什么？</summary><div class="an">分层组合:① 能程序化的(代码/数学/工具调用)用<b>执行式校验</b>,最可靠;② 开放式文本用 <b>LLM-as-judge</b> + 人工抽检校准;③ 需要快速回归时用 BERTScore 等语义指标做信号。单一指标基本被淘汰,都是"多指标 + 人工锚定"。</div></details>
+    <details class="qa"><summary class="qu">Q:BERTScore 和 BLEU 到底差在哪？</summary><div class="an"><b>人话:</b>BLEU 要求字面完全一致才算命中;BERTScore 把两段话各自变成向量,比的是「意思的距离」,同义词照样得分。<b>类比:</b>精确去重 vs 近似去重——备份里指纹完全相同才合块,是精确去重;近似去重能把「内容一样、格式不同」的块也认出来。哪里像:都在判两段内容像不像。哪里不像:哈希判定确定且免费,语义判定要靠预训练模型,更贵,且判断质量随模型浮动。<b>技术:</b>BLEU 数离散 n-gram 精确率;BERTScore 把生成文本和参考都编码成 Embedding,逐 token 算余弦相似度、贪心对齐取平均,还能按 IDF(思想同 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Tf%E2%80%93idf">TF-IDF</a>)加权放大稀有词权重。「伤心」对「难过」在 BLEU 是 0,在 BERTScore 相似度很高。</div></details>
+    <details class="qa"><summary class="qu">Q:加了长度惩罚(BP)是不是就够了？</summary><div class="an"><b>人话:</b>不是。BP 只堵了一个具体漏洞——复读机式超短答案刷精确率——三大根本问题一个没动。<b>类比:</b>像给备份包加了校验和就宣布验证体系完工:校验和只保证包没坏在半路,可恢复性、应用级一致性还是全没验,真出事时照样翻车。<b>技术:</b>brevity penalty 只是 BLEU 内部的一个修正项,防的是「答案越短越容易全命中」;它不改变「字面重叠」这个前提,语义等价、参考答案依赖、事实正确性依旧无解。顺带补一句对称性:ROUGE 走召回方向,天然偏爱超长答案——修一个系数,修不了整个范式。</div></details>
+    <details class="qa"><summary class="qu">Q:那现在实际工作中用什么？</summary><div class="an"><b>人话:</b>分层组合:能程序验证的绝不靠「像不像」,开放式文本交给模型裁判,再拿人工抽检把裁判也管起来。<b>类比:</b>把备份验证那套分层照搬过来——校验和(便宜指标)日常跑,恢复演练(程序化校验)定期做,演练评审会(裁判+人工)里程碑把关,每层各司其职。<b>技术:</b>① 代码/数学/工具调用用执行式校验(单测通过率、答案验算、参数 Schema 校验),最可靠;② 开放式文本用 LLM-as-judge 按 rubric 打分,配 5%-10% 人工抽检校准;③ BERTScore 类语义指标做日常回归信号;④ BLEU/ROUGE 退守到有 gold 的翻译/摘要回归。单一指标基本淘汰,都是「多指标 + 人工锚定」。</div></details>
+    <details class="qa"><summary class="qu">Q:LLM-as-judge 靠谱吗？它自己有什么坑？</summary><div class="an"><b>人话:</b>它是当下开放式任务的主力,但它自己会偏心——偏爱长答案、偏心排在前面的答案、偏心同家族的模型,必须校准后才能信。<b>类比:</b>把验收交给一位资深评审:能力强但有个人偏好;成熟的体系不裸信评审个人,而是用抽检复核和申诉流程把评审也纳入管理。<b>技术:</b>已知偏差:position bias(A/B 顺序对调、结论跟着翻)、verbosity bias(更长得分更高)、self-preference(偏心同源模型)。对策见 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">Judging LLM-as-a-Judge 论文</a>:交换顺序双评、rubric 结构化打分、留人工抽检算一致率,一致率跌破阈值就修 prompt 或换裁判模型。</div></details>
+    <details class="qa"><summary class="qu">Q:让你来搭一个 LLM/Agent 项目的评估体系,你怎么组合这些指标？</summary><div class="an"><b>人话:</b>先按「答案能不能客观判对错」把任务分桶,每桶配不同的尺子;便宜指标日常跑,贵指标里程碑跑。<b>类比:</b>像定备份 SLA:RPO/RTO 是仪器测的硬指标,演练报告是评审会出的软结论,两者互补,谁也替代不了谁。<b>技术:</b>① 代码/工具调用桶 → 执行式校验;② 数学桶 → 答案验算;③ 有 gold 的知识问答桶 → 参考式指标 + BERTScore 做回归;④ 开放对话/写作桶 → LLM-as-judge rubric + 人工抽检。整体建一个黄金集,版本迭代全量回归,上线后再叠负反馈信号(点踩率、重问率)做闭环——评估不是一次性考试,是持续监控。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>BLEU</b>:基于 n-gram 精确率的机器翻译指标,带长度惩罚。</div>
-      <div class="term-item"><b>ROUGE</b>:基于 n-gram 召回率的摘要指标,有 ROUGE-N/L。</div>
-      <div class="term-item"><b>BERTScore</b>:用 embedding 余弦相似度衡量语义接近程度。</div>
-      <div class="term-item"><b>参考式评估</b>:必须有标准答案(gold)才能打分的评估方式。</div>
-      <div class="term-item"><b>指令遵循</b>:是否满足格式、语气、长度等显式要求。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/BLEU">BLEU</a></b>:机器翻译指标,数 n-gram 精确率再乘长度惩罚——只认字面命中,不认同义改写。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/ROUGE_(metric)">ROUGE</a></b>:摘要指标,数参考答案被生成文本覆盖的比例(召回),分 ROUGE-N/ROUGE-L 两个变种。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/N-gram">n-gram</a></b>:连续 n 个词组成的片段,字面重叠类指标的基本计数单位。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1904.09675">BERTScore</a></b>:把两侧文本编成 Embedding 后按余弦相似度对齐打分,量「意思像不像」。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2004.04696">BLEURT</a></b>:在人工评分数据上微调出的「学习型」质量分,语义评估从数规则走向用模型。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">LLM-as-judge</a></b>:拿大模型照评分细则当裁判,上线必须配人工抽检校准,防位置/长度偏见。</div>
+      <div class="term-item"><b>brevity penalty</b>:BLEU 的长度惩罚项,防超短答案刷精确率;治得了「复读机」,治不了语义和事实。</div>
+      <div class="term-item"><b>参考式评估</b>:必须先有标准答案才能打分的评估方式,开放式任务天然给不出唯一 gold。</div>
     </div>
   </div>
 </article>

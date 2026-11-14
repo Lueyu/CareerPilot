@@ -1,67 +1,99 @@
 <article class="q" id="eval-022" data-topic="eval" data-title="LLM综合基准测试MMLU Big-Bench HumanEval侧重点" data-difficulty="2" data-tags="基准测试,MMLU,HumanEval" data-company="字节 / 阿里 / OpenAI（高频）" data-source="P7Q2" data-kw="基准测试 MMLU Big-Bench HumanEval GSM8K benchmark 评测 污染 contamination pass@k 刷分">
 
-  <div class="q-no">评估讨论 · Q2</div>
-  <h3>请介绍几个目前行业内广泛使用的 LLM 综合性基准测试，并说明它们各自的侧重点。（例如：MMLU, Big-Bench, HumanEval）</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐</span>
-    <span class="tag">#基准测试</span><span class="tag">#MMLU</span><span class="tag">#HumanEval</span>
-    <span class="company">字节 / 阿里 / OpenAI（高频）</span>
-  </div>
+      <div class="q-no">评估讨论 · Q2</div>
+      <h3>请介绍几个目前行业内广泛使用的 LLM 综合性基准测试，并说明它们各自的侧重点。（例如：MMLU, Big-Bench, HumanEval）</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐</span>
+        <span class="tag">#基准测试</span><span class="tag">#MMLU</span><span class="tag">#HumanEval</span>
+        <span class="company">字节 / 阿里 / OpenAI（高频）</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"我按能力维度介绍三个:<b>MMLU</b> 测<b>知识与常识广度</b>——约 1.6 万道四选一,覆盖 57 个学科,是通用能力的事实标准;<b>Big-Bench</b> 测<b>任务多样性</b>——200+ 个异构任务,从逻辑、常识到多步推理,考察模型能不能泛化到没见过的任务;<b>HumanEval</b> 测<b>代码生成</b>——164 道手写 Python 题,用 <b>pass@k</b> 按"能不能跑通单元测试"判对错。三个分别对应:知识、泛化、代码执行正确性。"</p>
-  </div>
+      <div class="note"><b>先说人话:</b>这题问的是「行业里大家用哪几张标准考卷来考大模型、各自考什么」。它是 LLM 评估板块的常识题,答不上来等于没摸过模型。面试官爱考,是因为它一步就能分清「只会念榜单分数的人」和「真搞过评测的人」——答错的典型暴露点:报得出名字,说不清判定方式、蒙题基线和数据污染,选型时只能被营销 PPT 牵着走。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>把模型想象成一个<b>考生</b>,这三个基准是三张不同的卷子:<b>MMLU</b> 是"百科知识竞赛"——57 门科目的选择题,考知识面广不广;<b>Big-Bench</b> 是"趣味全能综艺"——什么题型都有,考应变和举一反三;<b>HumanEval</b> 是"上机编程考试"——不是看代码写得像不像范文,而是<b>直接跑测试用例</b>,跑通了才算对。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"我按能力维度介绍三个:<b>MMLU</b> 测<b>知识与常识广度</b>——约 1.6 万道四选一、覆盖 57 个学科,是通用能力的事实标准;<b>Big-Bench</b> 测<b>任务多样性</b>——200+ 个异构任务,考模型能不能泛化到没见过的任务,衍生版 BBH 再挑 23 个硬任务测多步推理;<b>HumanEval</b> 测<b>代码生成</b>——164 道手写 Python 题,用 <b>pass@k</b> 按'跑不跑得通单元测试'判对错。一句话总结:分别对应<b>知识、泛化、代码执行正确性</b>。最后补一句防坑——这些分数都可能被'数据污染'刷高,看榜要带这个心眼。"</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. MMLU——知识广度的事实标准</b></p>
-    <ul>
-      <li><b>全称</b>:Massive Multitask Language Understanding。约 1.6 万道四选一选择题,横跨 57 个学科(数学、物理、法律、医学、历史、伦理等),分初高中/大学/专业级难度。</li>
-      <li><b>测什么</b>:模型的知识储备和常识推理,属于"世界知识"维度,是通用大模型发布必报的指标。</li>
-      <li><b>局限</b>:选择题形式容易被"背题"(数据污染),且四选一有随机猜对的成分(25% 基线)。</li>
-    </ul>
-    <p><b>2. Big-Bench——任务多样性与泛化</b></p>
-    <ul>
-      <li><b>全称</b>:Beyond the Imitation Game Benchmark,社区协作收集的 <b>204 个任务</b>,覆盖逻辑推理、常识、数学、编程、讽刺识别、因果判断等异构任务。</li>
-      <li><b>衍生</b>:<b>BIG-Bench Hard(BBH)</b> 从里面挑出当时大模型表现差、人类表现好的 <b>23 个"硬"任务</b>,专门测多步推理上限。</li>
-      <li><b>测什么</b>:模型在<b>未见过的任务</b>上的零样本/少样本泛化能力,而不是刷特定任务。</li>
-    </ul>
-    <p><b>3. HumanEval——代码生成的执行正确性</b></p>
-    <ul>
-      <li><b>内容</b>:164 道手写 Python 题,给出函数签名 + docstring,让模型补全函数体。</li>
-      <li><b>关键设计</b>:用 <b>pass@k</b> 打分——每个题采样 k 个答案,只要有一个跑通隐藏单元测试就算对。避免了"逐 token 匹配参考答案"的旧式代码评分缺陷。</li>
-      <li><b>变体</b>:HumanEval+ 加更严苛的测试;MBPP 是另一套社区编程题;LiveCodeBench 从 LeetCode 实时抓题,专门对抗数据污染。</li>
-    </ul>
-    <table>
-      <tr><th>基准</th><th>任务形式</th><th>侧重点</th><th>判定方式</th></tr>
-      <tr><td><b>MMLU</b></td><td>四选一(57 学科)</td><td>知识广度、常识</td><td>选项精确匹配</td></tr>
-      <tr><td><b>Big-Bench / BBH</b></td><td>异构任务 200+/23</td><td>任务泛化、多步推理</td><td>任务特定规则/judge</td></tr>
-      <tr><td><b>HumanEval</b></td><td>Python 补全 164 题</td><td>代码正确性</td><td>pass@k + 单测</td></tr>
-      <tr><td><b>GSM8K</b>(补充)</td><td>小学数学应用题</td><td>多步数学推理</td><td>最终数值答案</td></tr>
-    </table>
-    <p><b>4. 必答的"坑":数据污染与饱和</b></p>
-    <ul>
-      <li><b>污染(contamination)</b>:训练语料里混入了基准题目,模型"见过原题"就会虚高。对策:动态/私密测试集、去污染检测(n-gram 重叠检索)、LiveCodeBench 这种实时题源。</li>
-      <li><b>榜单饱和</b>:主流基准分数趋近天花板后区分度下降,于是行业不断推出更难的基准(如 BBH、更难的 Agent 基准),这也解释了为什么评估要"追新"。</li>
-    </ul>
-  </div>
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>为什么会有基准?——用采购存储阵列想</b>:厂商发布会谁都会把自己 PPT 吹上天,你选型时不听 PPT,要看第三方标准化测试报告(比如数据库界的 <a target="_blank" rel="noopener" href="https://www.tpc.org/tpcc/">TPC-C</a> 跑分)——标准工况、谁都能复现、横向可比。LLM 也一样,发布会不会自己说自己笨,全行业靠几套公开的「标准考卷」来横向排队,这就是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Benchmark_%28computing%29">benchmark(基准测试)</a>。<b>哪里像</b>:都是第三方的、标准化、可复现的横向对比。<b>哪里不像</b>:硬件跑分跑十次结果基本一致,而 LLM 生成有采样随机性——同一道题多跑几次分数会抖,所以看榜单要当「带误差抖动的统计量」看,不能当精确读数;更麻烦的是,LLM 的考卷是<b>公开发布在网上的</b>,存在「考前泄题」问题(后面详细说)。</p>
+        <p><b>把模型想象成一个考生,这三套基准就是三张不同的卷子</b>:<b>MMLU</b> 是「百科综合笔试」——57 门科目(数学、法律、医学、历史……)的四选一选择题,考你肚子里装了多少货;但它不像真笔试的地方是:<b>瞎蒙也有 25 分保底</b>,而且卷子早就公开,考生可能把原题背过了。<b>Big-Bench</b> 是「全能比武大会」——200 多个稀奇古怪的项目各不相同,考的不是背功而是举一反三;BBH 则像你们把回归测试里<b>常年失败的 case 单独拎出来建的「红色用例集」</b>,专挑大模型集体考砸的项目。<b>HumanEval</b> 是「上机编程考」——判卷方式是<b>直接跑隐藏单元测试</b>。这一条你应该特别有共鸣:验证备份从来不是看日志里那行「backup successful」,而是<b>真的拉起来恢复一次才算数</b>。代码评测也是同一个哲学:不看代码写得像不像范文,单测跑绿了才算过——它本质上就是一条 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Unit_testing">CI 流水线</a>。</p>
+      </div>
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:pass@1 和 pass@10 有什么区别,报告时用哪个？</summary><div class="an">pass@k 表示"每个题采样 k 次,至少一次通过就算对"。pass@1 测模型<b>一次就写对</b>的能力(生产里用户就看第一版);pass@10 反映模型"给足采样机会能不能解出来"(更接近自修复/多候选场景)。报告要看口径:同一模型 pass@10 天然远高于 pass@1,跨模型对比必须用<b>同一个 k</b>。生产落地我更关心 pass@1。</div></details>
-    <details class="qa"><summary class="qu">Q:怎么判断一个基准分数是不是被数据污染了？</summary><div class="an">几种信号:① 模型对<b>改过字面、语义不变</b>的题目分数骤降(说明背的是字面);② 题目在训练集里能被 n-gram 检索命中;③ 模型对"见过"的题有异常自信。工程上做<b>去污染检查</b> + 用<b>动态/私密测试集</b> + 定期换新题源。</div></details>
-    <details class="qa"><summary class="qu">Q:这些通用基准够不够用,还要看什么？</summary><div class="an">不够。它们是"体检"不是"诊断":能横向比模型,但和你业务不直接相关。落地必须补<b>自有评测集</b>——从真实用户 query 采样、按业务指标打标,再和通用基准一起看。通用基准负责"这个模型底子行不行",自建集负责"它在我的场景行不行"。</div></details>
-  </div>
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>1. MMLU——知识广度的事实标准</b></p>
+        <ul>
+          <li><b>全称</b>:Massive Multitask Language Understanding(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2009.03300">论文</a>)。约 <b>1.6 万道四选一选择题</b>,横跨 <b>57 个学科</b>(数学、物理、法律、医学、历史、伦理等),按初高中 / 大学 / 专业级分层出题。题目长这样:「以下哪项是普通感冒最常见的病原体?A. 鼻病毒 B. 大肠杆菌 C. …」——考的是货真价实的教科书知识。</li>
+          <li><b>测什么</b>:模型的知识储备和常识推理,属于「世界知识」维度,是通用大模型发布时<b>必报</b>的指标——地位类似于你汇报存储阵列必报 IOPS。</li>
+          <li><b>局限一:蒙题基线</b>:四选一瞎蒙就有 <b>25% 保底分</b>。别小看这条线——早期小模型的成绩就长期徘徊在蒙题线附近,等于「考了等于白考」;所以看到榜单上的 40 分,先想想水分。</li>
+          <li><b>局限二:背题与饱和</b>:题目公开在互联网上,「背原题」(数据污染)会虚高;且新模型已普遍刷到 85% 以上,逼近天花板,<b>区分度下降</b>,行业随后推出加宽加难的 MMLU-Pro 应对。</li>
+        </ul>
+        <p><b>2. Big-Bench——任务多样性与泛化</b></p>
+        <ul>
+          <li><b>全称</b>:Beyond the Imitation Game Benchmark(名字致敬图灵的「模仿游戏」,<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2206.04615">论文</a>)。社区协作收集的 <b>204 个任务</b>,覆盖逻辑推理、常识、数学、编程、讽刺识别、因果判断等异构任务。题目风格举例:「三个杯子来回倒球,最后问哪个杯子里有球」(考状态追踪)、「从今天往前推 30 天是几月几号」(考日期推算)——都是人类靠常识+一步步推就能做、但非常规刷题路线的活。</li>
+          <li><b>衍生:BIG-Bench Hard(BBH)</b>(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.09261">论文</a>):从 204 个任务里挑出当时大模型表现<b>显著低于人类</b>的 <b>23 个「硬」任务</b>,专门测多步推理上限。BBH 论文还有个著名发现:让模型「一步步想再答」(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2201.11903">Chain-of-Thought 思维链</a>提示)能大幅提分——这也是为什么 BBH 后来成了推理能力的代名词级基准。</li>
+          <li><b>测什么</b>:模型在<b>没见过的任务</b>上的 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Few-shot_learning">零样本 / 少样本</a>泛化能力——不是把某类题刷熟,而是「举一反三」。</li>
+        </ul>
+        <p><b>3. HumanEval——代码生成的执行正确性</b></p>
+        <ul>
+          <li><b>内容</b>:OpenAI 手写的 <b>164 道 Python 题</b>(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2107.03374">论文</a>)。出题形式:给出函数签名 + docstring(比如「判断输入字符串是否是回文」),让模型补全函数体。</li>
+          <li><b>关键设计:用 pass@k 打分</b>——每个题让模型采样 k 个答案,<b>只要有一个跑通隐藏单元测试就算对</b>。这直接避免了旧式代码评分「逐 token 匹配参考答案」的缺陷:代码对不对,看运行结果,不看像不像范文。整个判卷流程,你完全可以理解成一条 CI 流水线:</li>
+        </ul>
+        <pre class="code">HumanEval 的判卷 = 一条 CI 流水线:
+ 题目(函数签名 + docstring) ──→ LLM 采样生成 n 份候选实现
+      ├─ 样本1 ──→ 跑隐藏单元测试 ──✗ 挂了
+      ├─ 样本2 ──→ 跑隐藏单元测试 ──✓ 全绿 ──→ 本题记「通过」
+      └─ 样本3 ──→ 跑隐藏单元测试 ──✗ 挂了
+ pass@k = 「抽 k 份,至少一份全绿」的概率(无偏估计公式: 1 - C(n-c,k)/C(n,k),n=采样数,c=通过数)
+ 哲学:不看代码像不像范文,只看单测过不过——备份不看日志说成功,恢复一次才算数</pre>
+        <ul>
+          <li><b>变体与后继</b>:HumanEval+ 加了更严苛的测试用例(堵「恰好过题但边界错」的口子);<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2108.07732">MBPP</a> 是另一套社区基础编程题;<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2403.07974">LiveCodeBench</a> 从 LeetCode 按时间窗口实时抓新题,专门对抗数据污染——题目太新,来不及泄给训练集。</li>
+        </ul>
+        <p><b>4. 补充:GSM8K——多步数学推理的标配</b></p>
+        <ul>
+          <li>表里还有个绕不开的 <b>GSM8K</b>(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2110.14168">论文</a>):约 8500 道小学数学应用题,考<b>多步推理</b>——判分只看最终数值对不对。它和 MMLU 里的数学选择题是两码事:选择题可以蒙,GSM8K 得自己把推理链一步步走完,一步错、全盘错,更像你写 runbook 时最怕的那种「十步操作错一步全炸」。</li>
+        </ul>
+        <table>
+          <tr><th>基准</th><th>任务形式</th><th>侧重点</th><th>判定方式</th><th>典型坑</th></tr>
+          <tr><td><b>MMLU</b></td><td>四选一(57 学科)</td><td>知识广度、常识</td><td>选项精确匹配</td><td>蒙题 25% 基线;公开可背</td></tr>
+          <tr><td><b>Big-Bench / BBH</b></td><td>异构任务 200+ / 23</td><td>任务泛化、多步推理</td><td>任务特定规则 / judge</td><td>任务五花八门,口径难统一</td></tr>
+          <tr><td><b>HumanEval</b></td><td>Python 补全 164 题</td><td>代码正确性</td><td>pass@k + 单测</td><td>题量小、偏基础,区分顶尖模型乏力</td></tr>
+          <tr><td><b>GSM8K</b>(补充)</td><td>小学数学应用题</td><td>多步数学推理</td><td>最终数值答案</td><td>同样公开可背;新模型已逼近满分</td></tr>
+        </table>
+        <p><b>5. 必答的「坑」:数据污染与榜单饱和</b></p>
+        <ul>
+          <li><b>污染</b>:训练语料里混入了基准原题,模型「见过原题」分数就会虚高。这事几乎不可避免:基准 2020 年就公开发布在互联网上,而预训练语料是「整个互联网爬一遍」——等于考前把原卷印在了课本里:</li>
+        </ul>
+        <pre class="code">数据污染是怎么发生的(时间线):
+ 2020-09  MMLU 论文+题库公开上网
+    │
+ 2021~22  爬虫把题库收进训练语料(预训练语料基本是全互联网爬取)
+    │
+ 2023     预训练:模型把原题连同正确答案一起"背"进参数
+    │
+ 考试日    模型看到原题 → 不是在推理,是在复读 → 分数虚高
+ 对策: 基准发布日之后的数据不进训练 / n-gram 查重去污染 / 实时新题源(LiveCodeBench)</pre>
+        <ul>
+          <li><b>去污染检测</b>:主要手段是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/N-gram">n-gram</a> 重叠检索——把基准题切块、算指纹、到训练语料里查重。<b>这个原理你应该秒懂:就是备份系统里的重复数据删除</b>——chunk 化 + 指纹匹配,只是这次查的是「题库有没有混进语料」。再加动态 / 私密测试集(定期换新题)、LiveCodeBench 实时题源兜底。</li>
+          <li><b>刷分与 Goodhart 定律</b>:「一个指标一旦成为目标,它就不再是好指标」(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Goodhart%27s_law">Goodhart's Law</a>)。像备份成功率常年 100% 的报表其实什么都没告诉你——大家都开始冲某个 KPI 的那一刻,这个 KPI 就死了。所以<b>榜单饱和</b>(主流基准分数趋近天花板、区分度下降)是必然结果,行业只能不断推出更难的基准(BBH、MMLU-Pro、以及各类 Agent 基准),这也解释了为什么评估这个领域要「追新」。<b>面试里能主动说出「榜单分数要打污染折扣看」,基本就赢了只会背数字的竞争者。</b></li>
+        </ul>
+      </div>
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>MMLU</b>:57 学科四选一,测知识广度的主流基准。</div>
-      <div class="term-item"><b>Big-Bench</b>:204 个异构任务,测泛化与多步推理。</div>
-      <div class="term-item"><b>HumanEval</b>:164 道 Python 题,跑单测判对错。</div>
-      <div class="term-item"><b>pass@k</b>:采样 k 次至少一次通过即算对的指标。</div>
-      <div class="term-item"><b>Contamination</b>:训练语料泄漏基准题目导致分数虚高。</div>
-    </div>
-  </div>
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:pass@1 和 pass@10 有什么区别,报告时用哪个？</summary><div class="an"><b>人话:</b>两个口径考的是两件事——「一次就写对」和「给足机会能不能解出来」,报告时必须统一口径,否则就是拿不同的尺子量不同的人。<b>类比:</b>像容灾切换成功率:SLA 承诺的是「一次切换成功」,而「允许重试三次内成功」是另一档指标——拿后者去写对外承诺,就是糊弄。<b>技术:</b>pass@k = 每题采样 k 份、至少一份跑通单测即算对;pass@1 是平均单次成功率,生产里用户直接拿第一版答案,最贴近真实体验;pass@10 高说明正确解存在于模型的采样分布里,配合 best-of-n 选优、verifier 打分或自修复循环能「榨」出来,对应代码 agent 的多候选场景。跨模型对比必须同 k、同温度、同提示词。</div></details>
+        <details class="qa"><summary class="qu">Q:怎么判断一个基准分数是不是被数据污染了？</summary><div class="an"><b>人话:</b>核心思路是「防背题」:把题面换个说法、意思不变再考一次——背题的考生立刻露馅;同时拿题库去训练语料里做查重。<b>类比:</b>查重跟你做重复数据删除一个原理——切块、算指纹、全库匹配;而「同义改写再考」像把备份恢复到另一个路径下验证——环境变一变,数据还能对上才算真的能恢复。<b>技术:</b>① n-gram 重叠检索,题目在训练集里被命中即高度疑似污染;② 变体测试:对题目做同义改写 / 翻译回译,分数骤降说明背的是字面;③ 时间切割:基准发布日之后的数据不进训练;④ 行为信号:模型对见过的题异常自信、能逐字复述题干。对策是动态 / 私密测试集 + LiveCodeBench 这类实时新题源。</div></details>
+        <details class="qa"><summary class="qu">Q:这些通用基准够不够用,还要看什么？</summary><div class="an"><b>人话:</b>不够。通用基准是「体检」不是「专科诊断」——能横向排模型名次,回答不了「它在我的业务上行不行」。<b>类比:</b>TPC-C 跑分再漂亮,你上生产前照样要在自己业务负载上做 PO 和压测;选模型同理——通用基准筛一遍,自建评测做最终验收。<b>技术:</b>落地必须补自有评测集:从真实用户 query 采样、覆盖高频和边缘 case,按业务指标人工打标或用 LLM-as-judge 辅助判分,建立基线并随版本持续回归。通用基准盯「模型底子有没有退化」,自建集盯「我的场景行不行」,两者互补缺一不可;自建集同样要防被训练团队「看过」,保持私密。</div></details>
+        <details class="qa"><summary class="qu">Q:现在都在做 Agent 了,这些「考卷型」老基准还有意义吗？</summary><div class="an"><b>人话:</b>有——知识、推理、代码这些单步能力是 Agent 的地基,地基不行,任务编排做得再花哨也是空中楼阁;但只答老三样会显得知识停在 2022 年。<b>类比:</b>还是存储选型:先看标准跑分筛底子,再看能不能扛你的实际业务;Agent 选型先看 BBH / GSM8K / 代码这些单步项,再看端到端任务完成率——顺序不能反,但两步都得走。<b>技术:</b>评测重心确实在向 Agent 任务迁移:比如 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2310.06770">SWE-bench</a>(拿真实 GitHub issue 让模型提 PR,按单测通过判分)、AgentBench / GAIA 这类多步工具调用评测;评分维度也从「一道题对错」变成「任务完成率、所需步数、工具调用成本」多指标。回答时先稳答经典三件套,再补一句「选型我还会看 Agent 基准 + 自建评测」,区分度立刻出来。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2009.03300">MMLU</a></b>:57 学科约 1.6 万道四选一,测知识广度的行业事实标准;瞎蒙也有 25 分保底。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2206.04615">Big-Bench</a></b>:204 个异构任务的「全能比武」,专测模型在没见过的任务上能不能举一反三。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.09261">BBH</a></b>:从 Big-Bench 里挑出 23 个大模型集体考砸的硬任务,测多步推理上限。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2107.03374">HumanEval</a></b>:164 道 Python 补全题,不看代码像不像范文,只看隐藏单元测试跑不跑得通。</div>
+          <div class="term-item"><b>pass@k</b>:每题采样 k 份、至少一份跑通单测即算对的代码指标;k=1 才是生产口径。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2110.14168">GSM8K</a></b>:约 8500 道小学数学应用题,按最终数值判分,考多步推理链。</div>
+          <div class="term-item"><b>数据污染</b>:训练语料混入基准原题导致分数虚高——像考前泄题;靠 n-gram 查重和时间切割防。</div>
+        </div>
+      </div>
 </article>

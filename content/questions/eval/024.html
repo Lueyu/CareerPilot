@@ -1,24 +1,27 @@
 <article class="q" id="eval-024" data-topic="eval" data-title="设计评估方案衡量事实性幻觉推理安全能力" data-difficulty="3" data-tags="评估设计,能力评估" data-company="字节 / 阿里 / 腾讯（重要）" data-source="P7Q4" data-kw="评估设计 能力评估 幻觉 事实性 FactScore TruthfulQA 推理 GSM8K PRM 安全性 红队 越狱 拒答">
 
-  <div class="q-no">评估讨论 · Q4</div>
-  <h3>如何设计一个评估方案来衡量 LLM 的特定能力，比如"事实性/幻觉水平"、"推理能力"或"安全性"？</h3>
-  <div class="q-meta">
-    <span class="stars">⭐⭐⭐</span>
-    <span class="tag">#评估设计</span><span class="tag">#能力评估</span>
-    <span class="company">字节 / 阿里 / 腾讯（重要）</span>
-  </div>
+      <div class="q-no">评估讨论 · Q4</div>
+      <h3>如何设计一个评估方案来衡量 LLM 的特定能力，比如"事实性/幻觉水平"、"推理能力"或"安全性"？</h3>
+      <div class="q-meta">
+        <span class="stars">⭐⭐⭐</span>
+        <span class="tag">#评估设计</span><span class="tag">#能力评估</span>
+        <span class="company">字节 / 阿里 / 腾讯（重要）</span>
+      </div>
 
-  <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"评估特定能力我套一个四步框架:<b>定义能力 → 造数据集 → 定指标 → 人工校准</b>。以三个为例:<b>事实性/幻觉</b>用 TruthfulQA 测抗诱答、用 <b>FactScore</b> 把答案拆成原子事实逐条对照权威来源核查;<b>推理能力</b>用 GSM8K/MATH 做多步数学,再看<b>过程监督</b>(中间步骤对不对,而不只看最终答案);<b>安全性</b>用<b>红队数据集</b>(越狱、诱导、有害内容)+ 拒答合理率 + 有害输出分类器,人机双评。关键原则:能程序化验证的绝不靠模型主观打分,且每个指标都要和人工打分做一致性锚定。"</p>
-  </div>
+      <div class="note"><b>先说人话:</b>这题在问:给你一个模型,怎么设计一套可信的"考试",分别量化它会不会胡说(幻觉)、会不会真推理(还是蒙的)、会不会被带坏(安全)。大厂爱考,因为评估是一切优化的地基——没有度量就没有优化。翻车点:只会背数据集名字,说不出指标怎么算、谁来判卷。</div>
 
-  <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>评估三种能力就像给 AI 做三类体检:<b>测幻觉</b>是"测谎"——让它回答一堆有诱导陷阱的问题,再把它说的每句话拆成最小事实,逐条查证对不对;<b>测推理</b>是"看解题过程"——不只对最后答案,还要看中间步骤是不是真的会推,防止蒙对;<b>测安全</b>是"压力测试 + 故意挑逗"——找一群"红队"变着法子诱导它越界,看它会不会拒绝、会不会说错话。</p>
-  </div>
+      <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
+        <p>"评估特定能力我套一个四步框架:<b>定义能力 → 造数据集 → 选评估器 → 人工校准</b>——先说清'什么算好',再造题,再定谁来判卷,最后拿人当金标准对齐。<b>事实性/幻觉</b>:用 TruthfulQA 测抗诱答,用 <b>FactScore</b> 把答案拆成原子事实逐条对照权威来源核查;<b>推理能力</b>:用 GSM8K/MATH 做多步数学,再看<b>过程监督</b>(中间步骤对不对,而不只看最终答案);<b>安全性</b>:红队数据集(越狱、诱导、有害内容)+ 拒答合理率 + 有害输出分类器,人机双评。关键原则:<b>能程序化验证的绝不靠模型主观打分</b>,且每个指标都要和人工打分做一致性锚定。"</p>
+      </div>
 
-  <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>0. 通用设计框架(先讲方法论)</b></p>
-    <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 610 122" role="img" aria-label="评估能力四步框架">
+      <div class="block ana"><span class="badge b-ana">通俗类比</span>
+        <p><b>先记总纲:设计评估方案 ≈ 排一套容灾演练方案</b>。你设计容灾演练的顺序是:先定"什么算演练成功"(RTO/RPO 达标,不是"没崩就算过"),再排演练场景(拔盘、断网、整机房失联,不能只挑最容易过的排),再定判定手段(探活脚本便宜快、专家复盘贵但准),演练完还要拿历史真实故障对账。四步全部对得上:定义能力=定达标线;构造数据集=排演练场景,场景必须有攻击性;选评估器=定判定手段,按成本分层;人工校准=拿真实故障对账,防止"演练分很高、真故障一来就崩"。<b>哪里像</b>:都遵循"先定义成功 → 再造场景 → 再定测量 → 最后对齐现实"。<b>哪里不像</b>:容灾的成败是客观事实,服务起来就是起来;LLM 评估里很多"答案好不好"连对错都要靠另一个模型或人来判——<b>你的尺子本身可能不准</b>,这是大模型评估独有的坑,所以第四步校准不是可选项,是生死线。</p>
+        <p><b>三项能力,各对上一个你熟的场景</b>。<b>测幻觉是数据校验</b>:只看备份作业"状态绿灯"就是只做整体打分——绿灯只说明跑完了,不说明数据没坏,必须逐文件 checksum;<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.14251">FactScore</a> 把答案拆成原子事实逐条核对,就是"逐块校验",能定位坏点。而 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2109.07958">TruthfulQA</a> 这类题库像<b>故障注入</b>(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Chaos_engineering">chaos engineering</a>):专挑"人类常踩的坑"设陷阱,看系统会不会照摔。<b>测推理是恢复演练看过程日志</b>:服务最终起来了 ≠ 过程没问题,"答案对但过程错"就是"这次恢复了、但走的是错误路径"——运气不是能力,同样的故障再来一次可能就挂,所以要逐步骤审计。<b>测安全是渗透测试</b>:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Red_team">红队</a>就是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Penetration_test">pentest</a> 的攻击组,变着法绕权限;"拒答合理率"的本质是告警的漏报/误报平衡:把拦截率刷到 100% 很容易(什么请求都拒),但误报风暴会把正常用户全赶跑——就像告警阈值拉到最灵敏,最后大家只会把你的告警静音。</p>
+      </div>
+
+      <div class="block det"><span class="badge b-det">详细拆解</span>
+        <p><b>0. 通用设计框架(先讲方法论)</b></p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 610 122" role="img" aria-label="评估能力四步框架">
   <rect class="sd-layer" x="6" y="16" width="598" height="90"/>
   <text class="sd-l" x="18" y="33">四步评估框架：定义 → 造数据 → 选评估器 → 校准</text>
   <rect class="sd-box" x="16" y="44" width="132" height="60" rx="10"/>
@@ -37,52 +40,94 @@
   <text class="sd-t" x="520" y="70" text-anchor="middle">校准上线</text>
   <text class="sd-ts" x="520" y="88" text-anchor="middle">人机一致 · 基线阈值</text>
 </svg></div>
-    <p><b>1. 事实性 / 幻觉水平</b></p>
-    <ul>
-      <li><b>数据集</b>:<b>TruthfulQA</b>(817 道带"人类易错陷阱"的问题,专门诱发模型说错);<b>HaluEval</b> 等幻觉评测集;也可以从业务知识库自建"已知答案"的问答对。</li>
-      <li><b>指标</b>:<b>FactScore</b>——把生成答案用 NER + 关系抽取拆成多条"原子事实"(atomic facts),逐条拿来源文本/维基百科做蕴含判断,算"支持的事实占比"。这是目前衡量幻觉最严谨的自动方法之一。</li>
-      <li><b>辅助</b>:RAG 场景再加"引用忠实度"(答案里的引用是否真实存在于检索结果),用 NLI(自然语言推理)模型判"支持/矛盾/无关"。</li>
-    </ul>
-    <p><b>2. 推理能力</b></p>
-    <ul>
-      <li><b>数据集</b>:<b>GSM8K</b>(小学应用题,多步算术)、<b>MATH</b>(竞赛级,分 5 档难度)、ARC(科学常识推理)、BBH(综合多步)。</li>
-      <li><b>指标</b>:最终答案匹配率(EM),但更要看<b>过程正确率</b>——用<b>过程监督(Process Reward Model, PRM)</b>给每一步推理打分,区分"蒙对答案"和"真会推"。</li>
-      <li><b>加分点</b>:按"答案对 & 过程对 / 答案对 & 过程错 / 都错"三维统计,而不是一个数糊过去。</li>
-    </ul>
-    <p><b>3. 安全性</b></p>
-    <ul>
-      <li><b>数据集</b>:红队构造的<b>越狱提示集</b>(角色扮演、编码绕过、多语言诱导)、有害请求集(暴力/仇恨/隐私/危险操作)。</li>
-      <li><b>指标</b>:① <b>拒答合理率</b>——该拒的拒了、不该拒的(正常问题)别误伤;② <b>有害输出率</b>——用内容安全分类器 + 人工抽检;③ <b>越狱成功率</b>(攻防对抗)。</li>
-      <li><b>动态红队</b>:用另一个 LLM 自动生成攻击 prompt,或人工专家持续补充新绕过手法,防止"打一次就免疫"。</li>
-    </ul>
-    <table>
-      <tr><th>能力</th><th>代表数据集</th><th>核心指标</th><th>评估器</th></tr>
-      <tr><td><b>事实性/幻觉</b></td><td>TruthfulQA、HaluEval</td><td>FactScore、忠实度</td><td>外部知识 + NLI</td></tr>
-      <tr><td><b>推理</b></td><td>GSM8K、MATH、ARC</td><td>答案 EM + 过程正确率</td><td>程序化验算 + PRM</td></tr>
-      <tr><td><b>安全</b></td><td>红队集、越狱集</td><td>拒答合理率、有害率</td><td>分类器 + 人工</td></tr>
-    </table>
-    <p><b>4. 三条通用纪律</b></p>
-    <ul>
-      <li><b>指标要和人工锚定</b>:任何自动指标,先抽样本看它和人类判断的一致率,不过关就调。</li>
-      <li><b>防数据污染</b>:测试集不进训练、定期换新、做去污染检查。</li>
-      <li><b>分层 + 版本化</b>:核心集每次发版必跑,分数可复现、可回归。</li>
-    </ul>
-  </div>
+        <p>这张图是骨架,四步各展开一层:</p>
+        <ul>
+          <li><b>第一步,定义能力:把形容词翻译成可判定指标</b>。"模型要更真实"没法执行,"答案中每条原子事实被权威来源支持的比例"才能打分——和容灾演练先定 RTO/RPO 达标线是同一个动作。三项能力的可判定定义:事实性 = 支持占比;推理 = 答案与过程的双正确率;安全 = 该拒的拒(漏报低)+ 不该拒的不误伤(误报低)。</li>
+          <li><b>第二步,构造数据集:场景要有攻击性,样本要成对</b>。事实性集里既有常规问题也有诱答陷阱;安全集里攻击请求(该拒)必须配正常请求(不该误伤)——只放攻击样本,永远测不出误伤率。分层覆盖简单/对抗/长尾,别光挑最容易过的场景,就像容灾只演练"计划内断电",真故障来了必挂。</li>
+          <li><b>第三步,选评估器:成本换可信度的阶梯,能低勿高</b>(阶梯图见下)。</li>
+          <li><b>第四步,校准上线:拿人当金标准对账</b>。所有自动指标先抽样和人工判断算一致率(可用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Cohen%27s_kappa">Cohen's kappa</a> 这类一致度统计),不过线就修评估器;再定基线(上一版模型的分数)和准入阈值,之后每次改动跑回归——评估集就是模型的测试套件。</li>
+        </ul>
+        <pre class="code">评估器阶梯(成本从低到高;能停在低层就别上高层):
 
-  <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:FactScore 具体怎么算,为什么比整体打分好？</summary><div class="an">流程:① 把答案拆成若干<b>原子事实</b>(每个都是可独立判断真假的短句);② 对每条原子事实,用检索到的权威来源做<b>蕴含判断</b>(支持/矛盾/无关);③ 得分 = 被"支持"的原子事实占比。它比整体打分好在<b>细粒度、可定位</b>:能告诉你答案里哪一句话是编的,而不是笼统一个"幻觉率",还便于回归到具体 bad case 去修。</div></details>
-    <details class="qa"><summary class="qu">Q:推理题"答案对但过程错"要不要扣分,怎么判？</summary><div class="an">要区分统计,不能一个 EM 掩盖问题。判法:用<b>过程监督模型(PRM)</b>给每一步打分,或人工核对关键步骤。<b>答案对过程错</b>说明模型可能蒙的或推理不稳健,在需要可信推理的场景(金融、医疗)必须当错处理;在只看结果的应用里可单独放宽。面试说"我分开统计两类错误"就很专业。</div></details>
-    <details class="qa"><summary class="qu">Q:安全评估的"越狱样本"从哪来,怎么持续更新？</summary><div class="an">三个来源:① 公开红队数据集(如已有的越狱库);② <b>自动化红队</b>——用另一个 LLM 按策略批量生成攻击 prompt;③ 线上真实攻击日志 + 人工专家补充。<b>持续更新</b>的关键是闭环:每次模型更新后重新跑红队,把"新成功的绕过"回流进测试集,形成攻防共同进化。</div></details>
-  </div>
+  L1 规则/程序化验算   数学答案字符串比对、代码题直接跑单测    ← 零偏见、可复现
+  L2 外部工具比对       检索 + NLI 判蕴含、安全分类器、编译器验证
+  L3 LLM-as-judge      强模型当裁判,按固定 rubric 打分         ← 灵活但有偏见,须校准
+  L4 人工评估           标注团队/领域专家复审                   ← 金标准,贵,只抽样
 
-  <div class="block term"><span class="badge b-term">术语卡</span>
-    <div class="terms-grid">
-      <div class="term-item"><b>FactScore</b>:拆原子事实逐条核对的幻觉量化方法。</div>
-      <div class="term-item"><b>TruthfulQA</b>:带人类易错陷阱、专门诱发错误的事实性基准。</div>
-      <div class="term-item"><b>PRM</b>:过程奖励模型,给推理每一步打分。</div>
-      <div class="term-item"><b>Red team</b>:以攻击者视角诱导模型出错的测试。</div>
-      <div class="term-item"><b>越狱</b>:绕过安全对齐让模型输出有害内容。</div>
-      <div class="term-item"><b>NLI</b>:自然语言推理,判断两句话支持/矛盾/无关。</div>
-    </div>
-  </div>
+  铁律:L1 能覆盖的绝不用 L3;任何 L3 上线前,必须拿 L4 抽样对齐一致率。</pre>
+        <p><b>1. 事实性 / 幻觉水平</b></p>
+        <p><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)">幻觉</a>指模型一本正经地输出与事实不符的内容。测幻觉要回答两个问题:① 它会不会<b>顺着人类常见误解说错话</b>(抗诱答);② 长篇大论里<b>有多少比例是编的</b>(事实精度)。前者靠对抗题库,后者靠逐条核对。</p>
+        <ul>
+          <li><b>数据集</b>:<b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2109.07958">TruthfulQA</a></b>(817 道带"人类易错陷阱"的问题——比如"感冒了吃抗生素好得快"这类流传很广的错误常识,专门诱发模型复述误解);<a target="_blank" rel="noopener" href="https://github.com/RUCAIBox/HaluEval">HaluEval</a> 等幻觉评测集;也可以从业务知识库自建"已知答案"的问答对——对内部产品最实用,每条答案都可查证。</li>
+          <li><b>指标</b>:<b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.14251">FactScore</a></b>——把生成答案用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Named-entity_recognition">NER</a> + 关系抽取拆成多条"原子事实"(atomic facts),逐条拿来源文本/维基百科做蕴含判断,算"支持的事实占比"。这是目前衡量幻觉最严谨的自动方法之一。流水线:</li>
+          <li><b>辅助</b>:RAG 场景再加"引用忠实度"(答案里的引用是否真实存在于检索结果),用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Natural_language_inference">NLI</a>(自然语言推理)模型判"支持/矛盾/无关"——它核查的是"忠于检索结果",和"符合世界事实"互补。</li>
+        </ul>
+        <pre class="code">FactScore 流水线(把"整体像不像真的"变成"每一句查没查"):
+
+  原答案:"特斯拉 1856 年出生于奥地利帝国的斯米尔扬,1943 年在纽约去世,
+          曾获得诺贝尔物理学奖。"
+   ↓ 第 1 步 拆原子事实(NER + 关系抽取,每条可独立判真假)
+     f1: 特斯拉 1856 年出生     f2: 出生地是斯米尔扬
+     f3: 1943 年在纽约去世      f4: 获得过诺贝尔物理学奖
+   ↓ 第 2 步 逐条对照权威来源(检索 + NLI 蕴含判断)
+     f1 支持 ✓   f2 支持 ✓   f3 支持 ✓   f4 矛盾 ✗(他从未获过诺奖)
+   ↓ 第 3 步 汇总
+  FactScore = 被支持条数 / 总条数 = 3/4
+
+  对比整体打分:只能得出"幻觉率有点高"的印象;
+  FactScore 直接点名 f4 在编 —— bad case 可定位、可回归、可修复。</pre>
+        <p><b>2. 推理能力</b></p>
+        <ul>
+          <li><b>数据集</b>:<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2110.14168">GSM8K</a>(小学应用题,多步算术)、<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2103.03874">MATH</a>(竞赛级,分 5 档难度)、<a target="_blank" rel="noopener" href="https://allenai.org/data/arc">ARC</a>(科学常识推理)、<a target="_blank" rel="noopener" href="https://github.com/suzgunmirac/BIG-Bench-Hard">BBH</a>(综合多步)。</li>
+          <li><b>指标</b>:最终答案匹配率(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/1606.05250">EM</a>,只比对最终答案字符串,SQuAD 时代传下来的老指标),但更要看<b>过程正确率</b>——用<b>过程监督(Process Reward Model, PRM)</b>(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.20050">Let's Verify Step by Step</a>)给每一步推理打分,区分"蒙对答案"和"真会推"。</li>
+          <li><b>加分点</b>:按"答案对 &amp; 过程对 / 答案对 &amp; 过程错 / 都错"三维统计,而不是一个数糊过去。展开成二维对账:</li>
+        </ul>
+        <pre class="code">答案 × 过程 二维对账(EM 只统计行,不区分列):
+
+                 过程正确               过程错误
+   答案正确     真会(理想区)           蒙对(碰运气,下次未必)
+   答案错误     会推但最后算错(粗心)    真不会(要针对性补数据)
+
+   EM = (真会 + 蒙对) / 全部 —— "蒙对"被计成了能力;
+   PRM 就是专门把"蒙对"这一格从 EM 里拆出来的工具。</pre>
+        <p><b>3. 安全性</b></p>
+        <ul>
+          <li><b>数据集</b>:红队构造的<b>越狱提示集</b>(角色扮演、编码绕过、多语言诱导——手法近亲可参考 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Prompt_injection">提示注入</a>)、有害请求集(暴力/仇恨/隐私/危险操作)。注意正负成对:攻击请求(该拒)旁边必须配正常请求(不该误伤),否则只测得出拦截、测不出误伤。</li>
+          <li><b>指标</b>:① <b>拒答合理率</b>——该拒的拒了、不该拒的(正常问题)别误伤,本质是漏报/误报两条曲线,和调告警系统阈值一个道理:只盯拦截率,全拒答就"满分"了,但误伤会赶跑正常用户;② <b>有害输出率</b>——用内容安全分类器 + 人工抽检;③ <b>越狱成功率</b>(攻防对抗)。进阶做法:按攻击手法分组统计(角色扮演组成功率 5%、编码绕过组 40%),定位最薄弱的防线再专项加固。</li>
+          <li><b>动态红队</b>:用另一个 LLM 自动生成攻击 prompt,或人工专家持续补充新绕过手法,防止"打一次就免疫"——安全评估是持续对抗,不是一次性验收。</li>
+        </ul>
+        <table>
+          <tr><th>能力</th><th>代表数据集</th><th>核心指标</th><th>评估器</th></tr>
+          <tr><td><b>事实性/幻觉</b></td><td>TruthfulQA、HaluEval</td><td>FactScore、忠实度</td><td>外部知识 + NLI</td></tr>
+          <tr><td><b>推理</b></td><td>GSM8K、MATH、ARC</td><td>答案 EM + 过程正确率</td><td>程序化验算 + PRM</td></tr>
+          <tr><td><b>安全</b></td><td>红队集、越狱集</td><td>拒答合理率、有害率</td><td>分类器 + 人工</td></tr>
+        </table>
+        <p>这张表是速查卡:面试时能对每个能力脱口说出"数据集—指标—评估器"三件套,这题就及格;真正拉开差距的是下面三条纪律。</p>
+        <p><b>4. 三条通用纪律</b></p>
+        <ul>
+          <li><b>指标要和人工锚定</b>:任何自动指标,先抽样本看它和人类判断的一致率,不过关就调——和给备份系统上新的告警规则之前,先拿老师傅的故障复盘对账,是同一个职业习惯。</li>
+          <li><b>防数据污染</b>:测试集不进训练、定期换新、做去污染检查。测试题混进复习资料,分数再高也是<b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Leakage_(machine_learning)">数据泄漏</a></b>(leakage),不代表真实能力——这是"评测分数很高、线上口碑很差"的头号嫌疑人。GSM8K 这类 2021 年就公开的老基准,大概率已被训练语料"背过",所以要有换新机制或自建私有集。</li>
+          <li><b>分层 + 版本化</b>:核心集每次发版必跑,分数可复现、可回归——把模型当代码管、把评估集当测试套件管,nightly 回归的纪律原样搬过来。</li>
+        </ul>
+      </div>
+
+      <div class="block fol"><span class="badge b-fol">面试官追问</span>
+        <details class="qa"><summary class="qu">Q:FactScore 具体怎么算,为什么比整体打分好？</summary><div class="an"><b>人话:</b>先把长答案拆成一条条能独立查证的小事实,再逐条对照权威来源判真假,最后算"说对的比例"。<b>类比:</b>备份验证不能只看作业状态灯——绿灯只说明跑完了,不说明数据没坏;逐文件过 checksum 才能定位哪个文件坏了。整体打分只能告诉你"这答案有幻觉",FactScore 能圈出"哪一句在编"。<b>技术:</b>① NER + 关系抽取把答案拆成原子事实;② 每条拿检索到的权威来源做 NLI 蕴含判断(支持/矛盾/无关);③ 得分 = 被支持占比。细粒度带来可定位:bad case 直接落到句子级,回归修复才有抓手,这就是它比笼统幻觉率强的地方。</div></details>
+        <details class="qa"><summary class="qu">Q:推理题"答案对但过程错"要不要扣分,怎么判？</summary><div class="an"><b>人话:</b>要分开统计,不能让最终答案正确率把过程漏洞糊过去。<b>类比:</b>像演练里服务恢复了、翻日志却发现走了错误路径(比如副本没追平就切换)——这次是运气,同样的故障再来一次未必挺得住;"结果对过程错"等于根因没修,和"这次请求成功了"不代表"bug 不存在"是同一个道理。<b>技术:</b>用过程监督模型(PRM)给每一步打分,或人工核对关键步骤,做"答案×过程"二维对账。金融、医疗这类要可信推理的场景,"答案对但过程错"当错处理;只看结果的应用可单独放宽。面试说"我分开统计这两类错误"就是过线信号。</div></details>
+        <details class="qa"><summary class="qu">Q:安全评估的"越狱样本"从哪来,怎么持续更新？</summary><div class="an"><b>人话:</b>三个来源:公开红队库打底、让另一个 LLM 批量造攻击、加上线上真实攻击日志回流——关键是让新攻破的样本持续进测试集。<b>类比:</b>就是渗透测试的玩法:pentest 做一次只代表"截至今日安全",攻击手法天天在变,得像安全团队收漏洞情报一样持续补样本,不能指望一次性验收管一年。<b>技术:</b>① 公开越狱/红队数据集;② 自动化红队——让另一个 LLM 按策略(角色扮演、编码混淆、多语言)批量生成攻击 prompt;③ 线上拦截日志 + 人工专家补充新手法。每次模型更新后重跑,把新成功的绕过回流进集,形成攻防共同进化的闭环。</div></details>
+        <details class="qa"><summary class="qu">Q:直接让 GPT-4 这类强模型当裁判打分(LLM-as-judge),靠谱吗？</summary><div class="an"><b>人话:</b>能用,但它是"快而糙"档的评估器,裸用会引入系统性偏见,必须先校准才能上岗。<b>类比:</b>像让一位资深工程师代替评审委员会做 code review——效率高,但他有自己的口味:偏爱写得长的、写得像自己风格的,时间一长分数反映的是"他的偏好"而不是"代码质量"。<b>技术:</b>已知偏见有位置偏见(先出现的答案占优)、长度偏见(长=好)、自我偏好(偏心同家族模型)。缓解:成对比较时正反序各跑一遍取平均、rubric 固化成打分表、抽样和人工对齐一致率;一致率不达标,它就不能当唯一评估器,只能当初筛。</div></details>
+      </div>
+
+      <div class="block term"><span class="badge b-term">术语卡</span>
+        <div class="terms-grid">
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.14251">FactScore</a></b>:把答案拆成原子事实、逐条对照权威来源算支持占比的幻觉量化方法——比整体打分细,能定位"哪句在编"。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2109.07958">TruthfulQA</a></b>:817 道专拿"人类常见误解"当陷阱的事实性基准,考模型会不会顺着大众错误说。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.20050">PRM</a></b>(过程奖励模型):不只看最终答案,给推理每一步打分,专治"蒙对"。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Red_team">Red team</a>(红队)</b>:以攻击者视角想方设法让系统出错的测试方法,大模型安全评估的标准配置。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Prompt_injection">越狱</a></b>:绕过安全对齐、诱导模型输出有害内容的手法,角色扮演、编码混淆都是常见姿势。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Natural_language_inference">NLI</a></b>:自然语言推理,判断两句文本是支持、矛盾还是无关——自动事实核查的核心零件。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">LLM-as-judge</a></b>:用强模型给模型输出打分,便宜灵活但有位置/长度偏见,须先与人工对齐才能用。</div>
+          <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Leakage_(machine_learning)">数据污染</a></b>:测试数据混进训练数据,"考题进了复习资料",分数虚高——评估结果作废的头号元凶。</div>
+        </div>
+      </div>
 </article>
