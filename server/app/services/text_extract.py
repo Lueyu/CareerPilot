@@ -1,0 +1,163 @@
+"""上传文件 → 纯文本。
+
+面经可能是 PDF / DOCX / Markdown / 纯文本 / 图片。这里只做"取出文字"这件事，
+不做题目提取(那是 bank._extract_questions 的职责)。
+
+设计原则(与 PRD 一致): 任何解析失败都返回结构化错误, 不抛异常打断整个导入;
+调用方把所有文件的结果汇总后展示给用户, 成功的部分继续走流水线。
+"""
+from __future__ import annotations
+
+import io
+import re
+from dataclasses import dataclass, field
+
+# 单文件最大 12MB / 总文本 60k 字符, 防止一次导入撑爆上下文
+MAX_FILE_BYTES = 12 * 1024 * 1024
+MAX_TEXT_CHARS = 60_000
+
+TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".text", ".csv", ".json", ".log", ".html", ".htm"}
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".heic"}
+
+
+@dataclass
+class ExtractedFile:
+    name: str
+    suffix: str
+    ok: bool
+    chars: int = 0
+    text: str = ""
+    error: str = ""
+    warning: str = ""
+
+    def as_meta(self) -> dict:
+        return {
+            "name": self.name,
+            "suffix": self.suffix,
+            "ok": self.ok,
+            "chars": self.chars,
+            "error": self.error,
+            "warning": self.warning,
+        }
+
+
+@dataclass
+class ExtractResult:
+    files: list[ExtractedFile] = field(default_factory=list)
+
+    @property
+    def text(self) -> str:
+        joined = "\n\n".join(f.text for f in self.files if f.ok and f.text.strip())
+        return joined[:MAX_TEXT_CHARS]
+
+    @property
+    def ok_files(self) -> list[ExtractedFile]:
+        return [f for f in self.files if f.ok]
+
+
+def _decode(raw: bytes) -> str:
+    for enc in ("utf-8-sig", "utf-8", "gb18030", "big5", "latin-1"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
+def _clean(text: str) -> str:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{4,}", "\n\n\n", text)
+    return text.strip()
+
+
+def _from_pdf(raw: bytes) -> tuple[str, str]:
+    try:
+        from pypdf import PdfReader
+    except ImportError:  # pragma: no cover - 依赖缺失时给出可操作提示
+        raise RuntimeError("服务端未安装 pypdf, 无法解析 PDF（pip install pypdf）")
+    reader = PdfReader(io.BytesIO(raw))
+    pages = []
+    for page in reader.pages:
+        try:
+            pages.append(page.extract_text() or "")
+        except Exception:
+            pages.append("")
+    text = _clean("\n".join(pages))
+    if not text:
+        raise RuntimeError("PDF 中没有可提取的文字（可能是扫描件/图片版），请改用文本粘贴或截图识别")
+    warning = ""
+    if len(reader.pages) > 30:
+        warning = f"文档共 {len(reader.pages)} 页，仅解析前 30 页以外的内容也会一并提取，请留意长度"
+    return text, warning
+
+
+def _from_docx(raw: bytes) -> tuple[str, str]:
+    try:
+        import docx  # python-docx
+    except ImportError:  # pragma: no cover
+        raise RuntimeError("服务端未安装 python-docx, 无法解析 DOCX（pip install python-docx）")
+    document = docx.Document(io.BytesIO(raw))
+    parts: list[str] = [p.text for p in document.paragraphs if p.text.strip()]
+    for table in document.tables:
+        for row in table.rows:
+            cells = [c.text.strip() for c in row.cells if c.text.strip()]
+            if cells:
+                parts.append(" | ".join(cells))
+    text = _clean("\n".join(parts))
+    if not text:
+        raise RuntimeError("DOCX 中没有可提取的文字")
+    return text, ""
+
+
+def extract_one(name: str, raw: bytes) -> ExtractedFile:
+    """解析单个文件; 永远返回 ExtractedFile, 不抛异常。"""
+    lower = name.lower()
+    suffix = "." + lower.rsplit(".", 1)[-1] if "." in lower else ""
+    item = ExtractedFile(name=name, suffix=suffix, ok=False)
+
+    if len(raw) > MAX_FILE_BYTES:
+        item.error = f"文件超过 {MAX_FILE_BYTES // 1024 // 1024}MB 上限"
+        return item
+    if not raw:
+        item.error = "空文件"
+        return item
+
+    try:
+        if suffix == ".pdf":
+            text, warning = _from_pdf(raw)
+        elif suffix == ".docx":
+            text, warning = _from_docx(raw)
+        elif suffix == ".doc":
+            item.error = "旧版 .doc 暂不支持，请另存为 .docx 或粘贴文本"
+            return item
+        elif suffix in TEXT_SUFFIXES or not suffix:
+            text, warning = _clean(_decode(raw)), ""
+        elif suffix in IMAGE_SUFFIXES:
+            item.error = "图片需要视觉/OCR 模型，当前未启用；请把图片里的文字粘贴到下方文本框"
+            return item
+        else:
+            item.error = f"不支持的文件类型 {suffix or '未知'}（支持 PDF / DOCX / Markdown / TXT）"
+            return item
+    except RuntimeError as exc:
+        item.error = str(exc)
+        return item
+    except Exception as exc:  # 解析库的各种奇怪报错: 统一收敛
+        item.error = f"解析失败: {type(exc).__name__}: {exc}"
+        return item
+
+    if not text:
+        item.error = "没有提取到文字内容"
+        return item
+    item.ok = True
+    item.text = text[:MAX_TEXT_CHARS]
+    item.chars = len(text)
+    item.warning = warning
+    return item
+
+
+def extract_many(items: list[tuple[str, bytes]]) -> ExtractResult:
+    result = ExtractResult()
+    for name, raw in items:
+        result.files.append(extract_one(name, raw))
+    return result

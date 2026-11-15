@@ -34,10 +34,29 @@ async function req<T = any>(method: string, path: string, body?: unknown): Promi
   return res.json() as Promise<T>;
 }
 
+/** multipart 上传(文件): 不设 Content-Type, 交给浏览器带 boundary。 */
+async function reqForm<T = any>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { 'X-Api-Token': TOKEN, 'X-Workspace': WS },
+    body: form,
+  });
+  if (!res.ok) {
+    let detail = `${res.status}`;
+    try {
+      const j = await res.json();
+      detail = j.detail || JSON.stringify(j).slice(0, 200);
+    } catch { /* ignore */ }
+    throw new ApiError(res.status, detail);
+  }
+  return res.json() as Promise<T>;
+}
+
 export const api = {
   get: <T = any>(path: string) => req<T>('GET', path),
   post: <T = any>(path: string, body?: unknown) => req<T>('POST', path, body ?? {}),
   del: <T = any>(path: string) => req<T>('DELETE', path),
+  upload: <T = any>(path: string, form: FormData) => reqForm<T>(path, form),
 };
 
 // ---------- 类型(与后端响应对应, 仅声明用到字段) ----------
@@ -174,12 +193,26 @@ export interface TracesData {
   }[];
 }
 
+export interface ImportFileMeta {
+  name: string; suffix: string; ok: boolean; chars: number; error?: string; warning?: string;
+}
+
 export interface ImportReview {
-  id: number; short_code: string; status: string; meta?: any;
+  id: number; short_code: string; status: string;
+  meta?: { source?: string; chars?: number; files?: ImportFileMeta[]; company?: string | null; level?: string | null };
   items: {
     id: number; title: string; extract_confidence: number; suggested_skill_key: string;
     draft_answer?: string | null; draft_rubric?: any; is_duplicate_of?: number | null; status: string;
+    has_answer?: boolean; answer_source?: string | null;
   }[];
+}
+
+export interface QuestionDetail {
+  id: number; short_code: string; title: string; qtype: string; topic: string;
+  skill?: string | null; difficulty: number; options?: string[] | null;
+  answer_html?: string | null; rubric?: any;
+  company?: string | null; role?: string | null; level?: string | null;
+  occurred_on?: string | null; source_type: string; tags?: string[]; keywords?: string[];
 }
 
 // ---------- hooks ----------
