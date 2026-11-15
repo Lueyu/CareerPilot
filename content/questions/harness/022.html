@@ -8,63 +8,151 @@
     <span class="company">字节(真题)</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>用户在客服窗口敲一句话，Agent 得先决定“自己答还是调接口查”——这题问的就是这个岔路口怎么修。面试官爱考，因为一开口就分两种人：答“二选一站队”的只看过教程，真上线过的人张口就是分层、置信度、兜底。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"我用的<b>两层混合</b>,不是二选一:第一层<b>规则 + 轻量分类模型</b>做快速分流——高频意图(查订单、查物流)先用关键词和 BERT 级别小模型判断'要不要调 API',又快又便宜;第二层<b>LLM + 原生 function calling</b>做最终决策和参数抽取——小模型置信度低、或需要从一句话里抽多字段时,升级到 LLM,靠工具 Schema 约束输出工具名和参数;最后<b>兜底</b>:实在拿不准就反问澄清,而不是乱调。核心 trade-off 是:分类模型快、省、可控,但泛化差、要训练;LLM 泛化强、免训练,但慢、贵、可能幻觉。"</p>
+    <p>"我用的不是二选一，是<b>两层混合</b>：第一层<b>规则 + 轻量分类模型</b>做快速分流——查订单、查物流这类高频意图，先用关键词和 BERT 级别小模型判断‘要不要调 API’，毫秒级、近乎零成本；第二层<b>LLM + 原生 function calling</b>做最终决策和参数抽取——小模型<b>置信度低</b>、或要从一句话里抽多个字段时，升级给 LLM，靠<b>工具 Schema</b>把它约束在合法的工具名和参数里；最后<b>兜底</b>：实在拿不准就反问澄清，绝不乱调。核心 trade-off 一句话：<b>分类模型快、省、可控，但泛化差、要训练；LLM 泛化强、免训练，但慢、贵、可能幻觉</b>。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>像<b>客服前台分流</b>:顾客一开口,前台小妹先听关键词("我要退货"→售后),这是<b>规则/分类模型</b>——快但只会背手册;遇到"我上次那个订单,东西和描述不太一样,你看着办"这种话里有话的,前台小妹拿不准,交给有经验的店长(<b>LLM</b>)判断"这单到底该查订单系统还是直接进投诉流程",店长还翻着一本工具手册(<b>工具 Schema</b>)照着选。拿不准就回头问顾客,不瞎操作。</p>
+    <p><b>「要不要调 API」这个判断(用「缓存命中还是回源」想)</b>：用户问“退货政策是什么”，Agent 拿自身知识就能答，相当于<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Cache_(computing)">缓存</a>命中；问“我的快递到哪了”，本地没有实时数据，必须回源调订单接口。这题问的就是：这个“命中判断”用什么组件做、做错了怎么补救。</p>
+    <p><b>哪里像</b>：都是“快路径先答，答不动再走慢路径回源”，优化目标都是命中率与延迟。<b>哪里不像</b>：缓存是精确的 key 匹配，命中与否是确定的；意图是<b>模糊的语义匹配</b>——“我的件咋还没到”和“物流进度”是同一件事，却没有一个字相同，而且“要不要调”可能介于两可之间，所以才需要置信度；缓存可从来没有“一半命中”。</p>
+    <p><b>分类模型(用「预置路由表」想)</b>：提前训练一个 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/BERT_(language_model)">BERT</a> 级别小模型，相当于把高频流量“查订单类→订单 API”的路由提前算好，线上毫秒级查表返回。</p>
+    <p><b>哪里像</b>：快、成本固定、行为可预测，高频路径收益最大。<b>哪里不像</b>：路由表只认精确匹配，分类模型能<b>泛化</b>到没见过的同义说法；但路由表加一条规则就能支持新目标，分类模型必须<b>重新标注、重新训练</b>才认识新意图——维护成本是它俩最本质的区别。</p>
+    <p><b>LLM + function calling(用「带 proto 契约的 RPC」想)</b>：给 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Large_language_model">LLM</a> 一份工具清单，每个工具的名字、参数、说明写成 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/JSON_Schema">JSON Schema</a>(神似你写惯的 IDL/proto 文件)，让它自己决定调不调、调哪个、参数怎么填——输出的是一次结构化调用，而不是一段散文。</p>
+    <p><b>哪里像</b>：Schema 就是接口契约，把模型的输出约束成“合法的函数调用”，正如 proto 约束 RPC 报文。<b>哪里不像</b>：proto 在编译期、运行时都硬校验；模型输出只是“大概率合法”，它可能<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)">幻觉</a>出根本不存在的工具名——所以调用前必须自己再校验一层，不能裸信。</p>
+    <p><b>四层升级链(用「多级缓存 L1→L2→L3→内存」想)</b>：规则秒判、小模型毫秒判、LLM 慢而全、反问做保底——一级比一级慢、贵，但覆盖面一级比一级大，和 CPU 多级缓存“一级 miss 就下沉”一个道理：前两级挡住大头，后级只接长尾请求。</p>
+    <p><b>哪里像</b>：绝大多数流量被便宜层级消化，整体延迟和成本都压得住。<b>哪里不像</b>：缓存 miss 是硬件给出的确定事件，这里的“miss”是模型给的概率，阈值调高调低会直接改变升级流量和账单，得拿线上数据反复调，不是写死就完事。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 问题的本质:这是一次"意图分类 + 触发判断"</b></p>
+    <p><b>1. 问题的本质：这是一次“意图分类 + 触发判断”</b></p>
     <ul>
-      <li>先把需求拆成两问:① <b>要不要调 API</b>(查系统 vs 直接回答);② 要调的话<b>调哪个、传什么参数</b>。</li>
-      <li>第①问是二分类/多分类问题,第②问是结构化抽取问题,两者最优解不同——所以分层处理。</li>
+      <li>先把需求拆成两问：① <b>要不要调 API</b>(查系统 vs 直接回答)；② 要调的话<b>调哪个、传什么参数</b>。</li>
+      <li>第①问是二分类/多分类问题，第②问是结构化抽取问题，两者最优解不同——所以分层处理。</li>
+      <li>用后端的话翻译：①是“走不走专线”的路由判断，②是“报文字段怎么填”的序列化问题。本来就是两类组件，不该指望一个组件全包。</li>
     </ul>
+    <pre class="code">用户输入: "我的快递咋还没到,顺便把收货地址改成公司"
+    |
+    v
+[问题① 要不要调 API?]
+    |
+    +-- 不需要(政策/闲聊,自身知识够用) --&gt; 直接生成文本回答,零外部调用
+    |
+    +-- 需要(涉及订单/物流等实时数据)
+            |
+            v
+      [问题② 调哪个、参数填什么?]
+            |
+            +--&gt; query_logistics(order_id="SO-1234")
+            +--&gt; update_address(order_id="SO-1234", new_addr="...")</pre>
+
     <p><b>2. 方案 A:分类模型</b></p>
     <ul>
-      <li>用 BERT/RoBERTa 级别小模型做意图分类(查订单/查物流/退款/投诉/闲聊…),或直接二分类"需调API/不需调API"。</li>
-      <li>优点:<b>快</b>(毫秒级)、<b>便宜</b>、<b>可控可评测</b>(有明确准确率)。</li>
-      <li>缺点:要<b>标注数据 + 训练 + 维护</b>;意图边界模糊时硬分类会错;新增意图要重新训练。</li>
-      <li>冷启动:先用线上日志 + 人工标注,或用 LLM 半自动打标再人工校验,先跑起来再迭代。</li>
+      <li>用 BERT/<a target="_blank" rel="noopener" href="https://arxiv.org/abs/1907.11692">RoBERTa</a> 级别小模型做意图分类(查订单/查物流/退款/投诉/闲聊…),或直接二分类“需调API/不需调API”。</li>
+      <li>机制一句话：句子被编码成一个向量，再过 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Softmax_function">softmax</a>(把一串分数归一成加总为 1 的概率)输出每个意图的概率——本质是一张“训练出来的路由表”，只是匹配的是语义而不是精确 key。</li>
+      <li>优点：<b>快</b>(毫秒级，CPU 就能扛住客服这种 QPS)、<b>便宜</b>(没有 token 计费，自托管就行)、<b>可控可评测</b>(准确率、<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Confusion_matrix">混淆矩阵</a>一翻便知，坏在哪个意图上一目了然)。</li>
+      <li>缺点：要<b>标注数据 + 训练 + 维护</b>三件套——本质是监督学习，得攒几万条“句子→意图”的标注对；意图边界模糊时硬分类会错；新增意图要重新训练，业务说“下周上线以旧换新”，你这边还在标数据。</li>
+      <li><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Cold_start_(recommender_systems)">冷启动</a>:先用线上日志 + 人工标注，或用 LLM 半自动打标再人工校验，先跑起来再迭代——别等完美数据集。</li>
     </ul>
+
     <p><b>3. 方案 B:Prompt / LLM 判断</b></p>
     <ul>
-      <li>用 <b>function calling</b>(或 ReAct 文本协议):把每个外部 API 写成工具描述(名称、参数、返回),让 LLM 自己判断该不该调、调哪个、填什么参数。</li>
-      <li>优点:<b>零样本泛化</b>、免训练、能处理复杂/组合意图("帮我查单号顺便改地址")。</li>
-      <li>缺点:慢、贵、可能幻觉出工具名;工具多了(&gt;10 个)选错概率上升。</li>
-      <li>加固:few-shot 示例 + 工具描述写清楚触发条件 + 明确"不需要工具就输出 none"。</li>
+      <li>用 function calling(或 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a> 文本协议)：把每个外部 API 写成工具描述(名称、参数、返回)，让 LLM 自己判断该不该调、调哪个、填什么参数。</li>
+      <li>这份工具描述就是给模型的“接口契约”，长得和后端天天写的 proto/IDL 一个模子：</li>
     </ul>
-    <p><b>4. 落地组合(我实际的做法)</b></p>
-    <table>
-      <tr><th>层级</th><th>手段</th><th>负责</th></tr>
-      <tr><td><b>L1 兜底</b></td><td>关键词/规则</td><td>极高频意图秒判,零成本</td></tr>
-      <tr><td><b>L2 预分流</b></td><td>小分类模型</td><td>判断"是否需调 API"+粗意图</td></tr>
-      <tr><td><b>L3 终判</b></td><td>LLM function calling</td><td>置信度低/多字段时做最终决策+参数抽取</td></tr>
-      <tr><td><b>L4 兜底</b></td><td>反问澄清</td><td>都拿不准时问用户,不乱调</td></tr>
-    </table>
-    <p><b>5. 关键设计:置信度阈值 + 升级机制</b></p>
+    <pre class="code">{
+  "name": "query_logistics",
+  "description": "查询订单物流状态。当用户询问包裹到哪、何时送达时调用。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "order_id": { "type": "string", "description": "订单号,如 SO-20250301-1234" }
+    },
+    "required": ["order_id"]
+  }
+}</pre>
     <ul>
-      <li>分类模型输出概率,低于阈值(如 0.8)或落入"模糊区"就<b>升级到 LLM</b>;LLM 也拿不准就反问。</li>
-      <li>这样既吃到小模型的快和省,又用 LLM 兜住了长尾和模糊意图。</li>
+      <li>优点：<b>零样本泛化</b>(没见过的说法也能对上)、免训练、能处理复杂/组合意图(“帮我查单号顺便改地址”能一次吐出两个工具调用)。</li>
+      <li>缺点：慢(秒级)、贵(按 token，即按处理的文本量计费)、可能幻觉出不存在的工具名；工具多了(&gt;10 个)选错概率上升——进一步解法是先检索出 top-k 个最相关的工具再喂给 LLM,细节见下面追问。</li>
+      <li>加固：<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Few-shot_learning">few-shot</a> 示例(在提示词里放几个“输入→正确工具调用”的范例)+ 工具描述写清楚触发条件 + 明确“不需要工具就输出 none”。</li>
+    </ul>
+    <p>两张牌摆在一起，优劣一目了然：</p>
+    <table>
+      <tr><th>维度</th><th>方案 A:分类模型</th><th>方案 B:LLM + function calling</th></tr>
+      <tr><td>延迟</td><td>毫秒级</td><td>秒级(流式输出能改善首字体感，整体仍慢一个量级)</td></tr>
+      <tr><td>成本</td><td>近零，自托管小模型</td><td>按 token 计费，量大时是笔真金白银</td></tr>
+      <tr><td>泛化</td><td>只认训练过的意图</td><td>零样本也能接住没见过的说法</td></tr>
+      <tr><td>新意图上线</td><td>标注→重训→灰度发布，周期以周计</td><td>改一段工具描述，当天生效</td></tr>
+      <tr><td>输出形态</td><td>类别 + 概率</td><td>工具名 + 结构化参数</td></tr>
+      <tr><td>失败模式</td><td>边界模糊时硬分错</td><td>幻觉工具名/参数，或该调不调</td></tr>
+    </table>
+
+    <p><b>4. 落地组合(我实际的做法)：四层流水线</b></p>
+    <p>把上面的优劣势拼成一条“逐级下沉”的链路，和 CPU 多级缓存一个思路——便宜的层级在前挡量，贵的层级在后兜底：</p>
+    <pre class="code">用户一句话: "我这个订单咋还没到啊?"
+    |
+    v
+[L1 规则层] 命中高频关键词/正则? --是--&gt; 直接产出工具调用,零模型成本
+    |否
+    v
+[L2 小模型层] 分类模型输出各意图概率
+    |
+    +-- 置信度 &gt;= 0.8 且 top1/top2 差距大 --&gt; 按 top1 意图直接调 API
+    |
+    +-- 落入模糊区(整体置信低 / 前两名咬得近) --&gt; 升级
+            |
+            v
+[L3 LLM 层] function calling: 终判意图 + 抽参数 + 对齐工具 Schema
+    |
+    +-- 判定不需要工具 --&gt; 纯文本回答
+    +-- 判定要调用 -----&gt; 执行工具 -&gt; 结果回填 -&gt; 组织回答
+    +-- 仍然拿不准 -----&gt; [L4 反问澄清] "您是想查进度,还是处理投诉?"</pre>
+    <table>
+      <tr><th>层级</th><th>手段</th><th>负责</th><th>延迟量级</th><th>流量占比(经验参考)</th></tr>
+      <tr><td><b>L1 兜底</b></td><td>关键词/规则</td><td>极高频意图秒判，零成本</td><td>&lt;10ms</td><td>20%~30%</td></tr>
+      <tr><td><b>L2 预分流</b></td><td>小分类模型</td><td>判断“是否需调 API”+粗意图</td><td>10~50ms</td><td>50%~60%</td></tr>
+      <tr><td><b>L3 终判</b></td><td>LLM function calling</td><td>置信度低/多字段时做最终决策+参数抽取</td><td>1~3s</td><td>10%~20%</td></tr>
+      <tr><td><b>L4 兜底</b></td><td>反问澄清</td><td>都拿不准时问用户，不乱调</td><td>等用户回复</td><td>长尾</td></tr>
+    </table>
+    <p>读法：前两层又快又便宜，消化八成左右的大众流量；L3 用贵的能力接住 10%~20% 的难例和长尾请求；L4 是安全网——宁可多问一句，不瞎调一次。</p>
+
+    <p><b>5. 关键设计：置信度阈值 + 升级机制</b></p>
+    <ul>
+      <li>分类模型输出概率，低于阈值(如 0.8)或落入“模糊区”就<b>升级到 LLM</b>;LLM 也拿不准就反问。</li>
+      <li>这样既吃到小模型的快和省，又用 LLM 兜住了长尾和模糊意图。</li>
+      <li>“模糊区”用双条件判定：top1 绝对概率低(&lt;0.8)说明“都不太像”；top1 与 top2 差距小(&lt;0.1)说明“俩都像”。任一命中就升级，不硬选。</li>
+      <li>阈值不是拍脑袋：拿验证集画“阈值—升级率—误判率”曲线，选误判率压进业务红线(如 &lt;1%)的最小升级率；上线后持续盯升级率——大促期间流量分布一变(物流咨询暴涨)，阈值和模型都得回头看。</li>
+      <li>这笔账最好当面算给面试官：假设日请求 100 万、LLM 单次约 5 厘——全走 LLM 一天约 5000 元、P99 在秒级；分层后仅约 15% 升级，一天约 750 元，八成以上请求延迟压进百毫秒。省的是钱，更是体验。</li>
+    </ul>
+
+    <p><b>6. 执行侧护栏：就算前面判错，也不能出事故</b></p>
+    <ul>
+      <li>工具分级：查询类无副作用，放心调；写操作(退款/改地址)必须走“预览→用户确认→执行”两段式——思想同<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Two-phase_commit_protocol">两阶段提交</a>,用户就是协调者，不点头永远不 commit。</li>
+      <li>写接口一律做成<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Idempotence">幂等</a>:确认按钮连点、网络重试，也不会退两次款。</li>
+      <li>调用前硬校验：LLM 吐出的工具名必须在注册表内、参数必须过 Schema 校验，不合法就打回重试一次，绝不带病执行。</li>
     </ul>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:为什么不干脆全用分类模型接管,连参数也抽?</summary><div class="an">分类模型只能做"有限类别",参数抽取是开放式的(收货地址、订单号、时间范围五花八门),用 NER+分类也能抽但泛化差、要持续标注;LLM 抽参零样本就能做。所以分类管"要不要调",LLM 管"调什么、参数怎么填"。</div></details>
-    <details class="qa"><summary class="qu">Q:意图模糊(既像查单又像投诉)怎么办?</summary><div class="an">不硬分:分类模型输出多意图概率,若 top1 和 top2 接近(差 &lt; 0.1)判定为模糊,升级 LLM 综合上下文判断,再不行反问一句"您是想查订单进度还是处理投诉?"。</div></details>
-    <details class="qa"><summary class="qu">Q:误判调用 API 的代价怎么控制?</summary><div class="an">工具层做幂等 + 只读优先:查询类 API 随便调无副作用;写操作(退款/改地址)走"预览→用户确认→执行"两段式,分类错了也只是多一次预览,不会直接造成损失。</div></details>
-    <details class="qa"><summary class="qu">Q:分类模型的训练数据从哪来?</summary><div class="an">冷启动用历史工单+规则自动打标、LLM 半自动打标再人工抽检;上线后把点踩、转人工、用户修正的样本回流,持续补进训练集,定期重训。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么不干脆全用分类模型接管，连参数也抽？</summary><div class="an"><b>人话：</b>分类模型擅长做“选择题”，做不了“填空题”——“要不要调”是选择题，“参数填什么”是开放式填空，取值根本没法预先枚举成有限类别。<b>类比：</b>路由表能定“这股流量走订单专线”，但报文里的收货地址、时间范围五花八门——就像备份策略能枚举有限的调度规则，每个任务的备份集路径却是开放的，只能现场解析。<b>技术：</b>分类是闭集 softmax 输出；参数抽取是开放序列生成，用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Named-entity_recognition">NER</a>+槽位填充也能做，但长尾太广、标注是无底洞；LLM 按 Schema 零样本抽参还能自动对齐格式。分工：分类管“要不要调”，LLM 管“调什么、填什么”。</div></details>
+    <details class="qa"><summary class="qu">Q:意图模糊(既像查单又像投诉)怎么办？</summary><div class="an"><b>人话:</b>不硬猜，承认模糊并逐级升级，最后把选择权交还给用户。<b>类比:</b>像容灾切换的纪律——不确定就不切换，先人工确认；两个候选概率咬得极近时让机器硬选，等于拿生产环境赌博。<b>技术:</b>看分类输出的 top1/top2,概率差小于 0.1 判为模糊，先升级 LLM 结合上下文消歧(比如上一轮刚聊过退款，大概率是投诉)；LLM 仍拿不准(自评置信低，或多次采样结果不一致)就反问一句“您是想查订单进度还是处理投诉？”——一次反问的体验成本，远低于一次错调 API 再道歉。</div></details>
+    <details class="qa"><summary class="qu">Q:误判调用 API 的代价怎么控制？</summary><div class="an"><b>人话:</b>先把工具分“只读”和“写”两档：只读随便调，写操作必须用户点头才执行，判错了顶多多弹一次预览。<b>类比:</b>存储运维的老规矩——挂载、查询随便做，format/删除必须二次确认；写路径走“预览→确认→执行”，活脱脱一个两阶段提交，用户就是协调者。<b>技术:</b>① 工具元数据标 risk_level,只读类直接调；② 写操作两段式执行，且接口设计成幂等，重复确认不会退两次款；③ 关键操作全量落审计日志；④ 金额/频次超限自动转人工，和风控同一个思路。</div></details>
+    <details class="qa"><summary class="qu">Q:分类模型的训练数据从哪来？</summary><div class="an"><b>人话:</b>冷启动靠存量日志半自动打标，上线后靠用户负反馈回流，数据像滚雪球越滚越厚。<b>类比:</b>跟备份系统冷建索引同款思路——先全量扫一遍存量工单建底，再靠线上增量持续“备份”新样本，数据资产是攒出来的，不是一次买齐的。<b>技术:</b>历史工单+规则自动打标→LLM 半自动标注→人工抽检 5%~10% 校验；上线后把点踩、转人工、用户修正、L4 反问的结果回流成新样本，按周期合入训练集；重训后的新模型先灰度发布 5%~10% 流量对比，指标不回退再全量。</div></details>
+    <details class="qa"><summary class="qu">Q:工具一多(几十个)，LLM 选错工具怎么办？</summary><div class="an"><b>人话:</b>别把整本工具手册一次性塞给它——先检索出最相关的几个，再递过去让它挑。<b>类比:</b>你查日志也不会把全集群日志拉到本地再肉眼找，一定先按索引过滤出 top-k 再细看；工具选择同理，先把货架缩小。<b>技术:</b>给每个工具的 name+description 做 Embedding 入库，请求到来用向量检索(或 BM25+向量的混合检索)召回 top-k 个候选工具(如 5~8 个)放进上下文，候选多时可加一层 Rerank;再在描述里写清“什么情况不要调”。选错率显著下降，顺带省 token。</div></details>
+    <details class="qa"><summary class="qu">Q:这套分层上线后，效果怎么评估和迭代？</summary><div class="an"><b>人话:</b>盯三组数：每层分流准不准、升级流量多不多、端到端用户满不满意。<b>类比:</b>像监控多级缓存——每层命中率分层打点，哪层被“击穿”、哪层在空转，指标上一目了然。<b>技术:</b>① 分层指标：L1/L2 各自准确率与升级率(按意图拆混淆矩阵)；② 端到端：API 调用正确率、任务完成率；③ 体验:P99 延迟、SLA 达标率；④ 点踩、转人工样本每周回流复盘。新版本小模型永远先灰度发布小流量对比，指标不回退才全量。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>意图识别</b>:判断用户这句话想干什么。</div>
-      <div class="term-item"><b>Function calling</b>:让 LLM 输出结构化工具调用而非纯文本。</div>
-      <div class="term-item"><b>ReAct</b>:推理(Reason)+行动(Act)交替的调用范式。</div>
-      <div class="term-item"><b>Few-shot</b>:给几个示例让模型照葫芦画瓢。</div>
-      <div class="term-item"><b>置信度阈值</b>:低于阈值就升级/反问,不硬判。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Natural-language_understanding">意图识别</a></b>:判断用户这句话背后到底想干什么，是对话系统的第一道分诊台。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function calling</a></b>:LLM 接口的原生能力，让模型按工具 Schema 输出结构化调用而非自由文本。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a></b>:让模型“推理一步、行动一步”交替进行的调用范式，可看作 function calling 的文本协议前辈。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Few-shot_learning">Few-shot</a></b>:在提示词里放几个输入输出示例，让模型照葫芦画瓢。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/JSON_Schema">JSON Schema</a></b>:描述 JSON 数据结构的标准，这里拿来给工具当“接口契约”。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Idempotence">幂等</a></b>:同一操作执行一次和执行多次效果相同，写类 API 的保命属性。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)">幻觉</a></b>:模型一本正经地编造不存在的事实、工具名或参数。</div>
+      <div class="term-item"><b>置信度阈值</b>:模型输出概率低于这条线就不硬判，升级给更强的模型或反问用户。</div>
     </div>
   </div>
 </article>

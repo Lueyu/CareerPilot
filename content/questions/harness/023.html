@@ -8,24 +8,73 @@
     <span class="company">字节(真题)</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>Agent 手里一堆工具,多个都能干同一件事,这题问的就是「派单逻辑」:按什么规则选、选不动了怎么办。面试官爱考,因为它专挑「只会调接口」和「真做过工程」的差距——答「让模型自己挑」,追问一句选错了怎么办就卡壳;说不出打分、消歧、纠错三件套,基本没跑过多工具系统。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"有的,我用<b>'LLM 粗筛 + 打分精排'</b>两层:第一层,把每个工具写成带描述和触发条件的 Schema,靠 LLM 的 function calling 按语义做<b>粗筛</b>,从一堆工具里捞出候选;第二层,当候选多于 1 个、且确实存在选择空间时,引入<b>打分/排序模块</b>——对每个候选算一个匹配分,特征包括<b>语义相似度、任务所需能力、工具历史成功率、成本/延迟、权限与前置条件</b>,选最高分。打分模块的价值是把 LLM 的黑盒决策变成<b>可观测、可调权重的显式排序</b>;分数接近时反问用户或给候选让用户确认,误选后允许自我纠正换工具。"</p>
+    <p>"有,而且是'硬约束过滤 → LLM 粗筛 → 打分精排'的三层结构。第一层,权限、前置条件这类<b>硬约束一票否决</b>,根本不进打分;第二层,把每个工具写成带描述和触发条件的 <a target="_blank" rel="noopener" href="https://json-schema.org/">Schema</a>,靠 LLM 的 <a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">function calling</a> 按语义从几十个工具里<b>粗筛</b>出候选;第三层,当候选多于 1 个、确实存在选择空间时,引入<b>打分/排序模块</b>——对每个候选算匹配分,特征包括<b>语义相似度、能力覆盖、历史成功率、成本/延迟</b>,选最高分执行。打分模块的价值是把 LLM 的黑盒决策变成<b>可观测、可调权重的显式排序</b>;分差小于阈值就反问用户或列候选确认;选错了允许换工具重试,并把这次失败记回历史成功率,下次选得更准。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>像<b>外卖平台派单</b>:用户点单后不是随机喊个骑手,而是先在附近圈一批候选人(<b>LLM 粗筛</b>),再给每个骑手打分——距离近不近、好评率高不高、手上单多不多、配送费贵不贵(<b>打分特征</b>),综合分最高的接单(<b>精排</b>)。两个骑手分数差不多时,让用户自己挑;骑手接错单了还能改派(<b>自我纠正</b>)。</p>
+    <p><b>多工具选择(用你天天在做的备份介质选路想)</b>:一份备份作业提交进来,SSD 池、去重存储、磁带库、云对象存储<b>都能装下它</b>——备份软件从不掷骰子,而是先按<b>硬约束</b>筛掉不合格的(数据不能出境、池子没容量),再对剩下的池子<b>加权打分</b>:每 GB 成本、读写带宽、SLA 等级、近期错误率,综合分最高的池子接单。Agent 选工具一模一样:任务来了,先按权限/前置条件筛,再用 LLM 按语义粗筛出候选,最后打分挑一个执行。没做过存储的话,想成外卖派单也行:先圈附近骑手,再按距离、好评率、在手单量打分派单。</p>
+    <p><b>哪里像</b>:核心结构完全同构——"多个可行解 + 硬约束先筛 + 显式打分 + 分不出胜负时问人"。每个决策都有纸面理由:哪个候选多少分、哪条约束把它筛掉,出了问题能复盘到具体一项,而不是对着模型的黑盒输出干瞪眼。"历史成功率"那一项,就是<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Load_balancing_(computing)">负载均衡</a>里的健康检查——老出错的节点自动降权,流量慢慢挪走,这套你闭着眼都能配。</p>
+    <p><b>哪里不像</b>:存储选路比的全是<b>客观指标</b>(容量、IOPS、价格),Agent 选工具多了一步"读懂人话":任务是用自然语言描述的,"帮我看看上周的备份日志"该走日志检索还是 SQL 查询,机器得先理解语义,这一步只能交给 Embedding 相似度或 LLM;其次工具调用有<b>副作用</b>(发邮件、删数据、花钱),比写存储危险得多,所以要多一道"分差小于阈值就反问用户"的人工闸门;最后存储池是自己家的静态资源,工具是别人家的 API,会限流、会挂、会偷偷改版,所以工具画像必须定期刷新。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
     <p><b>1. 为什么需要显式的选择机制</b></p>
     <ul>
-      <li>工具一多(&gt;10 个),LLM 靠纯文本判断选错概率上升;不同工具还有<b>成本、延迟、权限、副作用</b>差异,选错代价不一。</li>
-      <li>多个工具"都能干"时,单靠 LLM 容易挑到"名字像但最贵"的那个——需要一个统一的打分标准。</li>
+      <li>工具一多(&gt;10 个),LLM 靠纯文本判断选错概率上升——每个工具的 Schema 都要塞进 prompt(模型每次能看到的上下文),既烧 token(模型按它计费,大致理解为字数)又互相干扰;两个工具名字起得像(比如 query_backup_log 和 search_backup_log),模型基本靠掷硬币。</li>
+      <li>不同工具还有<b>成本、延迟、权限、副作用</b>差异,选错代价不一——这在分布式系统里就是"都能服务、但代价不同":你不会让请求随机落一个节点,凭什么让子任务随机落一个工具?</li>
+      <li>多个工具"都能干"时,单靠 LLM 容易挑到"名字像但最贵"的那个——需要一个统一的打分标准,让每次选择<b>可观测、可复盘、可调优</b>,出问题能定位到"是哪个特征打了高分"。</li>
     </ul>
+    <p>整条链路先给全景图,注意它和你熟悉的"备份作业选存储池"是同构的——先硬约束筛、再粗筛、再打分:</p>
+    <pre class="code">全部注册工具: 87 个
+   │
+   │ ① 硬约束过滤(权限/前置条件, 一票否决, 不进打分)
+   │    备份视角: 合规要求"数据不出境", 没容量的池子直接出局
+   ▼
+合法候选: 23 个
+   │
+   │ ② 语义粗筛(LLM function calling 或 Embedding 检索, 取 top-k)
+   │    备份视角: 按策略标签先圈"备选池", 允许错杀, 不许漏杀
+   ▼
+高匹配候选: 5 个
+   │
+   │ ③ 精排(加权线性打分 / Cross-Encoder 逐个打分)
+   │    备份视角: 按成本、带宽、健康度给每个池算综合分
+   ▼
+选出 1 个执行 ─── 分差 &lt; 阈值? ──是──▶ 反问用户 / 列 top-3 候选确认
+   │
+   ▼
+执行结果回填"历史成功率" → 数据回流, 下次打分更准</pre>
     <p><b>2. 方案一:纯 LLM function calling(简单场景)</b></p>
     <ul>
-      <li>工具描述写好触发条件,让模型自己选。优点是零额外模块;缺点是工具多了准确率下降、不可观测、难调优。</li>
+      <li>工具描述写好触发条件,让模型自己选——OpenAI 的 <a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function Calling</a> 就是这条路:你按 JSON Schema 声明每个工具的名字、参数、描述,模型输出"我要调哪个、参数是什么"。工具声明长这样(节选),模型全靠 description 理解何时该调它:</li>
     </ul>
+    <pre class="code">{
+  "name": "query_backup_job_log",
+  "description": "按时间范围查询备份作业日志, 返回作业状态、耗时、错误码",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "start": {"type": "string", "description": "开始时间"},
+      "end":   {"type": "string", "description": "结束时间"}
+    },
+    "required": ["start", "end"]
+  }
+}</pre>
+    <ul>
+      <li>适合<b>工具少(&lt;10 个)、语义差异大</b>的场景:查天气、发邮件、查库,边界清晰,模型几乎不会选错,优点是零额外模块。</li>
+      <li>缺点随规模显现:工具多了准确率下降;决策是黑盒——选错了你只知道"模型选的",不知道"为什么、和第二名差多少";想优化只能反复改描述文案碰运气,相当于线上排障却没有日志。</li>
+    </ul>
+    <table>
+      <tr><th>维度</th><th>方案一:LLM 直选</th><th>方案二:粗筛+打分精排</th></tr>
+      <tr><td>适用规模</td><td>&lt;10 个工具</td><td>几十~几百个工具</td></tr>
+      <tr><td>可观测性</td><td>黑盒,只看得到最终选择</td><td>每个候选都有分数,可打印、可复盘</td></tr>
+      <tr><td>调优手段</td><td>改描述文案(碰运气)</td><td>调特征权重(有数据支撑)</td></tr>
+      <tr><td>延迟/成本</td><td>一次 LLM 调用</td><td>多一层打分,但候选集可控</td></tr>
+      <tr><td>典型失败</td><td>名字像的工具五五开乱选</td><td>特征缺失/权重失衡,靠回流修</td></tr>
+    </table>
     <p><b>3. 方案二:打分/排序模块(多工具场景)</b></p>
     <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 658 232" role="img" aria-label="多工具选择的召回-打分-精排流程">
   <rect class="sd-box-rose" x="10" y="76" width="90" height="60" rx="10"/>
@@ -52,40 +101,74 @@
   <text class="sd-t" x="460" y="191" text-anchor="middle">分数接近</text>
   <text class="sd-ts" x="460" y="209" text-anchor="middle">反问/展示候选</text>
 </svg></div>
+    <p>把流程图翻译成一句话,就是<b>"召回 → 打分 → 精排 → 执行"</b>四段流水线。特别留意图里那条向下的岔路:分数接近时不硬选,而是把选择权交还用户。整段逻辑写成 Python 伪代码(你写后台的,直接看代码最快):</p>
+    <pre class="code">def select_tool(task, tools):
+    legal = [t for t in tools
+             if has_permission(t) and preconditions_met(t, task)]  # ① 硬约束一票否决
+    if len(legal) == 1:
+        return legal[0]              # 只剩一个候选, 直接用, 不花精排的钱
+
+    cands = recall(task, legal, k=5)  # ② 粗筛: 语义召回 top-k
+    scored = sorted(((t, weighted_score(task, t)) for t in cands),
+                    key=lambda x: -x[1])  # ③ 精排: 加权分降序
+
+    if scored[0][1] - scored[1][1] &lt; 0.1:  # ④ 分差太小, 打分器没把握
+        return ask_user([t for t, _ in scored[:3]])
+    return scored[0][0]              # top-1 执行</pre>
     <p><b>4. 打分特征(可解释、可调)</b></p>
+    <p>五类特征,每一类都能在你天天维护的备份平台里找到影子:</p>
     <table>
-      <tr><th>特征</th><th>来源</th><th>作用</th></tr>
-      <tr><td><b>语义相似度</b></td><td>任务 embedding vs 工具描述 embedding</td><td>基础匹配度</td></tr>
-      <tr><td><b>能力覆盖</b></td><td>任务所需能力 vs 工具能力标签</td><td>判断"干得了吗"</td></tr>
-      <tr><td><b>历史成功率</b></td><td>线上日志统计/用户反馈</td><td>越用越准,冷启动给先验</td></tr>
-      <tr><td><b>成本/延迟</b></td><td>工具自身画像</td><td>同等匹配选便宜的</td></tr>
-      <tr><td><b>权限/前置条件</b></td><td>规则表</td><td>没权限的候选直接过滤</td></tr>
+      <tr><th>特征</th><th>来源</th><th>作用</th><th>备份系统里的对应物</th></tr>
+      <tr><td><b>语义相似度</b></td><td>任务 embedding vs 工具描述 embedding</td><td>基础匹配度</td><td>策略标签匹配(备份类型/应用类型)</td></tr>
+      <tr><td><b>能力覆盖</b></td><td>任务所需能力 vs 工具能力标签</td><td>判断"干得了吗"</td><td>存储池容量/协议支持检查</td></tr>
+      <tr><td><b>历史成功率</b></td><td>线上日志统计/用户反馈</td><td>越用越准,冷启动给先验</td><td>设备健康度/近期错误率</td></tr>
+      <tr><td><b>成本/延迟</b></td><td>工具自身画像</td><td>同等匹配选便宜的</td><td>每 GB 成本/读写带宽</td></tr>
+      <tr><td><b>权限/前置条件</b></td><td>规则表</td><td>没权限的候选直接过滤</td><td>合规约束(如数据不出境)</td></tr>
     </table>
+    <p>一个能直接落地的<b>加权线性公式</b>:</p>
+    <pre class="code">score = 0.35 * 语义相似度 + 0.25 * 能力覆盖 + 0.20 * 历史成功率
+      + 0.10 * 成本分     + 0.10 * 速度分
+
+注: 权重只是初始值, 靠回流数据迭代;
+    硬约束不进公式——不满足直接出局, 等于备份放置里的合规一票否决</pre>
     <ul>
-      <li>精排可以用<b>交叉编码器(cross-encoder)</b>对候选两两打分,或直接加权线性公式(可解释、好调);历史成功率可以像"多臂老虎机(MAB)"那样边用边更新。</li>
+      <li>精排可以用<b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1901.04085">交叉编码器</a></b>对候选两两打分(把任务和每个工具描述各拼成一对、一起读再打分),或直接加权线性公式(可解释、好调);交叉编码器精度高但每个候选都要跑一次模型,很像"先哈希粗比对、再逐字节全量校验"的分层校验思路,所以只对小候选集用。</li>
+      <li>历史成功率可以像<b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Multi-armed_bandit">多臂老虎机(MAB)</a></b>那样边用边更新:每个工具一个分数,调用成功加一点、失败减一点(计数更新或 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Thompson_sampling">Thompson 采样</a>),长期看"哪个工具在什么任务上靠谱"自动浮出来——本质就是你熟悉的"按错误率动态调节点权重"。</li>
+      <li>历史成功率务必<b>按"工具×任务类型"分桶</b>:同一个日志工具,查关系库 90% 成功、查 NoSQL 只有 40%,混在一个桶里会互相污染。</li>
     </ul>
     <p><b>5. 消歧与纠错</b></p>
     <ul>
-      <li>候选分数接近(差 &lt; 阈值)→ 反问用户或列出候选让用户确认。</li>
-      <li>执行后结果不对,允许 Agent<b>换一个工具重试</b>,并把"这次选错"记进历史成功率。</li>
-      <li>打分不一致时,以规则/业务约束为最高优先(如涉及钱的操作强制走审批),再谈分数。</li>
+      <li>候选分数接近(差 &lt; 阈值,比如 0.1)→ 说明打分器自己不确定,反问用户或列出候选让用户确认。类比:恢复作业里主副本和复制副本都"看起来可用",系统不确定时就弹窗问管理员,而不是替管理员猜。</li>
+      <li>执行后结果不对,允许 Agent<b>换一个工具重试</b>(把 top-2 提上来),并把"这次选错"记进历史成功率——这就是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Failover">failover</a>:主用"挂了"自动切备用,同时把故障记进健康档案,下次调度自动避开。</li>
+      <li>打分不一致时,以规则/业务约束为最高优先(如涉及钱的操作强制走审批),再谈分数——硬约束永远排在打分前面,这个顺序不能反,反了就会出现"分数最高的工具没权限也硬调"的事故。</li>
+    </ul>
+    <p><b>6. 怎么证明选得好:日志、评估与回流</b></p>
+    <ul>
+      <li>每次决策落一条日志:任务、候选集、各候选分数、最终选择、执行结果——相当于备份系统的作业报表,没有它,调权重全靠拍脑袋。</li>
+      <li>离线:攒一批"任务→正确工具"的标注集,看 top-1 选准率、粗筛的 <b>Recall@k</b>(有没有漏杀正确工具);在线:盯<b>选错率、自动换工具率、反问率</b>三个指标——反问率突然升高,多半是新上线的工具描述把语义空间搅乱了。</li>
+      <li>新工具先走<b>灰度发布</b>:只给小流量参与候选,成功率正常再全量——和你做变更管理的直觉完全一致。</li>
     </ul>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:打分模块会不会反而增加延迟和成本?</summary><div class="an">会有,所以要省着用:先用规则/LLM 把候选压到 2~3 个,再打分;特征里 embedding 相似度可以预计算缓存;只有"确实存在选择空间"时才走精排,单一明确工具直接跳过。延迟换准确率,值不值看工具选错代价。</div></details>
-    <details class="qa"><summary class="qu">Q:没有历史成功率数据时怎么冷启动?</summary><div class="an">给每个工具一个中性先验(如 0.5),主要靠语义匹配分跑起来;上线后用反馈逐渐更新;也可以先用规则/专家经验预设权重,等数据积累再调。</div></details>
-    <details class="qa"><summary class="qu">Q:打分模块和 LLM 决策不一致,听谁的?</summary><div class="an">分情况:硬约束(权限、必填前置)打分模块一票否决;软偏好(成本、历史)以打分为主;LLM 有额外上下文理解(如用户语气暗示)时可覆盖打分结果,但要把"覆盖"记日志,事后复盘谁对,反哺权重。</div></details>
-    <details class="qa"><summary class="qu">Q:两个工具语义几乎一样(两个查天气的 API)怎么区分?</summary><div class="an">语义分区分不开,就靠非语义特征:成本、限流额度、可用性、数据覆盖范围、SLA。把这些做成工具画像,语义分打平后由画像分决定;再不行就按"主备"配置:主用挂了 failover 到备用。</div></details>
+    <details class="qa"><summary class="qu">Q:打分模块会不会反而增加延迟和成本?</summary><div class="an"><b>人话:</b>会,所以要省着用:先粗筛把候选压到 2~3 个再打分;工具描述的向量提前算好缓存;只有确实存在选择空间时才走精排。多花的延迟换选对率,值不值,看选错一次的代价多大。<b>类比:</b>备份调度也不会为每个 IO 做一次全量策略仲裁——重活只留给小集合;向量预计算就像提前建好的元数据索引,查询时只查不算。<b>技术:</b>粗筛用向量检索或 LLM 取 top-k;语义相似度离线预计算(工具描述不变,向量不变);线性加权打分本身微秒级,真正贵的是 Cross-Encoder,只在分差小时对 top-2~3 启用,整体新增延迟可压到几十毫秒。</div></details>
+    <details class="qa"><summary class="qu">Q:没有历史成功率数据时怎么冷启动?</summary><div class="an"><b>人话:</b>新工具先给个中性分(比如 0.5),别拖后腿也别宠着,主要靠语义分先跑起来;上线后用真实调用结果一点点把分数"养"出来;早期权重可以请专家按经验先配一版。<b>类比:</b>新上架的存储节点没有历史错误率,监控先按"默认健康"接入,跑两周出基线——不能因为没数据把它打入冷宫,也不能一上来就全量压给它。<b>技术:</b>用 Beta 分布做先验(如 Beta(2,2) 中性起步),每次调用后更新成功/失败计数;用 ε-贪心或 Thompson 采样保住新工具的探索流量;样本够了再切到"工具×任务类型"分桶统计,避免不同任务的成败互相污染。</div></details>
+    <details class="qa"><summary class="qu">Q:打分模块和 LLM 决策不一致,听谁的?</summary><div class="an"><b>人话:</b>硬约束(权限、必填前置)打分模块一票否决,LLM 说了也不算;软偏好(成本、历史成功率)以打分为主;LLM 拿到额外上下文(用户语气、会话历史)时可以覆盖,但每次覆盖必须落日志,事后复盘。<b>类比:</b>就是"自动调度 vs 管理员手动指定":调度算得再好,合规红线不能碰;运维明确指定目标时可以越过调度,代价是留一条审计记录。<b>技术:</b>优先级定为 硬约束 &gt; LLM 显式覆盖(需给理由) &gt; 分数排序;覆盖事件回流成标注样本,定期统计两套决策谁更准,给对的来源加权、错的降权,让二者逐渐收敛而不是永远打架。</div></details>
+    <details class="qa"><summary class="qu">Q:两个工具语义几乎一样(两个查天气的 API)怎么区分?</summary><div class="an"><b>人话:</b>语义分拉不开就别硬拉,换非语义特征分高下:成本、限流额度、可用性、数据覆盖范围、SLA——写进工具画像,语义打平后由画像分决定;再分不出就配主备,主用挂了自动切备用。<b>类比:</b>两个同城机房都能承接业务,选谁从来不看"能不能"(都能),看成本、带宽、健康度——这是容灾选址的老本行,主备就是 active/standby。<b>技术:</b>画像字段:计费方式、QPS 限额、P99 延迟、数据源覆盖、鉴权要求;可给语义分设分辨率上限(如封顶 0.95),把决胜权交给画像分;健康检查失败率超阈值自动 failover 到备用工具,恢复后再切回。</div></details>
+    <details class="qa"><summary class="qu">Q:工具从 10 个涨到 200 个,这套机制怎么演进?</summary><div class="an"><b>人话:</b>把"全量比选"改成"检索式路由":工具描述提前向量化建好索引,任务来了先检索出 top-k 候选,后面的过滤加打分不变——200 个工具也不用把 200 份 Schema 全塞进 prompt。<b>类比:</b>介质一多你也不会遍历所有存储域做决策,而是先查元数据索引定位候选;从"遍历"到"查索引",是所有系统规模化后的同一条路。<b>技术:</b>离线把工具 Schema 向量化、入 HNSW 索引,描述变更就重建该条向量;在线任务 Embedding → ANN 取 top-k(k≈10)→ 硬约束过滤 → 加权精排;prompt 里只放 top-k 的 Schema,长度恒定;规模再大按业务域拆子索引,做两级路由。</div></details>
+    <details class="qa"><summary class="qu">Q:打分权重(语义、能力、历史、成本、速度)怎么定、怎么迭代?</summary><div class="an"><b>人话:</b>先拍一版能跑的初值(语义为大头),然后用回流数据调:定期从决策日志抽"选对/选错"样本,看哪个特征在错例里"说了谎"就加它的权重;改完先灰度验证再全量。<b>类比:</b>和定备份策略权重一样:起初凭经验写"成本:性能=6:4",跑一个月看作业成功率和成本报表,让数据说话再修,没人能一次配对。<b>技术:</b>初值可设 语义 0.35/能力 0.25/历史 0.20/成本 0.10/速度 0.10;离线在标注集上网格搜索或逻辑回归拟合权重;在线 A/B 对比选错率与反问率;权重变更走灰度发布并保留回滚配置,防止过拟合近期流量。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>工具路由</b>:把任务分派给最合适工具的过程。</div>
-      <div class="term-item"><b>召回+精排</b>:先粗筛候选,再精确排序。</div>
-      <div class="term-item"><b>交叉编码器</b>:拼接两段文本一起打分,精度高。</div>
-      <div class="term-item"><b>工具画像</b>:描述工具能力/成本/权限的元信息。</div>
-      <div class="term-item"><b>MAB</b>:多臂老虎机,边用边学选哪个。</div>
+      <div class="term-item"><b>工具路由</b>:把任务分派给最合适工具的过程;工具一多,就从"逐个比选"升级成"先检索、再排序"。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function Calling</a></b>:让 LLM 按声明好的工具 Schema 输出结构化调用请求的机制,是工具选择的起点而非终点。</div>
+      <div class="term-item"><b>召回+精排</b>:先粗筛出候选、再精确排序的两段式架构,搜索和推荐系统的标准打法。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1901.04085">交叉编码器</a></b>:把两段文本拼在一起读再打分,精度高但只能用在小候选集上。</div>
+      <div class="term-item"><b>工具画像</b>:描述工具能力/成本/权限/限流的元信息,相当于存储池的属性表。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Multi-armed_bandit">MAB(多臂老虎机)</a></b>:边用边学"选哪个"的经典框架,天然适合历史成功率的在线更新。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Failover">Failover</a></b>:主用失效自动切备用——选错工具换 top-2 重试,用的就是这套思想。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Cold_start_(recommender_systems)">冷启动</a></b>:新对象没有历史数据,靠先验值加探索流量把数据"养"出来。</div>
     </div>
   </div>
 </article>

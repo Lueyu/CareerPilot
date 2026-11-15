@@ -8,16 +8,21 @@
     <span class="company">字节 / 阿里</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题问的是:Agent 从接到用户一句话,到吐出答案,中间走哪几步、靠哪些模块分工——本质是让你当场画出 Agent 的「系统架构图」。面试官爱考它,因为这是「背名词」和「搭过系统」的分水岭:只答「LLM 加工具」说明没动手过;能顺嘴带出循环控制、状态管理、超时预算,才算真干过活。答错的暴露点,是把它讲成一次性的问答流水线,而不是一个有状态、有护栏的循环。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"标准 Agent 是一个<b>『感知 → 规划 → 行动 → 观察』的循环</b>(即 ReAct 范式),由五个模块组成:① <b>LLM 推理核心</b>——大脑,负责理解和决策;② <b>规划模块</b>——拆解任务、生成计划;③ <b>工具调用模块</b>——把模型意图转成真实 API 调用并拿回结果;④ <b>记忆模块</b>——短期(上下文)+ 长期(向量库);⑤ <b>状态/编排模块</b>——维护会话状态、控制循环与重试。整体流程:用户输入 → 理解意图 → 规划 → 调用工具 → 拿到观察结果 → 反思是否完成 → 未完成继续循环、完成则输出。"</p>
+    <p>"标准 Agent 是一个<b>『感知 → 规划 → 行动 → 观察』的循环</b>(即 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a> 范式),由五个模块组成:① <b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Large_language_model">LLM</a> 推理核心</b>——大脑,负责理解和决策;② <b>规划模块</b>——拆解任务、生成计划;③ <b>工具调用模块</b>——把模型意图转成真实 API 调用并拿回结果;④ <b>记忆模块</b>——短期(上下文)+ 长期(向量库);⑤ <b>状态/编排模块</b>——维护会话状态、控制循环与重试。整体流程:用户输入 → 理解意图 → 规划 → 调用工具 → 拿到观察结果 → 反思是否完成 → 未完成继续循环、完成则输出。翻译成后端语言:<b>这就是一个带状态机和护栏的 while 循环,LLM 是跑在里面的决策函数</b>。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>Agent 就是<b>一个带工具、会做计划的实习生</b>:老板(用户)布置任务 → 实习生先想"这事要分几步、需要什么资料"(<b>规划</b>)→ 打开电脑查数据库、调系统(<b>工具</b>)→ 看一眼查回来的结果对不对(<b>观察</b>)→ 不够就再查一轮,够了就交报告(<b>输出</b>)。他桌上贴着便签记当前进度(<b>短期记忆</b>),笔记本里存着长期经验(<b>长期记忆</b>)。</p>
+    <p><b>Agent(用"一个带工具箱的实习生"想)</b>:老板(用户)布置任务 → 实习生先想"这事要分几步、需要什么资料"(<b>规划</b>)→ 打开电脑查数据库、调系统(<b>工具</b>)→ 看一眼查回来的结果对不对(<b>观察</b>)→ 不够就再查一轮,够了就交报告(<b>输出</b>)。桌上便签记当前进度(<b>短期记忆</b>),笔记本里存长期经验(<b>长期记忆</b>)——这套"边想边干边看结果"的循环,学术名就叫 ReAct。</p>
+    <p><b>再用你的舒适区想一遍(Agent ≈ 备份作业编排系统)</b>:用户输入 = 备份请求;<b>规划</b> = 生成作业 plan(拆成快照→传输→校验几个子任务);<b>行动</b> = 调存储 API、走网络传输;<b>观察</b> = 拿到返回码和校验结果;<b>反思</b> = 校验失败就重试、换策略;<b>记忆</b> = 内存里的作业状态(短期)+ 备份目录/元数据库(长期);<b>状态/编排</b> = Job Scheduler 加 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Finite-state_machine">状态机</a>,管重试、超时、断点恢复。你天天打交道的超时、幂等、熔断、quota,在这里一个不少。</p>
+    <p><b>哪里像</b>:骨架完全同构——都是「循环 + 状态 + 外部调用 + 失败重试 + 资源预算」的编排系统,你对分布式工程的所有直觉可以直接平移过来。<b>哪里不像</b>:备份系统的 plan 是人写死的规则,<b>确定性</b>的;Agent 的 plan 是 LLM 现场生成的,<b>概率性</b>的——同一个请求可能拆出不同的计划,也可能拆错、绕圈、提前宣布完成。所以 Agent 工程的重心,从「把流程写对」变成「给一个不可靠的大脑装护栏」:限轮数、验参数、验结果、备降级出口。想通这一点,后面所有设计都顺理成章。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
     <p><b>1. 核心循环(ReAct:Reasoning + Acting)</b></p>
+    <p>剥掉所有框架的外壳,当今主流 Agent 的内核是同一个循环。2022 年的 ReAct 论文把它定形为「推理与行动交替」:每一轮,模型先吐出 <b>Thought</b>(自言自语:我判断下一步该干什么),再吐出 <b>Action</b>(具体动作:调哪个工具、带什么参数,或者直接反问用户),环境执行后返回 <b>Observation</b>(真实结果),三样一起追加进上下文,进入下一轮——直到模型认为信息足够,输出最终答案。名字拆开就是 Reasoning(想)+ Acting(干)。</p>
     <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 478 550" role="img" aria-label="Agent核心ReAct循环与五模块流程">
   <rect class="sd-layer" x="4" y="8" width="470" height="534"/>
   <text class="sd-l" x="16" y="26">Agent 核心循环 · 感知 → 规划 → 行动 → 观察</text>
@@ -52,15 +57,50 @@
   <path class="sd-a" marker-end="url(#sd-arr)" d="M100 440 L40 440 L40 214 L98 214"/>
   <text class="sd-l" x="26" y="327" text-anchor="middle" transform="rotate(-90 26 327)">否 · 回到规划 / 行动</text>
 </svg></div>
-    <p>每一轮模型都看到"历史 + 最新观察",据此决定下一个动作(Thought→Action→Observation 循环),这是 LangChain/LangGraph 等框架的通用范式。</p>
-    <p><b>2. 五大模块逐一拆</b></p>
+    <p>每一轮模型都看到"历史 + 最新观察",据此决定下一个动作(Thought→Action→Observation 循环),这是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/LangChain">LangChain/LangGraph</a> 等框架的通用范式——框架帮你干的活,本质上就是管理这条越滚越长的消息历史,和这个 while 循环。</p>
+    <p>具体一点,模型每轮拿到的输入就四样:</p>
     <ul>
-      <li><b>LLM 推理核心</b>:一切决策的起点。负责理解意图、决定调用哪个工具、组织最终答案。能力上限基本由它决定。</li>
-      <li><b>规划模块</b>:复杂任务先拆子任务(可静态拆解,也可每步动态规划);输出"下一步做什么"。</li>
-      <li><b>工具调用模块</b>:把模型输出转成 <b>function call</b>,做参数校验、执行、超时控制、错误归一化;工具描述(schema)要喂给模型。</li>
-      <li><b>记忆模块</b>:<b>短期</b>=当前对话/中间结果(上下文窗口,有限);<b>长期</b>=向量库/知识库/用户画像(检索增强);还有<b>工作记忆</b>=当前任务状态。</li>
-      <li><b>状态与编排模块</b>:维护 State、控制循环次数、重试、超时、断点恢复——工程上的"骨架"。</li>
+      <li><b>系统指令</b>:你是谁、规则、成功标准;</li>
+      <li><b>工具说明书</b>:每个工具的名字、用途、参数 schema——模型靠它知道「手上有哪些牌可打」;</li>
+      <li><b>历史</b>:之前每一轮的 Thought/Action/Observation;</li>
+      <li><b>最新观察</b>:上一轮工具返回的结果。</li>
     </ul>
+    <p>给你一个后端视角:这份消息历史就是 Agent 的 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Write-ahead_logging">WAL</a>——只追加、不修改,重放一遍就能恢复任务现场。所谓「断点恢复」,工程上就是把这份历史持久化,重启后接着喂。把循环写成代码,骨架大概长这样:</p>
+    <pre class="code"># Agent 主循环骨架(剥掉所有框架糖衣,本质就这么长)
+state = init_state(user_input)             # ⑤ 状态模块: 初始化任务状态
+step  = 0
+while step &lt; MAX_STEPS:                    # 护栏①: 最大迭代次数(常见 8~10 轮)
+    resp = llm(messages = state.history,   # ① LLM 推理核心: 读历史做决策
+                tools   = tool_schemas)    #    工具说明书随请求喂入
+    if resp.is_final_answer:               # 反思: 任务完成?
+        return resp.answer                 #    → 唯一正常出口,输出答案
+    obs = execute(resp.tool_call,          # ③ 工具模块: 参数校验 → 真实执行
+                  timeout=30, retries=3)   #    超时/重试/错误归一化都在这层
+    state.append(resp, obs)                # ④ 记忆模块: 追加进上下文(WAL 式)
+    if budget_exceeded(state):             # 护栏②: token/时间预算
+        return fallback(state)             #    → 降级直答 / 转人工
+    step += 1</pre>
+    <p>三处值得多看一眼:<b>tools=tool_schemas</b>——工具能力是靠说明书「喂」给模型的,不是模型天生会调(这就是 function calling 协议);<b>is_final_answer</b>——循环唯一的正常出口由模型自己判断,这也是幻觉风险点(它可能信息不够就提前宣布完成),所以生产上要在出口加一道结果校验,对应 SVG 里的「反思校验」节点,思想上接近 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2303.11366">Reflection</a>;<b>execute</b>——真正的工程重头戏,细节在下面模块③。</p>
+
+    <p><b>2. 五大模块逐一拆</b></p>
+    <table>
+      <thead><tr><th>模块</th><th>核心职责</th><th>类比你熟悉的</th><th>典型翻车</th></tr></thead>
+      <tbody>
+        <tr><td>① LLM 推理核心</td><td>理解意图、决策、组织答案</td><td>策略引擎(会自己现写策略的那种)</td><td>幻觉、选错工具、提前宣布完成</td></tr>
+        <tr><td>② 规划</td><td>拆子任务、排顺序、产出下一步</td><td>备份作业的 plan 生成器</td><td>规划绕圈、依赖拆错</td></tr>
+        <tr><td>③ 工具调用</td><td>schema 校验、执行、超时、重试、错误归一化</td><td>下游 RPC 封装层</td><td>超时不重试、原始报错直接甩给模型</td></tr>
+        <tr><td>④ 记忆</td><td>短期上下文 + 长期向量库 + 工作记忆</td><td>内存 cache + 持久库与索引</td><td>上下文塞爆、关键记忆检索不回</td></tr>
+        <tr><td>⑤ 状态/编排</td><td>维护 State、循环控制、断点恢复</td><td>Job Scheduler + 状态机</td><td>无限循环、状态丢失无法恢复</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li><b>LLM 推理核心</b>:一切决策的起点。负责理解意图、决定调用哪个工具、组织最终答案。能力上限基本由它决定——就像分布式系统的上限取决于一致性协议,Agent 的上限取决于模型的推理与指令遵循能力;选型上常见「贵模型当大脑、便宜模型干粗活」的搭配,多 Agent 一节会用到。</li>
+      <li><b>规划模块</b>:复杂任务先拆子任务(可静态拆解,也可每步动态规划),输出"下一步做什么"。类比备份策略的 plan 生成器:先定「全量还是增量、先快照还是先传输」;区别是备份的 plan 写死在代码里,这里的 plan 是 LLM 现场生成的,所以通常还要配一步「计划校验」。两种流派:一次性拆完再执行(Plan-and-Execute),和走一步看一步(ReAct 原教旨),复杂任务常混用。</li>
+      <li><b>工具调用模块</b>:把模型输出转成 <a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">function call</a>,做参数校验、执行、超时控制、错误归一化;工具描述要喂给模型,模型才知道有哪些牌。这层你在后端天天写——就是一个标准的 RPC client 封装层:schema 校验像 proto 校验,超时/重试/幂等是老三样;「错误归一化」是把下游的 stack trace 翻译成一句模型看得懂的「该订单不存在,请检查单号格式」——报错不翻译,模型多半拿着错误信息瞎猜下一步。</li>
+      <li><b>记忆模块</b>:<b>短期</b>=当前对话/中间结果,活在上下文窗口里,有限、贵、一断就丢;<b>长期</b>=<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Vector_database">向量数据库</a>/知识库/用户画像,靠检索增强拿回来;还有<b>工作记忆</b>=当前任务状态(计划进度、已确认的槽位)。类比存储分层:短期=内存 cache,长期=持久库+索引,工作记忆=这个 job 的运行上下文。</li>
+      <li><b>状态与编排模块</b>:维护 State、控制循环次数、重试、超时、断点恢复——工程上的"骨架"。类比 Job Scheduler + 状态机:每个 Agent 任务就是一个 job,有状态转移(规划中→执行中→校验中→完成/失败),有配额(轮数、token、时长),有熔断与转人工。面试里能把这层讲清楚,你就和「只会调 API 的人」拉开差距。</li>
+    </ul>
+
     <p><b>3. 一个完整的链路举例(电商客服查订单)</b></p>
     <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 366 494" role="img" aria-label="电商客服查订单ReAct执行链路">
   <rect class="sd-layer" x="4" y="8" width="358" height="478"/>
@@ -89,25 +129,71 @@
   <text class="sd-t" x="200" y="444" text-anchor="middle">判断 · 输出</text>
   <text class="sd-ts" x="200" y="462" text-anchor="middle">任务完成 → 组织答复送达</text>
 </svg></div>
+    <p>把这条链路写成模型实际看到的消息序列,会更直观——注意 <b>ask_user 也是工具</b>,「反问用户」和「调 API」在模型眼里是同一类动作:</p>
+    <pre class="code">[System]     你是电商客服 Agent。可用工具:
+             ask_user(问题)  query_logistics(订单号)
+[User]       帮我查订单到哪了
+──────── 第 1 轮 ───────────────────────────────
+[Assistant]  Thought: 用户要查物流,但没给订单号,先问。
+             Action: ask_user("请提供订单号")
+[Tool]       Observation: 用户回复 "TB-123"
+──────── 第 2 轮 ───────────────────────────────
+[Assistant]  Thought: 拿到订单号,调物流 API 查询。
+             Action: query_logistics(order_id="TB-123")
+[Tool]       Observation: {"node":"杭州中转中心","eta":"明天 18:00"}
+──────── 第 3 轮 ───────────────────────────────
+[Assistant]  Thought: 物流信息已拿到,任务完成,组织答复。
+             Final: 您的订单已到杭州中转中心,预计明天送达。</pre>
+    <p>对着这份 trace 讲三件事:① 第 1 轮就是「规划」的现场——模型从「查物流」的意图里发现缺订单号,把「反问用户」当成下一步动作,这在对话系统里叫槽位填充,和你在工单系统里做必填字段校验是同一件事;② 每一轮上下文都在变长,三轮没问题,三十轮就是实打实的 token 成本和延迟,所以生产 Agent 都要做上下文管理:裁剪、摘要压缩、把旧的中间结果外置成 chunk 再按需检索回来;③ 这份消息序列就是任务的全部现场——要断点恢复就持久化它,要排查「Agent 为什么走了弯路」就回放它,思想上就是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Event_sourcing">事件溯源</a>,和你翻 WAL 排障一个手感。</p>
+
     <p><b>4. 单 Agent 到多 Agent 的扩展</b></p>
     <ul>
       <li>流程变复杂、工具变多后,可把"规划/执行/验证"拆成不同 Agent(Supervisor、Executor、Critic),各自是上面这套循环的实例,共享状态协作。</li>
+      <li><b>什么时候该拆</b>:三个信号——工具多到模型选不准(几十份 schema 塞进上下文,选择准确率肉眼可见地下滑)、单次任务历史长到上下文装不下、不同步骤需要不同的模型或权限(粗活用便宜模型,决策才上贵的)。</li>
+      <li><b>怎么拆</b>:按职能拆(规划/执行/验收),或按领域拆(客服 Agent、物流 Agent、售后 Agent)。类比从单体到<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Microservices">微服务</a>的演化:隔离复杂度、职责单一、独立选型。哪里像:拆分动机与收益完全同构。哪里不像:微服务间是契约确定的 RPC,Agent 间通信多半是自然语言,可能转述失真——所以 Agent 间传话要尽量结构化(共享 State 或固定的消息 schema),一个 Agent 转述走样,下游全歪。</li>
+      <li><b>共享什么</b>:State 必须能跨 Agent 流转——就像单体拆微服务时,进程内变量必须升级成显式的共享存储或消息;编排框架如 LangGraph(图/状态机式)和 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2308.08155">AutoGen</a>(多 Agent 对话式)解决的就是这件事。</li>
+    </ul>
+    <pre class="code">                ┌───────────────────┐
+                │     Supervisor    │  只做规划与分派
+                │   (通常用强模型)   │  不亲自调工具
+                └─────┬───────┬─────┘
+           派活 │            │ 收活验收
+        ┌────────┘           └────────┐
+        ▼                             ▼
+ ┌─────────────┐    产出结果    ┌─────────────┐
+ │  Executor   │ ────────────► │   Critic    │
+ │ (执行循环)   │               │ (验收循环)   │
+ │ 便宜模型即可 │ ◄──────────── │ 不合格则打回 │
+ └─────────────┘    打回重做    └─────────────┘
+
+ 每个 Agent 内部,仍然是「感知→规划→行动→观察」同一套循环</pre>
+
+    <p><b>5. 面试作答的串联顺序(把上面收成 2 分钟)</b></p>
+    <ul>
+      <li>先一句话定义:Agent = 以 LLM 为决策核心的「感知→规划→行动→观察」循环;</li>
+      <li>再报五模块,每个一句话带职责,顺口补一句「状态与编排是工程骨架」最加分;</li>
+      <li>主动举电商客服例子(反问单号→调 API→组织答复),证明你见过真实链路;</li>
+      <li>收尾抛工程视角:轮数上限、token 预算、错误归一化、断点恢复——这几个词一出口,面试官就知道你是写过 while 循环、救过生产的人。</li>
     </ul>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:ReAct 和单纯的"让模型直接回答"差在哪?</summary><div class="an">直接回答只能靠模型内部知识,遇到需要实时数据、精确计算、调用系统的事就会瞎编;ReAct 让模型<b>把"我需要什么信息"变成真实的工具调用</b>,拿到真实结果再推理,把幻觉和不准确压下去。代价是多轮调用、更慢更贵,所以简单问答仍走直答。</div></details>
-    <details class="qa"><summary class="qu">Q:记忆模块短期和长期怎么分工?</summary><div class="an">短期记忆塞进上下文,快但有长度上限、跨会话丢失;长期记忆放向量库/结构化库,跨会话持久、需检索。实践:<b>短期放"本次对话最关键的状态",长期放"可复用的知识/用户画像",需要时检索回来注入上下文</b>。</div></details>
-    <details class="qa"><summary class="qu">Q:Agent 循环怎么防止一直转下去?</summary><div class="an">设<b>最大迭代次数</b>(如 8~10 轮)+ <b>总 token/时间预算</b>,超限强制收敛:取当前最佳结果输出,或转人工/降级直答。再加"连续 N 轮无实质进展则熔断"的检测。</div></details>
+    <details class="qa"><summary class="qu">Q:ReAct 和单纯的"让模型直接回答"差在哪?</summary><div class="an"><b>人话:</b>直接回答是「闭卷考试」,只能靠模型训练时记住的东西,遇到实时数据、精确计算、内部系统操作就容易一本正经地瞎编;ReAct 是「开卷+能打电话」——先查真资料、调真系统,拿到结果再开口,把幻觉压下去。<b>类比:</b>直接回答像不看监控就口述机房容量水位,全凭记忆、大概率过期;ReAct 像先拉一把监控面板再汇报——多花几秒,但每句话有出处。代价也同构:巡检有成本,ReAct 多轮调用更慢更贵。<b>技术:</b>ReAct 靠 function calling 把「我需要 X」变成真实调用,Observation 回填上下文再推理;但每多一跳就是一次完整推理,延迟和 token 成本线性叠加,所以工程上要路由分流——简单问答直答,涉及事实性/实时性/系统操作才进 Agent 循环。</div></details>
+    <details class="qa"><summary class="qu">Q:记忆模块短期和长期怎么分工?</summary><div class="an"><b>人话:</b>短期记忆是「本次对话的工作内存」,快、有限、会丢;长期记忆是「跨会话的持久库+检索系统」,大、持久、但用之前要先检索。分工:短期放当前任务必须的信息,长期放可复用的知识和用户画像。<b>类比:</b>就是存储分层——短期像内存/缓存,满了要淘汰旧数据;长期像持久化存储+索引,数据在但必须建好索引才找得回,「存了检不回」等于没存,和备份数据没建目录一个道理。<b>技术:</b>短期进上下文窗口,超限做摘要/裁剪;长期分两类放——语义型(偏好、历史结论)入向量库,靠 Embedding 加向量检索 top-k 召回,事实型(画像、订单)入结构化 KV。写入要有门槛(不是什么都值得长期存),检索常用混合检索加 Rerank 提精度,结果再注入上下文参与推理。</div></details>
+    <details class="qa"><summary class="qu">Q:Agent 循环怎么防止一直转下去?</summary><div class="an"><b>人话:</b>给循环上三道闸——轮数上限、预算上限、进展检测,任一触顶就强制收敛:输出当前最佳结果、降级直答或转人工。<b>类比:</b>就是备份作业的重试策略——无限重试等于自杀,标准做法是「最多 N 次 + 总时长/带宽 quota + 连续失败熔断转人工」。Agent 的循环同理:允许有限试错,但必须有兜底出口。<b>技术:</b>①最大迭代次数(常见 8~10 轮);②总 token/时间预算,超限走 fallback;③进展检测——连续 N 轮 Observation 无实质变化、或重复调用同一工具同参数,即熔断;④每轮把计划与进度落进 State,支持断点恢复与人工接管;⑤对外承诺 SLA 时用「最大轮数×单轮时延」估最坏情况,别拿平均值去赌长尾请求。</div></details>
+    <details class="qa"><summary class="qu">Q:工具一多(比如几十上百个),模型选不过来怎么办?</summary><div class="an"><b>人话:</b>工具不是越多越好——几十份说明书塞进上下文,token 爆、选择准确率掉。解法是把「选工具」本身也变成一次检索:按任务语义先筛出相关的几个,只把它们喂给模型。<b>类比:</b>就是服务发现/路由——client 从不背下全部后端 IP,先查注册中心拿本次相关的实例再调用;工具也一样,先检索后调用,而不是全量下发。<b>技术:</b>①工具描述做 Embedding 入库,运行时按任务语义向量检索 top-k 个工具注入 prompt(工具管理 RAG 化);②按业务域分组做两级路由,先选领域再选工具;③合并同质工具、精简 schema 描述;④经验值:单 Agent 直接挂 10~20 个工具接近上限,再多就该拆多 Agent 或上工具检索。</div></details>
+    <details class="qa"><summary class="qu">Q:Agent 和 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Retrieval-augmented_generation">RAG</a> 是什么关系?</summary><div class="an"><b>人话:</b>RAG 是「查一次资料,然后回答」;Agent 是「可以多轮地查、算、调系统,边干边修正」。前者是一锤子的增强问答,后者是有状态、能自我修正的闭环。<b>类比:</b>RAG 像一次单向的备份流水线:读源→写目标,一条道跑完;Agent 像带校验-重试-换策略的备份编排:写完校验,失败重跑,路子不对换路,直到达标或熔断退出。<b>技术:</b>RAG 单跳:检索→拼接上下文→生成,一次完成;Agent 循环:可多轮检索、可 function call 外部系统、可根据 Observation 反思调整计划。两者不互斥——RAG 常被封装成 Agent 的一个工具;工程重心也不同:RAG 难在检索质量,Agent 难在状态管理与错误处理。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>ReAct</b>:Reasoning+Acting,边想边调用工具的循环范式。</div>
-      <div class="term-item"><b>Function calling</b>:模型按 schema 输出结构化工具调用。</div>
-      <div class="term-item"><b>短期/长期记忆</b>:上下文内 vs 外置可检索的记忆。</div>
-      <div class="term-item"><b>State</b>:Agent 在节点间流转的共享状态对象。</div>
-      <div class="term-item"><b>Observation</b>:工具/环境返回的观察结果,喂回模型。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a></b>:Reasoning+Acting,「边想边调工具」的循环范式,当今 Agent 的通用骨架。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function calling</a></b>:模型按工具 schema 输出结构化调用请求,由代码侧真实执行并回传结果。</div>
+      <div class="term-item"><b>短期/长期记忆</b>:活在上下文窗口里的会话状态 vs 外置可检索的持久记忆——内存 cache 与持久库的分层关系。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Finite-state_machine">State</a></b>:Agent 在节点/轮次间流转的共享状态对象,断点恢复与多 Agent 协作都靠它。</div>
+      <div class="term-item"><b>Observation</b>:工具或环境返回的结果,归一化后喂回模型,驱动下一轮决策。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2303.11366">Reflection</a></b>:Agent 复盘自身输出、自我修正的机制,Critic 角色的理论源头。</div>
+      <div class="term-item"><b>Supervisor 模式</b>:多 Agent 编排中只负责规划与分派的管理角色,干活交给下游 Agent。</div>
     </div>
   </div>
 </article>

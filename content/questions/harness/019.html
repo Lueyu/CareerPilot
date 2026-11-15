@@ -8,22 +8,53 @@
     <span class="company">字节(真题)</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题问的是:单个 Agent 会“自信地犯错”,怎么用一群 Agent 把正确率抬上去,以及这群人由谁指挥、怎么派活。面试官爱考,因为一追就能分清背名词的和真落过地的——讲得出多样性从哪来、成本怎么控、预算怎么熔断的才算干过活;答错的暴露点,就是只会背“投票/辩论/反思”三个词。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"多 Agent 提正确率的核心是<b>用多样性换可靠性</b>,三类主流打法:① <b>并行投票</b>——多个异构模型/角色对同一问题独立作答,多数投票或加权取优(self-consistency 思想);② <b>生成-批判闭环</b>——一个 Agent 作答,另一个专挑毛病,反复修正;③ <b>角色分工</b>——Planner 拆解、Executor 执行、Verifier 校验,各管一段。调度上用 <b>Supervisor 或 DAG 工作流</b>:并行分支用 fan-out/fan-in,失败分支按置信度决定重试还是换策略。"</p>
+    <p>"多 Agent 提正确率，本质是<b>用多样性换可靠性</b>——和存储里“多副本防单盘故障”是同一个思想:单模型单次采样会自信地犯错，那就多来几路、取多数。三类主流打法:① <b>并行投票</b>——多个异构模型/角色/温度(采样发散度)对同一问题独立作答，多数投票或加权取优(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2203.11171">self-consistency</a> 思想);② <b>生成-批判闭环</b>——一个 Agent 作答，另一个专挑毛病，反复修正;③ <b>角色分工</b>——Planner 拆解、Executor 执行、Verifier 校验，各管一段。调度上用<b>静态 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Directed_acyclic_graph">DAG</a> 或 <a target="_blank" rel="noopener" href="https://www.anthropic.com/engineering/built-multi-agent-research-system">Supervisor</a> 动态路由</b>:能并行的分支用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/MapReduce">fan-out/fan-in</a> 散开再汇聚，失败分支按置信度决定重试还是换策略，全程设<b>最大轮次和 token 预算</b>防死循环。最后必须主动讲 trade-off:正确率是拿几倍成本换的，所以要<b>分级</b>——高价值高风险任务才上多 Agent 会诊。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>就像<b>专家组会诊 vs 单个医生</b>:一个医生可能误诊,但把内科、影像、病理几个医生拉来会诊,观点一致才下结论(<b>投票</b>),或者一个医生下诊断、另一个专门当"挑刺的审稿人"找漏洞(<b>批判闭环</b>),正确率自然更高。代价是<b>要花几倍的会诊费和时间</b>——所以只在"答错了代价高"的场景才上多 Agent,这就是 trade-off。</p>
+    <p><b>总纲(用专家会诊想)</b>:就像<b>专家组会诊 vs 单个医生</b>——一个医生可能误诊，但把内科、影像、病理几个医生拉来会诊，观点一致才下结论(<b>投票</b>);或者一个医生下诊断、另一个专门当“挑刺的审稿人”找漏洞(<b>批判闭环</b>);再或者分科负责——住院总拆医嘱(<b>Planner</b>)、实习医生执行(<b>Executor</b>)、质控办复核(<b>Verifier</b>)。正确率自然更高，代价是<b>要花几倍的会诊费和时间</b>——所以只在“答错了代价高”的场景才上多 Agent,这就是 trade-off。</p>
+    <p><b>并行投票(用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/RAID">RAID</a> 多副本想)</b>:一块盘会坏，那就三块盘各存一份，坏一块不丢数据；一个模型会错，那就三路各答一次，取多数。<b>哪里像</b>:都是用冗余把单点故障淹没在多数派里，而且都要求“故障别扎堆”——三副本不能放同一个机柜，三路 Agent 的错误也不能高度相关。<b>哪里不像</b>:RAID 的三份是<b>复制</b>出来的，内容一模一样；投票的三路是<b>各自独立算</b>出来的，答案本来就可能不同。所以它更像“三个工程师各算各的再对答案”——防的是各错各的随机错，防不了三人心有灵犀一起犯的系统性错。</p>
+    <p><b>生成-批判闭环(用备份的“写完必校验”想)</b>:备份软件写完数据从来不敢直接报成功，要跑校验、对 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Checksum">checksum</a>,甚至定期做恢复演练，不过就重写。Generator 就是备份作业，Critic 就是校验作业。<b>哪里像</b>:写完必验、不过重做、闭环收敛，这套纪律你在备份域天天讲。<b>哪里不像</b>:备份校验是<b>确定性</b>的——哈希对不对一翻两瞪眼；而 Critic 自己也是概率模型，它会漏放水、也会被说服。所以批判闭环必须配“轮次+预算”熔断，这是你确定性校验作业从来不需要的东西。</p>
+    <p><b>角色分工(用备份流水线想)</b>:一次企业级备份本身就是流水线:策略生成 → 各客户端并行执行 → 汇总校验归档。Planner/Executor/Verifier 就是这条线的三段。<b>哪里像</b>:分而治之，每段只干一件事，单段变简单了正确率就上去了。<b>哪里不像</b>:流水线段间传的是结构化数据，Agent 之间传的是<b>自然语言</b>——每交接一次都有“转述失真”，像序列化格式换了好几道，所以 Agent 间通信要尽量结构化(清单、参数、表格)。</p>
+    <p><b>调度器(用备份调度中心想)</b>:静态 DAG 像画死的作业依赖图(“先全量、后增量”);Supervisor 像运行时看水位动态选介质的调度中心。<b>哪里像</b>:都是“拆任务、派活、收结果、处理失败”这四件事。<b>哪里不像</b>:传统调度派的是<b>确定性作业</b>，失败信号是明确的错误码；多 Agent 派的活儿本身可能失败、甚至“一本正经地胡说”，失败信号变成软性的置信度和校验结论——所以要新增一整套按置信度路由、超预算熔断的“容灾”逻辑。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 为什么多 Agent 能提正确率(先讲清原理)</b></p>
+    <p><b>1. 先把地基对齐：为什么多 Agent 能提正确率</b></p>
+    <p>这段写给没碰过大模型的你:<b>大模型不是确定性程序</b>。你写的 Python 今天跑和明天跑结果完全一致；大模型每生成一个 token(模型计费和计长度的单位，约等于半个到一个汉字)，都是从概率分布里<b>采样</b>出来的，温度参数越高采样越发散——同一道题问两次，推理路径甚至答案都可能不同。所以“单次采样答错”不是 bug,是这类系统的物理属性。这时候你的职业本能应该启动：磁盘会坏，你从不指望单盘，你做冗余；模型会错，同理别指望单次采样——多来几路，取多数。<b>多 Agent 的底层逻辑就一句话：推理层的冗余设计。</b></p>
     <ul>
-      <li>单模型单次采样容易"自信地犯错";<b>多次采样 + 投票</b>能显著压低随机错误(学术界称为 self-consistency)。</li>
-      <li>模型在"生成"和"评判"两种任务上的能力不对称:一个模型答题可能错,但让它<b>检查别人的答案</b>往往能发现错误——利用这种不对称做"生成-批判"闭环。</li>
-      <li>复杂任务拆给<b>聚焦的小 Agent</b>,每个上下文更短、提示更专,单步正确率就更高。</li>
+      <li>单模型单次采样容易<b>“自信地犯错”</b>——而且错的时候语气往往比对的时候还笃定，你从表面分不出来;<b>多次采样 + 投票</b>能显著压低随机错误，学术界称为 self-consistency:同一道题走 N 条推理路径，错的路通常各错各的，对的路殊途同归，多数一致的答案更可信。</li>
+      <li>这笔账可以精确地算：三路相互独立、单路错误率 p,多数投票后整体出错率约为 <b>3p²−2p³</b>。这正是容错计算里的<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Triple_modular_redundancy">三模冗余</a>(TMR)——航空计算机用三份独立计算投票，单份出错被多数派掩盖。代入数字看效果:</li>
+    </ul>
+    <table>
+      <tr><th>单路错误率 p</th><th>三路多数投票后(3p²−2p³)</th><th>效果</th></tr>
+      <tr><td>30%</td><td>21.6%</td><td>省 8.4 个百分点</td></tr>
+      <tr><td>20%</td><td>10.4%</td><td>错误率近乎砍半</td></tr>
+      <tr><td>10%</td><td>2.8%</td><td>压到不足原来三分之一</td></tr>
+    </table>
+    <p>但两个前提缺一不可:① <b>单路错误率必须低于 50%</b>——三路都还不如瞎猜时，投票只会放大错误(p=0.6 时投票后 64.8%,比单路 60% 还差);② <b>三路的错误要互不相关</b>——这就是“多样性”的统计学含义，也是这道题真正的考点:</p>
+    <pre class="code">前提②(错误互不相关)是整道题的命门,账是这样翻车的:
+
+  独立三路(换模型 / 换提示 / 调温度)
+      → 至少两路同时错才算翻车 → 21.6%,比单路 30% 低,赚
+  相关三路(同模型 + 同提示 + 温度 0)
+      → 三路输出几乎一样,一起对、一起错 → 出错 ≈ 30%,三倍 token 白烧
+
+  等价翻译成你熟悉的存储场景:
+      三副本放三个机柜 → 单机柜故障仍可多数派读成功   (真冗余)
+      三副本放同一机柜 → 机柜一断电,三块全没         (假冗余)
+
+  结论:多样性 = 副本放置策略,必须"跨来源"散开;
+  同一个模型原样跑三遍,约等于把三副本塞进同一个机柜。</pre>
+    <ul>
+      <li>模型在<b>“生成”和“评判”两种任务上的能力不对称</b>:一个模型答题可能错，但让它<b>检查别人的答案</b>往往能发现错误——想想你 code review 别人的提交时找 bug,比自己写代码时更容易发现 bug。利用这种不对称，就有了“生成-批判”闭环:Critic 未必是更强的模型，却能稳定挑出 Generator 的错。</li>
+      <li>复杂任务拆给<b>聚焦的小 Agent</b>,每个上下文更短、提示更专，单步正确率就更高——机理类似让你在 10 万行日志里直接找一行错，不如先 grep 分段缩小范围再看；上下文一长，模型的注意力同样被稀释，单步错误率上升。</li>
     </ul>
     <p><b>2. 三种提正确率的协同范式</b></p>
+    <p>原理落到工程上就是三种范式。看图建立全局感:A 是冗余、B 是校验闭环、C 是流水线——你可以在心里分别标注成“多副本、写后校验、作业流水线”:</p>
     <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 466 326" role="img" aria-label="多Agent协同三种提正确率范式">
   <rect class="sd-layer" x="4" y="8" width="458" height="310"/>
   <text class="sd-l" x="16" y="24">多 Agent 协同 · 三种提正确率范式</text>
@@ -68,39 +99,110 @@
   <path class="sd-a" marker-end="url(#sd-arr)" d="M320 224 C290 224 290 152 318 152"/>
   <text class="sd-l" x="276" y="188" text-anchor="middle" transform="rotate(-90 276 188)">打回重做</text>
 </svg></div>
+    <p>选型对号入座，一张表看清:</p>
+    <table>
+      <tr><th>范式</th><th>机制一句话</th><th>正确率从哪来</th><th>适合的任务</th><th>成本 / 延迟</th></tr>
+      <tr><td>并行投票</td><td>N 路独立作答，多数一致胜出</td><td>多样性 + 多数派(自一致性)</td><td>答案可枚举:选择、分类、数值、可自动判题的代码</td><td>token 乘 N;延迟约等于最慢一路(并行)</td></tr>
+      <tr><td>生成-批判</td><td>作答 → 挑错 → 修正，循环</td><td>评判强于生成的不对称</td><td>开放式长文本、方案评审、代码 review</td><td>成本随轮数线性涨；延迟 = 轮数 × 单轮(串行)</td></tr>
+      <tr><td>角色分工</td><td>拆解 → 执行 → 校验，不过打回</td><td>短上下文 + 专职化</td><td>复杂多步任务(研究、编码、数据分析)</td><td>随子任务数涨；无依赖子任务可并行压延迟</td></tr>
+    </table>
     <ul>
-      <li><b>并行投票</b>:N 个 Agent(不同模型/不同提示/不同温度)独立作答,按答案一致性投票;可加权(置信度高、历史表现好的 Agent 权重更高)。</li>
-      <li><b>生成-批判(Reflection/Debate)</b>:Critic 针对答案逐条质疑,Generator 据反馈修正;可迭代多轮直到 Critic 通过或超预算。学术界叫 multi-agent debate,实证上确实能提正确率,但<b>成本线性上升</b>。</li>
-      <li><b>角色分工</b>:Planner 把大问题拆成子任务,DAG 编排;Executor 逐个子任务执行;Verifier 端到端校验结果是否符合要求,不符合打回。</li>
+      <li><b>并行投票</b>:N 个 Agent(不同模型/不同提示/不同温度)独立作答，按答案一致性投票；可<b>加权</b>(置信度高、历史表现好的 Agent 权重更高)——这就是分布式里的<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Quorum_(distributed_computing)">加权 quorum</a>,权重按历史错误率动态调。工程细节:开放式答案要先<b>归一化</b>(统一大小写、单位、空白)再数票；归一化仍然数不到一起的，再让一个 LLM 判断“语义是否等价”。</li>
+      <li><b>生成-批判(<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2303.11366">Reflection</a> / Debate)</b>:Critic 针对答案逐条质疑，Generator 据反馈修正；可迭代多轮直到 Critic 通过或超预算。学术上叫 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.14325">multi-agent debate</a>,实证上确实能提正确率，但<b>成本随轮数线性上升</b>。它和你备份域“写完必校验、不过重写”的闭环同构，唯一的关键差别：Critic 自己也是概率的——校验者会犯错、会被说服，所以必须轮次封顶 + 预算熔断，这是它和你确定性校验作业最大的不同。</li>
+      <li><b>角色分工</b>:Planner 把大问题拆成子任务，按 DAG 编排；Executor 逐个子任务执行；Verifier 端到端校验结果是否符合要求，不符合打回——像质检不合格的工单打回返工，但打回次数要设上限，防止 Planner 和 Executor 互相“踢皮球”死循环。</li>
     </ul>
     <p><b>3. 调度策略如何实现</b></p>
+    <p>调度就是回答三个问题:<b>结构</b>(任务怎么拆、依赖长什么样)、<b>路由</b>(下一步派给谁)、<b>容错</b>(失败了怎么办)。这三件事你在备份系统里天天做——依赖编排、介质路由、失败重试与切换；多 Agent 调度的全部新意只在于：被派活的作业不是确定性程序，它可能失败，也可能一本正经地胡说，于是失败信号从明确的错误码，变成了软性的置信度和校验结论。</p>
     <ul>
-      <li><b>静态 DAG</b>:任务结构已知时,把协同关系画成有向图,引擎按依赖调度——可控、可观测、易回放。</li>
-      <li><b>Supervisor 动态路由</b>:主管 Agent 读当前状态决定"下一步派给谁、并行还是串行",适合流程不固定的任务。</li>
-      <li><b>并行调度</b>:条件边返回多个目标 = fan-out,结果用 <code>asyncio.gather</code>/线程池汇聚 = fan-in;投票场景天然并行。</li>
-      <li><b>失败处理</b>:单分支失败可重试;置信度低时触发"换策略"(换模型、降级、追加 Agent);全程设<b>最大轮次/token 预算</b>防死循环。</li>
+      <li><b>静态 DAG</b>:任务结构已知时，把协同关系画成有向图，引擎按依赖调度——可控、可观测、易回放。和你熟悉的“先全量、后增量、再归档校验”作业依赖图完全同构，成熟编排引擎(LangGraph 的图模式、Airflow 这类)都是现成轮子。适合流程能提前画死的场景；缺点是图错了要改代码重新发版。</li>
+      <li><b>Supervisor 动态路由</b>:主管 Agent 读当前状态决定“下一步派给谁、并行还是串行”，适合流程不固定的任务——像一个看水位的调度中心，按各存储池状态动态选介质，而不是查写死的策略表。代价是每次执行路径可能不同、可回放性差，所以必须打全量轨迹，并配预算熔断:</li>
     </ul>
-    <p><b>4. 必须主动讲的 trade-off</b></p>
+    <pre class="code">     ┌────────────────────────────────────┐
+     │         Supervisor 主管 Agent        │
+     │   读当前状态 → 决定下一步派给谁:       │
+     │   并行?串行?追加一路?还是收工?        │
+     └──────────┬──────────────┬──────────┘
+                │ 派活          │ 派活
+     ┌──────────▼─────┐  ┌─────▼──────────┐
+     │  子Agent:检索  │  │  子Agent:计算   │
+     └──────────┬─────┘  └─────┬──────────┘
+                │ 汇报"结果+置信度"│
+                ▼                ▼
+     ┌────────────────────────────────────┐
+     │  结果回 Supervisor → 下一轮决策(循环)  │
+     │  终止:完成 / 轮次超限 / 预算耗尽熔断     │
+     └────────────────────────────────────┘</pre>
+    <p>两种模式怎么选，对着你的老本行一张表看清:</p>
+    <table>
+      <tr><th>维度</th><th>静态 DAG</th><th>Supervisor 动态路由</th></tr>
+      <tr><td>结构何时定</td><td>上线前画死</td><td>运行时逐轮决定</td></tr>
+      <tr><td>可控 / 可回放</td><td>强，天然像工作流引擎</td><td>弱，需额外打全量轨迹</td></tr>
+      <tr><td>适合的场景</td><td>步骤可枚举的固定流程</td><td>下一步依赖上一步<b>结果内容</b>的开放任务</td></tr>
+      <tr><td>主要风险</td><td>图画错全错，改流程要重新上线</td><td>可能转圈烧钱，必须最大轮次 + token 预算熔断</td></tr>
+    </table>
     <ul>
-      <li>多 Agent 提正确率是<b>拿成本、延迟、复杂度换的</b>:3 路投票 = 3 倍 token。实际落地要<b>分级</b>:简单任务单 Agent 直答,高价值/高风险任务才上多 Agent 会诊。</li>
-      <li>投票只在<b>答案可枚举、分歧明确</b>(如选择、分类、数值)时最好用;开放式长文本用"生成-批判"更合适。</li>
+      <li><b>并行调度</b>:条件边返回多个目标 = fan-out(编排引擎里一条边可同时激活多个后继节点)，结果用 <code>asyncio.gather</code>/线程池汇聚 = fan-in;投票场景天然并行。这里有一笔关键账要说给面试官听:<b>成本 N 倍，延迟却只约等于最慢一路</b>——三路并发，总耗时取 max 而不是 sum,和 MapReduce 的 map 并发、reduce 汇聚一个道理。</li>
     </ul>
+    <pre class="code">        问题(高风险任务,预算:允许烧 N 倍 token)
+                        │
+        ┌───────────────┼───────────────┐    ← fan-out(扇出)
+        │               │               │      一路问题 → 三路并发
+  ┌─────▼─────┐   ┌─────▼─────┐   ┌─────▼─────┐
+  │  Agent 1  │   │  Agent 2  │   │  Agent 3  │    三路互不通气、独立作答;
+  └─────┬─────┘   └─────┬─────┘   └─────┬─────┘    多样性=换模型/换提示/换温度
+        │               │               │          (保证三路错误互不相关)
+        └───────────────┼───────────────┘    ← fan-in(扇入)
+                        │                    延迟≈最慢一路:是 max,不是三路相加
+                        ▼
+           多数一致 / 加权取优 / 平局裁决
+                        │
+                        ▼
+                     结果</pre>
+    <p>投票场景的最小实现骨架(Python 后台出身，看这段就能落地):</p>
+    <pre class="code"># 并行投票的最小骨架:fan-out / fan-in(Python asyncio 版)
+import asyncio
+from collections import Counter
+
+async def ask(agent, question):            # 每路独立作答(异构模型/不同提示/不同温度)
+    return await agent.run(question)
+
+async def vote(question, agents):
+    # fan-out:并发派发。三路同时跑,延迟 ≈ 最慢一路,而不是三路之和
+    answers = await asyncio.gather(*(ask(a, question) for a in agents))
+    # fan-in:先归一化再数票,多数派胜出
+    return Counter(normalize(x) for x in answers).most_common(1)[0][0]</pre>
+    <p>(gather 的语义就是“并发跑完这一批、按序收回结果”，见 <a target="_blank" rel="noopener" href="https://docs.python.org/3/library/asyncio-task.html#asyncio.gather">Python asyncio 官方文档</a>;normalize 是工程关键，数票前先归一化。)</p>
+    <ul>
+      <li><b>失败处理(容灾三板斧)</b>:单分支失败 → <b>重试</b>(带退避，和你重跑备份作业一样)；置信度(模型对自身答案可信程度的自评分，来自输出概率或让它自报)低 → <b>换策略</b>(换模型、降级为单 Agent + 人工兜底、或追加一路投票)；全程设<b>最大轮次 / token 预算</b>防死循环——预算耗尽立即熔断，取历史最优版本或转人工，绝不允许一个任务无限烧钱。这就是你熟悉的“重试 → 切换 → 熔断”，只是故障信号从错误码换成了置信度和校验结论。</li>
+    </ul>
+    <p><b>4. 必须主动讲的 trade-off(你不讲，面试官替你讲)</b></p>
+    <ul>
+      <li>多 Agent 提正确率是<b>拿成本、延迟、复杂度换的</b>:3 路投票 = 3 倍 token,但延迟近似不变(并行)；生成-批判则是轮数倍增的串行延迟，最容易把长尾请求的 P99 拖爆——在线高 SLA 链路要设轮次上限或慎用。实际落地要<b>分级</b>:像存储冷热分层一样，简单任务单 Agent 直答，高价值/高风险任务才上多 Agent 会诊。</li>
+      <li>投票只在<b>答案可枚举、分歧明确</b>(如选择、分类、数值)时最好用——开放式长文本连“数票”都数不起来；开放式任务用“生成-批判”更合适。</li>
+      <li>高频翻车点，面试官在等你自己说出来:① 三路全是同模型同提示，错误相关，钱白烧；② 辩论不设预算，死循环；③ 没有基线，无法证明“确实提升”;④ 分工过细，Agent 之间自然语言传话层层失真——接口必须结构化。</li>
+    </ul>
+    <p>一句话收束整道题:<b>多 Agent 是推理层的冗余设计，调度是你熟悉的编排 + 路由 + 容错，只是把作业从确定性换成了概率型</b>——于是多出两样新东西：按置信度路由、按预算熔断。能把这句讲清楚，你的分布式背景在这道题上就从负担变成了资产。</p>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:多个 Agent 用同一个模型有意义吗,还是必须不同模型?</summary><div class="an">有意义。即使同一个模型,<b>调高温度、换提示词、换角色设定</b>都能产生多样性,多次采样投票依然能提正确率(self-consistency 就是这么来的)。当然,<b>异构模型(不同厂商/不同架构)</b>多样性更大,投票增益通常更明显,还能互相纠偏——但接入和维护成本也更高。</div></details>
-    <details class="qa"><summary class="qu">Q:投票遇到并列(票数相同)怎么办?</summary><div class="an">不能简单随机取。优先级:① 用<b>置信度/理由质量</b>加权打破平局;② 引入一个独立的"裁决 Agent"专看平局项;③ 都拿不准就把分歧<b>如实返回给用户</b>让其选择,而不是硬编一个答案。</div></details>
-    <details class="qa"><summary class="qu">Q:怎么量化"正确率确实提升了"而不是拍脑袋?</summary><div class="an">离线用带标准答案的测试集(如数学、代码、多跳问答)做 AB:单 Agent vs 多 Agent 的准确率、以及成本/延迟增量;在线对高价值链路做灰度实验看关键指标(任务成功率、返工率)。<b>没有基线对比,多 Agent 就是烧钱</b>。</div></details>
-    <details class="qa"><summary class="qu">Q:Critic 和 Generator 会互相"敷衍"或陷入循环怎么办?</summary><div class="an">给 Critic 明确的、可判定的评判标准(而非"你觉得好不好");限制反思轮次(如 2~3 轮)和总预算;每一轮要求<b>必须产生实质修改</b>,若连续两轮无实质变化或 Critic 总是通过/总是打回,则提前终止并按规则取最优历史版本或转人工。</div></details>
+    <details class="qa"><summary class="qu">Q:多个 Agent 用同一个模型有意义吗，还是必须不同模型？</summary><div class="an"><b>人话：</b>有意义——同模型也能“变”出多样性，只是增益上限比异构低。<b>类比:</b>同一份数据抄三份不算冗余，内容全同、一起坏；但让同一份数据走三条不同校验路径各算一遍，就能抓到随机坏块——多样性来自“路径”，不是“硬件”。<b>技术:</b>调高温度、换提示视角(正向求解/反向验证)、换角色设定，采样出的推理路径就不同，self-consistency 本就是“单模型多次采样+多数投票”;异构模型错误更不相关、增益上限更高，但接入维护成本也高。落地常见做法：同模型多采样起步，关键链路再掺一路异构模型交叉验证。</div></details>
+    <details class="qa"><summary class="qu">Q:投票遇到并列(票数相同)怎么办？</summary><div class="an"><b>人话：</b>平局不能掷硬币，裁决规则要事先写死在协议里，不能现场拍脑袋。<b>类比:</b>分布式选举里两个节点同票，靠任期号/优先级打破平局——规则在选举开始前就定好。<b>技术:</b>① 按置信度或理由质量给票加权，加权后多数派胜出；② 仍平，则引入一个独立裁决 Agent,只看平局项做专项复审；③ 还拿不准，就把分歧和各方依据如实返回给用户，标注“存在分歧”，绝不硬编一个答案制造虚假确定性。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么量化"正确率确实提升了"而不是拍脑袋？</summary><div class="an"><b>人话：</b>离线拿标准答案测准确率，在线灰度看业务指标，两头都要有先钉死的基线。<b>类比:</b>像给备份换新压缩算法——先在实验环境用标准集测压缩比和还原成功率，再灰度一小部分生产作业看真实故障率，绝不能凭“感觉变快了”就全量上线。<b>技术:</b>离线在带标准答案的测试集(数学/代码/多跳问答)上做 AB:单 Agent 与多 Agent 的准确率、token 成本、P95/P99 延迟；在线对高价值链路灰度发布，盯任务成功率、返工率、人工介入率。没有基线对比，多 Agent 就是无账可查的烧钱。</div></details>
+    <details class="qa"><summary class="qu">Q:Critic 和 Generator 会互相"敷衍"或陷入循环怎么办？</summary><div class="an"><b>人话:</b>给 Critic 一张可判定的验收单，给闭环上“轮次+预算”双保险，触发熔断就退出。<b>类比:</b>备份作业不能永远停在日志里的“重试中”——作业必须有超时和最大重试次数，连续无进展就告警转人工。<b>技术:</b>① 评判标准从“你觉得如何”改成逐条可判定通过/不通过的 checklist;② 反思轮次封顶(2~3 轮)、总 token 预算封顶；③ 要求每轮必须产生 diff 级实质修改，连续两轮无实质变化、或 Critic 出现“全通过/全打回”的模式化行为，就取历史最优版本或转人工。</div></details>
+    <details class="qa"><summary class="qu">Q:什么场景不该上多 Agent?分级路由怎么设计？</summary><div class="an"><b>人话:</b>错误代价低、延迟敏感、任务简单的场景，单 Agent 直答就该赢——多 Agent 是保险费，不是默认配置。<b>类比:</b>存储冷热分层——不是所有数据都配三副本异地容灾，只有核心库才上双活；全量数据都同步三副本，成本先把你压死。<b>技术:</b>入口做分级路由，按任务类型、历史失败率、业务价值预估难度：简单任务单 Agent 直答；中等难度加一次低成本 Verifier 复核；高风险高价值任务才 fan-out 投票或辩论，并配预算熔断。多 Agent 是给高价值链路上保险，不是架构默认值。</div></details>
+    <details class="qa"><summary class="qu">Q:流程编排到底用静态 DAG 还是 Supervisor,你怎么选？</summary><div class="an"><b>人话:</b>能提前画死的用 DAG,画不死的才让主管 Agent 现场决策，别为了炫技上动态路由。<b>类比:</b>备份里“先全量后增量再归档”的依赖图适合固定编排；“按恢复目标运行时选介质”这种看状态行事的，才交给调度中心动态路由。<b>技术:</b>三条判据：① 流程步骤能否提前枚举(能→DAG);② 下一步是否依赖上一步的“结果内容”而不只是完成信号(是→Supervisor);③ 可回放要求高低(DAG 天然强，Supervisor 要补全量轨迹)。实践常见混合形态：外层 DAG 定阶段，阶段内 Supervisor 小范围动态路由。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>Self-consistency</b>:多次采样取多数一致答案,降随机错误。</div>
-      <div class="term-item"><b>Reflection</b>:生成后自我/他者批判再修正的闭环。</div>
-      <div class="term-item"><b>Fan-out/Fan-in</b>:并行发散执行、再汇聚结果。</div>
-      <div class="term-item"><b>Supervisor</b>:主管 Agent 动态路由子 Agent 的调度模式。</div>
-      <div class="term-item"><b>Multi-agent debate</b>:多 Agent 辩论迭代收敛答案。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2203.11171">Self-consistency(自一致性)</a></b>:同一模型多次采样、取多数一致答案，用多样性压制随机错误，是并行投票范式的学术原型。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.14325">Multi-agent debate(多Agent辩论)</a></b>:多个 Agent 相互质疑、迭代修正以收敛到更可靠答案的协同方式。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2303.11366">Reflection(反思)</a></b>:生成后接收批判反馈再自我修正的闭环，代表工作是 Reflexion。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Triple_modular_redundancy">三模冗余 TMR</a></b>:容错计算用三份独立计算投票淹没单点错误，多 Agent 投票的祖师爷。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Quorum_(distributed_computing)">Quorum(法定人数)</a></b>:分布式系统“多数派同意才生效”的机制，多数投票的分布式亲戚。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/MapReduce">Fan-out / Fan-in</a></b>:一路任务并发派发成 N 路、再汇聚结果的调度形态，MapReduce 的 map/reduce 是经典实现。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://www.anthropic.com/engineering/built-multi-agent-research-system">Supervisor(主管模式)</a></b>:一个主管 Agent 读状态动态派活给子 Agent 的调度模式。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Directed_acyclic_graph">DAG(有向无环图)</a></b>:任务和依赖画成的静态编排蓝图，工作流引擎按图调度。</div>
     </div>
   </div>
 </article>

@@ -8,24 +8,79 @@
     <span class="company">字节（真题）</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题在问两件事——给模型调用的"工具"接口该怎么设计，以及整个流程是写成固定编排还是放权给模型临场决策。面试官爱考它，因为这是"调过 API"和"落地过系统"的分水岭：背概念的人张口"全用 Agent"，干过活的人会先聊幂等、护栏和成本，一句话就露底。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
     <p>"我分两层回答：<b>工具怎么设计</b>、<b>流程怎么组织</b>。工具设计上，每个工具是一份 <b>JSON Schema</b>——名称、一句话描述（重点写清<b>什么时候该用/不该用</b>）、参数（类型/必填/枚举）、返回值结构；粒度遵循『<b>一次干成一件事</b>』，<b>读/写分离</b>，写操作做成<b>幂等 + 两段式（预览 → 执行）</b>。流程组织上<b>不是非此即彼，而是一条光谱</b>：一端是 <b>Workflow（确定性编排）</b>——步骤固定、代码编排、LLM 只填空；另一端是<b>自主 Agent</b>——LLM 自由决定调哪个工具、调几次。我的做法：<b>能确定的部分用 workflow 固化成图，需要模型判断的部分才交给 Agent 自主选工具</b>——确定性优先，不确定性交给模型。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>像<b>做菜</b>：Workflow 是<b>标准化菜谱</b>——先放油、再放菜、炒三分钟，步骤写死，照着做就行（可预期、稳定）；自主 Agent 是<b>让厨师自由发挥</b>——看冰箱里有什么、客人什么口味，自己决定切什么、炒什么（灵活、但可能翻车）。工具就是<b>厨房里的设备</b>——锅、刀、烤箱，每个都要标清"能干嘛、怎么用、什么时候别用"，标得越清楚，厨师越不容易用错。聪明做法是<b>把熟练的菜写成菜谱（workflow），把新菜让厨师即兴发挥（Agent），两者混搭</b>。</p>
+    <p><b>工具 Tool（拿你天天写的南向原子接口想）</b>:一个工具 = 一个普通函数 + 一份写给模型看的接口契约。函数就是你 Python 后台里随手写的一个方法，契约用 <a target="_blank" rel="noopener" href="https://json-schema.org/">JSON Schema</a> 声明名称、参数、返回值，注册进 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Large_language_model">LLM</a>（大语言模型）的"可调用清单"——这套机制业内叫 <a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function Calling</a>（工具调用），长得和 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/OpenAPI_Specification">OpenAPI</a>/Swagger 定义一个味。</p>
+    <p><b>哪里像</b>:都是契约先行——调用方只看契约不看实现，参数校验、错误码、鉴权这些后台基本功原样适用。<b>哪里不像</b>:传统接口的调用方是人或代码，有上下文、拿不准会来问；模型的全部认知就是 description 那几句话——你没写的它不知道，写得含糊它就现场编。所以工具描述不是锦上添花的注释，而是模型的"路由表"，直接决定它选不选得对工具。</p>
+    <p><b>Workflow（拿备份调度 DAG 想）</b>:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Workflow">Workflow</a> 是步骤写死的确定性编排——凌晨两点，快照→读数据→去重→写介质→校验→更新目录，节点和边在上线前画好，运行时照图执行。技术形态就是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Directed_acyclic_graph">DAG</a>（有向无环图）或 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Finite-state_machine">状态机</a>，<a target="_blank" rel="noopener" href="https://langchain-ai.github.io/langgraph/">LangGraph</a>、<a target="_blank" rel="noopener" href="https://airflow.apache.org/">Airflow</a> 都是这类引擎。</p>
+    <p><b>哪里像</b>:可单测、可回归、可预期——你能给备份策略跑全量回归，workflow 换版本同样能。<b>哪里不像</b>:传统 DAG 每个节点是纯代码；LLM workflow 里有的节点是"填空题"——比如"从这封邮件里抽工单字段"交给模型填，但下一步走哪条边、调哪个下游，仍由代码的 if/else 决定。模型只在节点内部干活，方向盘不在它手里。</p>
+    <p><b>自主 Agent（拿值班 on-call 想）</b>:自主 Agent 是把方向盘交给模型——在 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a>（推理+行动）循环里，观察结果→思考下一步→调用某个工具→再看结果，一直转到任务完成；下一步调什么、调几次，全部临场决定。</p>
+    <p><b>哪里像</b>:像凌晨处理疑难告警的资深运维——没有剧本，先看监控还是先抓日志全凭现场，每一步的输出决定下一步。<b>哪里不像</b>:老运维有经验兜底、知道何时收手升级；模型可能死循环、编造参数、在错误路径上一路狂奔。所以生产环境必须配护栏——工具白名单、步数预算、写操作审批，相当于给这位"新员工"配上权限系统、操作审计和强制下班时间。</p>
+    <p>落地心法和备份软件一个套路：<b>标准流程固化成调度器，疑难场景留给专家</b>——高频主流程用 workflow 锁死，开放的长尾请求才放给 Agent，两边共用同一套原子工具层。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 工具怎么设计（Tool 设计五原则）</b></p>
+    <p><b>1. 先看一个工具长什么样</b></p>
+    <p>先把 Agent 拆开：Agent = <b>LLM 当大脑 + 一组工具当手脚 + 一个循环当心跳</b>。工具就是后台工程师最熟悉的东西——一个函数加一份契约。模型看不到你的代码，契约就是它的全部世界：</p>
+    <pre class="code">{
+  "name": "delete_expired_backups",
+  "description": "删除保留策略已到期的备份集。仅在收到明确的保留
+                  策略清理指令时使用；不要用于用户仅查询备份
+                  列表的场景。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "policy_id": {"type": "string",
+                    "description": "保留策略 ID，如 retention-30d"},
+      "dry_run":   {"type": "boolean", "default": true,
+                    "description": "true=只返回将被删除的清单，不真删"}
+    },
+    "required": ["policy_id"]
+  }
+}</pre>
+    <p>注意 description 同时写了"<b>什么时候该用</b>"和"<b>什么时候不该用</b>"——这不是文档洁癖，模型选工具全靠这几句话，权重等同于线上接口契约。参数尽量用枚举、标必填，"能用机器约束的就别指望模型自觉"。这个工具既能被 workflow 的定时节点调用，也能被 Agent 临场调用——记住这点，第 4 节的结论就有了铺垫。</p>
+
+    <p><b>2. 工具怎么设计（Tool 设计五原则）</b></p>
     <ul>
-      <li><b>Schema 清晰</b>：name / description / parameters（JSON Schema）/ 返回值结构。description 里一定要写"<b>什么时候该用、什么时候不该用</b>"——这直接决定模型选对工具的概率。</li>
-      <li><b>粒度适中</b>：一次一个原子动作（"查订单"而非"查订单顺便改地址"）。太粗（瑞士军刀式巨型工具）参数多、模型易选错/漏参；太细一次任务调用几十次，延迟和 token 暴涨。</li>
-      <li><b>读/写分离</b>：读操作无副作用、可安全重试；写操作（下单、退款、改配置）要有<b>幂等键 + 两段式（先预览、再确认/审批执行）</b>，并做<b>权限最小化</b>。</li>
-      <li><b>返回值精简</b>：把底层返回的大 JSON 裁剪成模型真正需要的字段 + 明确的错误码，省 token、少幻觉。</li>
-      <li><b>错误可回喂</b>：工具报错要结构化返回给模型，让 Agent 能"看着错误自我纠正"（换参数、换工具、或承认失败）。</li>
+      <li><b>Schema 清晰</b>：name / description / parameters（JSON Schema）/ 返回值结构。description 里一定要写"<b>什么时候该用、什么时候不该用</b>"——这直接决定模型选对工具的概率。你写 REST 接口时会在文档里注明"仅内部调用、幂等、限流阈值"，调用方才不会用错；这里的调用方是模型，对文档清晰度的要求只高不低。</li>
+      <li><b>粒度适中</b>：一次一个原子动作（"查订单"而非"查订单顺便改地址"），正是 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Unix_philosophy">Unix 哲学</a> "do one thing and do it well" 的翻版。太粗（瑞士军刀式巨型工具）参数多、模型易选错/漏参，且多个副作用挤在一个接口里没法做权限隔离——把"查询"和"销毁"塞进同一个接口，审计时说不清谁干了什么。太细则一次任务要调几十次，延迟和 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Byte_pair_encoding">token</a>（模型世界的计费与计长单位，约等于半个到一个汉字）暴涨——好比对象存储没有批量接口，拷个目录几百次往返，时间全耗在路上。</li>
+      <li><b>读/写分离</b>：读操作无副作用、可安全重试——相当于只读查询走只读副本，随便重放都不怕。写操作（下单、退款、改配置）要有<b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Idempotence">幂等</a>键 + 两段式（先预览、再确认/审批执行）</b>，并做<b>权限最小化</b>（第 3 节专门展开）。</li>
+      <li><b>返回值精简</b>：把底层返回的大 JSON 裁剪成模型真正需要的字段 + 明确的错误码，省 token、少幻觉。给调用方的 API 本就不该把内部三十个字段全吐出去；对模型这个"调用方"更甚——多出来的字段既占 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Context_window">上下文窗口</a>（按 token 计费），还会诱导模型把无关字段编进答案，催生<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)">幻觉</a>。</li>
+      <li><b>错误可回喂</b>：工具报错要结构化返回给模型（错误码+原因+建议动作），让 Agent 能"看着错误自我纠正"（换参数、换工具、或承认失败）。接口返回结构化错误码而非裸 500，调用方才能编程处理；对模型来说，"policy_id invalid, expected format retention-30d" 这种错误信息就是它下一步重试的输入。</li>
     </ul>
-    <p><b>2. 是 workflow 形式吗？——一条光谱，不是二选一</b></p>
+
+    <p><b>3. 写操作安全三件套（面试加分位，重点展开）</b></p>
+    <p><b>幂等</b>：同一操作执行多次，效果和执行一次相同。为什么必须：网络会重试、调度器会重派、Agent 自己没把握时还会"再调一次"——没有幂等，一次重试就是一次重复下单。实现和消息队列去重同款：请求带幂等键（如 plan_id / request_id），服务端按键去重。这和你做备份任务防重复提交、存储层防重复写是同一件事。</p>
+    <p><b>两段式</b>：先 preview（告诉用户/审批人"我将做什么、影响多大"），确认后 execute（真执行）。机制上像<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Two-phase_commit_protocol">两阶段提交</a>（2PC）——先 prepare 锁定影响面、再 commit 落地；也像备份软件删备份集前的"删除预览"。区别在于：2PC 的确认来自协调者，追求分布式一致性；这里的确认来自人（或规则引擎），追求的是把最终扳机留在人手里。</p>
+    <pre class="code"> Agent                          工具服务（备份清理）
+   │                                  │
+   │ delete_expired_backups(          │
+   │    policy_id="retention-30d",    │
+   │    dry_run=true)                 │
+   │ ───────────────────────────────► │ ① preview: 只算不删,
+   │                                  │   生成幂等键 plan_id
+   │ ◄─────────────────────────────── │
+   │   {plan_id: "plan-881",          │
+   │    to_delete: "1203 个备份集",    │
+   │    reclaim: "45TB",              │
+   │    need_approval: true}          │
+   │                                  │
+   │      （用户 / 审批人确认）        │
+   │                                  │
+   │ execute(plan_id="plan-881")      │
+   │ ───────────────────────────────► │ ② execute: 按计划真删,
+   │                                  │   同一 plan_id 重复请求
+   │ ◄─────────────────────────────── │   自动去重 → 幂等,
+   │   {deleted: 1203, ok: true}      │   重试/重派都安全</pre>
+    <p>三件套合起来（幂等键 + 两段式 + 权限最小化），Agent 在写操作上就永远只能"<b>提议</b>"，不能"<b>擅自执行</b>"——敏感接口只给起草权限，真正执行走审批，最后一道闸门始终在人手里。</p>
+
+    <p><b>4. 是 workflow 形式吗？——一条光谱，不是二选一</b></p>
+    <p>先给结论：<b>工具是中立的原子能力，workflow 和 Agent 只是消费工具的两种方式</b>。同一个 delete_expired_backups，workflow 里被调度器按固定时机调用，Agent 里被模型临场判断调用——工具本身不挑编排方式。所以这题的正确答法不是站队，而是讲清取舍：</p>
     <table>
       <tr><th>维度</th><th>Workflow（确定性编排）</th><th>自主 Agent（工具自主选择）</th></tr>
       <tr><td><b>步骤</b></td><td>固定 DAG/状态机，代码定死</td><td>LLM 在 ReAct 循环里自主决定</td></tr>
@@ -33,6 +88,7 @@
       <tr><td><b>可控/可测</b></td><td>强（可预期、可回归）</td><td>弱（不确定、可能死循环）</td></tr>
       <tr><td><b>成本</b></td><td>低</td><td>高（多步多次 LLM 调用）</td></tr>
       <tr><td><b>适用</b></td><td>流程明确的标准化业务</td><td>开放、长尾、路径不固定的任务</td></tr>
+      <tr><td><b>打个比方</b></td><td>备份调度器、容灾切换 runbook：照单执行</td><td>值班 on-call 疑难诊断：临场决断</td></tr>
     </table>
     <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 634 152" role="img" aria-label="组织方式光谱">
   <text class="sd-l" x="10" y="30">组织方式光谱 · 确定性 → 灵活性</text>
@@ -48,34 +104,61 @@
   <text class="sd-t" x="545" y="102" text-anchor="middle">纯自主 Agent</text>
   <text class="sd-ts" x="545" y="120" text-anchor="middle">自由选工具 · 最难控</text>
 </svg></div>
-    <p><b>3. 生产主流是"中间态"：Agent + 护栏</b></p>
+    <p>光谱右端那个"自主"到底长什么样？看 ReAct 循环内部——它就是自主 Agent 的心跳，模型在这里自己挑工具：</p>
+    <pre class="code">用户任务
+   │
+   ▼
+【ReAct 循环 —— Agent 的心跳】
+   │
+   ▼
+思考: 得先查这个客户的备份策略
+   │
+   ▼
+行动: get_backup_policy(c-881)  ───► 工具真实执行
+   │                               （返回结果 = 观察）
+   ▼
+观察: 策略保留 30 天, 实例却已占 90 天
+   │
+   ▼
+再思考 → 再行动 → 再观察 …… 循环往复
+   │
+   ├──────────► 任务完成 / 步数预算耗尽 ──► 最终回答
+   └──────────► 连续失败触发护栏 ──► 熔断、转人工</pre>
+
+    <p><b>5. 生产主流是"中间态"：Agent + 护栏</b></p>
     <ul>
-      <li>用<b>状态机/LangGraph</b>把合法流程固化，但节点内部可以是"自主 Agent 子图"，让模型在受限范围内选工具。</li>
-      <li>护栏四件套：<b>工具白名单/路由、最大步数 + token 预算、输出校验、失败转人工</b>——把 Agent 的"自由"关进确定性的笼子。</li>
+      <li>用<b>状态机/LangGraph</b>把合法流程固化，但节点内部可以是"自主 Agent 子图"，让模型在受限范围内选工具——骨架确定、节点内自由。</li>
+      <li>护栏四件套：<b>工具白名单/路由、最大步数 + token 预算、输出校验、失败转人工</b>——把 Agent 的"自由"关进确定性的笼子。翻译成分布式语言：白名单=ACL 鉴权；步数/token 预算=超时+重试预算；输出校验=出入参 schema 校验；转人工=熔断后的降级路径。四件套配齐，Agent 才敢上生产、才谈得上 SLA。</li>
     </ul>
-    <p><b>4. 决策标准（什么时候用哪个）</b></p>
+
+    <p><b>6. 决策标准（什么时候用哪个）</b></p>
     <ul>
-      <li>步骤确定、工具少且固定、容错要求高 → <b>Workflow</b>，别为"看起来高级"硬上 Agent。</li>
-      <li>路径不固定、工具多且动态、需要模型临场判断 → <b>Agent</b>，但要配护栏。</li>
-      <li>落地策略：<b>高频主流程先用 workflow 固化（约 80%），开放长尾问题再交给 Agent 承接</b>，共用同一套原子工具层，兜底转人工。</li>
+      <li>步骤确定、工具少且固定、容错要求高 → <b>Workflow</b>，别为"看起来高级"硬上 Agent。每日备份、对账、报表这类标准作业，调度器比任何模型都稳、都便宜。</li>
+      <li>路径不固定、工具多且动态、需要模型临场判断 → <b>Agent</b>，但要配护栏。比如"帮我把这套环境恢复到上周三的状态"——一句话背后藏着几十种路径组合，写死 workflow 反而脆。</li>
+      <li>落地策略：<b>高频主流程先用 workflow 固化（约 80%），开放长尾问题再交给 Agent 承接</b>，共用同一套原子工具层，兜底转人工。上线别一把梭：先走灰度发布小流量，盯端到端成功率和单任务成本（token 是新维度的"资源账单"），数据说话再放量。</li>
     </ul>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:工具切太细会有什么问题？太粗呢？</summary><div class="an">太细：一次任务要连续调几十次，延迟和 token 线性累积，中间结果还会把上下文塞满、淹没关键信息。太粗（巨型工具）：参数太多，模型容易选错工具或漏传参数，且一个工具承担多个副作用、难做权限隔离。平衡点是"<b>一次一个原子动作</b>"，复杂动作靠编排（workflow 串起来）或 Agent 多次调用组合实现。</div></details>
-    <details class="qa"><summary class="qu">Q:写操作工具怎么做才安全？</summary><div class="an">三件套：① <b>幂等键</b>——同一操作重复执行无副作用（防重试/重派导致重复下单）；② <b>两段式</b>——先返回 preview（将要做什么、影响什么），用户或人工确认后再 execute；③ <b>权限最小化</b>——敏感接口只给"起草"权限，真正执行走审批。目标是让 Agent 永远只能"提议"，不能"直接越权执行"。</div></details>
-    <details class="qa"><summary class="qu">Q:同一个工具既在 workflow 里又在 Agent 里用，有冲突吗？</summary><div class="an">不冲突，这是推荐做法：工具是"原子能力"，workflow 是"固定编排"，Agent 是"自主编排"，两者<b>共享同一套工具层</b>。区别在于——对 workflow 来说工具描述只是文档，对 Agent 来说 description 是模型选对工具的关键信号，所以工具的 description 要按"服务 Agent 的视角"写清楚（何时用/不用、参数含义），这样两个场景都能吃。</div></details>
-    <details class="qa"><summary class="qu">Q:怎么判断一个需求该用 workflow 还是 Agent？</summary><div class="an">看三点：① <b>步骤确定性</b>——流程固定选 workflow，路径发散选 Agent；② <b>工具集合大小</b>——工具少且固定选 workflow，工具多且动态选 Agent；③ <b>容错/成本要求</b>——强容错低成本选 workflow。经验法则是"<b>能用 workflow 别上 Agent</b>"，Agent 只兜开放长尾，最后用端到端成功率做 AB 验证，别凭感觉。</div></details>
+    <details class="qa"><summary class="qu">Q:工具切太细会有什么问题？太粗呢？</summary><div class="an"><b>人话:</b>细了又慢又贵，粗了容易用错，答案是"一次只干一件事"。<b>类比:</b>切太细像对象存储没有批量接口——拷一个目录几百次往返，时间全耗在 RTT 上；切太粗像把"查询"和"格式化磁盘"塞进同一个接口，参数表十几页，调用方必传错，审计也说不清谁干了什么。<b>技术:</b>太细→一次任务几十次调用，延迟与 token 线性累积，中间结果塞满上下文、淹没关键信息；太粗→参数多、模型易选错/漏参，多副作用耦合、难做权限隔离。平衡点是"<b>一次一个原子动作</b>"，复杂动作靠 workflow 编排或 Agent 多步组合实现。</div></details>
+    <details class="qa"><summary class="qu">Q:写操作工具怎么做才安全？</summary><div class="an"><b>人话:</b>让 Agent 只能"提议"，永远不能"擅自执行"。<b>类比:</b>就是删过期备份集的经典保护——先 dry-run 列出将删清单（1203 个、释放 45TB），管理员确认后再真删；机制上像两阶段提交，先 prepare 锁定影响面，再 commit 落地。<b>技术:</b>三件套：①<b>幂等键</b>——同一操作重复执行无副作用，防重试/重派导致重复下单；②<b>两段式</b>——先返回 preview（将要做什么、影响什么），用户或审批人确认后 execute；③<b>权限最小化</b>——敏感接口只给"起草"权限，真正执行走审批。</div></details>
+    <details class="qa"><summary class="qu">Q:同一个工具既在 workflow 里又在 Agent 里用，有冲突吗？</summary><div class="an"><b>人话:</b>不冲突，反而是推荐架构——工具是原子能力，两种编排只是不同的"消费方"。<b>类比:</b>同一套快照接口，备份调度器按 DAG 定时调用，值班工程师应急时手工调用——接口从不关心谁来调，行为一致、审计统一。<b>技术:</b>区别在文档的"读者"：对 workflow 来说工具描述只是文档，对 Agent 来说 description 是模型选对工具的关键信号，所以描述要按"服务模型"的标准写清何时用/不用、参数含义；一套工具层两端共享，权限和行为还能统一管控。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么判断一个需求该用 workflow 还是 Agent？</summary><div class="an"><b>人话:</b>流程能提前画清楚就 workflow，画不清楚才上 Agent。<b>类比:</b>每日备份策略是 SOP，写成调度器最稳；凌晨的疑难故障诊断没有剧本，才需要 on-call 临场判断——两种活本来就分给两种角色。<b>技术:</b>看三点：①步骤确定性——固定选 workflow，发散选 Agent；②工具集合——少且固定选 workflow，多且动态选 Agent；③容错/成本要求——强容错低成本选 workflow。经验法则"能用 workflow 别上 Agent"，长尾交给 Agent 兜底，最后用端到端成功率和成本做灰度 AB 验证，别凭感觉。</div></details>
+    <details class="qa"><summary class="qu">Q:模型选错工具或传错参数，怎么办？</summary><div class="an"><b>人话:</b>三道防线：文档写清、参数校验住、错误喂回去。<b>类比:</b>就是后台的接口契约+入参校验+结构化错误码，基本功原样适用——只是调用方从人换成了模型，对契约清晰度的要求反而更高。<b>技术:</b>①description 写明适用/不适用场景，参数用 enum+required 收紧；②工具入口强校验，非法参数返回结构化错误而非裸 500；③错误信息回喂模型，触发自我纠正（换参数/换工具/承认失败）；④高频错法沉淀成 few-shot 示例或路由白名单，让同一类错误不再重犯。</div></details>
+    <details class="qa"><summary class="qu">Q:Agent 会不会死循环、烧 token？怎么兜底？</summary><div class="an"><b>人话:</b>会，这是自主性自带的成本，所以要装"熔断"。<b>类比:</b>和分布式防雪崩一个思路——超时、重试预算、熔断降级全套用上，最后 fallback 到人工：你防重试风暴怎么做，Agent 就怎么做。<b>技术:</b>硬顶是最大步数+token 预算，超了强制终止；同一工具连续失败 N 次强制换路或放弃；输出校验不过不许进下一步；全程失败转人工工单。上线走灰度发布小流量，盯成功率、P99 延迟和单任务成本，数据稳了再放量。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>Tool Schema</b>:工具的名称/描述/参数/返回值的结构化定义。</div>
-      <div class="term-item"><b>ReAct</b>:推理 + 行动的循环，Agent 自主选工具的范式。</div>
-      <div class="term-item"><b>Workflow</b>:步骤固定的确定性编排，代码主导。</div>
-      <div class="term-item"><b>幂等</b>:同一操作执行多次效果和一次相同。</div>
-      <div class="term-item"><b>两段式执行</b>:先预览再执行，防误操作的写保护。</div>
-      <div class="term-item"><b>LangGraph</b>:能把 workflow 与 Agent 节点混合编排的图引擎。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://json-schema.org/">Tool Schema</a></b>:工具的名称/描述/参数/返回值的结构化定义，本质是一份 JSON Schema 契约。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2210.03629">ReAct</a></b>:推理+行动交替的循环，自主 Agent 挑选工具的范式。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Workflow">Workflow</a></b>:步骤固定的确定性编排，代码主导、可回归。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Idempotence">幂等</a></b>:同一操作执行多次，效果和执行一次相同。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Two-phase_commit_protocol">两段式执行</a></b>:先预览再执行的写保护，思路同 2PC。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://langchain-ai.github.io/langgraph/">LangGraph</a></b>:能把 workflow 与 Agent 节点混合编排的图引擎。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function Calling</a></b>:让 LLM 按工具契约生成结构化调用参数的机制。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)">幻觉</a></b>:模型一本正经地编造不存在的事实或参数。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Directed_acyclic_graph">DAG</a></b>:有向无环图，workflow 编排的骨架结构。</div>
     </div>
   </div>
 </article>
