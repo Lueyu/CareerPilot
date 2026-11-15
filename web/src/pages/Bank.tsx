@@ -596,12 +596,12 @@ export default function Bank() {
               >
                 <div className="dropzone-ic">📥</div>
                 <b>拖拽文件到这里，或点击选择</b>
-                <p>支持 PDF / DOCX / Markdown / TXT，单文件 ≤ 12MB，可多选</p>
+                <p>支持 PDF / DOCX / Markdown / TXT / JPG / PNG，单文件 ≤ 12MB，可多选</p>
                 <input
                   ref={fileRef}
                   type="file"
                   multiple
-                  accept=".pdf,.docx,.md,.markdown,.txt,.text,application/pdf,text/markdown,text/plain"
+                  accept=".pdf,.docx,.md,.markdown,.txt,.text,.jpg,.jpeg,.png,application/pdf,text/markdown,text/plain,image/jpeg,image/png"
                   style={{ display: 'none' }}
                   onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }}
                 />
@@ -611,7 +611,7 @@ export default function Bank() {
                 <div className="file-list">
                   {files.map((f, i) => (
                     <div className="file-item" key={`${f.name}-${f.size}-${i}`}>
-                      <span className="file-ic">{f.name.endsWith('.pdf') ? '📕' : f.name.endsWith('.docx') ? '📘' : '📄'}</span>
+                      <span className="file-ic">{f.name.endsWith('.pdf') ? '📕' : f.name.endsWith('.docx') ? '📘' : /\.(jpe?g|png)$/i.test(f.name) ? '🖼️' : '📄'}</span>
                       <span className="file-name">{f.name}</span>
                       <span className="file-size">{f.size < 1024 ? `${f.size} B` : `${(f.size / 1024).toFixed(0)} KB`}</span>
                       <button className="file-x" title="移除" onClick={(e) => { e.stopPropagation(); setFiles((prev) => prev.filter((_, j) => j !== i)); }}>×</button>

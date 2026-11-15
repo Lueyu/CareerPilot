@@ -110,6 +110,42 @@ def _from_docx(raw: bytes) -> tuple[str, str]:
     return text, ""
 
 
+_OCR_ENGINE = None
+
+
+def _get_ocr_engine():
+    """rapidocr 引擎懒加载并缓存(模型加载较重, 只初始化一次)。"""
+    global _OCR_ENGINE
+    if _OCR_ENGINE is None:
+        from rapidocr_onnxruntime import RapidOCR
+        _OCR_ENGINE = RapidOCR()
+    return _OCR_ENGINE
+
+
+def _from_image(raw: bytes) -> tuple[str, str]:
+    try:
+        from PIL import Image
+    except ImportError:  # pragma: no cover
+        raise RuntimeError("服务端未安装 Pillow, 无法读取图片（pip install Pillow）")
+    try:
+        import numpy as np
+    except ImportError:  # pragma: no cover
+        raise RuntimeError("服务端未安装 numpy, 无法处理图片")
+    try:
+        from rapidocr_onnxruntime import RapidOCR  # noqa: F401 - 仅探测依赖是否存在
+    except ImportError:
+        raise RuntimeError("服务端未安装 rapidocr-onnxruntime, 无法识别图片文字（pip install rapidocr-onnxruntime）")
+    try:
+        img = Image.open(io.BytesIO(raw)).convert("RGB")
+        result, _elapse = _get_ocr_engine()(np.array(img))
+    except Exception as exc:
+        raise RuntimeError(f"图片识别失败: {type(exc).__name__}: {exc}")
+    if not result:
+        raise RuntimeError("图片中未识别到文字（可能过于模糊，或图片里没有文字）")
+    lines = [str(line[1]).strip() for line in result if len(line) > 1 and str(line[1]).strip()]
+    return _clean("\n".join(lines)), ""
+
+
 def extract_one(name: str, raw: bytes) -> ExtractedFile:
     """解析单个文件; 永远返回 ExtractedFile, 不抛异常。"""
     lower = name.lower()
@@ -134,8 +170,7 @@ def extract_one(name: str, raw: bytes) -> ExtractedFile:
         elif suffix in TEXT_SUFFIXES or not suffix:
             text, warning = _clean(_decode(raw)), ""
         elif suffix in IMAGE_SUFFIXES:
-            item.error = "图片需要视觉/OCR 模型，当前未启用；请把图片里的文字粘贴到下方文本框"
-            return item
+            text, warning = _from_image(raw)
         else:
             item.error = f"不支持的文件类型 {suffix or '未知'}（支持 PDF / DOCX / Markdown / TXT）"
             return item
