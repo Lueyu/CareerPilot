@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DemoBanner, PageHead, SegBars, StatusChip } from '../components/ui';
+import { DemoBanner, PageHead, SegBars, StatusChip, plainConfidence, plainLevel } from '../components/ui';
 import { useApi, BenchmarkData } from '../api/client';
 import { WS, DOMAINS } from '../data/demo';
 
@@ -108,10 +108,16 @@ export default function Benchmark() {
                   <td className="strong" style={{ cursor: 'pointer' }} onClick={() => navigate(`/profile/${r.skill_key}`)}>{r.skill}</td>
                   <td className="num">{r.weight_pct}%</td>
                   <td className="num">{r.target_level}</td>
-                  <td className="num">{r.current_level != null ? r.current_level.toFixed(2) : '—'}</td>
+                  <td>
+                    <span className="num">{r.current_level != null ? r.current_level.toFixed(2) : '—'}</span>
+                    <div className="plain-hint">{plainLevel(r.current_level)}</div>
+                  </td>
                   <td><StatusChip status={r.status} /></td>
                   <td className="num">{r.evidence_coverage} 条</td>
-                  <td className="num">{r.confidence != null ? r.confidence.toFixed(2) : '—'}</td>
+                  <td>
+                    <span className="num">{r.confidence != null ? r.confidence.toFixed(2) : '—'}</span>
+                    <div className="plain-hint">{plainConfidence(r.confidence)}</div>
+                  </td>
                   <td><span className="action-link" onClick={() => navigate('/learning')}>{r.next_step}</span></td>
                 </tr>
               ))}

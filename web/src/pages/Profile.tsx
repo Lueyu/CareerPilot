@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DemoBanner, PageHead, StatusChip } from '../components/ui';
+import { DemoBanner, PageHead, StatusChip, plainConfidence, plainLevel } from '../components/ui';
 import { useApi, ProfileData, EvidenceItem } from '../api/client';
 import { DOMAINS, EVIDENCE } from '../data/demo';
 
@@ -68,6 +68,9 @@ export default function Profile() {
               {focusName} 整体估计 {overallLevel}/5
               <span className="hero-chip">置信度 {overallConf}</span>
             </div>
+            <div className="hero-plain">
+              通俗地说：{plainLevel(Number(overallLevel))}；置信度说明：{plainConfidence(Number(overallConf))}。
+            </div>
           </div>
           <div className="hero-score">
             <div className="big">{evidenceTotal}<span>条证据</span></div>
@@ -100,6 +103,7 @@ export default function Profile() {
             <div className="domain-track">
               <div className="domain-track-fill" style={{ width: `${((d.level ?? 0) / 5) * 100}%`, background: COLOR[d.status] }} />
             </div>
+            <div className="domain-card-plain">{plainLevel(d.level)}</div>
             <div className="domain-card-foot">
               <span>置信 {d.confidence != null ? d.confidence.toFixed(2) : '—'}</span>
               <span>最近评估 {d.last_assessed_at ? d.last_assessed_at.slice(5, 10) : '—'}</span>

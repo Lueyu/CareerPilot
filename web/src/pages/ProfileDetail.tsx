@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { DemoBanner, PageHead, StatusChip } from '../components/ui';
+import { DemoBanner, PageHead, StatusChip, plainConfidence, plainLevel } from '../components/ui';
 import { DOMAINS, EVIDENCE } from '../data/demo';
 
 const DIMENSIONS = ['理论理解', '工程实践', '问题诊断', '表达沟通', 'AI 协作'];
@@ -20,7 +20,7 @@ export default function ProfileDetail() {
     <div>
       <PageHead title={d.name} sub={`能力详情 · 权重 ${d.weight}% · ${d.evidence} 条证据`}>
         <button className="btn btn-outline" onClick={() => navigate('/profile')}>← 返回能力画像</button>
-        <button className="btn btn-primary" onClick={() => navigate('/learning')}>补充证据</button>
+        <button className="btn btn-primary" onClick={() => navigate('/exam/diagnosis')}>补充证据</button>
       </PageHead>
       <DemoBanner />
 
@@ -34,7 +34,9 @@ export default function ProfileDetail() {
             <div style={{ fontSize: 44, fontWeight: 750, letterSpacing: '-0.02em' }}>{d.current.toFixed(1)}<span style={{ fontSize: 16, color: 'var(--text-4)', fontWeight: 500 }}>/5</span></div>
             <div className="chip chip-slate">目标 {d.target}/5</div>
           </div>
-          <div className="hint" style={{ marginTop: 6 }}>置信度 {d.confidence.toFixed(2)} · 最后评估 2026-11-15</div>
+          <div className="plain-hint" style={{ fontSize: 12.5, marginTop: 4 }}>{plainLevel(d.current)}</div>
+          <div className="hint" style={{ marginTop: 6 }}>置信度 {d.confidence.toFixed(2)}（{plainConfidence(d.confidence)}）· 最后评估 2026-11-15</div>
+          <div className="hint" style={{ marginTop: 4, color: 'var(--text-4)' }}>评估详情：scorer rule-v1 · 证据 {d.evidence} 条</div>
           <div className="domain-track" style={{ height: 9, marginTop: 14 }}>
             <div className="domain-track-fill" style={{ width: `${(d.current / 5) * 100}%`, background: 'var(--accent-grad)' }} />
           </div>

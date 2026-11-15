@@ -34,10 +34,25 @@ export default function Evolution() {
       </PageHead>
       <DemoBanner />
 
+      {/* v3.1 M7: 诚实化说明——演示实验 ≠ 真实实验 */}
+      <div className="card obs-summary" style={{ marginBottom: 18 }}>
+        <div className="card-head">
+          <span className="card-title">进化实验室是做什么的？</span>
+        </div>
+        <div className="obs-summary-line">
+          <span className="obs-summary-ic">🧪</span>
+          <span>系统每次想改一个策略（比如「考试怎么选题」），都要先小流量试运行，和现有策略对比数据：指标更好、且没有别的指标变差，才会全量启用；否则自动回滚。</span>
+        </div>
+        <div className="obs-summary-line">
+          <span className="obs-summary-ic">ℹ️</span>
+          <span>你的工作空间<b>还没有真实实验</b>——实验会在系统积累足够的运行数据后自动发起。下面是两个<b>演示实验</b>，仅用于展示界面与决策流程，不构成真实评估结果。</span>
+        </div>
+      </div>
+
       <div className="card">
         <div className="card-head">
           <span className="card-title">策略候选</span>
-          <span className="card-sub">对比基线 vs 候选 · 样本量越大越可信</span>
+          <span className="card-sub">演示数据 · 对比基线 vs 候选 · 样本量越大越可信</span>
         </div>
         {EVOS.map((e) => (
           <div className="evo-card" key={e.id} style={{ padding: '18px 0', borderBottom: '1px solid var(--border-2)' }}>
@@ -47,6 +62,7 @@ export default function Evolution() {
                   <span className="chip chip-purple">{e.id}</span>
                   <b style={{ fontSize: 14.5 }}>{e.name}</b>
                   <span className={`chip ${e.status === '评估中' ? 'chip-amber' : 'chip-slate'}`}>{e.status}</span>
+                  <span className="chip demo-tag">演示实验</span>
                 </div>
                 <p className="hint" style={{ margin: '6px 0 12px' }}>{e.desc}</p>
                 <div className="evo-metrics">

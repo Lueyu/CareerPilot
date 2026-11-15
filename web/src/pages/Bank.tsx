@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAppState } from '../components/AppState';
 import { DemoBanner, DiffLabel, Modal, PageHead, Stars } from '../components/ui';
 import { api, BankData, ImportReview, QuestionDetail } from '../api/client';
@@ -52,6 +52,12 @@ export default function Bank() {
   const [editQ, setEditQ] = useState<Row | null>(null);
   const [mergeQ, setMergeQ] = useState<Row | null>(null);
   const [importOpen, setImportOpen] = useState(window.location.search.includes('import=1'));
+  const location = useLocation();
+
+  // v3.1 M1: 在考试与面经 Tab 容器下, ?import=1 需要响应式触发
+  useEffect(() => {
+    if (location.search.includes('import=1')) setImportOpen(true);
+  }, [location.search]);
   const [stage, setStage] = useState<ImportStage>('upload');
   const [stepIdx, setStepIdx] = useState(0);
   const [approved, setApproved] = useState<string[]>([]);
@@ -239,8 +245,7 @@ export default function Bank() {
   };
 
   /** 重新生成某条导入项的答案 */
-  const regenerateItem = async (itemId: number) => {
-    if (!review) return;
+  const regenerateItem = async (itemId: number) => {    if (!review) return;
     setAnsBusy(itemId);
     try {
       const r = await api.post<{ answer_html: string; answer_source: string }>(
@@ -662,77 +667,110 @@ export default function Bank() {
           )}
 
           {stage === 'review' && (
-            <>
-              {review ? (
-                <>
-                  <div className="hint" style={{ marginBottom: 12 }}>
-                    {review.short_code} · 共提取 {review.items.length} 道题
-                    {review.meta?.files?.length ? ` · ${review.meta.files.filter((f) => f.ok).length}/${review.meta.files.length} 个文件解析成功` : ''}
-                    {' · '}私有资料 · 全部通过后进入题库
+            <div className="rev-split">
+              {/* 左: 原文预览 */}
+              <div className="rev-src">
+                <div className="rev-pane-title">📄 原文预览</div>
+                {(review?.meta?.files?.length
+                  ? review.meta.files.map((f) => ({ name: f.name, sub: f.ok ? `${f.chars} 字符 · ${f.suffix || '文本'}` : (f.error || '解析失败'), ok: f.ok }))
+                  : files.map((f, i) => ({ name: f.name, sub: `${(f.size / 1024).toFixed(1)} KB`, ok: true }))
+                ).map((f, i) => (
+                  <div className={`rev-src-file ${f.ok ? '' : 'bad'}`} key={`${f.name}-${i}`}>
+                    <b>{f.ok ? '📄' : '⚠️'} {f.name}</b>
+                    <span className="hint">{f.sub}</span>
                   </div>
-                  {review.meta?.files?.filter((f) => !f.ok).map((f) => (
-                    <div className="demo-banner demo-banner-err" key={f.name} style={{ marginBottom: 8 }}>
-                      {f.name}：{f.error || '解析失败'}
+                ))}
+                {pasteText.trim() && (
+                  <>
+                    <div className="rev-pane-title" style={{ marginTop: 12 }}>📝 粘贴的文本</div>
+                    <div className="rev-src-text">
+                      {pasteText.slice(0, 600)}{pasteText.length > 600 ? '\n…（截断预览）' : ''}
                     </div>
-                  ))}
-                  {review.items.map((it) => (
-                    <div className="rev-item" key={it.id}>
-                      <div className="q-body">
-                        <div className="q-title">{it.title}</div>
-                        <div className="q-meta">
-                          <span className={`chip ${it.extract_confidence >= 0.5 ? 'chip-green' : 'chip-amber'}`}>
-                            置信度 {Math.round(it.extract_confidence * 100)}%
-                          </span>
-                          <span className="chip chip-slate">{it.suggested_skill_key}</span>
-                          {it.has_answer
-                            ? <span className="chip chip-green">已生成解答{it.answer_source === 'llm' ? ' · AI' : ''}</span>
-                            : <span className="chip chip-amber">暂无答案</span>}
-                          {it.is_duplicate_of && <span className="chip chip-red">与题库重复 · 将合并为变体</span>}
+                  </>
+                )}
+                {(review?.meta?.company || review?.meta?.level) && (
+                  <div className="hint" style={{ marginTop: 10 }}>
+                    来源标注：{review?.meta?.company || '—'} · {review?.meta?.level || '—'}
+                  </div>
+                )}
+                <div className="hint" style={{ marginTop: 10 }}>
+                  🔒 私有资料仅当前工作空间可见，不会自动进入公共题库；<b>审核通过前不会进入考试</b>。
+                </div>
+              </div>
+
+              {/* 右: 提取结果 */}
+              <div className="rev-items">
+                {review ? (
+                  <>
+                    <div className="hint" style={{ marginBottom: 12 }}>
+                      {review.short_code} · 共提取 {review.items.length} 道题 · 全部通过后进入题库
+                    </div>
+                    {review.meta?.files?.filter((f) => !f.ok).map((f) => (
+                      <div className="demo-banner demo-banner-err" key={f.name} style={{ marginBottom: 8 }}>
+                        {f.name}：{f.error || '解析失败'}
+                      </div>
+                    ))}
+                    {review.items.map((it) => (
+                      <div className="rev-item" key={it.id}>
+                        <div className="q-body">
+                          <div className="q-title">{it.title}</div>
+                          <div className="q-meta">
+                            <span className={`chip ${it.extract_confidence >= 0.5 ? 'chip-green' : 'chip-amber'}`}>
+                              置信度 {Math.round(it.extract_confidence * 100)}%
+                            </span>
+                            <span className="chip chip-slate">{it.suggested_skill_key}</span>
+                            {it.has_answer
+                              ? (it.answer_source === 'llm'
+                                  ? <span className="chip chip-purple">AI 草稿 · 大模型生成</span>
+                                  : <span className="chip chip-green">解答草稿 · 规则模板</span>)
+                              : <span className="chip chip-amber">暂无答案</span>}
+                            {it.is_duplicate_of && <span className="chip chip-red">与题库重复 · 将合并为变体</span>}
+                          </div>
+                        </div>
+                        <div className="q-actions">
+                          <button
+                            className="btn btn-outline btn-sm"
+                            disabled={!it.draft_answer}
+                            onClick={() => setOpenAns((s) => ({ ...s, [it.id]: !s[it.id] }))}
+                          >
+                            {openAns[it.id] ? '收起解答' : '查看解答'}
+                          </button>
+                          <button
+                            className="btn btn-outline btn-sm"
+                            disabled={ansBusy === it.id}
+                            onClick={() => regenerateItem(it.id)}
+                          >
+                            {ansBusy === it.id ? '生成中…' : it.has_answer ? '重新生成' : '✨ 生成解答'}
+                          </button>
+                        </div>
+                        {openAns[it.id] && it.draft_answer && (
+                          <div className="ans-preview bank-answer" dangerouslySetInnerHTML={{ __html: it.draft_answer }} />
+                        )}
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <>
+                    <div className="hint" style={{ marginBottom: 12 }}>后端不可用 · 以下为静态演示数据</div>
+                    {PENDING.map((p) => (
+                      <div className="q-card" key={p.id} style={{ borderBottom: '1px solid var(--border-2)' }}>
+                        <div className="q-body">
+                          <div className="q-title">{p.title}</div>
+                          <div className="q-meta">
+                            <span className="chip chip-green">置信度 {p.confidence}</span>
+                            <span>{p.company} · {p.level}</span>
+                            <span>{TOPIC_NAME[p.topic]}</span>
+                          </div>
+                        </div>
+                        <div className="q-actions">
+                          <button className="btn btn-outline btn-sm" onClick={() => toast('✏️', '编辑草稿（Demo）')}>编辑</button>
                         </div>
                       </div>
-                      <div className="q-actions">
-                        <button
-                          className="btn btn-outline btn-sm"
-                          disabled={!it.draft_answer}
-                          onClick={() => setOpenAns((s) => ({ ...s, [it.id]: !s[it.id] }))}
-                        >
-                          {openAns[it.id] ? '收起解答' : '查看解答'}
-                        </button>
-                        <button
-                          className="btn btn-outline btn-sm"
-                          disabled={ansBusy === it.id}
-                          onClick={() => regenerateItem(it.id)}
-                        >
-                          {ansBusy === it.id ? '生成中…' : it.has_answer ? '重新生成' : '✨ 生成解答'}
-                        </button>
-                      </div>
-                      {openAns[it.id] && it.draft_answer && (
-                        <div className="ans-preview bank-answer" dangerouslySetInnerHTML={{ __html: it.draft_answer }} />
-                      )}
-                    </div>
-                  ))}
-                </>
-              ) : (
-                <>
-                  <div className="hint" style={{ marginBottom: 12 }}>后端不可用 · 以下为静态演示数据</div>
-                  {PENDING.map((p) => (
-                    <div className="q-card" key={p.id} style={{ borderBottom: '1px solid var(--border-2)' }}>
-                      <div className="q-body">
-                        <div className="q-title">{p.title}</div>
-                        <div className="q-meta">
-                          <span className="chip chip-green">置信度 {p.confidence}</span>
-                          <span>{p.company} · {p.level}</span>
-                          <span>{TOPIC_NAME[p.topic]}</span>
-                        </div>
-                      </div>
-                      <div className="q-actions">
-                        <button className="btn btn-outline btn-sm" onClick={() => toast('✏️', '编辑草稿（Demo）')}>编辑</button>
-                      </div>
-                    </div>
-                  ))}
-                </>
-              )}
-            </>
+                    ))}
+                  </>
+                )}
+              </div>
+            </div>
           )}
 
           {stage === 'done' && (

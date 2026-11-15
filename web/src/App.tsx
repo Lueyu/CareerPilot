@@ -7,15 +7,13 @@ import { CommandPalette, NotificationsPanel, QuickActionsPanel, WorkspaceSwitche
 
 import Onboarding from './pages/Onboarding';
 import Dashboard from './pages/Dashboard';
-import Benchmark from './pages/Benchmark';
-import Profile from './pages/Profile';
+import CompetencyTabs from './pages/CompetencyTabs';
 import ProfileDetail from './pages/ProfileDetail';
-import ExamCenter from './pages/ExamCenter';
+import ExamTabs from './pages/ExamTabs';
 import Diagnosis from './pages/Diagnosis';
 import DiagnosisReport from './pages/DiagnosisReport';
 import Learning from './pages/Learning';
 import LearningTask from './pages/LearningTask';
-import Bank from './pages/Bank';
 import Assets from './pages/Assets';
 import ProjectReview from './pages/ProjectReview';
 import Pipeline from './pages/Pipeline';
@@ -50,15 +48,15 @@ export default function App() {
       <Route path="/onboarding" element={<Onboarding />} />
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
-        <Route path="/benchmark" element={<Benchmark />} />
-        <Route path="/profile" element={<Profile />} />
+        <Route path="/benchmark" element={<CompetencyTabs />} />
+        <Route path="/profile" element={<CompetencyTabs />} />
         <Route path="/profile/:domain" element={<ProfileDetail />} />
-        <Route path="/exam" element={<ExamCenter />} />
+        <Route path="/exam" element={<ExamTabs />} />
+        <Route path="/bank" element={<ExamTabs />} />
         <Route path="/exam/diagnosis" element={<Diagnosis />} />
         <Route path="/exam/diagnosis/report" element={<DiagnosisReport />} />
         <Route path="/learning" element={<Learning />} />
         <Route path="/learning/task/:id" element={<LearningTask />} />
-        <Route path="/bank" element={<Bank />} />
         <Route path="/assets" element={<Assets />} />
         <Route path="/assets/project/:id" element={<ProjectReview />} />
         <Route path="/assets/pipeline" element={<Pipeline />} />

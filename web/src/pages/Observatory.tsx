@@ -33,6 +33,7 @@ export default function Observatory() {
   const [openTrace, setOpenTrace] = useState<number | null>(null);
   const [openDecision, setOpenDecision] = useState<number | null>(null);
   const [tick, setTick] = useState(0);
+  const [advanced, setAdvanced] = useState(false);
 
   const load = () => {
     Promise.all([
@@ -63,6 +64,28 @@ export default function Observatory() {
   const fmtDur = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`);
   const fmtCost = (c?: number | null) => (c != null ? `¥${c < 0.01 && c > 0 ? c.toFixed(3) : c.toFixed(2)}` : '—');
 
+  // v3.1 M6: 通俗摘要(默认视图的人话版)
+  const summary: { ic: string; text: string }[] = [];
+  if (obs && !err) {
+    summary.push({ ic: '🟢', text: `最近 30 天系统共执行 ${obs.stats.total_runs.toLocaleString()} 次，成功 ${obs.stats.success_rate.toFixed(1)}%，平均每次 ${fmtDur(obs.stats.avg_latency_ms)} 完成。` });
+    summary.push({ ic: '💰', text: `累计花费 ¥${obs.stats.cost_cny.toFixed(2)}（大模型 + 工具调用），平均每次约 ¥${(obs.stats.cost_cny / Math.max(1, obs.stats.total_runs)).toFixed(3)}。` });
+    if (obs.stats.failures > 0) {
+      const f = obs.recent_failures[0];
+      summary.push({ ic: '⚠️', text: `有 ${obs.stats.failures} 次执行失败${f ? `，最近一次是「${f.title}」(${f.fail_reason || '原因未知'})，可以重试` : ''}。` });
+    } else {
+      summary.push({ ic: '✅', text: '没有失败记录，一切正常。' });
+    }
+    const degraded = obs.engines.filter((e) => e.health === 'DEGRADED');
+    summary.push({ ic: '⚙️', text: degraded.length
+      ? `${degraded.length} 个引擎处于降级状态：${degraded.map((e) => e.name).join('、')}，功能可用但建议检查模型连接。`
+      : '5 个引擎全部健康：岗位情报、记忆、项目分析、能力评估、学习规划都在正常工作。' });
+  } else {
+    summary.push({ ic: '🟢', text: '最近 30 天系统共执行 1,284 次，成功 99.2%，平均每次 1.8s 完成。' });
+    summary.push({ ic: '💰', text: '累计花费 ¥42.50，平均每次约 ¥0.033。' });
+    summary.push({ ic: '⚠️', text: '有 9 次执行失败，最近一次是「面经导入」(外部文件解析超时)，可以重试。' });
+    summary.push({ ic: '⚙️', text: '4 个引擎健康，1 个引擎降级：学习规划（LLM 连接不稳定），功能可用但建议检查模型连接。' });
+  }
+
   return (
     <div>
       <PageHead
@@ -81,8 +104,31 @@ export default function Observatory() {
         </div>
       )}
 
-      {/* 统计卡 */}
-      {obs && !err ? (
+      {/* v3.1 M6: 通俗摘要(默认) + 高级模式开关 */}
+      <div className="card obs-summary" style={{ marginBottom: 18 }}>
+        <div className="card-head">
+          <span className="card-title">最近发生了什么（通俗版）</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>高级数据（Trace / 成本明细）</span>
+            <button
+              type="button"
+              className={`switch ${advanced ? 'on' : ''}`}
+              aria-label="切换高级数据"
+              onClick={() => setAdvanced((v) => !v)}
+            />
+          </span>
+        </div>
+        {summary.map((s, i) => (
+          <div className="obs-summary-line" key={i}>
+            <span className="obs-summary-ic">{s.ic}</span>
+            <span>{s.text}</span>
+          </div>
+        ))}
+        <div className="hint" style={{ marginTop: 8 }}>摘要为默认视图；开启「高级数据」后显示每次执行的耗时、成本与 span 明细。</div>
+      </div>
+
+      {/* 统计卡(高级数据) */}
+      {advanced && (obs && !err ? (
         <div className="grid-4" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0,1fr))', gap: 14, marginBottom: 18 }}>
           <StatCard label="执行次数" value={obs.stats.total_runs.toLocaleString()} ic="⚡" foot="所有引擎累计" />
           <StatCard label="成功率" value={`${obs.stats.success_rate.toFixed(1)}%`} ic="✅" foot={err ? '' : '近 30 天'} />
@@ -96,15 +142,15 @@ export default function Observatory() {
             <StatCard key={s.label} label={s.label} value={s.value} ic={s.ic} foot={s.foot} />
           ))}
         </div>
-      )}
+      ))}
 
       <div className="grid-2-1">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           {/* 运行追踪 */}
           <div className="card">
             <div className="card-head">
-              <span className="card-title">运行追踪</span>
-              <span className="card-sub">点击展开 span 明细</span>
+              <span className="card-title">运行追踪{advanced ? '' : '（精简）'}</span>
+              <span className="card-sub">{advanced ? '点击展开 span 明细' : '开启上方「高级数据」查看耗时 / 成本 / span 明细'}</span>
             </div>
             {!err && traces.length > 0 ? (
               traces.map((t) => (
@@ -114,7 +160,8 @@ export default function Observatory() {
                     <div className="list-main">
                       <div className="list-title">{t.short_code} · {t.title}</div>
                       <div className="list-sub">
-                        {t.kind} · {(t.started_at || '').replace('T', ' ').slice(5, 16)} · 耗时 {fmtDur(t.duration_ms)} · 成本 {fmtCost(t.cost_cny)}{t.span_count ? ` · ${t.span_count} 个 span` : ''}
+                        {t.kind} · {(t.started_at || '').replace('T', ' ').slice(5, 16)}
+                        {advanced && ` · 耗时 ${fmtDur(t.duration_ms)} · 成本 ${fmtCost(t.cost_cny)}${t.span_count ? ` · ${t.span_count} 个 span` : ''}`}
                       </div>
                     </div>
                     <span className={`chip ${t.status === 'SUCCESS' ? 'chip-green' : t.status === 'RUNNING' ? 'chip-purple' : 'chip-red'}`}>
@@ -132,7 +179,7 @@ export default function Observatory() {
                             <span className="span-bar-fill" style={{ width: `${Math.min(100, (s.duration_ms / Math.max(1, t.duration_ms)) * 100)}%`, background: s.status === 'OK' ? 'var(--primary)' : 'var(--red)' }} />
                           </span>
                           <span className="span-dur">{fmtDur(s.duration_ms)}</span>
-                          <span className="span-cost">{fmtCost(s.cost_cny)}</span>
+                          {advanced && <span className="span-cost">{fmtCost(s.cost_cny)}</span>}
                         </div>
                       ))}
                       {t.fail_reason && <div className="trace-fail">❌ 失败原因：{t.fail_reason}</div>}

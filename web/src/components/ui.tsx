@@ -167,3 +167,47 @@ export function DiffLabel({ d }: { d: number }) {
   const [label, cls] = map[d] ?? ['中等', 'chip-amber'];
   return <span className={`chip ${cls}`}>{label}</span>;
 }
+
+// —— v3.1 M3: 等级 → 通俗语言 ——
+export function plainLevel(level: number | null | undefined): string {
+  if (level == null) return '还没有可靠评估';
+  if (level < 1.5) return '刚接触，还停留在概念层面';
+  if (level < 2.5) return '初步达到基础理解，还没到独立干活的程度';
+  if (level < 3.5) return '能独立完成常规任务，复杂场景还需要支持';
+  if (level < 4.5) return '能够独立设计并验证方案';
+  return '精通：能定义标准、带人踩坑';
+}
+
+// —— v3.1 M3: 置信度 → 一句话解释 ——
+export function plainConfidence(c: number | null | undefined): string {
+  if (c == null) return '暂无置信度';
+  if (c >= 0.75) return '评估比较可靠';
+  if (c >= 0.5) return '评估有一定把握，还可以补证据';
+  if (c >= 0.3) return '证据偏少，这个结论待验证';
+  return '证据不足，仅供参考';
+}
+
+// —— v3.1 M2: 页面 Tab 头(合并页容器用) ——
+export function PageTabs({
+  items,
+  active,
+  onChange,
+}: {
+  items: { key: string; label: string }[];
+  active: string;
+  onChange: (key: string) => void;
+}) {
+  return (
+    <div className="tabs" style={{ marginBottom: 16 }}>
+      {items.map((it) => (
+        <button
+          key={it.key}
+          className={`tab ${active === it.key ? 'active' : ''}`}
+          onClick={() => onChange(it.key)}
+        >
+          {it.label}
+        </button>
+      ))}
+    </div>
+  );
+}

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { DemoBanner, PageHead } from '../components/ui';
+import { DemoBanner, PageHead, plainLevel } from '../components/ui';
 import { api, ExamReportData } from '../api/client';
 import { QUIZ_REPORT } from '../data/demo';
 
@@ -71,6 +71,9 @@ export default function DiagnosisReport() {
             <div className="hint" style={{ color: 'rgba(255,255,255,0.55)', marginTop: 8 }}>
               {r.selection_reason}
             </div>
+            <div className="hint" style={{ color: 'rgba(255,255,255,0.75)', marginTop: 6 }}>
+              通俗地说：{r.score >= 85 ? '表现很好，这一域基本不用补' : r.score >= 70 ? '达到基本线，保持并查漏' : r.score >= 50 ? '有基础但还不够稳，建议优先补' : '这一块明显薄弱，优先补齐'}
+            </div>
           </div>
           <div className="report-score">
             {Math.round(r.score)}<span>/100</span>
@@ -81,7 +84,7 @@ export default function DiagnosisReport() {
         <div className="card" style={{ marginBottom: 18 }}>
           <div className="card-head">
             <span className="card-title">能力小结</span>
-            <span className="card-sub">答卷已作为证据写入能力画像, 能力估计与学习任务已同步更新</span>
+            <span className="card-sub">答卷已作为证据写入能力画像 · 评分详情：scorer rule-v1</span>
           </div>
           <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.75 }}>
             {r.questions.map((q) => `${q.short_code} ${q.answer?.verdict === 'CORRECT' ? '✓' : q.answer?.verdict === 'PARTIAL' ? '△' : '✗'}(${q.answer?.points ?? 0}/${q.answer?.max_points ?? 5})`).join(' · ')}
@@ -156,6 +159,9 @@ export default function DiagnosisReport() {
           </div>
           <div className="hint" style={{ color: 'rgba(255,255,255,0.55)', marginTop: 8 }}>
             基于 {QUIZ_REPORT.evidence} 条证据 · 2.7/5
+          </div>
+          <div className="hint" style={{ color: 'rgba(255,255,255,0.75)', marginTop: 6 }}>
+            通俗地说：{plainLevel(2.7)}
           </div>
         </div>
         <div className="report-score">

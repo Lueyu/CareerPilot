@@ -45,7 +45,7 @@ export const WS = {
   updated: '2026-11-15',
   evidence: 27,
   jdCount: 3,
-  benchmark: 'benchmark v1.0',
+  benchmark: 'v1.0',
 };
 
 export const STATS = [

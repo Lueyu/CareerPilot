@@ -43,3 +43,6 @@ deploy/verify-https.json
 # 本地测试用 vault.js（密文不入仓库；线上走 deploy/dist → OSS）
 /vault.js
 deploy/.ali-env
+
+# 公开门户构建产物（portal/content 才是源，portal/dist 由 build.mjs 生成后发布 OSS）
+portal/dist/

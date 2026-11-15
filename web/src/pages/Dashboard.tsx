@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { DemoBanner, PageHead, StatCard, SegBars, StatusChip } from '../components/ui';
+import { DemoBanner, PageHead, SegBars, StatusChip, StatCard, plainLevel } from '../components/ui';
 import { api, useApi, DashboardData } from '../api/client';
 import { WS, STATS, DOMAINS, TODAY_TASKS, TIMELINE, PENDING_REVIEWS } from '../data/demo';
 
@@ -52,28 +52,38 @@ export default function Dashboard() {
   const benchVersion = data?.benchmark?.version ?? WS.benchmark;
   const evidenceTotal = stats?.evidence_total ?? WS.evidence;
 
+  // ---- v3.1 M2: 最重要缺口(权重 × 差距) ----
+  const gaps = domains
+    .filter((d: any) => d.level != null && d.target_level != null && d.target_level > d.level)
+    .map((d: any) => ({ ...d, priority: (d.weight_pct / 100) * (d.target_level - d.level) }))
+    .sort((a: any, b: any) => b.priority - a.priority);
+  const topGap = gaps[0];
+  const plainStatus = topGap
+    ? `你在「${topGap.name}」上离目标最远——先补这里收益最大。`
+    : '所有已评估能力都达到目标线，做一次诊断确认真实水平。';
+  const primaryCta = todayTasks.length
+    ? { label: '开始今天的学习', to: '/learning' }
+    : { label: '开始能力诊断', to: '/exam/diagnosis' };
+
   return (
     <div>
       <PageHead
         title="把下一步，变得更清晰"
-        sub={`基于 ${evidenceTotal} 条证据的岗位差距分析 · ${new Date().toISOString().slice(0, 10)} 更新`}
+        sub={`目标 ${role} · 对标 ${level} · 基于 ${evidenceTotal} 条证据`}
       >
         <button className="btn btn-outline" onClick={() => navigate('/bank?import=1')}>
           📥 导入面经
         </button>
-        <button className="btn btn-primary" onClick={() => navigate('/exam/diagnosis')}>
-          🎯 开始独立诊断
+        <button className="btn btn-primary" onClick={() => navigate(primaryCta.to)}>
+          ▶ {primaryCta.label}
         </button>
       </PageHead>
       <DemoBanner />
 
-      <div className="grid grid-4" style={{ marginBottom: 16 }}>
-        {statCards.map((s) => (
-          <StatCard key={s.label} label={s.label} value={s.value} delta={s.delta} dir={s.dir as 'up'} foot={s.foot} ic={s.ic} />
-        ))}
-      </div>
+      {loading && <div className="demo-banner" style={{ marginBottom: 12 }}>正在从后端加载实时数据…</div>}
+      {error && <div className="demo-banner demo-banner-err" style={{ marginBottom: 12 }}>后端不可用（{error}），以下为静态演示数据</div>}
 
-      {/* 深色 hero 卡 */}
+      {/* 深色 hero 卡: 目标 + 一句通俗状态 + 差距 */}
       <div className="hero-card" style={{ marginBottom: 16 }}>
         <div className="hero-top">
           <div>
@@ -82,6 +92,7 @@ export default function Dashboard() {
               {role}
               <span className="hero-chip">对标 {level}</span>
             </div>
+            <div className="hero-plain">{plainStatus}</div>
           </div>
           <div className="hero-score">
             <div className="big">差距 {gap}<span>/5</span></div>
@@ -90,66 +101,61 @@ export default function Dashboard() {
         </div>
         <div className="hero-body">
           <SegBars items={domains.map((d: any) => ({ name: d.name, current: d.level ?? 0, weight: d.weight_pct }))} />
-          <div className="seg-gap">
-            <span>权重：</span>
-            {domains.map((d: any) => (
-              <span key={d.key} style={{ color: 'rgba(255,255,255,0.75)' }}>{d.name.split(' ')[0]} {d.weight_pct}%</span>
-            ))}
-          </div>
         </div>
         <div className="hero-foot">
-          <span className="note">来自 {jdCount} 份 JD · 种子假设 · benchmark {benchVersion}</span>
+          <span className="note">评估详情：{jdCount} 份 JD · 种子假设 · benchmark {benchVersion}</span>
           <button className="btn btn-outline btn-sm" style={{ background: 'rgba(255,255,255,0.08)', borderColor: 'rgba(255,255,255,0.2)', color: '#fff' }} onClick={() => navigate('/exam/diagnosis')}>
             开始一次独立诊断 →
           </button>
         </div>
       </div>
 
-      {loading && <div className="demo-banner" style={{ marginBottom: 12 }}>正在从后端加载实时数据…</div>}
-      {error && <div className="demo-banner demo-banner-err" style={{ marginBottom: 12 }}>后端不可用（{error}），以下为静态演示数据</div>}
-
       <div className="grid grid-2-1">
-        {/* 左列 */}
+        {/* 左列: 行动聚焦 */}
         <div className="stack" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="card">
+          {/* 最重要缺口 */}
+          <div className="card gap-focus">
             <div className="card-head">
-              <span className="card-title">岗位能力差距</span>
-              <Link to="/benchmark" className="link">查看详情 →</Link>
+              <span className="card-title">
+                <span className="chip chip-red" style={{ marginRight: 8 }}>最重要缺口</span>
+                {topGap ? topGap.name : '无重大缺口'}
+              </span>
             </div>
-            <div className="table-wrap">
-              <table className="tbl">
-                <thead>
-                  <tr>
-                    <th>能力项</th>
-                    <th>当前估计</th>
-                    <th>目标</th>
-                    <th>状态</th>
-                    <th>置信度</th>
-                    <th>证据</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {domains.slice(0, 6).map((d: any) => (
-                    <tr key={d.key}>
-                      <td className="strong">{d.name}</td>
-                      <td className="num">{d.level != null ? d.level.toFixed(2) : '—'}</td>
-                      <td className="num">{d.target_level ?? '—'}</td>
-                      <td><StatusChip status={d.status} /></td>
-                      <td className="num">{d.confidence != null ? d.confidence.toFixed(2) : '—'}</td>
-                      <td className="num">{d.evidence_coverage}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {topGap ? (
+              <>
+                <div className="gap-focus-plain">
+                  现在的水平：{plainLevel(topGap.level)}（{topGap.level.toFixed(1)}/5，目标 {topGap.target_level}）。
+                  这个能力在目标岗位权重 {topGap.weight_pct}%，补上它对缩小整体差距收益最大。
+                </div>
+                <div className="gap-focus-foot">
+                  <StatusChip status={topGap.status} />
+                  <button className="btn btn-primary btn-sm" onClick={() => navigate('/learning')}>
+                    开始补这个缺口 →
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="gap-focus-plain">没有低于目标线的能力项。保持节奏，用诊断定期复核。</div>
+            )}
           </div>
 
+          {/* 今日任务(1-3) */}
           <div className="card">
             <div className="card-head">
               <span className="card-title">今日任务 <span className="chip chip-purple" style={{ marginLeft: 6 }}>{todayTasks.length}</span></span>
               <Link to="/learning" className="link">全部任务 →</Link>
             </div>
-            {todayTasks.map((t: any) => (
+            {todayTasks.length === 0 && (
+              <div className="list-row">
+                <div className="list-ic">🎉</div>
+                <div className="list-main">
+                  <div className="list-title">今天没有待办任务</div>
+                  <div className="list-sub">做一次诊断，让系统重新规划</div>
+                </div>
+                <button className="btn btn-primary btn-sm" onClick={() => navigate('/exam/diagnosis')}>开始诊断</button>
+              </div>
+            )}
+            {todayTasks.slice(0, 3).map((t: any) => (
               <div className="list-row" key={t.id}>
                 <div className="list-ic">📌</div>
                 <div className="list-main">
@@ -164,22 +170,38 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
+
+          {/* 次级统计行 */}
+          <div className="stat-row">
+            {statCards.map((s) => (
+              <div className="stat-mini" key={s.label}>
+                <div className="stat-mini-label">{s.ic} {s.label}</div>
+                <div className="stat-mini-value">{s.value}{s.delta && <small className="stat-delta delta-up">{s.delta}</small>}</div>
+              </div>
+            ))}
+          </div>
         </div>
 
-        {/* 右列 */}
+        {/* 右列: 最近进展 + 待审核 */}
         <div className="stack" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card">
             <div className="card-head">
-              <span className="card-title">近期进展</span>
+              <span className="card-title">最近一次进展</span>
             </div>
-            <div className="timeline" style={{ padding: '6px 4px 0' }}>
-              {timeline.map((t: any, i: number) => (
-                <div className="tl-item" key={i}>
-                  <div className="tl-date">{t.date}</div>
-                  <div className="tl-text" dangerouslySetInnerHTML={{ __html: t.text }} />
+            {timeline[0] ? (
+              <div className="tl-item" style={{ padding: '4px 4px 0' }}>
+                <div className="tl-date">{timeline[0].date}</div>
+                <div className="tl-text" dangerouslySetInnerHTML={{ __html: timeline[0].text }} />
+              </div>
+            ) : (
+              <div className="list-row">
+                <div className="list-ic">🌱</div>
+                <div className="list-main">
+                  <div className="list-title">还没有记录</div>
+                  <div className="list-sub">完成第一个任务后出现在这里</div>
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
           </div>
 
           <div className="card">

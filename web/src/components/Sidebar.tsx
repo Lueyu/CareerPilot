@@ -1,23 +1,29 @@
 import React from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAppState } from './AppState';
 
-const NAV = [
-  { num: '01', label: '总览', to: '/' },
-  { num: '02', label: '岗位对标', to: '/benchmark' },
-  { num: '03', label: '能力画像', to: '/profile' },
-  { num: '04', label: '考试中心', to: '/exam' },
-  { num: '05', label: '学习中心', to: '/learning' },
-  { num: '06', label: '面经库', to: '/bank' },
-  { num: '07', label: '项目与职业资产', to: '/assets' },
-  { num: '08', label: '记忆中心', to: '/memory' },
-  { num: '09', label: '系统观测台', to: '/observatory' },
-  { num: '10', label: '进化实验室', to: '/evolution' },
+// —— v3.1 信息架构: 一级导航 5 项(合并页), 高级功能收进次级区 ——
+
+const NAV: { ic: string; label: string; to: string; match: (p: string) => boolean }[] = [
+  { ic: '🏠', label: '首页', to: '/', match: (p) => p === '/' },
+  { ic: '🎯', label: '能力与岗位', to: '/benchmark', match: (p) => p === '/benchmark' || p.startsWith('/profile') },
+  { ic: '📝', label: '考试与面经', to: '/exam', match: (p) => p === '/exam' || p.startsWith('/exam/') || p === '/bank' },
+  { ic: '📚', label: '学习计划', to: '/learning', match: (p) => p.startsWith('/learning') },
+  { ic: '🚀', label: '项目与简历', to: '/assets', match: (p) => p.startsWith('/assets') },
+];
+
+const ADVANCED: { ic: string; label: string; to: string; match: (p: string) => boolean }[] = [
+  { ic: '🧠', label: '记忆中心', to: '/memory', match: (p) => p.startsWith('/memory') },
+  { ic: '📡', label: '系统观测台', to: '/observatory', match: (p) => p.startsWith('/observatory') },
+  { ic: '🧬', label: '进化实验室', to: '/evolution', match: (p) => p.startsWith('/evolution') },
 ];
 
 export default function Sidebar() {
   const { setWsOpen } = useAppState();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+
+  const itemCls = (active: boolean) => `nav-item ${active ? 'active' : ''}`;
 
   return (
     <aside className="sidebar">
@@ -43,10 +49,24 @@ export default function Sidebar() {
           <NavLink
             key={n.to}
             to={n.to}
-            className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+            className={itemCls(n.match(pathname))}
             end={n.to === '/'}
           >
-            <span className="nav-num">{n.num}</span>
+            <span className="nav-num">{n.ic}</span>
+            <span>{n.label}</span>
+          </NavLink>
+        ))}
+      </nav>
+
+      <div className="nav-adv-label">高级区</div>
+      <nav className="nav nav-adv">
+        {ADVANCED.map((n) => (
+          <NavLink
+            key={n.to}
+            to={n.to}
+            className={`nav-item nav-item-sub ${n.match(pathname) ? 'active' : ''}`}
+          >
+            <span className="nav-num">{n.ic}</span>
             <span>{n.label}</span>
           </NavLink>
         ))}
@@ -61,7 +81,7 @@ export default function Sidebar() {
       </div>
 
       <div className="nav-settings">
-        <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+        <NavLink to="/settings" className={itemCls(pathname.startsWith('/settings'))}>
           <span className="nav-num">⚙</span>
           <span>设置与工作空间</span>
         </NavLink>

@@ -3,15 +3,15 @@ import { useLocation } from 'react-router-dom';
 import { useAppState } from './AppState';
 
 const PAGE_NAMES: Record<string, string> = {
-  '/': '总览',
-  '/benchmark': '岗位对标',
-  '/profile': '能力画像',
-  '/exam': '考试中心',
+  '/': '首页',
+  '/benchmark': '能力与岗位 · 岗位对标',
+  '/profile': '能力与岗位 · 能力画像',
+  '/exam': '考试与面经 · 考试中心',
   '/exam/diagnosis': '独立诊断',
   '/exam/diagnosis/report': '诊断报告',
-  '/learning': '学习中心',
-  '/bank': '面经库',
-  '/assets': '项目与职业资产',
+  '/learning': '学习计划',
+  '/bank': '考试与面经 · 面经库',
+  '/assets': '项目与简历',
   '/memory': '记忆中心',
   '/observatory': '系统观测台',
   '/evolution': '进化实验室',
