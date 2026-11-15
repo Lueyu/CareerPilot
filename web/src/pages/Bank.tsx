@@ -629,7 +629,7 @@ export default function Bank() {
                 </div>
                 <div className="field">
                   <label>职级（可选）</label>
-                  <input className="inp" placeholder="如 P5 / 中级" value={level} onChange={(e) => setLevel(e.target.value)} />
+                  <input className="inp" placeholder="如 P6 / 中级" value={level} onChange={(e) => setLevel(e.target.value)} />
                 </div>
               </div>
 
