@@ -31,9 +31,9 @@ class Workspace(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     slug: Mapped[str] = mapped_column(String(64), unique=True)
     name: Mapped[str] = mapped_column(String(120))
-    # 目标岗位: AI Agent 应用开发工程师 · P5
+    # 目标岗位: AI Agent 应用开发工程师 · P6(阿里 P6 对标)
     target_role: Mapped[str] = mapped_column(String(160), default="AI Agent 应用开发工程师")
-    target_level: Mapped[str] = mapped_column(String(16), default="P5")
+    target_level: Mapped[str] = mapped_column(String(16), default="P6")
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

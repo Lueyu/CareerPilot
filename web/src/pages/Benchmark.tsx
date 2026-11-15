@@ -48,7 +48,7 @@ export default function Benchmark() {
         <button className="btn btn-outline" onClick={() => navigate('/benchmark')}>↻ 更新对标</button>
         <button className="btn btn-primary" onClick={() => navigate('/exam/diagnosis')}>开始独立诊断</button>
       </PageHead>
-      <DemoBanner text="DEMO · 对标权重为种子假设（benchmark v1.0），不代表行业统计。" />
+      <DemoBanner text="DEMO · 对标权重为种子假设（benchmark v1.1），不代表行业统计。" />
 
       {/* 对标总卡 */}
       <div className="card" style={{ marginBottom: 18 }}>

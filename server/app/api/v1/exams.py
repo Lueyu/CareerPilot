@@ -184,7 +184,7 @@ async def submit_exam(
     exam.status = Exam.STATUS_TRANSCRIPT_CONFIRMED
     add_span(session, trace, "transcript_confirm", 8, detail={"status": "TRANSCRIPT_CONFIRMED"})
 
-    # 3) FROZEN: 题目+rubric 快照
+    # 3) FROZEN: 题目+rubric+参考答案快照
     exam.status = Exam.STATUS_FROZEN
     for eq in exam.questions:
         if eq.frozen_snapshot is None:
@@ -192,6 +192,7 @@ async def submit_exam(
             eq.frozen_snapshot = {
                 "title": q.title, "qtype": q.qtype, "options": q.options,
                 "rubric": q.rubric, "skill_key": q.skill.key if q.skill else None,
+                "answer_html": q.answer_html,
             }
     add_span(session, trace, "freeze", 6, detail={"status": "FROZEN", "snapshots": len(exam.questions)})
 
@@ -348,6 +349,7 @@ async def _exam_report(session: AsyncSession, ws: Workspace, exam_id: int) -> di
                 "qtype": eq.question.qtype,
                 "options": eq.question.options,
                 "skill": eq.question.skill.name if eq.question.skill else None,
+                "reference_answer": (eq.frozen_snapshot or {}).get("answer_html") or eq.question.answer_html,
                 "frozen": eq.frozen_snapshot,
                 "answer": (
                     {

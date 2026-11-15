@@ -18,14 +18,14 @@ export interface DomainSkill {
 }
 
 export const DOMAINS: DomainSkill[] = [
-  { key: 'agent', name: 'Agent 架构与规划', weight: 18, current: 3.0, target: 5, confidence: 0.62, evidence: 5, status: 'BELOW_TARGET', trend: 'up', next: '完成一次多智能体任务编排实践' },
-  { key: 'tools', name: '工具调用 / MCP', weight: 14, current: 3.5, target: 5, confidence: 0.7, evidence: 4, status: 'BELOW_TARGET', trend: 'up', next: '补充 MCP 协议细节证据' },
-  { key: 'memory', name: '状态管理与 Memory', weight: 12, current: 2.8, target: 4, confidence: 0.55, evidence: 3, status: 'NEEDS_VALIDATION', trend: 'flat', next: '复测记忆读写一致性' },
-  { key: 'rag', name: 'RAG / 上下文工程', weight: 10, current: 3.6, target: 4, confidence: 0.74, evidence: 4, status: 'MEETS_TARGET', trend: 'up', next: '保持：补充检索评估证据' },
-  { key: 'eval', name: 'Agent Evaluation', weight: 16, current: 2.7, target: 5, confidence: 0.71, evidence: 6, status: 'BELOW_TARGET', trend: 'down', next: '完成独立诊断第 2 轮' },
-  { key: 'backend', name: '后端与系统设计', weight: 12, current: 3.1, target: 4, confidence: 0.58, evidence: 3, status: 'BELOW_TARGET', trend: 'up', next: '补一次并发设计练习' },
-  { key: 'reliability', name: '可靠性与安全', weight: 12, current: 2.6, target: 4, confidence: 0.5, evidence: 2, status: 'NEEDS_VALIDATION', trend: 'flat', next: '为 Squabble 补充安全审计证据' },
-  { key: 'deploy', name: '部署与可观测性', weight: 6, current: 3.6, target: 3, confidence: 0.79, evidence: 4, status: 'ABOVE_TARGET', trend: 'up', next: '无差距，可作为佐证输出' },
+  { key: 'agent', name: 'Agent 架构与规划', weight: 18, current: 3.2, target: 4.5, confidence: 0.62, evidence: 5, status: 'BELOW_TARGET', trend: 'up', next: '完成一次多智能体任务编排实践' },
+  { key: 'tools', name: '工具调用 / MCP', weight: 14, current: 3.5, target: 4.0, confidence: 0.7, evidence: 4, status: 'BELOW_TARGET', trend: 'up', next: '补充 MCP 协议细节证据' },
+  { key: 'memory', name: '状态管理与 Memory', weight: 12, current: 2.8, target: 4.0, confidence: 0.55, evidence: 3, status: 'NEEDS_VALIDATION', trend: 'flat', next: '复测记忆读写一致性' },
+  { key: 'rag', name: 'RAG / 上下文工程', weight: 10, current: 3.6, target: 4.0, confidence: 0.74, evidence: 4, status: 'BELOW_TARGET', trend: 'up', next: '补充检索评估证据' },
+  { key: 'eval', name: 'Agent Evaluation', weight: 16, current: 2.7, target: 5.0, confidence: 0.71, evidence: 6, status: 'BELOW_TARGET', trend: 'down', next: '完成独立诊断第 2 轮' },
+  { key: 'backend', name: '后端与系统设计', weight: 12, current: 3.0, target: 4.5, confidence: 0.58, evidence: 3, status: 'BELOW_TARGET', trend: 'up', next: '补一次系统设计练习（P6 核心）' },
+  { key: 'reliability', name: '可靠性与安全', weight: 12, current: 2.6, target: 4.0, confidence: 0.5, evidence: 2, status: 'NEEDS_VALIDATION', trend: 'flat', next: '为 Squabble 补充安全审计证据' },
+  { key: 'deploy', name: '部署与可观测性', weight: 6, current: 3.6, target: 3.5, confidence: 0.79, evidence: 4, status: 'ABOVE_TARGET', trend: 'up', next: '无差距，可作为佐证输出' },
 ];
 
 export const STATUS_META: Record<DomainSkill['status'], { label: string; cls: string; dot: string }> = {
@@ -40,12 +40,14 @@ export const WS = {
   name: '求职作战室',
   kind: '个人工作空间',
   role: 'AI Agent 应用开发工程师',
-  level: 'P5',
-  gap: 1.8,
+  level: 'P6',
+  salary: '65-75 万',
+  currentSalary: '约 50 万',
+  gap: 1.2,
   updated: '2026-11-15',
   evidence: 27,
   jdCount: 3,
-  benchmark: 'v1.0',
+  benchmark: 'v1.1',
 };
 
 export const STATS = [
@@ -105,7 +107,7 @@ export const TIMELINE = [
   { date: '11-15', text: '完成独立诊断，差距 <b>1.8/5</b>，新增 12 条证据', type: '诊断' },
   { date: '11-14', text: '导入面经「字节跳动 · Agent 研发」，收录 3 题', type: '面经' },
   { date: '11-12', text: '完成实践任务「MCP 工具调用边界」', type: '实践' },
-  { date: '11-10', text: '更新岗位对标：对标 <b>P5</b> · 3 份 JD', type: '对标' },
+  { date: '11-10', text: '更新岗位对标：对标 <b>P6</b> · 3 份 JD', type: '对标' },
 ];
 
 export const PENDING_REVIEWS = [
@@ -309,7 +311,7 @@ export interface MemoryItem {
   source: string;
 }
 export const MEMORIES: MemoryItem[] = [
-  { id: 'M-021', type: 'CareerGoal', text: '目标岗位：AI Agent 应用开发工程师（对标 P5），偏好应用层而非框架层开发', status: 'ACTIVE', date: '11-10', source: '岗位对标' },
+  { id: 'M-021', type: 'CareerGoal', text: '目标岗位：AI Agent 应用开发工程师（对标 P6），目标薪资 65-75 万，偏好应用层而非框架层开发', status: 'ACTIVE', date: '11-10', source: '岗位对标' },
   { id: 'M-020', type: 'ProjectDecision', text: 'Squabble 采用"对抗评估闭环"作为核心差异化，放弃纯评分器路线', status: 'ACTIVE', date: '11-08', source: '项目审查' },
   { id: 'M-019', type: 'KnowledgeGapSignal', text: '对工具调用可靠性设计（重试/幂等）理解不足，需要专项练习', status: 'ACTIVE', date: '11-15', source: '独立诊断' },
   { id: 'M-018', type: 'Feedback', text: '面试官反馈：多智能体分工回答结构清晰，但缺少失败恢复细节', status: 'ACTIVE', date: '11-14', source: '面经导入' },

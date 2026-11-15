@@ -67,15 +67,25 @@ def score_question(question: Question, *, choice_index: int | None, text: str | 
 
 
 def build_feedback(question: Question, result: dict) -> dict:
-    """构造逐要点点评与建议(报告用)。"""
+    """构造逐要点点评与建议(报告用)。
+
+    hit_points / missed_points 返回结构化要点(含 title + keywords),
+    便于报告页展示「答到/漏掉哪些要点, 每个要点对应哪些关键词」。
+    """
     rubric = question.rubric or {}
     advice = rubric.get("advice", "")
-    hit_titles = [h.get("title", "") for h in result["hits"]]
-    miss_titles = [m.get("title", "") for m in result["misses"]]
-    next_hint = miss_titles[0] if miss_titles else (hit_titles[-1] if hit_titles else "")
+    hit_points = [
+        {"title": h.get("title", ""), "keywords": h.get("keywords", [])}
+        for h in result["hits"]
+    ]
+    miss_points = [
+        {"title": m.get("title", ""), "keywords": m.get("keywords", [])}
+        for m in result["misses"]
+    ]
+    next_hint = miss_points[0]["title"] if miss_points else (hit_points[-1]["title"] if hit_points else "")
     return {
-        "hit_points": hit_titles,
-        "missed_points": miss_titles,
+        "hit_points": hit_points,
+        "missed_points": miss_points,
         "advice": advice,
         "next": next_hint,
     }

@@ -130,10 +130,10 @@ export interface ExamReportData {
   completed_at?: string | null;
   questions: {
     order_no: number; short_code: string; title: string; qtype: string; options: string[] | null;
-    skill: string | null; frozen?: any;
+    skill: string | null; reference_answer?: string | null; frozen?: any;
     answer?: {
       choice_index?: number | null; text_answer?: string | null; points: number; max_points: number;
-      verdict: string; feedback: { hit_points: string[]; missed_points: string[]; advice?: string; next?: string };
+      verdict: string; feedback: { hit_points: { title: string; keywords: string[] }[]; missed_points: { title: string; keywords: string[] }[]; advice?: string; next?: string };
       evidence_refs?: string[] | null;
     } | null;
   }[];

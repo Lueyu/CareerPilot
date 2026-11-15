@@ -4,7 +4,7 @@
 
 幂等: 已存在的数据跳过。
 内容:
-1. 8 个能力域 Skill + JobStandard v1.0(种子权重/目标等级, PRD 表)
+1. 8 个能力域 Skill + JobStandard v1.1(种子权重/目标等级 P6, PRD 表)
 2. demo 工作空间(求职作战室) + owner 用户
 3. 161 道公开题(从 ../web/src/data/bank.json 迁移, topic→skill 映射)
 4. 示例证据 / 记忆 / trace(全部显式标记 DEMO)
@@ -31,15 +31,16 @@ from app.services.tracing import add_span, finish_trace, start_trace
 
 BANK_PATH = Path(__file__).resolve().parents[2] / "web" / "src" / "data" / "bank.json"
 
+# 目标级别 P6(阿里 P6): 对标「能独立承担系统设计」, backend/eval 门槛显著提高
 SKILLS = [
-    ("agent", "Agent 架构与规划", "ReAct / 计划分解 / 多智能体编排 / harness 设计", 18, 4.0),
+    ("agent", "Agent 架构与规划", "ReAct / 计划分解 / 多智能体编排 / harness 设计", 18, 4.5),
     ("tools", "工具调用与 MCP", "Function calling / MCP 协议 / 工具选择与组合", 14, 4.0),
-    ("memory", "状态管理与 Memory", "短期记忆 / 长期记忆 / 状态一致性 / 上下文压缩", 12, 3.5),
-    ("rag", "RAG 与上下文工程", "检索增强 / 上下文窗口管理 / prompt 工程", 10, 3.5),
-    ("eval", "Agent Evaluation", "评测设计 / 离线在线评估 / benchmark / 回归防护", 16, 4.5),
-    ("backend", "后端与系统设计", "API 设计 / 并发 / 数据库 / 算法与复杂度", 12, 3.5),
-    ("reliability", "可靠性与安全", "失败处理 / 重试 / 幻觉与注入防护 / 权限边界", 12, 3.5),
-    ("deploy", "部署与可观测性", "部署 / 监控 / 日志 / 成本观测", 6, 3.0),
+    ("memory", "状态管理与 Memory", "短期记忆 / 长期记忆 / 状态一致性 / 上下文压缩", 12, 4.0),
+    ("rag", "RAG 与上下文工程", "检索增强 / 上下文窗口管理 / prompt 工程", 10, 4.0),
+    ("eval", "Agent Evaluation", "评测设计 / 离线在线评估 / benchmark / 回归防护", 16, 5.0),
+    ("backend", "后端与系统设计", "API 设计 / 并发 / 数据库 / 算法与复杂度", 12, 4.5),
+    ("reliability", "可靠性与安全", "失败处理 / 重试 / 幻觉与注入防护 / 权限边界", 12, 4.0),
+    ("deploy", "部署与可观测性", "部署 / 监控 / 日志 / 成本观测", 6, 3.5),
 ]
 
 # 旧题库 topic → 新能力域 key
@@ -68,7 +69,7 @@ DEMO_EVIDENCE = [
 ]
 
 DEMO_MEMORIES = [
-    ("CareerGoal", "目标: 2026 年内拿到 AI Agent 应用开发工程师 P5+ offer", "ACTIVE"),
+    ("CareerGoal", "目标: 2026 年内拿到 AI Agent 应用开发工程师 P6 offer, 薪资目标 65-75 万", "ACTIVE"),
     ("KnowledgeGapSignal", "自述对 Agent 评测体系不熟, 只有零散实践", "ACTIVE"),
     ("ProjectDecision", "Squabble 选择自建裁判 agent 而非第三方评测 API, 为了可控性", "ACTIVE"),
 ]
@@ -95,8 +96,8 @@ async def seed() -> None:
         if standard is None:
             standard = JobStandard(
                 role="AI Agent 应用开发工程师",
-                level="P5",
-                version="v1.0",
+                level="P6",
+                version="v1.1",
                 jd_sample_count=3,
                 is_seed=True,
             )
@@ -110,7 +111,7 @@ async def seed() -> None:
                     )
                 )
             await session.flush()
-            print("[seed] JobStandard v1.0 (seed) created with 8 targets")
+            print("[seed] JobStandard v1.1 (seed) created with 8 targets")
 
         # ---------- 2) demo 工作空间 ----------
         ws = (

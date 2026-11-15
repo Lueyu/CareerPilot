@@ -110,13 +110,29 @@ export default function DiagnosisReport() {
               </div>
               {open.includes(i) && (
                 <div className="report-q-body">
+                  <p><b>你的回答：</b>{a?.text_answer || '（未作答）'}</p>
                   {a?.feedback && (
                     <>
-                      <p><b>命中要点：</b>{a.feedback.hit_points?.length ? a.feedback.hit_points.join('、') : '无'}</p>
-                      <p><b>缺失要点：</b>{a.feedback.missed_points?.length ? a.feedback.missed_points.join('、') : '无'}</p>
-                      <p><b>你的回答：</b>{a.text_answer || '（未作答）'}</p>
+                      <p>
+                        <b>命中要点：</b>
+                        {a.feedback.hit_points?.length
+                          ? a.feedback.hit_points.map((p: any) => (typeof p === 'string' ? p : p.title)).join('、')
+                          : '无'}
+                      </p>
+                      <p>
+                        <b>缺失要点：</b>
+                        {a.feedback.missed_points?.length
+                          ? a.feedback.missed_points.map((p: any) => (typeof p === 'string' ? p : p.title)).join('、')
+                          : '无'}
+                      </p>
                       {a.feedback.next && <p><b>建议下一步：</b>{a.feedback.next}</p>}
                     </>
+                  )}
+                  {q.reference_answer && (
+                    <div style={{ marginTop: 12, borderTop: '1px dashed var(--border-2)', paddingTop: 10 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>📖 参考答案（正确应该答到什么）</div>
+                      <div className="bank-answer" dangerouslySetInnerHTML={{ __html: q.reference_answer }} />
+                    </div>
                   )}
                 </div>
               )}
