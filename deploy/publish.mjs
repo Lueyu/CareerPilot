@@ -91,10 +91,12 @@ function main() {
   const dry = mode === '--dry-run';
   const vaultOnly = mode === '--vault-only';
   if (!vaultOnly && !dry) run('python', ['build.py'], ROOT);
+  // v5 可靠性：先备份旧 dist 再重建——否则 prepare 重建后 snapshot() 备份的是本次
+  // 版本，verify 失败时 rollbackAndExit() 会把「坏版本」当「上一版」再部署一遍。
+  snapshot();
   run('node', ['prepare.mjs']);
   if (!existsSync(PAYLOAD)) console.warn('[publish] personal/vault-payload.json 缺失,vault.js 未更新');
   else run('node', ['vault.mjs', 'encrypt', PAYLOAD]);
-  snapshot();
   if (vaultOnly) { deploy(); return; }
   const committed = stageAndScan(dry);
   if (dry) return;
