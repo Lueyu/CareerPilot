@@ -1,111 +1,126 @@
-# AI Agent 面试题库
+<div align="center">
 
-面向 **AI 应用开发 / Agent 开发 / RAG 系统工程师 / Agent 算法岗**社招的中文面试题库,共 **161 题**,按真实考察主题分为 8 大类。纯静态、零依赖、离线可用——`index.html` 双击即开。
+# CareerPilot
 
-- **在线版**:[agent-interview.icu](https://agent-interview.icu)(每日自动发布)
-- **作者**:[Lueyu](https://github.com/Lueyu) · [个人主页](https://lueyu.github.io)
-- **定位**:一页一题的 AI Agent 面试准备题库,每题按五模块题卡展开(见下),由 Agent 管道自动选题、写卡、构建校验,零错误才入库。
+**证据驱动的 AI 工程师职业进阶平台**
+Evidence-driven career growth platform for AI engineers
 
-## 主题分布
+首个目标岗位：**AI Agent 应用开发工程师（对标 P5）**
 
-| 主题 | 题数 | 覆盖 |
+</div>
+
+---
+
+## 这是什么
+
+CareerPilot 不做"刷题工具"。它围绕一条核心闭环工作：
+
+> **岗位对标 → 独立诊断 → 能力画像 → 差距驱动学习 → 证据沉淀 → 画像更新**
+
+每一步都由**证据（Evidence）**支撑：你的答卷、导入的面经、项目仓库扫描、对话中提取的记忆，都会写入统一证据底座，再由能力引擎（Competency Engine）估计你在 8 个能力域上的水平与置信度。没有证据的能力不是 0 分，而是 `UNKNOWN`——不装懂。
+
+北极星指标：**有效岗位能力差距缩小率**（加权 target-current 的下降），而不是完成题数或自评。
+
+## 能力域模型（v1.0 种子假设）
+
+| 能力域 | 权重 | 目标等级 |
 |---|---|---|
-| 🔍 RAG 检索增强生成 | 12 | 高并发架构、检索优化、混合检索、增量更新、多语言、GraphRAG |
-| 🤖 Agent 编排与 Harness | 32 | Agent 定义、规划、工具调用、Multi-Agent、工作流引擎、反思修正 |
-| 🧠 上下文工程与记忆 | 8 | Memory 系统、长对话压缩、记忆衰退、个性化 |
-| ⚙️ 模型推理与部署 | 7 | LLM Gateway、统一 API、vLLM、量化、选型 |
-| 📊 评估与可观测 | 30 | 评估平台、实验设计、LLM-as-judge、红队、灰度 |
-| 🏗️ 系统设计与高可用 | 10 | 分布式调度、多租户、语音多模态、SSE、容错 |
-| 🧮 算法与训练原理 | 37 | RLHF/DPO/PPO、微调蒸馏、Transformer 推导、MoE |
-| 💼 选型、安全与业务落地 | 25 | 框架选型、权限隐私、幻觉治理、ROI、沙箱与自进化安全 |
+| Agent 架构与规划 | 18% | 4.0 |
+| Agent Evaluation | 16% | 4.5 |
+| 工具调用与 MCP | 14% | 4.0 |
+| 状态管理与 Memory | 12% | 3.5 |
+| 后端与系统设计 | 12% | 3.5 |
+| 可靠性与安全 | 12% | 3.5 |
+| RAG / 上下文工程 | 10% | 3.5 |
+| 部署与可观测性 | 6% | 3.0 |
 
-每题按「30秒电梯稿 → 通俗类比 → 详细拆解 → 面试官追问(可折叠) → 术语卡」五层展开,零基础也能看懂,面试前可直接背。
+> 权重是 3 份 JD 的种子假设，非统计结论；benchmark 版本化（v1.0），随 JD 样本滚动更新。
+
+## 仓库结构
+
+```
+web/                  前端（React 18 + Vite + TypeScript）
+  src/pages/          11 个页面：总览/岗位对标/能力画像/考试中心/学习中心/
+                      面经库/项目与职业资产/记忆中心/系统观测台/进化实验室/设置
+  src/api/client.ts   后端 API 封装（失败时降级静态演示数据）
+  src/data/bank.json  161 道公开题库（从旧版题库迁移）
+
+server/               后端（FastAPI + PostgreSQL + SQLAlchemy async）
+  app/api/v1/         dashboard / benchmark / profile / exams / bank /
+                      learning / memory / observatory
+  app/services/       competency(能力引擎) / planner(学习规划) / scorer(评分) /
+                      selection(自适应选题) / tracing(运行追踪) / llm(适配层)
+  app/models/         SQLAlchemy 模型：Skill/SkillState/Evidence/Exam/Question/
+                      ImportSession/MemoryItem/Trace/TraceSpan/Event/Decision...
+  app/seed.py         幂等种子：能力域+161题+demo工作空间+示例证据
+
+content/              面经题源内容（旧版静态站遗留，题库的原始来源）
+deploy/               agent-interview.icu 发布脚本（OSS 静态托管链路）
+```
 
 ## 快速开始
 
-```bash
-git clone https://github.com/Lueyu/agent-interview.git
-cd agent-interview
-```
+### 前置
 
-**直接刷题**:双击 `index.html`(数据已随仓库附带,无需任何环境)。
-
-**记笔记/标熟练度**(推荐):首次使用执行一次
+- Node.js ≥ 18
+- Python ≥ 3.11
+- PostgreSQL（本地 5432）
 
 ```bash
-python build.py --init-notes   # 在仓库根目录创建 notes.json(个人数据,已 gitignore)
+# 1) 数据库（一次性）
+createuser careerpilot --createdb 2>/dev/null || true
+psql -c "ALTER USER careerpilot PASSWORD 'careerpilot_dev';"
+createdb careerpilot -O careerpilot
+
+# 2) 后端
+cd server
+pip install -r requirements.txt
+python -m app.seed          # 幂等种子：8 能力域 + 161 题 + demo 工作空间
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+# 3) 前端
+cd web
+npm install
+npm run dev                 # http://localhost:5173
 ```
 
-然后浏览器打开 `index.html` → 点顶栏「连接笔记」→ 选择刚创建的 `notes.json` → 授权(建议勾选"每次访问都允许")。之后你的笔记、四档熟练度(未学/模糊/熟练/精通)会自动保存,跨标签页自动合并。
+后端不可用时前端自动降级为静态演示模式（页面顶部会提示）。
 
-快捷键:题目页 `←`/`→` 切题,`1-4` 评熟练度;顶栏可全局搜索;右上角切换深浅色。
-
-## 如何贡献新题目
-
-欢迎把你遇到的真题贡献进来(附答案)。两种方式:
-
-### 方式 A:用 opencode(推荐)
-
-1. Fork 并克隆本仓库,在仓库目录里启动 [opencode](https://opencode.ai)
-2. 把题目**截图/照片**或**文本**发给它,或直接说"加题/入库"
-3. 本仓库内置的 `add-question` skill 会自动:识别题目 → 查重 → 归入 8 大主题 → 按 [content/SPEC.md](content/SPEC.md) 写成与现有题库同款的五模块题卡 + 2~3 道选择题(附解析)→ 运行 `python build.py` 校验 → git commit
-4. 你确认后 push 到你的 fork,向本仓库提 Pull Request
-
-### 方式 B:任意工具(手动)
-
-1. 阅读 [content/SPEC.md](content/SPEC.md)(题目写作规范,含完整模板)
-2. 新建 `content/questions/{主题code}/{下一个三位序号}.html`,按模板写题卡 + MCQ JSON
-3. 运行 `python build.py`——校验通过(0 error)后 `data.js` 会自动重新生成
-4. 提交 `content/` 与 `data.js` 的变更,发 Pull Request
-
-### 贡献须知
-
-- **PR 只包含题目内容**:`content/questions/**`、`data.js`(如重跑过构建)。校验报错会列出文件名和原因,修复后再提交
-- **绝不提交个人数据**:`notes.json`(笔记/熟练度)、`notes-export-*.json` 已被 `.gitignore` 忽略,任何时候都不要把它们加进提交(见下方隐私说明)
-- 题目来源请注明公司(如"字节·真题"),不确定的写"网友面经"
-- 技术准确性最高优先级:公式写错比不写更糟,不确定的细节用保守表述
-
-### 修改/升级已有答案
-
-觉得某道题的答案不够好?把别的 AI 给的更满意回答交进来:
-
-- **网页投稿箱(推荐)**:打开 `index.html` → 侧边栏「✂️ 答案投稿箱」(或在任意题目页点"改答案")→ 选题 → 粘贴新答案 → 可连续加入多题 → 「保存到草稿箱」一键写入 `drafts/`(首次需授权选择仓库目录)
-- **单题**:在 opencode 里粘贴,说"美化 rag-003 的答案:[内容]"
-- **批量**:把文件存到 `drafts/` 目录(文件名带题号,如 `drafts/rag-003.txt`),说"处理草稿"
-
-内置的 `refine-answer` skill 会全量重写题卡(五模块+选择题,流程性内容自动生成 SVG 架构图
-/表格),元数据保持不变,`python build.py` 校验通过后提交。旧版永远在 git 历史里,
-`git revert` 即可回退。草稿目录与个人笔记一样不进仓库。
-
-## 隐私说明
-
-你的**笔记、熟练度、复习进度**只保存在本地 `notes.json`(由浏览器直写,已 gitignore),换设备用页面里的「导出备份/导入备份」迁移。**这些个人数据永远不会进入 Git 仓库**——贡献题目时也只会上传题库内容本身。
-
-## 项目结构
+### 环境变量（server/.env，均可省略）
 
 ```
-index.html                       # v2 单页应用(双击即开)
-data.js                          # 构建产物:window.QB(题目数据)
-notes.json                       # 你的个人笔记(本地生成,不入库)
-drafts/                          # 答案草稿箱(本地,不入库;refine-answer skill 消化)
-build.py                         # 构建工具:校验/生成/自测/迁移/初始化笔记
-content/
-├─ topics.json                   # 8 主题配置
-├─ SPEC.md                       # 题目写作规范(贡献必读)
-├─ extra/top10.html              # 考前速记 Top10
-└─ questions/{topic}/{NNN}.html  # 每题一文件(题卡+元数据+MCQ)
-.opencode/skill/                 # opencode skills:add-question(加题)/ refine-answer(美化答案)/ publish-site(发布站点)
-deploy/                          # 部署工具(Node):构建指纹/上传 OSS/域名证书/强制 HTTPS,见 publish-site skill
-docs/superpowers/                # 设计文档与实施计划
+DATABASE_URL=postgresql+asyncpg://careerpilot:careerpilot_dev@localhost:5432/careerpilot
+API_TOKEN=cp-dev-token
+LLM_PROVIDER=          # 空 = 规则引擎模式（不依赖外部 LLM）
+LLM_API_KEY=
+LLM_MODEL=
 ```
 
-## 维护命令
+## 核心机制
 
-```bash
-python build.py                # 扫描 content/ → 校验 → 生成 data.js
-python build.py --selftest     # 内置回归自测(PASS/FAIL 输出)
-python build.py --init-notes   # 创建本地笔记文件(新环境首次使用)
-python build.py --migrate      # (已弃用)旧版单文件 index.html 一次性迁移,输出树已存在时会拒绝执行
-```
+- **考试状态机**：`CREATED → ACTIVE → SUBMITTED → TRANSCRIPT_CONFIRMED → FROZEN → SCORING → COMPLETED`，答卷冻结后评分，报告为不可变快照。
+- **按要点覆盖度评分**：开放题按 rubric 要点关键词命中率给分（CORRECT / PARTIAL / WRONG），每个要点命中与否在报告中逐条可见。
+- **自适应选题**：诊断考试优先选「差距大 × 权重高 × 证据少」的能力域抽题，选题理由（selection_reason）随卷返回。
+- **面经导入流水线**：Upload → 解析/提取 → 公司/职级/日期 → 技能映射 → **查重**（重复问法合并为 canonical 的 variants）→ 人工审核 → 入库（`USER_PRIVATE` 私有，不进公共题库）。
+- **记忆中心**：对话文本按规则提取候选记忆（CareerGoal / Preference / KnowledgeGapSignal / ProjectDecision / Feedback），确认后驱动学习规划；纠正走 SUPERSEDED 链。
+- **系统观测台**：每次引擎运行写 Trace + TraceSpan（含耗时/成本/失败原因），决策记录（DecisionRecord）说明"为什么选这个行动"，证据源（Evidence）可溯源。
+- **多租户就位**：Workspace 隔离已建模，MVP 单工作空间演示。
 
-修改题目源文件后重新运行 `python build.py` 并刷新页面即可生效。
+## 演示模式声明
+
+`demo` 工作空间内的种子数据（示例证据 / 记忆 / trace）全部显式标记 `[DEMO]`；页面顶部的 DEMO 横幅常驻。**演示数据不是真实能力评估或行业统计。**
+
+## 路线图
+
+- [x] 11 页前端（Figma 设计稿 1:1 实现）
+- [x] 后端核心 API + 规则评分引擎（rule-v1）
+- [x] 面经导入流水线（文本解析 + 查重 + 审核）
+- [x] 记忆中心（规则提取 + 确认/纠正/忽略）
+- [ ] LLM 评分与提取（LLM_PROVIDER 接入后自动升级）
+- [ ] 项目与职业资产（仓库扫描 / 证据提取 / 职业展示自动更新）
+- [ ] 进化实验室（策略 A/B 评估与批准）
+- [ ] 部署链路（OSS 静态前端 + API 服务上线 agent-interview.icu）
+
+## License
+
+MIT

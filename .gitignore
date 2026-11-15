@@ -20,6 +20,18 @@ drafts/
 # 个人求职数据(招聘情报/面经/差距分析/画像,由自动化任务每日追加,仅存本地,绝不入库)
 personal/
 
+# Vite 构建临时目录(Windows MSYS temp ACL 规避, 构建产物在 web/dist)
+web/.tmp/
+web/node_modules/
+web/dist/
+
+# Python 服务端(FastAPI): 依赖、缓存、日志、环境文件不入库
+server/.venv/
+server/uvicorn.log
+server/*.db
+server/.env
+server/pip-*/
+
 # 部署产物、依赖与本地私钥(绝不入库)
 deploy/dist/
 deploy/dist.prev/
