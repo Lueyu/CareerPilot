@@ -8,6 +8,13 @@ from app.models.exam import Exam, ExamQuestion, ExamAnswer  # noqa: F401
 from app.models.learning import LearningTask  # noqa: F401
 from app.models.memory import MemoryItem  # noqa: F401
 from app.models.trace import Trace, TraceSpan, DecisionRecord, Event  # noqa: F401
+from app.models.public_content import (  # noqa: F401
+    PublicContentSource,
+    PublicContentDraft,
+    ContentPublication,
+    ContentPublicationRule,
+    ContentReleaseAudit,
+)
 
 __all__ = [
     "Base", "User", "Workspace", "WorkspaceMember",
@@ -16,4 +23,6 @@ __all__ = [
     "Evidence", "Exam", "ExamQuestion", "ExamAnswer",
     "LearningTask", "MemoryItem",
     "Trace", "TraceSpan", "DecisionRecord", "Event",
+    "PublicContentSource", "PublicContentDraft", "ContentPublication",
+    "ContentPublicationRule", "ContentReleaseAudit",
 ]

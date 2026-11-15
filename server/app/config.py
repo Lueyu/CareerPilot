@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     # 评分引擎
     scorer_model_version: str = "rule-v1"
 
+    # 公开内容发布(GitHub 内容仓库, 独立于本地私人数据系统)
+    github_api_url: str = "https://api.github.com"
+    github_token: str = ""                          # 环境变量 GITHUB_TOKEN(gh auth token)
+    portal_target_repo: str = "Lueyu/agent-interview"   # 内容仓库 owner/repo
+    portal_base_branch: str = "master"              # 发布目标默认分支
+    portal_content_dir: str = "portal/content"      # 仓库内内容目录
+    portal_auto_merge: bool = True                  # 允许低风险内容自动 merge PR
+
     @property
     def sync_database_url(self) -> str:
         """Alembic / 同步工具用的 psycopg 风格 URL。"""

@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import bank, benchmark, dashboard, exams, learning, memory, observatory, profile
+from app.api.v1 import bank, benchmark, dashboard, exams, learning, memory, observatory, profile, public_content
 from app.config import get_settings
 from app.db import engine
 from app.models import Base  # noqa: F401  (注册全部模型)
@@ -37,7 +37,7 @@ app.add_middleware(
 )
 
 # 认证在 get_workspace 依赖链内(require_auth), /healthz 开放
-for router in (dashboard.router, benchmark.router, profile.router, exams.router, bank.router, learning.router, memory.router, observatory.router):
+for router in (dashboard.router, benchmark.router, profile.router, exams.router, bank.router, learning.router, memory.router, observatory.router, public_content.router):
     app.include_router(router, prefix="/api/v1")
 
 
