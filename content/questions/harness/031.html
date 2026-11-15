@@ -8,65 +8,174 @@
     <span class="company">所有公司</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题是一道『品味体检』：考的不是知识点，是你有没有持续追踪前沿的习惯、能不能把别人的工作消化成自己的判断。它零成本就能分出『背题党』和『真读过的人』——答错的暴露点很明显：报得出名字讲不出机制、说『很火』给不出理由，等于当场承认只在面试前突击过一晚上。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"我会讲一个具体的、并且能说清『它解决了什么问题、用了什么思路、我从中借鉴了什么』。以我为例，印象最深的是 <b>MCP（Model Context Protocol）</b> 及其带火的工具生态：它把『模型如何连接外部工具和数据』这件事<b>标准化</b>了，相当于给 Agent 定义了 USB-C 接口，把集成成本从『每个工具单独写适配器』降到『按协议即插即用』。它让我意识到：Agent 落地的真正瓶颈不在模型，而在<b>工具生态的碎片化</b>。这道题的关键不是背论文名，而是展示你有自己的技术判断和消化能力。"</p>
+    <p>"这题不是知识竞答，是<b>技术品味面试</b>：面试官要看的不是你记住了多少热门名字，而是你的<b>技术判断和消化能力</b>。我的示范答案：<b><a target="_blank" rel="noopener" href="https://modelcontextprotocol.io">MCP（Model Context Protocol）</a></b>——Anthropic 发起的开放协议，把『模型怎么连接外部工具和数据』这件事<b>标准化</b>了，相当于给 Agent 圈定义了 <b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/USB-C">USB-C</a> 接口</b>：此前每个框架接每个工具都要单独写适配器，是 N×M 份胶水；协议化之后各写一份实现就全网互通（N+M），集成成本从乘法变加法。它让我看清：Agent 落地的真正瓶颈不在模型智力，而在<b>工具生态的碎片化</b>——这和存储圈『接口先标准化、生态后爆发』的剧本一模一样。答题心法：选一个<b>真读过、真用过</b>的，用『是什么→亮点→启发』三句话讲透，宁深勿滥。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>这道题就像面试官问你"最近读过什么书、讲讲收获"。他不是要你报书名，而是看你能不能<b>讲出这本书到底讲了什么、你为什么有共鸣、读完改变了你什么做法</b>。只会报书名说不出所以然的，一眼就被看穿——所以宁可选一个你真读过、真用得上的，讲深讲透，也别背一堆热门标题。</p>
+    <p><b>这道题本身（用『存储团队里聊开源项目』想）</b>:它就像面试官问『最近读了什么书、讲讲收获』——他要的不是书名，是内容、共鸣、以及它改变了你什么做法。放到技术圈，就像你面试一位备份工程师时问『最欣赏的开源项目是什么』：对方若答 Ceph 能顺嘴讲出 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Ceph_(software)">CRUSH</a> 算法怎么用一致性哈希省掉中心元数据，和答『Ceph 很火、大厂都在用』，高下立判。题目只是个钩子，真正被评估的是你平时的信息输入质量。</p>
+    <p><b>哪里像</b>: 都是开放式问题，没有标准答案，越具体越可信；都在考『技术热情 + 消化能力』这两个简历上看不出来的软素质。 <b>哪里不像</b>: 聊读书可以只谈感受，聊技术必须落到机制与取舍——一句『我觉得它设计优雅』撑不过第二轮追问，面试官会立刻补一刀『具体优雅在哪』。</p>
+    <p><b>MCP（用备份圈的 NDMP、存储圈的 S3 API 想）</b>:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Model_Context_Protocol">MCP</a> 标准化『模型与工具』的连接方式，正如 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Network_Data_Management_Protocol">NDMP</a> 当年标准化『备份软件与 NAS』：在那之前，每家备份软件都要给每家 NAS 厂商单独写私有 Agent；NDMP 出来后，备份软件实现一次客户端、NAS 实现一次服务端，全网互通。<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Amazon_S3">S3 API</a> 统一对象存储访问接口，是同一个剧本的又一次重演。</p>
+    <p><b>哪里像</b>: 都是把 N×M 的集成矩阵压成 N+M，都吃『接入方越多→新工具越值得接→生态滚雪球』的网络效应。 <b>哪里不像</b>: NDMP/S3 管的是数据面（搬字节、保吞吐），MCP 管的是控制面（工具怎么被发现、描述、调用）；而且 MCP 还在快速演进期，远没到 S3『事实标准、十年不动』的稳定度——类比时主动点出这层差别，反而是加分项。</p>
+    <p><b>选题策略（用『讲你亲手救过的火』想）</b>:在运维和存储面试里，讲一场你亲手处理的故障复盘，永远比背一套别人的架构方案有说服力——因为细节和坑是编不出来的。这题同理：选你真在项目里<b>用过、踩过坑</b>的那个，可信度自带。</p>
+    <p><b>哪里像</b>: 越真实越具体，被追问两层都不慌。 <b>哪里不像</b>: 故障复盘考的是应急能力，这题还多考一层『品味』——你得说清为什么在这么多候选里偏偏觉得它最重要，背后需要一个对比坐标系。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
     <p><b>1. 这题在考什么（先读懂题，再给答案）</b></p>
     <ul>
-      <li><b>技术品味</b>：你关注的东西是否代表当前前沿，是否有自己的判断标准。</li>
-      <li><b>是否真读过/真用过</b>：能讲出核心思路、细节、局限，而不是只会说"很火"。</li>
-      <li><b>消化与迁移能力</b>：能不能把别人的工作转成自己的工程实践或方法论。</li>
+      <li><b>技术品味</b>：你平时关注什么，决定了你水平的天花板。就像做存储的人是持续追新架构、新协议，还是只守着自己那摊产品代码——面试官想从你的『关注列表』反推你的成长曲线和自驱力。</li>
+      <li><b>是否真读过/真用过</b>：能不能讲到机制层——核心思路、关键设计、适用边界。只会说『很火』的人，和能画出架构图、讲清关键取舍的人，一轮追问就分层。</li>
+      <li><b>消化与迁移能力</b>：能不能把别人的工作转成自己的工程实践或方法论。这是『读者』和『工程师』的分水岭，也是这题最大的区分度所在。</li>
     </ul>
+    <p>面试官心里的评分表大概长这样，你可以对着自查：</p>
+    <table>
+      <tr><th>维度</th><th>背题党的信号</th><th>真读过/用过的信号</th></tr>
+      <tr><td>介绍项目</td><td>『很火、很强、生态好』</td><td>能徒手画出架构图，说得出核心机制的名字和作用</td></tr>
+      <tr><td>谈创新</td><td>『业界首创、颠覆性突破』</td><td>『它和之前方案的本质区别是……』</td></tr>
+      <tr><td>谈局限</td><td>『好像没什么缺点』</td><td>『边界在……所以生产上我会……』</td></tr>
+      <tr><td>谈启发</td><td>复述一遍论文摘要</td><td>『我把它的 X 思路用在了 Y，效果是……』</td></tr>
+    </table>
     <p><b>2. 回答框架（三句话模板，可套用到任何选择）</b></p>
     <ul>
-      <li><b>第一句——它是什么、解决了什么问题</b>：一句话概括这个论文/项目的核心主张。</li>
-      <li><b>第二句——亮点/创新在哪</b>：讲清楚它和之前方案的本质区别（对比才有深度）。</li>
-      <li><b>第三句——对你的启发/你会怎么用</b>：落到自己的实践，这是"消化能力"的体现，也是和"背题党"拉开差距的地方。</li>
+      <li><b>第一句——它是什么、解决了什么问题</b>：一句话概括核心主张，验收标准是『让不懂这个领域的人也能听懂』。</li>
+      <li><b>第二句——亮点/创新在哪</b>：讲清楚它和之前方案的<b>本质区别</b>。没有对比就没有深度——『它很好』是观点，『它比 X 好在 Y』才是判断。</li>
+      <li><b>第三句——对你的启发/你会怎么用</b>：落到自己的实践。这一句是『消化能力』的体现，也是和背题党拉开差距的地方——面试官等的就是这一句。</li>
     </ul>
+    <pre class="code">
+三句话模板的 90 秒分配（面试口语版）
+
+ ┌ 第一句：它是什么、解决什么问题 ──────┐   约 15 秒
+ │   一句话让外行也听懂                   │
+ ├ 第二句：亮点/创新在哪（带对比！）─────┤   约 40 秒
+ │   "它和之前方案的本质区别是……"        │
+ ├ 第三句：对我的启发/我怎么用 ──────────┤   约 30 秒
+ │   落到自己的项目，数字和坑最有说服力   │
+ └───────────────────────────────────────┘
+ 剩下 5 秒留白，等面试官顺着你的话头追问
+</pre>
+    <p>套进模板（MCP 版预览，第 3 节展开细讲）：第一句『MCP 是一个开放协议，标准化了模型连接工具的方式』；第二句『亮点是把 N×M 的适配器矩阵压成 N+M，像 USB-C 统一了接口』；第三句『我把这套标准化思路搬进自己的工具层，新工具接入从写胶水变成实现一个接口』。</p>
     <p><b>3. 示范答案（以 MCP 为例，展开讲）</b></p>
     <ul>
-      <li><b>它是什么</b>：Anthropic 提出的开放协议，标准化了 LLM 应用连接外部工具、数据源的标准接口——类似"工具调用的 USB-C"，让任何模型、任何客户端、任何工具通过同一套协议互联。</li>
-      <li><b>解决了什么问题</b>：此前每个 Agent 框架接入每个工具都要写一次性适配器（N×M 的集成问题）；MCP 把它变成"写一次、到处用"（N+M），大幅降低工具生态的碎片化成本。</li>
-      <li><b>亮点</b>：把"工具连接"从工程胶水代码提升为<b>协议标准</b>，并且有 Server/Client 双向能力，支持资源、工具、Prompt 等多种能力原语，生态发展极快。</li>
-      <li><b>我的启发</b>：我在自己的 Agent 项目里开始用"标准化工具接口 + 统一注册中心"的思路重构工具层，让新工具接入从"写一堆胶水"变成"实现一个协议接口"，可维护性和可扩展性明显提升。</li>
+      <li><b>它是什么</b>：Anthropic 于 2024 年 11 月发布的开放协议，标准化了 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Large_language_model">LLM</a> 应用连接外部工具、数据源的接口——『工具调用的 USB-C』，让任何模型、任何客户端、任何工具通过同一套协议互联。协议里定义三种角色：<b>Host</b>（宿主应用：IDE、聊天客户端、编程 Agent）、<b>Client</b>（宿主内部的连接器，与 Server 一对一）、<b>Server</b>（工具/数据源的提供方）。消息格式用的是老朋友 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/JSON-RPC">JSON-RPC</a>，传输走本地 stdio 或远程 HTTP——对写过后台服务的人来说，这套东西亲切得就像一个轻量级 RPC 框架加插件规范。</li>
+      <li><b>解决了什么问题</b>：此前每个 Agent 框架接入每个工具都要写一次性适配器，这是经典的 N×M 集成问题；MCP 把它变成『写一次、到处用』的 N+M。算笔账：8 个主流框架 × 50 个常用工具 = 400 份胶水代码，每份都要写、测、养；协议化之后是 8 + 50 = 58 份实现，而且工具方升级接口，框架侧零改动。这正是备份圈经历 NDMP、存储圈经历 S3 API 的那场老戏：</li>
+    </ul>
+    <pre class="code">
+【接入前：N×M 的胶水地狱】  3 个框架 × 3 个工具 = 9 份一次性适配器
+
+ Agent框架A ─┬─ 适配器①─→ GitHub
+             ├─ 适配器②─→ Postgres
+             └─ 适配器③─→ 文件系统
+ Agent框架B ─┬─ 适配器④─→ GitHub      每换一个框架、每接一个新工具，
+             ├─ 适配器⑤─→ Postgres    就多一份胶水要写、要测、要养；
+             └─ 适配器⑥─→ 文件系统    工具一改版，所有适配器跟着返工
+ Agent框架C ─┬─ 适配器⑦─→ GitHub
+             ├─ 适配器⑧─→ Postgres
+             └─ 适配器⑨─→ 文件系统
+
+【接入后：N+M，各写一次协议实现】  3 + 3 = 6 份，写一次到处用
+
+ Agent框架A ─┐                        ┌─ MCP Server（GitHub）
+ Agent框架B ─┼── MCP 标准协议 ────────┼─ MCP Server（Postgres）
+ Agent框架C ─┘  （发现/调用/通知/      └─ MCP Server（文件系统）
+                 生命周期全包）
+</pre>
+    <pre class="code">
+MCP 的架构（和『备份服务器 + 数据源侧代理』同构）：
+
+ ┌────────────────────────────────────────────┐
+ │     MCP Host（IDE / 聊天客户端 / Agent）    │
+ │   ┌──────────────┐      ┌──────────────┐   │
+ │   │  MCP Client  │      │  MCP Client  │   │
+ │   │ （1对1连接器）│      │ （1对1连接器）│   │
+ │   └──────┬───────┘      └──────┬───────┘   │
+ └──────────┼─────────────────────┼───────────┘
+            │ MCP 协议（工具发现、 │
+            │ 调用、资源读取、通知）│
+            ▼                     ▼
+   ┌────────────────┐    ┌────────────────┐
+   │  MCP Server    │    │  MCP Server    │
+   │ （GitHub 仓库） │    │ （Postgres）    │
+   └────────────────┘    └────────────────┘
+
+   类比：Host  = 备份服务器（调度方）
+        Client = 服务器里的连接器模块
+        Server = 数据源侧的代理进程（NDMP 里 NAS 侧那个角色）
+</pre>
+    <ul>
+      <li><b>亮点</b>：把『工具连接』从工程胶水代码提升为<b>协议标准</b>，并且有 Server/Client 双向能力，支持资源、工具、Prompt 等多种能力原语——不只是『调个函数』这么窄：</li>
+    </ul>
+    <table>
+      <tr><th>能力原语</th><th>干什么的</th><th>备份圈的对应物</th></tr>
+      <tr><td><b>Tools</b></td><td>模型可主动调用的操作（带 schema 描述的函数）</td><td>备份服务器下发的『执行备份 / 查询任务状态』指令</td></tr>
+      <tr><td><b>Resources</b></td><td>Server 暴露给模型读取的数据（文件、记录、表结构）</td><td>数据源侧暴露的『可浏览目录 / 元数据』</td></tr>
+      <tr><td><b>Prompts</b></td><td>Server 预置的提示词模板</td><td>厂商随产品附带的『最佳实践策略模板』</td></tr>
+      <tr><td><b>Sampling</b></td><td>Server 反向请求宿主的模型做补全（双向能力的体现）</td><td>数据源反向上报/回调，而非只被动应答</td></tr>
+    </table>
+    <ul>
+      <li>生态发展极快：官方和社区的 Server 已覆盖代码仓库、数据库、浏览器、文档系统等成百上千个数据源，主流 IDE 和 Agent 框架基本都内置了 Client 支持——网络效应已经转起来了。</li>
+      <li><b>我的启发</b>：我在自己的 Agent 项目里用『标准化工具接口 + 统一注册中心』的思路重构了工具层——本质上是把存储系统『控制面与数据面解耦』『元数据集中管理』的老经验搬过来：工具像集群节点一样向注册中心注册、上报 schema、做健康检查；调用方只面向接口编程，测试时挂一个 mock server 就够。新工具接入从『写一堆胶水』变成『实现一个协议接口 + 注册』，工时从天级降到小时级，可维护性和可扩展性明显提升。</li>
     </ul>
     <p><b>4. 备选清单（供替换，每个都能讲出所以然）</b></p>
+    <p>先说一个容易忽略的细节：『近半年』是个<b>滚动窗口</b>——下面这些是本文写作时的热点示范，你真正面试时，要换成『面试日往前推半年』内你真读过、真用过的东西，讲法完全复用。</p>
     <table>
-      <tr><th>论文/项目</th><th>一句话亮点</th><th>适合谈的切入点</th></tr>
-      <tr><td><b>Claude Code / 编程 Agent</b></td><td>长上下文 + 工具编排 + 持久工作区</td><td>Agent 从"单次问答"到"持续工作"的形态演进</td></tr>
-      <tr><td><b>DeepSeek-R1</b></td><td>纯强化学习激发推理能力</td><td>推理能力与成本的大幅下降，推理时 compute 的复现</td></tr>
-      <tr><td><b>smolagents</b></td><td>极简、代码即行动（code-as-action）</td><td>让 Agent 写代码来调用工具，减少 JSON 结构化局限</td></tr>
-      <tr><td><b>OpenHands / SWE-agent</b></td><td>软件工程任务的 Agent 范式</td><td>复杂多步任务的评估与执行范式</td></tr>
-      <tr><td><b>Agentic RAG</b></td><td>检索由 Agent 动态规划而非一次性</td><td>把"检索"从被动召回升级为主动决策</td></tr>
+      <tr><th>论文/项目</th><th>一句话亮点</th><th>适合谈的切入点</th><th>用你的舒适区打比方</th></tr>
+      <tr><td><b><a target="_blank" rel="noopener" href="https://www.anthropic.com/claude-code">Claude Code</a> / 编程 Agent</b></td><td>长上下文 + 工具编排 + 持久工作区</td><td>Agent 从"单次问答"到"持续工作"的形态演进</td><td>从一次性恢复脚本升级为常驻值班工程师</td></tr>
+      <tr><td><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2501.12948">DeepSeek-R1</a></b></td><td>纯强化学习激发推理能力</td><td>推理能力与成本的大幅下降，推理时 compute 的复现</td><td>数据库自调优：靠执行反馈学计划，不靠 DBA 写规则</td></tr>
+      <tr><td><b><a target="_blank" rel="noopener" href="https://github.com/huggingface/smolagents">smolagents</a></b></td><td>极简、代码即行动</td><td>让 Agent 写代码来调用工具，减少 JSON 结构化局限</td><td>写 shell 脚本组合命令行工具，而非给每个操作包一层 REST API</td></tr>
+      <tr><td><b><a target="_blank" rel="noopener" href="https://github.com/All-Hands-AI/OpenHands">OpenHands</a> / <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2405.15793">SWE-agent</a></b></td><td>软件工程任务的 Agent 范式</td><td>复杂多步任务的评估与执行范式</td><td>容灾演练自动化：沙箱里按 runbook 执行、按验收标准闭环</td></tr>
+      <tr><td><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2501.09136">Agentic RAG</a></b></td><td>检索由 Agent 动态规划而非一次性</td><td>把"检索"从被动召回升级为主动决策</td><td>存储分层从固定策略升级为按访问热度动态调度</td></tr>
     </table>
+    <p>表格只是索引，每个候选还要能往下讲两层。逐个给你备好『第二层』：</p>
+    <ul>
+      <li><b>Claude Code（编程 Agent 的形态演进）</b>：三个关键词——<b>长上下文</b>（单次能装下仓库级代码，相当于给工程师一块足够大的工作内存，不用频繁换页）、<b>工具编排</b>（读写文件、跑 shell、调 git、搜索代码全是工具调用）、<b>持久工作区</b>（状态跨轮保留，进程常驻而非问答即走）。最值得谈的对比：早期 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/AutoGPT">AutoGPT</a> 追求全自主规划但失控率高，Claude Code 靠『明确工具 + 人在环审查』把可靠性做上去了——这条线正好呼应行业瓶颈从『自主性』转向『可靠性』。</li>
+      <li><b>DeepSeek-R1（纯 RL 出推理）</b>：核心是不靠海量人工标注的思维链数据，只用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Reinforcement_learning">强化学习</a>（<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2402.18649">GRPO</a> 算法）加可验证奖励（数学、代码的答案能自动判对错），就让模型自己长出『先反思、再验证』的长推理链，训练中还涌现了著名的『aha moment』；再用<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Knowledge_distillation">蒸馏</a>把能力塞进小模型，把推理 API 价格打下来一个数量级。像数据库自调优——不靠 DBA 写规则，靠执行反馈学出好计划；不像的地方是执行反馈廉价且确定，而 RL 的奖励必须落在可验证任务上，还有 reward hacking 这类坑。</li>
+      <li><b>smolagents（代码即行动）</b>：HuggingFace 的极简 Agent 库，主打 code-as-action——模型直接写一段 Python 作为动作，而不是输出受限的 JSON 工具调用。为什么重要？JSON 表达不了『先查、对结果做循环、再聚合』这类逻辑，而代码天生支持循环、变量和组合——就像你写 shell 脚本粘 storcli、iostat 这些命令行工具，比给每个操作包一层 REST API 灵活得多。</li>
+      <li><b>OpenHands / SWE-agent（评估驱动的编程 Agent）</b>：在 <a target="_blank" rel="noopener" href="https://www.swebench.com/">SWE-bench</a>（从真实 GitHub issue 构建的基准）上解真实 bug 的 Agent 范式。最值得学的是方法论：<b>先有可信基准，再做工程优化</b>——和系统圈『先有 fio/TPC-C，再谈优化』完全同构。</li>
+      <li><b>Agentic RAG（检索变成决策）</b>：传统 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Retrieval-augmented_generation">RAG</a> 是『一次查完就答』，Agentic RAG 把检索变成 Agent 的动态决策：先查、看结果质量、改写 query、必要时换数据源再查。像存储分层从『固定全量迁移』升级为『按访问热度动态决定放哪层』——决策交给策略引擎，而不是一开始就定死。切入点：正好接上你 RAG 那条知识线。</li>
+    </ul>
     <p><b>5. 加分点与雷区</b></p>
     <ul>
-      <li><b>加分</b>：能给出自己的<b>对比和取舍</b>（"我为什么觉得它比 X 更好/更落地"）；能指出<b>局限</b>（任何工作都有边界）；能落到<b>自己的实践</b>。</li>
-      <li><b>雷区</b>：只报名字讲不出细节；说"它很火/很厉害"但给不出理由；选一个和自己岗位完全无关又没理解的东西硬讲；<b>编造不存在的论文或数据</b>（技术准确性是红线）。</li>
+      <li><b>加分</b>：能给出自己的<b>对比和取舍</b>（『我为什么觉得它比 X 更好/更落地』——有坐标系才有品味）；能主动指出<b>局限</b>（任何工作都有边界，敢说边界才是真理解）；能落到<b>自己的实践</b>（哪怕只是把它的一个设计思想搬进小项目）。</li>
+      <li><b>雷区</b>：只报名字讲不出细节；说『它很火/很厉害』但给不出理由；选一个和自己岗位完全无关又没理解的东西硬讲；<b>编造不存在的论文或数据</b>——技术准确性是红线，面试官随手一搜就能戳穿。</li>
     </ul>
-    <div class="note">如果你最近确实没系统读论文，最稳妥的选择是挑一个<b>你真在项目中用过</b>的开源项目（框架、协议、模型都行），讲"我用了它解决什么问题、踩了什么坑、收获是什么"——真实的实践细节永远比背来的评价更有说服力。</div>
+    <table>
+      <tr><th>场景</th><th>雷区说法</th><th>加分说法</th></tr>
+      <tr><td>谈创新</td><td>『业界颠覆性的突破』</td><td>『它和 <a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function Calling</a> 的本质区别是……』</td></tr>
+      <tr><td>谈热度</td><td>『GitHub star 涨得特别快』</td><td>『star 是结果，我看的是它把 N×M 压成 N+M 这个结构性变化』</td></tr>
+      <tr><td>谈局限</td><td>『目前没什么明显缺点』</td><td>『协议还在演进、安全边界要自己把关，所以生产上我会……』</td></tr>
+      <tr><td>谈启发</td><td>『对我很有启发，学到了很多』</td><td>『我把接口标准化的思路用在工具层，接入工时从天级降到小时级』</td></tr>
+    </table>
+    <p><b>6. 离面试还有两周，怎么把这道题备扎实</b></p>
+    <ul>
+      <li><b>第 1~3 天</b>：选一个你真用过的（做后台时用熟的中间件也行，最近上手的 Agent 框架更好），跑通 quickstart，改一行代码观察行为变化——手感是讲细节的底气。</li>
+      <li><b>第 4~7 天</b>：读它的架构文档或核心论文，自己徒手画一张架构图（画得出来才算读过），整理 3 个能各讲两分钟的机制点。</li>
+      <li><b>第 8~10 天</b>：把三句话模板填好，录一遍 90 秒口播，删掉所有形容词，只留机制、对比、实践。</li>
+      <li><b>第 11~14 天</b>：预演追问四连——一句话概括创新？有什么局限？和谁对比？你怎么用它？每个都准备 150 字左右的答案。</li>
+    </ul>
+    <div class="note">如果你最近确实没系统读论文，最稳妥的选择是挑一个<b>你真在项目中用过</b>的开源项目（框架、协议、模型都行），讲『我用了它解决什么问题、踩了什么坑、收获是什么』——真实的实践细节永远比背来的评价更有说服力。这对你尤其有利：备份基础设施出身的人讲『怎么把存储圈标准化、解耦的老经验搬进 Agent 工程』，本身就是最有区分度的故事。</div>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:这个论文/项目的核心创新到底是什么？用一句话概括。</summary><div class="an">练好"一句话概括"：MCP = 把模型连接工具这件事标准化成开放协议，让集成从"每个工具写适配器"变成"按协议即插即用"；DeepSeek-R1 = 证明不靠大量监督数据、仅靠强化学习也能让模型涌现出可解释的推理链，并把推理成本大幅打下来。这一句话要能脱口而出，说明你真正抓住了它的本质，而不是记住了它的名气。</div></details>
-    <details class="qa"><summary class="qu">Q:它有什么局限？你会在生产里直接用它吗？</summary><div class="an">任何工作都有边界，能说局限才是真理解。以 MCP 为例：协议还在快速演进、生态碎片化尚存（各家实现质量参差）、安全边界（工具权限、数据外发）需要自己把关，且多了一层协议开销。所以我的结论是"<b>用它的思想 + 谨慎选型</b>"：采纳标准化接口的思路，但具体 Server 要评估成熟度和安全，不会盲目接入所有第三方 Server。</div></details>
-    <details class="qa"><summary class="qu">Q:能不能把它和另一个相关工作做个对比？</summary><div class="an">能对比说明你有"坐标系"。例如对比 MCP 与传统的 Function Calling：Function Calling 是<b>模型内置的、schema 驱动的单次工具调用</b>，MCP 是<b>应用层协议，管的是"发现、连接、生命周期"</b>，两者其实是互补而非替代——MCP 之上具体执行还是要落到 Function Calling 或代码执行。再如 Claude Code 对比早期 AutoGPT：前者靠"长上下文 + 明确工具 + 人在环"做得可靠可用，后者靠"全自主规划"但失控率高——这条对比线正好呼应"可靠性 vs 自主性"的瓶颈判断。</div></details>
+    <details class="qa"><summary class="qu">Q:这个论文/项目的核心创新到底是什么？用一句话概括。</summary><div class="an"><b>人话:</b>一句话要说清『它把什么状态变成了什么新状态』。MCP = 把模型连工具从『每家各写胶水』变成『按开放协议即插即用』；DeepSeek-R1 = 证明不靠人工标注、只靠强化学习的对错反馈，模型也能自己长出推理链，还把推理成本打下来一个量级。<b>类比:</b>就像被问 Ceph 的核心创新，答『用 CRUSH 把元数据算出来而不是存起来』——一句话就能听出你是真懂还是背的。<b>技术:</b>能脱口而出的关键是抓住结构性变化：集成矩阵 N×M→N+M、监督微调→纯 RL 加可验证奖励，而不是记住项目名气。</div></details>
+    <details class="qa"><summary class="qu">Q:它有什么局限？你会在生产里直接用它吗？</summary><div class="an"><b>人话:</b>任何工作都有边界，敢说局限才是真理解；我的结论是『用思想、慎选型』。<b>类比:</b>就像给备份平台引入一个新存储引擎——架构再优雅，也要先问成熟度、一致性模型、退出成本，绝不因为论文好看就直接上生产。<b>技术:</b>以 MCP 为例：协议仍在快速演进（接口还会变）、各家 Server 实现质量参差、工具权限与数据外发的安全边界要自己把关、多一层协议还有性能与运维开销。所以我采纳『标准化接口 + 统一注册』的思想，具体 Server 逐个评估成熟度与安全后再接入，绝不无脑全接。</div></details>
+    <details class="qa"><summary class="qu">Q:能不能把它和另一个相关工作做个对比？</summary><div class="an"><b>人话:</b>能对比说明你脑中有坐标系——知识点孤立地记是背，放进坐标系才是懂。<b>类比:</b>就像谈分布式存储绕不开 CAP 取舍，有取舍才有判断。<b>技术:</b>MCP 对比 Function Calling：后者是模型内置、schema 驱动的单次工具调用能力，前者是应用层协议，管工具的发现、连接与生命周期，两者互补不替代——MCP 之上的具体执行仍要落到 Function Calling 或代码执行。再如 Claude Code 对比早期 AutoGPT：前者靠长上下文 + 明确工具 + 人在环做出可靠性，后者全自主但失控率高，正好呼应『可靠性 vs 自主性』的行业瓶颈。</div></details>
+    <details class="qa"><summary class="qu">Q:你平时怎么追踪前沿？最近半年具体读了哪些？</summary><div class="an"><b>人话:</b>要说具体的信息源和节奏，『平时会关注』这种空话等于没答。<b>类比:</b>就像存储工程师会固定盯 USENIX FAST、内核邮件列表和几个作者的博客，Agent 圈也有自己固定的『水源』。<b>技术:</b>我的组合是：arXiv 的 cs.AI/cs.CL 每天扫标题、两三份高质量周报做初筛、重要的精读并跑仓库里的示例代码验证；开源项目直接看 release note 和高赞 issue。原则是少而深——每篇都要求能进自己的三句话模板，比收藏一百篇链接有用。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么选它，而不是更火的那个 XXX？</summary><div class="an"><b>人话:</b>回答要落到『我的判断标准』：影响是不是结构性的、离我的工程实践近不近、边界清不清晰。<b>类比:</b>就像存储选型时说『我选 B 不是因为它新，而是它的一致性模型和我的 SLA 匹配』——选型理由比选择本身更显功力。<b>技术:</b>我的三条标准：① 改变结构而非只刷指标（N×M→N+M 是结构性变化）；② 我能落地验证（工具层重构两周见效）；③ 边界清晰（说得出它不管什么）。XXX 更火，但对做工程落地的我来说，MCP 的启发更直接。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>MCP</b>:Model Context Protocol,标准化模型连接工具的开放协议。</div>
-      <div class="term-item"><b>Function Calling</b>:模型按 schema 调用单个工具的内置能力。</div>
-      <div class="term-item"><b>Code-as-Action</b>:让 Agent 写代码来执行动作,替代受限的 JSON 调用。</div>
-      <div class="term-item"><b>编程 Agent</b>:以写代码、改代码为核心任务的 Agent(如 Claude Code)。</div>
-      <div class="term-item"><b>长上下文</b>:模型单次能处理的大规模上下文,支撑持续工作。</div>
-      <div class="term-item"><b>推理时计算 Test-time Compute</b>:推理阶段多算几步换更好结果的范式。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://modelcontextprotocol.io">MCP</a></b>:Model Context Protocol，标准化模型连接工具/数据的开放协议，Agent 圈的『USB-C』。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">Function Calling</a></b>:模型按 JSON schema 描述并调用单个工具的内置能力，是 MCP 之下的具体执行层。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://github.com/huggingface/smolagents">Code-as-Action</a></b>:让 Agent 直接写代码作为动作，替代受限的 JSON 调用，天然支持循环与组合。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://www.anthropic.com/claude-code">编程 Agent</a></b>:以写代码、改代码为核心任务的 Agent，代表形态是 Claude Code 这类终端工具。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Large_language_model">长上下文</a></b>:模型单次能处理的大规模上下文，支撑『装下整个仓库』级别的持续工作。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2408.03314">推理时计算 Test-time Compute</a></b>:推理阶段多算几步（如长思维链）换更好结果的范式，用推理算力换训练算力。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2402.18649">GRPO</a></b>:DeepSeek 提出的强化学习算法，R1 用它配合可验证奖励激发出推理能力。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://www.swebench.com/">SWE-bench</a></b>:从真实 GitHub issue 构建的编程 Agent 基准，『先有可信基准再谈优化』的代表。</div>
     </div>
   </div>
 </article>

@@ -7,27 +7,63 @@
     <span class="tag">#MultiAgent</span><span class="tag">#共识机制</span><span class="tag">#协作</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>三个 Agent 同题不同答,这题问的是「分歧仲裁流水线」怎么设计。面试官爱考它,是因为一句「少数服从多数」就能筛掉一批人——那暴露的是你没想过相关失效:三个同源 Agent 一起错,和三副本放同一个机架一起掉电是同一类事故,搞分布式存储的人尤其不该栽在这。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"三个 Agent 答案不一致,核心不是'少数服从多数',而是<b>给分歧定价 + 找可验证的证据</b>。我分四层:第一,让每个 Agent 输出答案 + <b>置信度 + 推理链 + 依据</b>,先看有没有可被外部工具/事实核验的,能验证的当场裁决;第二,验证不了的上<b>交叉辩论</b>——互相读对方的理由、指出漏洞、修正,迭代 1~2 轮;第三,交给<b>裁判 Agent</b>,用带评分标准(rubric)的 LLM-as-judge 打分,按置信度加权而非简单投票;第四,分歧仍大就<b>保守输出</b>(标注不确定、降级给用户选或转人工)。关键点:三个 Agent 要保证<b>异构</b>(不同模型/角色/温度),否则投票只是同一个错误的回声。"</p>
+    <p>"三个 Agent 答案打架,核心不是「少数服从多数」,而是<b>给分歧定价 + 找可验证的证据</b>。我的方案分四层:第一,每个 Agent 按<b>答案 + 置信度 + 推理链 + 依据</b>的契约输出,能被外部工具核验的当场裁决——能拿校验和说话的事,绝不靠数票;第二,验证不了的上<b>交叉辩论</b>,互读理由、指出漏洞、修正,限 1~2 轮;第三,交给<b>裁判 Agent</b> 按评分标准逐项打分,按置信度和历史信誉<b>加权</b>,不是数票;第四,分歧仍大就<b>保守输出</b>——标注不确定、把争议项给用户选或转人工。整套机制的前提是三个 Agent 必须<b>异构</b>(不同模型/角色/温度),否则投票只是同一个错误的回声——等于把三个副本放同一个机架上谈高可用。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>像<b>三位医生会诊</b>给出不同诊断:不能简单数票(三个都错就团灭),也不能谁嗓门大听谁的。正确流程是——各自说依据(推理链),能做的检查赶紧做(外部工具核验),依据冲突就当面会诊互相质疑(辩论),最后主治医生按"证据强度 + 谁更靠谱"拍板(加权裁判)。如果三个全是同一个师父带出来的、想法雷同(同模型),那再多票也是同一种偏见——所以要请不同背景的医生(异构 Agent)。</p>
+    <p><b>多 Agent 共识(用「三副本 + Quorum 读」想)</b>:三个 Agent 各自独立答一遍,像三个副本各自存一份数据,最后聚合取多数——<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2203.11171">self-consistency</a> 本质上就是 Agent 版的 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Quorum_(distributed_computing)">Quorum</a> 多数派读,靠冗余摊薄个体错误。</p>
+    <p><b>哪里像</b>:都是「冗余换可靠」,成立前提也一样——个体错误随机且彼此独立,多数派才能把噪声抵掉。<b>哪里不像</b>:你熟的分布式共识(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Paxos_(computer_science)">Paxos</a>/<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Raft_(computer_science)">Raft</a>)解决的是 agreement——大家认下一个值,哪怕值本身是错的;LLM Agent 更像<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Byzantine_fault_tolerance">拜占庭节点</a>——不宕机,但会一本正经地输出错误。所以这题要的不是「意见统一」,是「答案正确」:多数派在这里只是必要条件,不是正确性保证。</p>
+    <p><b>同模型投票(用「三副本放同一个机架」想)</b>:同模型、同 prompt、低温度的三个 Agent,等于同机架、同批次固件的三块盘——机架一断电,票数再齐也是全军覆没;固件 bug 让三块盘写出同样的坏数据,多数派「自信地错」。</p>
+    <p><b>哪里像</b>:相关失效的账完全同构,解法也同构——副本跨机架/跨 AZ 的反亲和调度 ↔ Agent 跨模型/跨角色/拉高温度(采样更随机),目的都是打散故障域。<b>哪里不像</b>:硬件靠不同批次/不同厂商能把失效做到近似独立;同源模型的知识盲区是同一个——温度买得到表达多样,买不到它不知道的知识,所以 Agent 侧「打散」的天花板比硬件低得多。</p>
+    <p><b>外部验证(用「备份必须演练恢复」想)</b>:备份圈的铁律——没做过恢复演练的备份不算备份。Agent 侧同理:代码题不跑测试、事实题不查库,光看三个模型嘴上达成一致,等于拿着三份没验过<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Checksum">校验和</a>的副本宣布数据完好。</p>
+    <p><b>哪里像</b>:都认 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Ground_truth">ground truth</a> 做最终裁决,都承认「副本数只反映一致性,不反映正确性」。<b>哪里不像</b>:存储里算校验和廉价又确定;LLM 的「验证」要么可执行(跑测试/查库),要么又得靠模型(裁判)——后者只是把不确定性挪了一层,所以「可执行验证」才是权重最高的信号。</p>
+    <p><b>保守输出(用「容灾降级」想)</b>:主备链路都不可信时,容灾的标准动作是降级服务、宁可拒绝也不给坏数据;共识机制的最后防线也一样——分差拉不开就把争议项连同置信度交给用户,或转人工,绝不硬拍一个。<b>哪里像</b>:都信奉「不输出比错输出便宜」。<b>哪里不像</b>:容灾降级由健康检查触发,这里靠「分差小于阈值/置信度普遍偏低」触发,阈值得拿评测集调,没有现成探针。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p>拆解按「为什么 → 四层怎么做 → 设计点」走,每一层都对照你熟的分布式/存储概念,先给结论再给机制。</p>
     <p><b>1. 为什么需要共识(先回答"为什么要做")</b></p>
     <ul>
-      <li>单个 LLM 有幻觉、有随机性、有视角盲区;多个 Agent 各自采样再聚合,能把"个体错误"摊薄——这正是 self-consistency 能提分的原因。</li>
-      <li>但多 Agent 也可能"集体犯错":如果它们<b>同模型、同 prompt、低温度</b>,彼此高度相关,共识的增益趋近于零。</li>
+      <li>单个 LLM 有<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Hallucination_(artificial_intelligence)">幻觉</a>、有随机性、有视角盲区——它就是一块盘:没有不坏的盘,只有还没坏的盘。多个 Agent 各自采样再聚合,能把"个体错误"摊薄——这正是 self-consistency 能提分的原因,也是<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Ensemble_learning">集成学习</a>(ensemble)的基本盘:收益来自「错误去相关」。</li>
+      <li>但多 Agent 也可能"集体犯错":如果它们<b>同模型、同 prompt、低温度</b>,彼此高度相关,共识的增益趋近于零。可靠性工程的账:冗余的价值 ≈ 冗余份数 × 失效不相关程度——相关性拉满,三份冗余就退化成一份的可靠性。</li>
     </ul>
+    <pre class="code">同源三 Agent(同模型 + 同 prompt + 低温度)      异构三 Agent(跨模型/跨角色/换温度)
+
+  Agent A ─┐                                      模型 X · 角色实现
+  Agent B ─┼──→ 同一个知识盲区                     模型 Y · 角色挑错
+  Agent C ─┘      同一个错 × 3                     模型 Z · 角色验证
+       ↓                                               ↓
+  投票 = 回声,共识增益 ≈ 0                    错误不相关,多数派才有信息量
+  ≈ 三副本挂同一机架、同一版固件               ≈ 副本跨机架/跨 AZ 反亲和调度</pre>
+    <p>再拿你天天碰的分布式共识对个表,「像在哪、断在哪」一眼看清:</p>
+    <table>
+      <tr><th>维度</th><th>你熟的分布式共识(Paxos/Raft)</th><th>这题的 Multi-Agent 共识</th></tr>
+      <tr><td>节点的坏法</td><td>诚实节点:宕机、失联、网络分区</td><td><b>拜占庭式</b>:不宕机,一本正经地输出错误</td></tr>
+      <tr><td>要保证的东西</td><td>agreement——大家认下一个值</td><td>correctness——值本身要对</td></tr>
+      <tr><td>多数派的含义</td><td>多数派 = 可安全提交的值</td><td>多数派 ≠ 正确,只 = 意见统一,还可能同源出错</td></tr>
+      <tr><td>错误相关性</td><td>靠故障域打散做到近似独立</td><td>同源模型高度相关,<b>异构是命门</b></td></tr>
+      <tr><td>裁决依据</td><td>日志、任期、法定票数</td><td>推理链 + 外部 ground truth(工具/测试)</td></tr>
+      <tr><td>达不成一致时</td><td>阻塞,或重新选举</td><td>保守输出、降级、转人工</td></tr>
+    </table>
+    <p>顺带一个冷知识,佐证这题「不是共识协议题」:拜占庭容错要容忍 1 个会说谎的节点,理论下限是 3f+1 = 4 个节点——你手里只有 3 个 Agent,连 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Byzantine_fault_tolerance">PBFT</a> 的入场券都不够。所以正解从来不是「设计一个更聪明的投票协议」,而是「分层裁决 + 外部 ground truth 兜底」。</p>
     <p><b>2. 第一层:多数投票(self-consistency)</b></p>
+    <p>动手前先统一输出契约——没有这份"元数据",后面投票、辩论、裁判全都没有抓手:</p>
+    <pre class="code">Agent 输出契约(后面三层裁决共用的"元数据")
+{
+  "answer":     "最终答案",
+  "confidence": 0.82,              # 自报置信度:当权重前先校准
+  "reasoning":  "推理链",           # 给辩论和裁判看的"操作日志"
+  "evidence":   ["依据1", "依据2"]  # 可核验引用:辩论要改答案,必须引它
+}</pre>
     <ul>
-      <li>同一个问题采样 k 条推理链,取最终答案的<b>众数</b>。实现最简单、零额外模型。</li>
-      <li><b>失效场景</b>:错误答案一致且占多数(模型系统性偏见)、答案空间连续(写代码/长文,"哪个对"无法按字符串投票)、投票项彼此不独立。</li>
-      <li>所以投票是<b>底座</b>,不是终局。</li>
+      <li>同一个问题采样 k 条<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2201.11903">推理链</a>(Chain-of-Thought),取最终答案的<b>众数</b>。实现最简单、零额外模型——等价于 NWR 的多数派读(R + W &gt; N,任意读写集合必有交集),靠交集保证读到新值,靠众数压掉离群。</li>
+      <li><b>失效场景</b>(面试官就在等这一问):① 错误答案一致且占多数——模型系统性偏见,同机架相关失效,投票只会更笃定地错;② 答案空间连续——写代码/长文,两份"字符串不相等"的代码可能都对也可能都错,按字符串投票毫无意义,要么判语义等价,要么直接下沉到第四层跑测试;③ 投票项彼此不独立——同源采样,三票其实是一票的信息量。</li>
+      <li>所以投票是<b>底座</b>,不是终局:它只防「随机、独立」的错,不防「系统、相关」的错。</li>
     </ul>
-    <p><b>3. 第二层:交叉辩论(Multi-Agent Debate)</b></p>
+    <p><b>3. 第二层:交叉辩论</b></p>
     <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 751 306" role="img" aria-label="Multi-Agent 共识机制：独立作答到辩论裁判与外部验证">
   <text class="sd-ts" x="10" y="28">三个异构 Agent(不同模型/角色/温度)先独立作答</text>
   <rect class="sd-box-rose" x="10" y="52" width="140" height="56" rx="10"/>
@@ -60,45 +96,86 @@
   <text class="sd-ts" x="215" y="292">辩论迭代 1~2 轮 · 可外部验证的当场裁决</text>
 </svg></div>
     <ul>
-      <li>参考 Du et al. 2023 的 multi-agent debate:让多个实例轮流"读别人的论证 → 更新自己的答案",多轮后通常能收敛到更优解。</li>
-      <li><b>风险</b>:辩论也可能"劣币驱逐良币"——本来对的 Agent 被两个错的说服带偏。缓解:① 要求每次改动附证据而非空口反驳;② 保留每轮的<b>初始立场</b>供裁判参考;③ 迭代轮数设上限(1~2 轮),防止过拟合到"更能言善辩"而非"更正确"。</li>
+      <li>参考 Du et al. 2023 的 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.14325">multi-agent debate</a>:让多个实例轮流"读别人的论证 → 更新自己的答案",多轮后通常能收敛到更优解。机制上像副本间带着「操作日志」做比对修复——分歧被定位到某一步具体推理,而不是笼统地互相喊"我对你错"。</li>
+    </ul>
+    <pre class="code">辩论一轮的固定动作(证据驱动,不是吵架):
+  拿到   → 另外两家的 [答案 + 推理链 + 依据]
+  做     → 指出对方推理链里最可疑的一步,附上可核验证据
+  决定   → 坚持 | 修改(修改必须注明被哪条证据说服,全程留痕)
+  保留   → 自己每轮的初始立场不删,供裁判事后回看</pre>
+    <ul>
+      <li><b>风险</b>:辩论也可能"劣币驱逐良币"——本来对的 Agent 被两个错的说服带偏。存储视角这是一类经典事故:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Data_scrubbing">数据巡检</a>(scrub)按多数派做修复,两块坏盘能把好盘"修"坏——所以存储靠校验和裁决,不靠票数;Agent 靠证据裁决,不靠嗓门。缓解:① 要求每次改动附证据而非空口反驳;② 保留每轮的<b>初始立场</b>供裁判参考(留全量日志,别只留终态);③ 迭代轮数设上限(1~2 轮),防止过拟合到"更能言善辩"而非"更正确"——轮数多了,收敛的是修辞,不是正确性。</li>
     </ul>
     <p><b>4. 第三层:裁判聚合(加权而非数票)</b></p>
     <ul>
-      <li>用一个独立的裁判(更强的 LLM 或专门训练的 judge),按 rubric(正确性、完整性、逻辑、依据充分性)给每个答案打分。</li>
-      <li><b>加权要素</b>:每个 Agent 的历史准确率(信誉分)、自报置信度、答案的<b>可验证性</b>(能落到事实/代码的权重高)、答案间的一致性(多数支持的轻微加成)。</li>
-      <li>最终分 = Σ w_i · score_i,而不是 argmax 票数。</li>
+      <li>用一个独立的裁判(更强的 LLM 或专门训练的 judge),按 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Rubric_(academic)">rubric</a>(评分标准:正确性、完整性、逻辑、依据充分性)给每个答案打分——这就是 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">LLM-as-judge</a> 的标准用法。</li>
+      <li><b>加权要素</b>(每一项都要有来处):① 每个 Agent 的历史准确率(信誉分)——像给存储节点记历史坏块率/<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/S.M.A.R.T.">SMART</a> 健康分,离线评测集先测好,运行时按题型路由权重;② 自报置信度——LLM 的置信度常常<a target="_blank" rel="noopener" href="https://arxiv.org/abs/1706.04599">未校准</a>(错了也很自信),要拿历史数据校准后再当权重;③ 答案的<b>可验证性</b>(能落到事实/代码的权重高);④ 答案间的一致性(多数支持的轻微加成)。</li>
+      <li>最终分 = Σ w_i · score_i,而不是 argmax(数最高票)——数票把「分数」这个连续信号扔了,加权把它捡回来:3:2 的险胜和 3:0 的碾压,在权重体系下是两回事。</li>
     </ul>
     <p><b>5. 第四层:外部验证兜底(最可靠的一层)</b></p>
     <ul>
       <li>能执行的就执行:代码题跑测试用例、事实题查工具/数据库、计算题用计算器复算。<b>能被 ground truth 裁决的,绝不用"嘴"裁决。</b></li>
-      <li>都验证不了 → 保守输出:返回"争议项 + 各方案",标注置信度,或转人工。</li>
+      <li>备份视角再钉一遍:备份的完整性从来不靠副本数,靠校验和与<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Disaster_recovery">恢复演练</a>;投票/辩论/裁判都是「拿不到 ground truth 时的近似」,一旦能验证,全部让位。</li>
+      <li>都验证不了 → 保守输出:返回"争议项 + 各方案",标注置信度,或转人工——对应备份系统的底线:宁可报恢复失败,不可静默给出坏数据;宁可说不知道,不可一本正经地错。</li>
     </ul>
     <p><b>6. 关键设计点(面试加分项)</b></p>
     <table>
       <tr><th>设计点</th><th>做法</th></tr>
-      <tr><td><b>保证多样性</b></td><td>异构模型、不同角色设定、不同温度、不同 few-shot 视角,让 Agent 犯错"不相关"</td></tr>
-      <tr><td><b>独立性</b></td><td>先各自独立作答,再交流;避免早期互相污染</td></tr>
-      <tr><td><b>成本控制</b></td><td>按问题难度分级:易题单 Agent 直答,难题才上多 Agent + 辩论;设总 token/轮次预算</td></tr>
-      <tr><td><b>可解释</b></td><td>输出最终答案 + "为什么放弃另外两个"(让用户信任)</td></tr>
+      <tr><td><b>保证多样性</b></td><td>异构模型、不同角色设定、不同温度、不同 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Few-shot_learning">few-shot</a> 视角,让 Agent 犯错"不相关"——等价于副本的反亲和调度,打散故障域</td></tr>
+      <tr><td><b>独立性</b></td><td>先各自独立作答,再交流;避免早期互相污染(先落盘再比对,别边写边同步)</td></tr>
+      <tr><td><b>成本控制</b></td><td>按问题难度分级:易题单 Agent 直答,难题才上多 Agent + 辩论;设总 token/轮次预算——冷热分层的思路,贵的介质只给热数据</td></tr>
+      <tr><td><b>可解释</b></td><td>输出最终答案 + "为什么放弃另外两个"(让用户信任,也给自己留复盘材料)</td></tr>
+      <tr><td><b>延迟预算</b></td><td>辩论+裁判是串行管道,延迟按轮次累加,盯 P99 而非均值;分歧小的题在投票层就剪枝返回,别让长尾请求拖垮整体 SLA</td></tr>
+      <tr><td><b>灰度与回滚</b></td><td>共识机制本身是基础设施变更:灰度发布小流量验证,盯正确率/延迟/成本,异常回退单 Agent 路径——和任何存储变更一个纪律</td></tr>
     </table>
+    <p>整条流水线串成伪代码(顺序就是优先级:验证 &gt; 剪枝 &gt; 辩论 &gt; 加权裁判 &gt; 保守输出):</p>
+    <pre class="code">def consensus(question, agents):
+    # ① 独立作答:互相看不见,票与票才谈得上"不相关"
+    answers = [a.answer(question) for a in agents]      # 按输出契约返回
+
+    # ② 外部验证最优先:能跑测试/查库/复算的,当场一锤定音
+    verdict = verify(answers)
+    if verdict:
+        return verdict
+
+    # ③ 剪枝:第一轮就 3/3 一致,后面的钱不花
+    if agreement(answers) == 1.0:
+        return answers[0]
+
+    # ④ 交叉辩论 1~2 轮:反驳必须带证据,初始立场全程保留
+    answers = debate(answers, rounds=2, require_evidence=True)
+
+    # ⑤ 裁判加权:rubric 逐项打分 × 信誉 × 校准后的置信度
+    scores = [w[i] * judge(answers[i], rubric) for i in range(len(agents))]
+    best = argmax(scores)
+
+    # ⑥ 分差拉不开 → 保守输出,不硬拍板
+    if margin(scores) &lt; delta:
+        return conservative(answers)     # 争议项 + 置信度,可转人工
+    return best.answer + why_rejected(others)</pre>
+    <p>一句话收束:投票管随机错,异构管相关错,辩论暴露分歧,裁判给分歧定价,外部验证一锤定音,验证不了就老实降级。</p>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:如果三个 Agent 是同一个模型,投票还有意义吗?</summary><div class="an">有,但增益有限且主要来自<b>采样多样性</b>:同一模型在高温度下多次采样,投票能压掉"随机噪声"导致的个体错误(self-consistency 就靠这个),但压不掉"模型共有的系统性偏见"——同一个知识点三个都错,投票只会更笃定地错。所以:同模型投票 = 抗随机方差;跨模型/跨角色共识 = 抗系统性偏差。要讲清这两层,并说"同模型时提高温度、换角色 prompt 能部分增加多样性"。</div></details>
-    <details class="qa"><summary class="qu">Q:辩论会不会把原本对的答案带偏?</summary><div class="an">会,这是 debate 的已知风险(错误多数 + 更会辩的个体胜出)。缓解:① 辩论只允许"基于证据的反驳",禁止无依据坚持;② 裁判同时看<b>初始答案 + 辩论过程</b>,而不是只看最终版本;③ 引入外部验证作为"一票否决";④ 设 1~2 轮上限并做消融——超过 2 轮增益递减、反而过拟合到修辞。</div></details>
-    <details class="qa"><summary class="qu">Q:成本随 Agent 数怎么涨?怎么控制?</summary><div class="an">线控上:多一个 Agent 多一份生成成本,辩论还要乘轮次。控制三招:① <b>分级调度</b>——先用轻量分类器判难度,简单题单 Agent、中等题投票、难题才辩论+裁判;② <b>预算上限</b>——设总 token/轮次上限,超了就按当前最优输出;③ <b>剪枝</b>——第一轮投票若高度一致(如 3/3 同),直接结束,不浪费辩论。目标是把"多 Agent 税"只花在真正不确定的题上。</div></details>
-    <details class="qa"><summary class="qu">Q:有没有更"算法化"的共识,而不是纯靠 LLM 嘴辩?</summary><div class="an">有。① <b>MCTS 式</b>:把"候选答案"当节点,用价值模型估计每条路径的正确性,搜索 + 回传更新置信度,而非线性辩论;② <b>图式聚合</b>:答案之间做"支持/冲突"关系图,用置信传播/加权 PageRank 收敛到一致;③ <b>贝叶斯</b>:把每个 Agent 建模成有历史准确率的"投票者",用其可信度加权(类似 Dawid-Skene 标签聚合)。这些方法的好处是可推导、可证明,坏处是仍需可靠的"证据信号"打底。</div></details>
+    <details class="qa"><summary class="qu">Q:如果三个 Agent 是同一个模型,投票还有意义吗?</summary><div class="an"><b>人话:</b>有,但只能压「随机抖动」,压不住「系统性偏见」——同模型的票防的是单次采样手滑,防不了这个知识点压根不会。<b>类比:</b>同一机架上的三副本:防得了单盘故障,防不了机架断电——断电时三票一起作废,投票只会让错误显得更笃定。<b>技术:</b>同模型高温度多次采样取众数就是 self-consistency,削减的是随机方差;跨模型/跨角色共识对抗的才是系统性偏差。同模型时可提高温度、换角色 prompt 部分增加多样性,但知识盲区同源,天花板明显。</div></details>
+    <details class="qa"><summary class="qu">Q:辩论会不会把原本对的答案带偏?</summary><div class="an"><b>人话:</b>会,这是 debate 的已知风险:错误多数 + 更会辩的个体,可能一起胜出。<b>类比:</b>像数据巡检按「多数派」做修复——两个副本静默损坏时,越修越把好盘写坏;存储界靠校验和裁决不靠票数,Agent 界靠证据裁决不靠嗓门。<b>技术:</b>① 辩论只允许「基于证据的反驳」,禁止无依据坚持;② 裁判同时看初始答案 + 辩论过程,而非只看最终版本;③ 外部验证作为一票否决;④ 设 1~2 轮上限并做消融——超过 2 轮增益递减,反而过拟合到修辞。</div></details>
+    <details class="qa"><summary class="qu">Q:成本随 Agent 数怎么涨?怎么控制?</summary><div class="an"><b>人话:</b>生成成本随 Agent 数线性涨,辩论再乘轮次,裁判另付一份——不控就是乘法爆炸,高 QPS 场景先倒的是吞吐。<b>类比:</b>经典冷热分层:热数据直读 SSD,冷数据才下沉;简单题单 Agent 直答,难题才走全套,算力按难度分配;剪枝像缓存命中就不回源。<b>技术:</b>① 分级调度——轻量分类器先判难度:简单题单 Agent、中等题投票、难题才辩论+裁判;② 预算上限——总 token/轮数封顶,超了输出当前最优;③ 剪枝——第一轮 3/3 一致直接返回。辩论+裁判是串行管道,P99 延迟同样要计入预算。</div></details>
+    <details class="qa"><summary class="qu">Q:有没有更"算法化"的共识,而不是纯靠 LLM 嘴辩?</summary><div class="an"><b>人话:</b>有,把「嘴辩」换成可推导的结构,三条主流路线:搜索、图、概率。<b>类比:</b>像备份调度从「人盯脚本」进化到确定性调度器——共识也要从「祈祷收敛」变成「可证明收敛」。<b>技术:</b>① <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Monte_Carlo_tree_search">MCTS</a> 式:候选答案当节点,价值模型估计每条路径的正确性,搜索+回传更新置信度,非线性辩论;② 图式聚合:答案之间建「支持/冲突」关系图,用<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Belief_propagation">置信传播</a>或加权<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/PageRank">PageRank</a>收敛;③ 贝叶斯:把 Agent 建模成有历史准确率的投票者,按 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Dawid%E2%80%93Skene_model">Dawid-Skene</a> 式聚合。好处是可推导可证明,坏处是仍需可靠的证据信号打底。</div></details>
+    <details class="qa"><summary class="qu">Q:裁判自己也是 LLM,它错了怎么办?</summary><div class="an"><b>人话:</b>裁判不是真理,它有偏好也会犯困,要靠制度约束,不能靠它自觉。<b>类比:</b>监控系统自己也会挂,所以关键监控要有外部心跳、双系统互查——rubric 是裁判的「监控项定义」,外部验证是它的「第三方心跳」。<b>技术:</b>裁判已知偏差:位置偏好(偏向排前的答案)、冗长偏好、同源偏好(偏爱同家族模型)。缓解:rubric 细化到逐项打分、随机交换答案顺序、裁判与被评模型家族解耦、定期抽样人工校准「裁判-人类」一致率;再叠加外部验证一票否决,裁判只在证据裁决不了时出场。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么不直接上一个更强的模型,非要凑三个?</summary><div class="an"><b>人话:</b>强模型也会错,而且错得悄无声息;多 Agent 买到的不只是正确率,还有「分歧」这个免费信号。<b>类比:</b>关键业务不跑单副本——不是买不起更大的盘,是任何单点都会挂;冗余买的是「失效不相关」,不是「更贵的件」。<b>技术:</b>① 强模型延迟/成本高,全量上不划算;② ensemble 的收益来自去相关,「1 强 + 2 异构弱」常能逼近更强单模型;③ 三个 Agent 的分歧度本身是不确定性估计——一致就直出,分歧大才触发辩论/验证/转人工,正好接上分级调度。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>self-consistency</b>:多次采样取众数,压随机错误。</div>
-      <div class="term-item"><b>Multi-Agent Debate</b>:多实例互读论证、迭代收敛。</div>
-      <div class="term-item"><b>LLM-as-judge</b>:用强模型按 rubric 给答案打分。</div>
-      <div class="term-item"><b>rubric</b>:评分标准,让裁判打分可复现、少漂移。</div>
-      <div class="term-item"><b>异构 Agent</b>:不同模型/角色/温度的 Agent,降低相关性。</div>
-      <div class="term-item"><b>置信度</b>:Agent 对自身答案确定性的估计,用于加权。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2203.11171">self-consistency</a></b>:同一模型多次采样取众数,用随机性换正确性,只能压随机错误。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2305.14325">Multi-Agent Debate</a></b>:多个实例互读论证、迭代修正答案,靠视角碰撞逼近正确解。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2306.05685">LLM-as-judge</a></b>:用强模型当裁判按标准打分,便宜高效,但自带偏好要防。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Rubric_(academic)">rubric</a></b>:结构化评分标准,让裁判打分可复现、少漂移。</div>
+      <div class="term-item"><b>异构 Agent</b>:不同模型/角色/温度的 Agent,目标是让错误不相关——共识机制的前提。</div>
+      <div class="term-item"><b>置信度</b>:Agent 对自身答案确定性的自估,先校准再当权重用。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Quorum_(distributed_computing)">Quorum</a></b>:分布式的多数派票数门槛,保证一致性、不保证正确性。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Byzantine_fault_tolerance">拜占庭容错</a></b>:容忍节点「活跃输出错误」的共识理论,LLM Agent 天然像这类节点。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/1706.04599">校准(calibration)</a></b>:让自报置信度与真实正确率对上号,「错了也自信」的模型不能直接拿置信度当权重。</div>
     </div>
   </div>
 </article>

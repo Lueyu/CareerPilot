@@ -7,31 +7,71 @@
     <span class="tag">#Agent</span><span class="tag">#Reflection</span><span class="tag">#优化</span>
   </div>
 
+  <div class="note"><b>先说人话:</b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2303.11366">Reflexion</a> 就是"干砸了→复盘→带着教训重跑",效果确实好,但每轮要多烧一两次模型调用、上下文越滚越长,账单能翻好几倍——这题问的就是这份账单怎么砍。面试官爱考它,因为成本优化最容易分清"背论文的"和"真算过账的":答错的通常暴露两个盲区——不知道反思可能把对的改错,也不知道教训可以沉淀复用而不是每次现场重想。答题骨架其实是你熟悉的老手艺:先测量、再止损、后摊销。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"Reflexion 贵在<b>每个回合都要多一次评估/反思调用,还要把整段轨迹塞进上下文</b>。优化从三路下手:第一<b>少反思</b>——只对失败回合触发反思,成功就不浪费;第二<b>精反思</b>——把长篇自省压成一条可复用的 lesson(教训),存进记忆,不存整段轨迹;第三<b>沉淀反思</b>——把高频 lesson 蒸馏进系统提示或直接 SFT 进模型,把'运行时反思'变成'事前已内化'。再配三件套:早停(提升低于阈值就停)、预算上限(超了走直答/转人工)、以及用并行采样 + best-of-N 用宽度换深度。"</p>
+    <p>"Reflexion 贵在两笔账:<b>每个回合都要多跑 1~2 次评估/反思调用</b>,而且<b>整条失败轨迹连同反思会塞回下一轮上下文</b>,token 滚雪球。第一路<b>少反思</b>:评估分过线就不反思,连续提升低于阈值就早停。第二路<b>精反思</b>:把长篇自省压成一条结构化 lesson(场景/错误/动作),存进记忆,不存整段轨迹。第三路<b>沉淀</b>:高频 lesson 蒸馏成系统提示里的固定规则、甚至直接微调进模型权重,把'运行时反思'变成'事前已内化'。最后兜底三件套:预算上限超了走直答/转人工保 SLA;'改进才接受'的接受准则防止越改越错;以及<b>并行采样 + <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Best_of_n">best-of-N</a></b> 用宽度换深度,避开串行重试的长尾请求。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>Reflexion 像<b>学生每次做错都写一篇八百字检讨再整本重做</b>——反思充分但成本爆表。优化后变成:只有错题才写检讨(选择性反思)、检讨只写一句"这题我错在忽略了边界条件"(压缩成 lesson)、考前把错题本上的教训背进脑子、以后不再现场翻本子(蒸馏进 prompt/模型)。再加一条:想不通就先平行做三道、挑最好的一份交卷(best-of-N 用宽度换深度)。</p>
+    <p><b>Reflexion 循环(用"备份作业 + 恢复演练 + 复盘"想)</b>:每晚跑备份是"生成",早上做恢复演练验证可恢复性是"评估",失败就开复盘会、写改进项,第二天带着改进项重跑是"反思→重试"。Reflexion 的贵,不在备份本身,而在"每失败一次都开一次复盘会,还把历次会议纪要全塞进第二天的工作手册"。</p>
+    <p><b>哪里像</b>:都是"执行→验证→复盘→带教训重跑"的闭环,教训都以语言/规则表达,不用重写引擎。<b>哪里不像</b>:恢复演练失败是硬信号,恢复出来就是坏的,没得争辩;Agent 的"评估"常常是同一个模型给自己判卷,裁判可能和选手一样菜——所以评估要尽量换成跑测试、对拍(拿另一套实现跑同一输入、比对结果)这类外部信号,相当于用"演练是否成功"替代"我觉得备份没问题"。</p>
+    <p><b>lesson 与 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Episodic_memory">episodic memory</a>(用"全量快照 vs 增量日志 + 目录"想)</b>:标准 Reflexion 把整条失败轨迹连同自省塞回上下文,相当于每份新备份都把历史所有全量快照一起搬;优化后只留一条结构化教训,相当于目录里一条变更记录。episodic memory(情节记忆)就是存这些条目的经验库,新任务先检索注入,像恢复前先查目录定位要用的那份记录。</p>
+    <p><b>哪里像</b>:都是"小体积元数据条目 + 索引"服务快速定位,不搬运全量数据。<b>哪里不像</b>:备份目录是精确键值查找(任务 ID、时间戳);lesson 检索是语义匹配——同一个人两次栽的跟头,措辞可能完全不同,得靠向量检索和去重泛化保证"这次的教训下次真能被捞出来",不然记忆库就成了只写不读的死库。</p>
+    <p><b>蒸馏(用"把反复打的补丁固化进黄金镜像"想)</b>:高频教训先写成 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Prompt_engineering">system prompt</a>(系统提示词)里的固定规则,像部署时挂载的标准配置;最稳定的那批进一步用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Fine-tuning_(machine_learning)">SFT(监督微调)</a> 写进模型权重,像把热修复合入基线镜像——以后每台"新机器"(新会话)出厂自带修复,不用每次部署完再跑修复脚本。</p>
+    <p><b>哪里像</b>:都是一次性成本换永久免运行时成本,镜像合入后线上就不再付"打补丁"的钱。<b>哪里不像</b>:镜像是静态的、随取随用;SFT 动的是权重,影响所有任务,可能按下葫芦浮起瓢,必须配回归测试和灰度发布;而且换了基座模型就要重新蒸——配置是"继承"的,权重是"重训"的。</p>
+    <p><b>best-of-N(用"多副本并发 + 校验竞速"想)</b>:对延迟敏感又怕单次翻车的请求,同时发 N 份采样,谁被裁判判最好(或先通过校验)用谁。这正是分布式系统里 <a target="_blank" rel="noopener" href="https://dl.acm.org/doi/10.1145/2492547.2492558">对冲请求</a>(hedged request)治长尾请求的思路。</p>
+    <p><b>哪里像</b>:都是用冗余宽度换时延与成功率,把宝押在并行而不是单次深挖上。<b>哪里不像</b>:对冲请求是"谁先回来用谁",best-of-N 通常要等 N 份齐了"挑最好的",多出一个裁判角色(评估函数或验证器);裁判不可信的 best-of-N 就是抽奖,而且烧 N 倍计算,只适合小 N + 高价值任务。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p>按施工顺序读这一节:<b>先算账 → 再砍调用 → 再摊销 → 最后兜底</b>,每一步都对应一个可落地的开关,不是概念游戏。</p>
     <p><b>1. Reflexion 为什么贵(先量化成本来源)</b></p>
     <ul>
-      <li>标准 Reflexion(Shinn et al. 2023)每轮 = <b>生成(1 次 LLM)+ 评估/反思(1~2 次 LLM)</b>,重试 3 轮就是 6~9 次调用;且反思内容 + 历史轨迹都压进下轮 prompt,<b>上下文越来越长</b>,token 成本线性累积。</li>
-      <li>自省里还经常是"正确的废话"(如"下次要更仔细"),对下一步无信息量,纯烧钱。</li>
+      <li>标准 Reflexion(Shinn et al. 2023)每轮 = <b>生成(1 次 LLM)+ 评估/反思(1~2 次 LLM)</b>,重试 3 轮就是 6~9 次调用;而直答一次过只要 1 次。这只是明账。</li>
+      <li>暗账是<b>上下文滚雪球</b>:反思内容 + 历史轨迹都压进下轮 prompt,第 2 轮 prompt 里装着第 1 轮的完整轨迹 + 反思,第 3 轮再叠一份,<b>token 成本线性累积</b>——相当于每次重试都把历史全量快照再搬运一遍,而不是只送增量。</li>
+      <li>自省里还经常是"正确的废话"(如"下次要更仔细"),对下一步无信息量,纯烧钱——像日志里成片的重复 INFO 行:占空间、不供证据。</li>
     </ul>
+    <table>
+      <tr><th>跑法</th><th>LLM 调用次数</th><th>末轮 prompt 规模(示意)</th><th>相对成本</th></tr>
+      <tr><td>直答一次过</td><td>1</td><td>约 1k token</td><td>1x</td></tr>
+      <tr><td>反思 1 轮重试</td><td>3~4</td><td>约 4k token</td><td>4~6x</td></tr>
+      <tr><td>反思 3 轮跑满</td><td>6~9</td><td>约 10k token</td><td>10~20x</td></tr>
+    </table>
+    <p>量级示意,但方向不变:<b>总成本 = 调用次数 × 单次长度</b>,两个因子相乘,所以优化必须两头一起打——只砍调用不砍长度,账单照样难看。</p>
+    <pre class="code">
+直答:   任务 ──▶ 生成 ──▶ 答案                        1 次调用
+
+Reflexion 一轮重试(3 次调用):
+        ┌─▶ 生成 ──▶ 评估(分低 ✗) ──▶ 反思 ──┐
+        │                                    │
+        └───── 轨迹 + 反思 回填下一轮 prompt ──┘
+
+上下文滚雪球(每轮 prompt 规模, 示意):
+  第0轮  ~1k   ▏
+  第1轮  ~4k   ▏▏▏▏       每轮在上一轮基础上
+  第2轮  ~7k   ▏▏▏▏▏▏▏     再叠一份新轨迹
+  第3轮  ~10k  ▏▏▏▏▏▏▏▏▏▏  (重复搬运, 不打折)
+    </pre>
     <p><b>2. 优化策略全景(按"少/精/沉淀"三路展开)</b></p>
     <table>
       <tr><th>方向</th><th>手段</th><th>收益</th></tr>
       <tr><td><b>少反思</b></td><td>只对失败/低分回合触发;成功即止</td><td>砍掉无谓的评估调用</td></tr>
       <tr><td><b>少反思</b></td><td>早停:连续两轮提升 &lt; 阈值就停止</td><td>避免为 0.5% 的提升烧 3 轮钱</td></tr>
       <tr><td><b>精反思</b></td><td>反思压缩成 1 条结构化 lesson(错误类型 → 修正策略),不存整段轨迹</td><td>上下文短、检索快、可复用</td></tr>
-      <tr><td><b>精反思</b></td><td>Self-Refine:生成与反思用同一模型,一轮反馈一轮改写</td><td>少一个独立 critic,省一半调用</td></tr>
+      <tr><td><b>精反思</b></td><td><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2303.17651">Self-Refine</a>:生成与反思用同一模型,一轮反馈一轮改写</td><td>少一个独立 critic,省一半调用</td></tr>
       <tr><td><b>沉淀</b></td><td>高频 lesson 蒸馏进 system prompt 或 SFT 进模型</td><td>把"运行时反思"变成"零成本内化"</td></tr>
       <tr><td><b>架构</b></td><td>并行采样 + best-of-N:多个候选,挑最优</td><td>用宽度换深度,规避串行反思长尾</td></tr>
+      <tr><td><b>精反思</b></td><td>critic 降配:评估/反思调用换小一号模型,生成仍走大模型</td><td>反思是大头时,先降单价、再减次数</td></tr>
+      <tr><td><b>架构</b></td><td>前缀复用:重试轮共享"系统提示 + 任务 + 历史"前缀,命中 KV Cache 不重算</td><td>重复部分零重算,像备份前先做重复数据删除</td></tr>
+      <tr><td><b>架构</b></td><td>预算上限:轮数/token/时延超限即降级,保底直答或转人工</td><td>把反思降级为"尽力而为"路径,守住 SLA</td></tr>
     </table>
+    <ul>
+      <li>表里的 critic 指"专职挑错/打分的模型角色"——它可以是大模型、小模型或纯规则,不必神化。</li>
+      <li>三路不是单选,是<b>漏斗关系</b>:少反思管"要不要反思",精反思管"反思一次花多少",沉淀管"这笔钱能不能摊到未来"。上场顺序像做容量规划:<b>先测量</b>(哪类任务失败率高、反思命中率多少)→ 少反思 → 精反思 → 沉淀,每一步跑消融对照,用数据决定下一步,别一把梭。</li>
+    </ul>
     <p><b>3. 关键:反思要"可复用 + 可检索"(记忆化)</b></p>
+    <p>先看记忆化闭环的全景图,再拆工程细节:</p>
     <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 540 296" role="img" aria-label="Reflexion 自我修正优化：少反思精反思与沉淀蒸馏">
   <rect class="sd-box-rose" x="10" y="16" width="96" height="56" rx="10"/>
   <text class="sd-t" x="58" y="38" text-anchor="middle">失败回合</text>
@@ -66,33 +106,66 @@
       <li>反思的 ROI 来自<b>跨任务复用</b>:如果每次反思只服务当前这一题,成本永远摊不掉;只有沉淀成"这类题我老犯 X 错"的元认知,才能越用越省。</li>
       <li>lesson 要结构化(错误模式 + 触发条件 + 修正动作),否则检索时语义漂移、注入后也是噪音。</li>
     </ul>
+    <p>落到实现,三个细节决定这条闭环是"越用越省"还是"只写不读":</p>
+    <pre class="code">
+一条结构化 lesson 长这样(四要素缺一不可):
+  场景   : 代码生成 · SQL 多表 JOIN
+  错误   : JOIN 后没过滤 NULL, 测试用例 3 失败
+  动作   : 动手前先查"哪几列可能为 NULL", 再加过滤
+  元信息 : 来源任务#42 · 时间 · 命中 7 次
+
+新任务到达时的取数路径:
+  混合检索 ─ BM25 抓字面(场景/错误关键词)
+           └ 向量检索抓语义(lesson 先做成 Embedding,
+             建 HNSW 索引做 ANN 近邻查找)
+       └─▶ RRF 融合排序 ─▶ 只取 top-k ≤ 3 条注入 prompt
+    </pre>
+    <ul>
+      <li><b>没有"动作"字段的教训 = 只报错不给修复方案</b>,检索到了也白搭;场景字段负责"什么时候命中",错误字段负责语义召回。</li>
+      <li><b>检索质量要量化</b>:离线用 Recall@k / MRR 验证"该捞到的 lesson 是否真被捞到"——检索不准,每次学费都白交。</li>
+      <li><b>注入要克制</b>:一次塞 30 条历史教训,注意力被稀释,3 条相关的比 30 条管用。</li>
+      <li><b>记忆要治理</b>,规矩和备份生命周期管理一模一样:<b>去重</b>(同模式教训合并成一条)、<b>限额</b>(prompt 内只保命中频率 top-N)、<b>分层</b>(冷 lesson 留检索库,热 lesson 进 prompt,最热最稳的进 SFT)、<b>保留期</b>(长期不命中的到期下线)。</li>
+    </ul>
     <p><b>4. 蒸馏:把反思从"运行时"搬到"事前"</b></p>
     <ul>
-      <li><b>System prompt 层</b>:把高频教训写成几条"先检查边界条件""先复述需求再动手"的固定规则——零额外推理成本。</li>
-      <li><b>SFT 层</b>:把"带反思的成功轨迹"作为训练数据微调模型,让它直接产出"反思后的正确行为",推理时根本不再需要显式反思环。这是把 Reflexion 的收益固化进权重,彻底消掉多轮成本。</li>
+      <li><b>System prompt 层</b>:把高频教训写成几条"先检查边界条件""先复述需求再动手"的固定规则——零额外推理成本。筛选标准:命中频率够高 + 人工过目,总量控制在十几条以内;超量说明该去重或往下沉。</li>
+      <li><b>SFT 层</b>:把"带反思且最终成功"的轨迹用验证器筛出来(思路同 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Rejection_sampling">rejection sampling</a>:先采样、只留确认成功的),微调模型,让它直接产出"反思后的正确行为",推理时根本不再需要显式反思环。这是把 Reflexion 的收益固化进权重,彻底消掉多轮成本。</li>
+      <li><b>风险与纪律</b>:SFT 动的是权重不是配置,影响所有任务,可能按下葫芦浮起瓢——必须留一套回归基准(改前改后各跑一遍),上线走灰度发布小流量验证;基座模型一换,蒸馏重做,别指望一劳永逸。</li>
     </ul>
+    <pre class="code">
+沉淀漏斗(lesson 的冷热分层):
+  冷层  检索库(全量 lesson, 去重后)          ~ 归档存储
+   │  按命中频率晋升
+  热层  system prompt 固定规则(限 top-N 条)   ~ 内存/SSD
+   │  高频且稳定, 回归验证通过
+  内化  SFT 进模型权重(推理时零反思成本)       ~ 合入黄金镜像
+    </pre>
     <p><b>5. Trade-off(必答)</b></p>
     <ul>
-      <li>反思轮数 ↑ → 精度通常 ↑(先升后平),但成本线性 ↑、延迟 ↑。</li>
-      <li>反思也可能<b>负优化</b>:模型过度自信地"改坏"本来对的答案,或陷入反复横跳。所以要配"改进才接受、否则保留原答案"的接受准则 + 早停。</li>
+      <li>反思轮数 ↑ → 精度通常 ↑(先升后平),但成本线性 ↑、延迟 ↑。典型形状:第 1 轮反思拿走大头收益(比如 +8%),第 2 轮 +2%,第 3 轮趋近于零——所以"上限 2 轮"常常就是甜点,而不是"反思到过为止"。</li>
+      <li>反思也可能<b>负优化</b>:模型过度自信地"改坏"本来对的答案,或陷入反复横跳。《<a target="_blank" rel="noopener" href="https://arxiv.org/abs/2310.01798">LLMs Cannot Self-Correct Reasoning Yet</a>》有实证:无外部反馈时,自我修正经常降分。所以配两道闸:<b>接受准则</b>——改进才接受、否则保留原答案(新副本没通过校验前,绝不覆盖上一份好的);<b>早停</b>——连续两轮没进展立刻止损,预算让给 best-of-N 或直接降级。</li>
     </ul>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:Reflexion 和 Self-Refine 的区别?</summary><div class="an">Self-Refine(单任务内、一轮反馈一轮改写、无跨任务记忆)更轻;Reflexion 的核心增量是 <b>episodic memory</b>——把这次反思存起来、跨回合跨任务复用,所以更适合需要"多次重试同类任务"的场景(代码、决策)。可以这样讲:Self-Refine 是"当场改",Reflexion 是"当场改 + 记进错题本"。优化方向里"蒸馏进 prompt/模型"其实是把 Reflexion 的记忆能力再往前推一层。</div></details>
-    <details class="qa"><summary class="qu">Q:反思会不会让模型越改越错?</summary><div class="an">会,这是"自我修正的悖论":critic 和 generator 如果是同一能力水平,它可能分不清哪个版本更好,反而把对的改错。缓解:① <b>接受准则</b>——只有评估分/验证器确认更优才替换,否则保留原答案;② 引入<b>外部强信号</b>(代码跑测试、结果对拍)而不是只靠自评;③ 给反思定结构(先列"我哪步可能错"再改),减少盲目重写。</div></details>
-    <details class="qa"><summary class="qu">Q:lesson 蒸馏进 system prompt 会不会越积越多?</summary><div class="an">会,所以要做"记忆治理":① <b>去重 + 泛化</b>——同模式合并成一条通用规则;② <b>设上限</b>——system prompt 里的教训控制在 N 条以内,按命中频率保留 top-k;③ <b>分层</b>——冷 lesson 存检索库、热 lesson 进 prompt、最热且稳定的进 SFT,形成"检索 → 注入 → 内化"的漏斗,避免无限膨胀。</div></details>
-    <details class="qa"><summary class="qu">Q:怎么评估反思到底有没有用(而不是自我感动)?</summary><div class="an">做<b>消融对照</b>:同一批任务跑"直答 / +1 轮反思 / +3 轮反思 / +反思且蒸馏"四组,比三样——任务成功率(真分)、平均 token/延迟(成本)、成功率随轮数的曲线(增益是否递减)。若 +3 轮相比 +1 轮成功率提升 &lt; 2% 而成本翻倍,就砍到 1 轮。结论必须用"成功率/成本"比说话,而不是"模型反思得很认真"。</div></details>
+    <details class="qa"><summary class="qu">Q:Reflexion 和 Self-Refine 的区别?</summary><div class="an"><b>人话:</b>两个都是"改了再交",差别在有没有错题本:Self-Refine 当场改完就散,Reflexion 把教训记下来,下次开考前先翻本子。<b>类比:</b>Self-Refine 像对账发现记错、当场重算改正,账本不留痕;Reflexion 像把错账原因写进会计手册,下次对同类账先查手册——一个只在会话内循环,一个跨任务沉淀经验。<b>技术:</b>Self-Refine(Madaan et al. 2023)单任务内"反馈→改写",同一模型自评自改、无持久记忆;Reflexion 的核心增量是 episodic memory——反思以自然语言存库、下轮检索注入,适合代码、决策这类同型任务反复重试的场景。蒸馏优化本质是把这条记忆再往前固化一层。</div></details>
+    <details class="qa"><summary class="qu">Q:反思会不会让模型越改越错?</summary><div class="an"><b>人话:</b>会,而且不少见——同一个水平的裁判给自己判卷,很可能把对的划掉、错的留下,这叫"自我修正的悖论"。<b>类比:</b>所以要有"最后已知良好副本"的纪律:新备份没通过恢复演练,绝不覆盖上一份好的;同理,新答案没被验证器确认更优之前,原答案神圣不可动。<b>技术:</b>实证研究《LLMs Cannot Self-Correct Reasoning Yet》发现无外部反馈时自我修正经常降分。缓解三招:① 接受准则——评估分/测试通过才替换;② 用跑测试、对拍这类外部硬信号替代自评;③ 结构化反思——先列"哪几步可能错"再动手改,避免整篇盲目重写。</div></details>
+    <details class="qa"><summary class="qu">Q:lesson 蒸馏进 system prompt 会不会越积越多?</summary><div class="an"><b>人话:</b>会,所以第一天就要立"数据治理"的规矩:去重、限额、分层、到期下线。<b>类比:</b>和管备份介质一个思路:热数据上 SSD(prompt 限量 top-N 条),冷数据下沉归档库(检索库),最稳定的合入黄金镜像(SFT),长期不命中的到期清理——只写不读的记忆库就是死库,检索时还会召回一堆过期教训。<b>技术:</b>① 去重 + 泛化:同模式教训合并成一条通用规则;② 限额:prompt 内按命中频率保 top-N;③ 分层漏斗:检索库→prompt→SFT 逐级晋升;④ 用命中统计驱动晋升/下线,规模可控、每次注入的都是真热数据。</div></details>
+    <details class="qa"><summary class="qu">Q:怎么评估反思到底有没有用(而不是自我感动)?</summary><div class="an"><b>人话:</b>跑消融对照,拿"成功率/成本"的比值说话,别拿"反思写得很认真"说话。<b>类比:</b>和评估备份策略一个路数:看恢复演练成功率涨没涨、备份窗口和存储多花了多少,而不是看作业日志打得多整齐。<b>技术:</b>同一批任务分四组——直答 / +1 轮反思 / +3 轮反思 / 反思且蒸馏,比成功率、平均 token、P95 延迟,再画"成功率-轮数"曲线看增益递减;若 +3 轮比 +1 轮成功率提升 &lt;2% 而成本翻倍,就砍到 1 轮,省下的预算转投 best-of-N 或蒸馏。</div></details>
+    <details class="qa"><summary class="qu">Q:反思预算(轮数/token 上限)怎么定?超了怎么办?</summary><div class="an"><b>人话:</b>按业务价值倒推,不拍脑袋;超了立刻降级保底,别让重试吃掉整个窗口。<b>类比:</b>就是备份窗口管理的思路:重试次数、超时必须有上限,一个失败作业不许拖垮整个夜间备份窗口;超时就跳过、标记待查,主流程照走。<b>技术:</b>① 先测直答基线的成本分布(P50/P99);② 预算 = 基线 × 倍数(如 3x),写进 SLA;③ 超限三选一降级:早停保底直答、转人工、降配小模型;④ 把"反思超额"的请求单独拉出来归因,常能发现某类任务根本不适合反思,该白名单豁免。</div></details>
+    <details class="qa"><summary class="qu">Q:best-of-N 万一裁判不可信怎么办?</summary><div class="an"><b>人话:</b>best-of-N 的上限就是裁判的上限:裁判不靠谱,采一万个候选也是抽奖。<b>类比:</b>像多副本并发恢复时"校验通过才算数"——副本再多,没有恢复演练这套校验,你不知道该信谁;裁判必须是外部可验证的信号。<b>技术:</b>优先用硬验证器当裁判(测试通过、编译通过、对拍一致);没有验证器的场景退而用小模型 Rerank 或规则打分,并把 N 与判准做成按任务价值可调的参数;连裁判都没有时,老实承认 best-of-N 无效,改走反思或转人工。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>Reflexion</b>:生成-评估-反思-重试,反思存入情节记忆复用。</div>
-      <div class="term-item"><b>Self-Refine</b>:同一模型自反馈自改写,单轮、无记忆。</div>
-      <div class="term-item"><b>episodic memory</b>:按回合存储的经验/教训库。</div>
-      <div class="term-item"><b>best-of-N</b>:并行生成 N 个候选取最优,用宽度换深度。</div>
-      <div class="term-item"><b>蒸馏</b>:把反思收益固化进 prompt 或模型权重。</div>
-      <div class="term-item"><b>早停</b>:增益低于阈值即停止迭代,控制成本。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2303.11366">Reflexion</a></b>:生成→评估→反思→重试,反思以自然语言存入情节记忆、跨回合复用。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2303.17651">Self-Refine</a></b>:同一模型自反馈自改写,单任务内循环、无持久记忆。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Episodic_memory">episodic memory</a></b>:按"事件/回合"为单位存的经验库,检索后注入新任务 prompt。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Best_of_n">best-of-N</a></b>:并行生成 N 个候选、由裁判挑最优,用宽度换深度。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Knowledge_distillation">蒸馏</a></b>:把运行时反思的收益固化进 prompt 或模型权重,推理时不再重付成本。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Early_stopping">早停</a></b>:增益低于阈值即停止迭代,把预算留给有收益的轮次。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Fine-tuning_(machine_learning)">SFT(监督微调)</a></b>:用验证过的"成功轨迹"样本微调,把反思教训写进权重。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2310.01798">自我修正悖论</a></b>:无外部反馈时 LLM 自我修正常把对的答案改错,反思必须配可信信号与接受准则。</div>
     </div>
   </div>
 </article>
