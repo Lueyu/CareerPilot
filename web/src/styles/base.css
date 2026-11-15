@@ -77,7 +77,7 @@ table {
   width: 10px;
 }
 .app-body::-webkit-scrollbar-thumb {
-  background: #d5d8dd;
+  background: var(--scroll);
   border-radius: 6px;
   border: 3px solid var(--bg);
 }
@@ -116,8 +116,8 @@ table {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: #f1f0fe;
-  color: #4f4fc4;
+  background: var(--purple-bg);
+  color: var(--primary-600);
   font-size: 12.5px;
   padding: 9px 14px;
   border-radius: 10px;
@@ -126,6 +126,11 @@ table {
 
 .demo-banner b {
   font-weight: 600;
+}
+
+.demo-banner-err {
+  background: var(--red-bg);
+  color: var(--red);
 }
 
 .demo-tag {

@@ -9,7 +9,7 @@ const COLOR: Record<string, string> = {
   NEEDS_VALIDATION: '#eab308',
   MEETS_TARGET: 'var(--green)',
   ABOVE_TARGET: 'var(--purple)',
-  UNKNOWN: '#c7cbd3',
+  UNKNOWN: 'var(--dot)',
 };
 
 const KIND_CLS: Record<string, string> = {
@@ -82,7 +82,7 @@ export default function Profile() {
       </div>
 
       {loading && <div className="demo-banner" style={{ marginBottom: 12 }}>正在从后端加载实时数据…</div>}
-      {error && <div className="demo-banner" style={{ marginBottom: 12, background: '#fef2f2', color: '#b91c1c' }}>后端不可用（{error}），以下为静态演示数据</div>}
+      {error && <div className="demo-banner demo-banner-err" style={{ marginBottom: 12 }}>后端不可用（{error}），以下为静态演示数据</div>}
 
       <div className="grid grid-4" style={{ marginBottom: 18 }}>
         {domains.map((d: any) => (
@@ -90,7 +90,7 @@ export default function Profile() {
             <div className="domain-card-top">
               <div>
                 <div className="domain-card-name">{d.name}</div>
-                <div className="domain-card-weight">证据 {d.evidence_coverage} 条</div>
+                <div className="domain-card-weight">证据 {d.evidence ?? d.evidence_coverage ?? 0} 条</div>
               </div>
               <StatusChip status={d.status} />
             </div>

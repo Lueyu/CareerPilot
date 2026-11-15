@@ -184,7 +184,7 @@ export function WorkspaceSwitcher() {
               className="pop-item"
               key={w.name}
               onClick={() => toast('✅', `已切换到「${w.name}」`)}
-              style={{ border: w.active ? '1px solid #d4d4f2' : '1px solid transparent', background: w.active ? 'var(--primary-50)' : 'transparent', marginBottom: 6 }}
+              style={{ border: w.active ? '1px solid var(--primary-200)' : '1px solid transparent', background: w.active ? 'var(--primary-50)' : 'transparent', marginBottom: 6 }}
             >
               <span className="ws-avatar" style={{ background: 'var(--primary-50)' }}>🧭</span>
               <div className="pop-item-main">

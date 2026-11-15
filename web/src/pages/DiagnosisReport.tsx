@@ -144,7 +144,7 @@ export default function DiagnosisReport() {
         <button className="btn btn-outline" onClick={() => navigate('/exam')}>返回考试中心</button>
         <button className="btn btn-primary" onClick={() => navigate('/learning')}>查看今日任务</button>
       </PageHead>
-      {err && <div className="demo-banner" style={{ background: '#fef2f2', color: '#b91c1c' }}>后端不可用或暂无已完成考试（{err}），以下为静态演示报告</div>}
+      {err && <div className="demo-banner demo-banner-err">后端不可用或暂无已完成考试（{err}），以下为静态演示报告</div>}
       <DemoBanner />
 
       <div className="report-hero">

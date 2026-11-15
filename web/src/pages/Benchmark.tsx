@@ -81,7 +81,7 @@ export default function Benchmark() {
       </div>
 
       {loading && <div className="demo-banner" style={{ marginBottom: 12 }}>正在从后端加载实时数据…</div>}
-      {error && <div className="demo-banner" style={{ marginBottom: 12, background: '#fef2f2', color: '#b91c1c' }}>后端不可用（{error}），以下为静态演示数据</div>}
+      {error && <div className="demo-banner demo-banner-err" style={{ marginBottom: 12 }}>后端不可用（{error}），以下为静态演示数据</div>}
 
       <div className="card">
         <div className="card-head">

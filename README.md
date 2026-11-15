@@ -96,6 +96,11 @@ LLM_API_KEY=
 LLM_MODEL=
 ```
 
+## 界面主题
+
+深色（护眼）主题为默认，右上角 ☀️/🌙 一键切换，偏好存于 `localStorage`（`cp-theme`）。
+深色配色完全由 `web/src/styles/tokens.css` 的 CSS 变量驱动，浅色主题保持 Figma 设计稿原样。
+
 ## 核心机制
 
 - **考试状态机**：`CREATED → ACTIVE → SUBMITTED → TRANSCRIPT_CONFIRMED → FROZEN → SCORING → COMPLETED`，答卷冻结后评分，报告为不可变快照。

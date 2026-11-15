@@ -219,7 +219,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 9px;
   padding: 7px 12px;
@@ -258,7 +258,7 @@
   height: 34px;
   border-radius: 9px;
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--card);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -318,7 +318,7 @@
   background: var(--navy-700);
 }
 .btn-outline {
-  background: #fff;
+  background: var(--card);
   border-color: var(--border);
   color: var(--text-2);
 }
@@ -343,8 +343,8 @@
   font-size: 14px;
 }
 .btn-danger {
-  background: #fff;
-  border-color: #f3c6c6;
+  background: var(--card);
+  border-color: var(--red-border);
   color: var(--red);
 }
 .btn-danger:hover {
@@ -387,8 +387,8 @@
   color: var(--text-2);
 }
 .chip-blue {
-  background: #e6f0fb;
-  color: #1d6fb8;
+  background: var(--blue-bg);
+  color: var(--blue);
 }
 
 .status-dot {
@@ -410,7 +410,7 @@
   background: var(--purple);
 }
 .dot-gray {
-  background: #c7cbd3;
+  background: var(--dot);
 }
 
 /* ============ 统计卡 ============ */
@@ -619,7 +619,7 @@ table.tbl {
   color: var(--text-4);
   text-transform: none;
   padding: 9px 12px;
-  background: #f9fafb;
+  background: var(--surface-2);
   border-bottom: 1px solid var(--border-2);
   white-space: nowrap;
 }
@@ -633,7 +633,7 @@ table.tbl {
   border-bottom: none;
 }
 .tbl tbody tr:hover td {
-  background: #fafbfe;
+  background: var(--hover);
 }
 .tbl .strong {
   color: var(--text);
@@ -765,7 +765,7 @@ table.tbl {
   animation: fadeIn 0.15s ease;
 }
 .modal {
-  background: #fff;
+  background: var(--card);
   border-radius: 16px;
   box-shadow: var(--shadow-lg);
   width: 560px;
@@ -819,7 +819,7 @@ table.tbl {
   top: calc(100% + 10px);
   right: 0;
   width: 360px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: var(--shadow-lg);
@@ -852,7 +852,7 @@ table.tbl {
   cursor: pointer;
 }
 .pop-item:hover {
-  background: #f6f7f9;
+  background: var(--surface-2);
 }
 .pop-item-ic {
   width: 32px;
@@ -1006,7 +1006,7 @@ table.tbl {
   border-radius: 9px;
   padding: 9px 12px;
   font-size: 13.5px;
-  background: #fff;
+  background: var(--card);
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -1033,11 +1033,11 @@ table.tbl {
 
 /* 上传区 */
 .dropzone {
-  border: 1.5px dashed #c9ccd4;
+  border: 1.5px dashed var(--border);
   border-radius: 12px;
   padding: 30px 20px;
   text-align: center;
-  background: #fafbfc;
+  background: var(--surface-2);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
@@ -1115,7 +1115,7 @@ table.tbl {
   width: 36px;
   height: 20px;
   border-radius: 10px;
-  background: #d5d8dd;
+  background: var(--switch-off);
   transition: background 0.2s;
   border: none;
   flex-shrink: 0;
@@ -1215,7 +1215,7 @@ table.tbl {
   cursor: pointer;
 }
 .filter-item:hover {
-  background: #f3f4f6;
+  background: var(--hover);
 }
 .filter-item.active {
   background: var(--primary-50);
@@ -1230,7 +1230,7 @@ table.tbl {
   padding: 1px 6px;
 }
 .filter-item.active .filter-count {
-  background: #fff;
+  background: var(--badge-strong);
   color: var(--primary);
 }
 
@@ -1286,7 +1286,7 @@ table.tbl {
 .exam-card {
   border: 1px solid var(--border-2);
   border-radius: var(--radius);
-  background: #fff;
+  background: var(--card);
   padding: 18px 20px;
   display: flex;
   flex-direction: column;
@@ -1331,7 +1331,7 @@ table.tbl {
 .task-card {
   border: 1px solid var(--border-2);
   border-radius: var(--radius);
-  background: #fff;
+  background: var(--card);
   padding: 16px 18px;
   margin-bottom: 12px;
 }
@@ -1413,7 +1413,7 @@ table.tbl {
 .engine-card {
   border: 1px solid var(--border-2);
   border-radius: var(--radius);
-  background: #fff;
+  background: var(--card);
   padding: 16px 18px;
   display: flex;
   gap: 12px;
@@ -1462,7 +1462,7 @@ table.tbl {
   display: flex;
   align-items: center;
   gap: 7px;
-  background: #f7f8fa;
+  background: var(--surface-2);
   border: 1px solid var(--border-2);
   border-radius: 9px;
   padding: 7px 11px;
@@ -1471,12 +1471,12 @@ table.tbl {
 }
 .pl-step.done {
   background: var(--green-bg);
-  border-color: #c4e8d3;
+  border-color: var(--green-border);
   color: var(--green);
 }
 .pl-step.now {
   background: var(--primary-50);
-  border-color: #d4d4f2;
+  border-color: var(--primary-200);
   color: var(--primary);
   font-weight: 550;
 }
@@ -1680,7 +1680,7 @@ table.tbl {
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background: #c7cbd3;
+  background: var(--dot);
 }
 .bench-gap {
   text-align: right;
@@ -1701,7 +1701,7 @@ table.tbl {
   color: var(--text-4);
 }
 .mini-stat {
-  background: #f8f9fb;
+  background: var(--surface-2);
   border: 1px solid var(--border-2);
   border-radius: 10px;
   padding: 12px 14px;
@@ -1751,7 +1751,7 @@ table.tbl {
 .domain-card {
   border: 1px solid var(--border-2);
   border-radius: var(--radius);
-  background: #fff;
+  background: var(--card);
   padding: 16px 18px;
   box-shadow: var(--shadow);
   cursor: pointer;
@@ -1848,7 +1848,7 @@ table.tbl {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 8px 14px;
@@ -1862,7 +1862,7 @@ table.tbl {
   font-size: 14px;
 }
 .quiz-card {
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border-2);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -1897,8 +1897,8 @@ table.tbl {
   transition: border-color 0.15s, background 0.15s;
 }
 .opt:hover {
-  border-color: #c9c9f0;
-  background: #fbfbfe;
+  border-color: var(--primary-200);
+  background: var(--hover);
 }
 .opt.sel {
   border-color: var(--primary);
@@ -1912,7 +1912,7 @@ table.tbl {
 }
 .rubric {
   margin-top: 14px;
-  background: #f8f9fb;
+  background: var(--surface-2);
   border: 1px dashed var(--border);
   border-radius: 10px;
   padding: 12px 14px;
@@ -1944,7 +1944,7 @@ table.tbl {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #e2e5ea;
+  background: var(--track);
   display: inline-block;
 }
 .dot-q.done {
@@ -1975,7 +1975,7 @@ table.tbl {
   }
 }
 .score-box {
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border-2);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -2041,7 +2041,7 @@ table.tbl {
   border-radius: var(--radius);
   margin-bottom: 12px;
   overflow: hidden;
-  background: #fff;
+  background: var(--card);
 }
 .report-q-head {
   display: flex;
@@ -2093,7 +2093,7 @@ table.tbl {
   right: 26px;
   bottom: 84px;
   width: 280px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: var(--shadow-lg);
@@ -2145,7 +2145,7 @@ table.tbl {
   font-size: 11.5px;
 }
 .bank-answer pre {
-  background: #f6f7f9;
+  background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px 14px;
@@ -2154,7 +2154,7 @@ table.tbl {
   line-height: 1.6;
 }
 .bank-answer code {
-  background: #f1f2f4;
+  background: var(--surface-3);
   border-radius: 4px;
   padding: 1px 5px;
   font-size: 12.5px;
@@ -2165,11 +2165,11 @@ table.tbl {
   margin: 8px 0;
 }
 .bank-answer blockquote {
-  border-left: 3px solid var(--primary-200, #d4d4f2);
+  border-left: 3px solid var(--primary-200);
   margin: 8px 0;
   padding: 4px 12px;
   color: var(--text-3);
-  background: #f9f9ff;
+  background: var(--primary-50);
 }
 
 /* 进化实验室 */
@@ -2178,7 +2178,7 @@ table.tbl {
 .evo-metric { background: var(--bg); border: 1px solid var(--border-2); border-radius: 10px; padding: 10px 12px; }
 .evo-m-label { font-size: 12px; color: var(--text-3); margin-bottom: 6px; }
 .evo-m-value { margin-bottom: 6px; }
-.evo-bar { height: 6px; border-radius: 3px; background: #e9ebee; overflow: hidden; }
+.evo-bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
 .evo-bar-fill { display: block; height: 100%; border-radius: 3px; transition: width .4s; }
 
 /* 系统观测台 · 追踪 */
@@ -2186,11 +2186,11 @@ table.tbl {
 .trace-spans { padding: 6px 0 12px 46px; border-top: 1px dashed var(--border-2); }
 .span-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 12.5px; }
 .span-name { width: 180px; flex-shrink: 0; color: var(--text-2); }
-.span-bar { flex: 1; height: 6px; background: #eceff3; border-radius: 3px; overflow: hidden; }
+.span-bar { flex: 1; height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; }
 .span-bar-fill { display: block; height: 100%; border-radius: 3px; }
 .span-dur { width: 40px; text-align: right; color: var(--text-3); }
 .span-cost { width: 52px; text-align: right; color: var(--text-3); }
-.trace-fail { margin: 4px 0 0 46px; padding: 8px 12px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; color: var(--red); font-size: 12.5px; }
+.trace-fail { margin: 4px 0 0 46px; padding: 8px 12px; background: var(--red-bg); border: 1px solid var(--red-border); border-radius: 8px; color: var(--red); font-size: 12.5px; }
 .decision-body { margin-top: 8px; padding: 10px 12px; background: var(--bg); border-radius: 8px; font-size: 12.5px; line-height: 1.7; }
 .decision-chosen { color: var(--green); font-weight: 600; }
 .decision-alt { color: var(--text-3); margin-top: 3px; }
@@ -2198,5 +2198,68 @@ table.tbl {
 /* 设置页 */
 .settings-tab { color: var(--text-2); transition: background .15s, color .15s; }
 .settings-tab:hover { background: var(--bg); }
-.settings-tab.active { background: var(--primary-soft); color: var(--primary); font-weight: 600; }
-.avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--primary-soft); color: var(--primary); font-size: 17px; display: inline-flex; align-items: center; justify-content: center; }
+.settings-tab.active { background: var(--primary-50); color: var(--primary); font-weight: 600; }
+.avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--primary-50); color: var(--primary); font-size: 17px; display: inline-flex; align-items: center; justify-content: center; }
+
+/* ============ 深色主题 · 细节修正 ============ */
+:root[data-theme="dark"] .sidebar {
+  border-right: 1px solid #141c29;
+}
+:root[data-theme="dark"] .hero-card {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+:root[data-theme="dark"] .modal-mask {
+  background: rgba(2, 5, 10, 0.66);
+}
+:root[data-theme="dark"] .toast {
+  background: #232a37;
+  border: 1px solid var(--border);
+}
+:root[data-theme="dark"] .dropzone:hover {
+  background: var(--primary-50);
+}
+:root[data-theme="dark"] .tbl tbody tr:hover td {
+  background: var(--hover);
+}
+:root[data-theme="dark"] .q-card:hover {
+  background: var(--hover);
+}
+:root[data-theme="dark"] .btn-outline {
+  background: var(--card);
+  color: var(--text-2);
+}
+:root[data-theme="dark"] .btn-outline:hover {
+  color: var(--primary);
+}
+:root[data-theme="dark"] .btn-danger {
+  background: var(--card);
+}
+:root[data-theme="dark"] .icon-btn:hover {
+  background: var(--primary-50);
+}
+:root[data-theme="dark"] .score-box {
+  border-color: var(--border-2);
+}
+:root[data-theme="dark"] .app-body::-webkit-scrollbar-thumb {
+  background: var(--scroll);
+}
+:root[data-theme="dark"] .pop-panel,
+:root[data-theme="dark"] .help-menu {
+  border-color: var(--border);
+}
+:root[data-theme="dark"] ::selection {
+  background: rgba(139, 139, 245, 0.35);
+}
+
+/* 深色主题下浅紫/浅绿/浅红底改用深色文字，保证对比度 */
+:root[data-theme="dark"] .btn-primary,
+:root[data-theme="dark"] .demo-tag,
+:root[data-theme="dark"] .icon-badge,
+:root[data-theme="dark"] .step.done .step-ic,
+:root[data-theme="dark"] .step.now .step-ic,
+:root[data-theme="dark"] .switch.on::after {
+  color: #10121a;
+}
+:root[data-theme="dark"] .btn-primary:hover {
+  background: var(--primary-600);
+}

@@ -127,7 +127,7 @@ export default function Memory() {
 
       {loading && <div className="demo-banner" style={{ marginBottom: 12 }}>正在从后端加载…</div>}
       {apiErr && (
-        <div className="demo-banner" style={{ marginBottom: 12, background: '#fef2f2', color: '#b91c1c' }}>
+        <div className="demo-banner demo-banner-err" style={{ marginBottom: 12 }}>
           后端不可用（{apiErr}），以下为静态演示记忆
         </div>
       )}

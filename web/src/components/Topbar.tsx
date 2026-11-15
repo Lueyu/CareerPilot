@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAppState } from './AppState';
 
@@ -18,13 +18,27 @@ const PAGE_NAMES: Record<string, string> = {
   '/settings': '设置',
 };
 
+type Theme = 'light' | 'dark';
+
+function currentTheme(): Theme {
+  return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+}
+
 export default function Topbar() {
   const { pathname } = useLocation();
   const { setCmdOpen, setQuickOpen, setNotifOpen } = useAppState();
+  const [theme, setTheme] = useState<Theme>(currentTheme);
   const name =
     PAGE_NAMES[pathname] ??
     // 动态路由按前缀匹配
     (Object.entries(PAGE_NAMES).sort((a, b) => b[0].length - a[0].length).find(([p]) => p !== '/' && pathname.startsWith(p))?.[1] ?? '总览');
+
+  const toggleTheme = () => {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('cp-theme', next);
+    setTheme(next);
+  };
 
   return (
     <header className="topbar">
@@ -41,6 +55,14 @@ export default function Topbar() {
         </div>
         <button className="btn btn-primary" onClick={() => setQuickOpen(true)}>
           + 快捷操作
+        </button>
+        <button
+          className="icon-btn"
+          onClick={toggleTheme}
+          title={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式（护眼）'}
+          aria-label="切换主题"
+        >
+          {theme === 'dark' ? '☀️' : '🌙'}
         </button>
         <div style={{ position: 'relative' }}>
           <button className="icon-btn" onClick={() => setNotifOpen(true)}>

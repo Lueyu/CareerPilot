@@ -93,7 +93,7 @@ export default function LearningTask() {
       >
         <button className="btn btn-outline" onClick={() => navigate('/learning')}>← 返回学习中心</button>
       </PageHead>
-      {notFound && <div className="demo-banner" style={{ background: '#fef2f2', color: '#b91c1c' }}>后端不可用或任务不存在，以下为演示内容</div>}
+      {notFound && <div className="demo-banner demo-banner-err">后端不可用或任务不存在，以下为演示内容</div>}
       <DemoBanner />
 
       {why && (

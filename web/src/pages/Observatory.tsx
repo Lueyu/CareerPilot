@@ -76,7 +76,7 @@ export default function Observatory() {
 
       {loading && <div className="demo-banner" style={{ marginBottom: 12 }}>正在从后端加载运行数据…</div>}
       {err && (
-        <div className="demo-banner" style={{ marginBottom: 12, background: '#fef2f2', color: '#b91c1c' }}>
+        <div className="demo-banner demo-banner-err" style={{ marginBottom: 12 }}>
           后端不可用（{err}），以下为静态演示数据
         </div>
       )}
