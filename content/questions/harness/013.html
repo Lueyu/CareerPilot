@@ -8,29 +8,71 @@
     <span class="company">字节 / 阿里(高频)</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题问的是:一个 Agent 扛不动的活,怎么拆给一群 Agent 还不打架。面试官爱考,因为它专筛「看过 demo」和「上过生产」——追问一句「两个 Agent 同时写同一份状态怎么办」,只答「加个锁」的,说明没看透协同的本质就是分布式协调。你做备份编排那套「主控调度 + 无状态 worker + 元数据单一事实源」平移过来,就是高分答案。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"多 Agent 协同的本质是<b>任务分解 + 结构化通信 + 状态共享 + 编排控制</b>。常见四种机制:① <b>Supervisor 编排</b>——主管拆任务、分派、汇总;② <b>流水线</b>——检索→分析→生成串行接力;③ <b>黑板/共享状态</b>——大家读写同一个共享工作区;④ <b>群聊协商</b>——AutoGen 式自由对话。我最常用 Supervisor:主管做意图理解和任务拆解,把"任务卡片"发给专业 Agent,子 Agent 各带最小工具集执行,结果写回共享状态,主管汇总。选型关键:<b>流程可预测用编排,探索型任务才用自由协商</b>。"</p>
+    <p>"多 Agent 协同的本质是<b>任务分解 + 结构化通信 + 状态共享 + 编排控制</b>。把复杂任务按领域拆开,分给带不同工具的专家 Agent,用<b>结构化消息</b>(任务卡片)而不是自然语言互聊,结果写回<b>共享状态</b>,由一个控制点负责调度与收敛。常见四种机制:① <b>Supervisor 编排</b>——主管拆任务、发任务卡、收结果、汇总;② <b>流水线</b>——检索→分析→生成串行接力;③ <b>黑板/共享状态</b>——大家读写同一个共享工作区;④ <b>群聊协商</b>——AutoGen 式自由对话。我最常用 Supervisor:主管做意图理解和任务拆解,子 Agent 各带最小工具集执行,结果写回共享状态,主管汇总。选型铁律:<b>流程可预测用编排,探索型任务才用自由协商——能编排就不群聊</b>。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>像<b>项目组做方案</b>:项目经理(Supervisor)接需求后拆成调研、设计、开发三块,发给对应同事(专业 Agent);大家把成果放进共享文件夹(共享状态);项目经理定期汇总、必要时开会对齐。另一种像<b>流水线工厂</b>:上一个工位做完传给下一个。自由群聊则像<b>头脑风暴会</b>:大家七嘴八舌讨论出结果——灵活但难控制、容易跑偏。</p>
+    <p><b>先定个调:多 Agent 协同 ≈ 你天天在做的分布式协调</b>。一个<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Multi-agent_system">多智能体(Multi-Agent)系统</a>要解决的三件事——谁干活、怎么通信、怎么收尾——恰好对应分布式系统的三大老问题:任务分片、<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Message_passing">消息传递</a> vs <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Shared_memory">共享内存</a>、一致性与终止检测。所以下面每个机制,你都能在舒适区里找到原型。</p>
+    <p><b>Supervisor 编排(用备份软件的主控调度器想)</b>:主控节点接了备份策略,拆成快照、去重、复制、校验几个作业,派给无状态 worker,结果统一写回元数据库——<a target="_blank" rel="noopener" href="https://langchain-ai.github.io/langgraph/">Supervisor 编排</a>(LangGraph 里的经典模式)就是这个结构。<b>哪里像</b>:主管握全局视图、子 Agent 无状态可水平扩、状态收敛到<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Single_source_of_truth">单一事实源</a>,一模一样。<b>哪里不像</b>:传统 worker 是确定性代码,Agent 是"会理解任务、但可能理解错"的模型——它会幻觉、会自作主张,所以要多加轮次预算和输出校验,这是传统调度器不需要的防线。</p>
+    <p><b>流水线(用备份数据管道想)</b>:客户端→介质服务器→去重→落盘→校验,每个工位只干一件事,上下游靠固定格式交接——<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Pipeline_(computing)">流水线</a>同理:检索 Agent 取材、分析 Agent 提炼、写作 Agent 成稿。<b>哪里像</b>:顺序固定、职责单一、可控性最高,坏了就地停。<b>哪里不像</b>:管道传的是字节流,对错是确定的;Agent 间传的是带语义的对象,"理解错了"比"传错了"更隐蔽,所以每一环的输出要过 schema 校验。</p>
+    <p><b>黑板/共享状态(用共享存储想)</b>:多个专家进程并行读写同一块"黑板"——<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Blackboard_system">黑板模式</a>是上世纪专家系统的遗产,如今变成共享 state 对象:任务目标、已确认事实、结论槽位都写在上面,谁有进展谁更新。<b>哪里像</b>:生产者消费者解耦、并行贡献、互不阻塞。<b>哪里不像</b>:写共享存储的是确定性代码,写黑板的是会出错的模型,同一个槽位可能被写成两个答案,所以必须显式定义合并策略,不能指望写入天然有序。</p>
+    <p><b>群聊协商(用无中心对等节点的 gossip 想)</b>:<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/AutoGen_(software)">AutoGen</a> 式多 Agent 自由对话,没有主管,靠互相说服收敛。<b>哪里像</b>:像 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Gossip_protocol">gossip</a>——去中心、灵活、能碰撞出新东西。<b>哪里不像</b>:gossip 收敛的是确定性状态,群聊收敛的是"观点",可能越聊越偏、token 烧得飞快,所以只配当探索型任务的最后手段,而且必须挂轮数上限。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
-    <p><b>1. 协同要解决的三个问题</b></p>
+    <p><b>1. 先把问题翻译成分布式语言:协同要解决的三个问题</b></p>
+    <p>你做分布式出身,这题可以整段"降维"理解——多 Agent 协同 = 一群<b>不可靠的智能进程</b> + 一套协调机制。三个核心问题:</p>
     <ul>
-      <li><b>分工</b>:谁做什么——任务如何切分、路由给哪个 Agent。</li>
-      <li><b>通信</b>:怎么交流——直接对话还是共享状态,消息格式是什么。</li>
-      <li><b>收敛</b>:怎么结束——谁拍板、冲突怎么解决、如何防止无限循环。</li>
+      <li><b>分工(= 任务分片)</b>:谁做什么——任务如何切分、路由给哪个 Agent。切法和分库分表一个逻辑:按领域垂直切(订单/物流/售后),每个 Agent 只带本领域的最小工具集——工具表越长,模型选错工具的概率越高,这是"单一职责"在 LLM 上的版本。</li>
+      <li><b>通信(= 消息传递 vs 共享内存)</b>:怎么交流——直接对话还是共享状态,消息格式是什么。分布式系统的两条祖传路线,Agent 世界一条没少:对应"任务卡片"(像 RPC 请求体)和"黑板"(像共享存储)。</li>
+      <li><b>收敛(= 终止检测 + 一致性)</b>:怎么结束——谁拍板、冲突怎么解决、如何防止无限循环。Agent 比普通进程多一个坑:它不崩溃挂掉,但会"体面地空转",所以轮次预算(像 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Time_to_live">TTL</a>)和仲裁节点是刚需。</li>
     </ul>
-    <p><b>2. 四种机制对比</b></p>
+    <p>还有一个差异要刻在脑子里:传统 worker 的故障是<b>诚实的</b>——进程挂了、心跳断了,监控立刻知道;Agent 的故障是<b>自信的</b>——它不挂,它一本正经地返回一个编造的结果。所以 Agent 协同除了心跳式健康检查,还必须多一层传统分布式没有的防线:<b>输出校验</b>(schema 断言、关键结果抽查、置信度阈值)。能把这一点讲出来,面试层次感立刻不一样。</p>
+
+    <p><b>2. 四种机制对比(每种都能在舒适区找到原型)</b></p>
     <table>
-      <tr><th>机制</th><th>控制点</th><th>可控性</th><th>适用场景</th></tr>
-      <tr><td><b>Supervisor 编排</b></td><td>中心主管</td><td>高</td><td>流程清晰、需审计</td></tr>
-      <tr><td><b>流水线</b></td><td>固定顺序</td><td>最高</td><td>步骤确定的批处理</td></tr>
-      <tr><td><b>黑板/共享状态</b></td><td>共享工作区</td><td>中</td><td>多专家并行贡献</td></tr>
-      <tr><td><b>群聊协商</b></td><td>无中心</td><td>低</td><td>探索、开放式问题</td></tr>
+      <tr><th>机制</th><th>控制点</th><th>可控性</th><th>适用场景</th><th>像分布式里的</th></tr>
+      <tr><td><b>Supervisor 编排</b></td><td>中心主管</td><td>高</td><td>流程清晰、需审计</td><td>Master-Worker 调度(备份主控)</td></tr>
+      <tr><td><b>流水线</b></td><td>固定顺序</td><td>最高</td><td>步骤确定的批处理</td><td>ETL / 备份数据管道</td></tr>
+      <tr><td><b>黑板/共享状态</b></td><td>共享工作区</td><td>中</td><td>多专家并行贡献</td><td>共享存储 + 多进程协作</td></tr>
+      <tr><td><b>群聊协商</b></td><td>无中心</td><td>低</td><td>探索、开放式问题</td><td>无中心 gossip 协商</td></tr>
     </table>
+    <p>逐个过一遍:</p>
+    <p><b>① Supervisor 编排</b>:主管统一拆解、分派、汇总,子 Agent 只执行。可控性高的代价是主管是<b>单点</b>——所以主管本身要有兜底(转人工)和降级路径(主管不可用时退回单 Agent 直答),这就是容灾思维直接平移。</p>
+    <p><b>② 流水线</b>:固定顺序接力,最像你日常的备份管道(快照→传输→去重→落盘→校验),比如 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Retrieval-augmented_generation">RAG</a> 三段式:</p>
+    <pre class="code">
+[检索 Agent] ──→ [分析 Agent] ──→ [写作 Agent] ──→ 交付
+  取材:chunk 列表     提炼:结构化要点     成稿:自然语言答案
+
+· 顺序固定,任何一环失败整条停摆(可控性最高,也最难并行)
+· 每一环输出过 schema 校验:坏数据就地报错,不往下游传
+    </pre>
+    <p><b>③ 黑板/共享状态</b>:没有主管传话,大家读写同一块黑板,谁先算完谁先写:</p>
+    <pre class="code">
+            ┌────────────────────────────────┐
+            │        共享黑板(共享状态)          │
+            │   任务目标 │ 已确认事实 │ 结论槽位   │
+            └────▲──────────▲──────────▲─────┘
+                 │读/写      │读/写      │读/写
+           [订单 Agent]  [物流 Agent]  [风控 Agent]
+
+· 并行贡献、互不阻塞,天然适合多专家同时上
+· 隐患:同一槽位可能被写出两个答案 → 必须定义合并策略
+    </pre>
+    <p><b>④ 群聊协商</b>:AutoGen 式自由对话,无固定流程,靠对话收敛:</p>
+    <pre class="code">
+   [策略 Agent] ⇄ [审校 Agent]
+        ↕              ↕
+   [检索 Agent] ⇄ [执行 Agent]
+
+· 没有主管,谁想发言谁发言,靠互相说服收敛
+· 终止条件:有人宣布"达成一致",或轮数/token 上限触顶(必须有)
+    </pre>
+    <p>一个实践细节:AutoGen 的群聊其实内嵌了一个负责"选下一个人发言"的 manager——纯无中心在真实系统里几乎不存在,最后总得有人拿槌子。这也是"能编排就不群聊"的又一证据。</p>
+
     <p><b>3. 具体例子:Supervisor 模式(电商智能客服)</b></p>
     <div class="svgwrap">
 <svg class="sdiagram" viewBox="0 0 700 372" role="img" aria-label="Supervisor 模式多 Agent 协同">
@@ -65,33 +107,90 @@
   <text class="sd-ts" x="360" y="341" text-anchor="middle">单一事实源</text>
 </svg>
 </div>
+    <p><b>对着图走一遍流程</b>(从上往下):</p>
+    <ul>
+      <li>① 用户一句"我买的还没到"进来——自然语言,无结构,没法直接路由;</li>
+      <li>② Supervisor 做<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Natural-language_understanding">意图理解</a>,判定是"查物流",再拆两步:先查订单拿运单号,再查轨迹;</li>
+      <li>③ 把<b>任务卡片</b>发给订单 Agent——只带它需要的字段(订单号、用户 ID),不带整段聊天历史;如果意图是退款,第三张卡会发给售后 Agent——路由表按意图选人,子 Agent 之间永远不互相调用;</li>
+      <li>④ 订单 Agent 调订单 API,结果写回共享状态(图最底下那个 Redis),不直接喊话别人;</li>
+      <li>⑤ Supervisor 看到状态更新,再发第二张卡给物流 Agent;</li>
+      <li>⑥ 物流 Agent 查轨迹、写回状态;</li>
+      <li>⑦ Supervisor 汇总两个结果,生成自然语言回复;</li>
+      <li>⑧ 全程兜底:置信度低或连续无进展,走右边那条"转人工"通道——协同系统的容灾出口。</li>
+    </ul>
+    <p>把上面的过程画成时序图,一眼看懂谁在什么时候说话:</p>
+    <pre class="code">
+用户               Supervisor                订单 Agent       物流 Agent
+ │                     │                       │                │
+ │── "我买的还没到" ──→ │                       │                │
+ │                     │ ① 意图: 查物流         │                │
+ │                     │ ② 拆解: 查订单→查轨迹  │                │
+ │                     │── ③ 任务卡{order_id} → │                │
+ │                     │←── ④ 运单号+收货城市 ──│                │
+ │                     │── ⑤ 任务卡{运单号} ───────────────────→ │
+ │                     │←── ⑥ 轨迹: 已到同城 ────────────────────│
+ │                     │ ⑦ 汇总生成回复          │                │
+ │←─ "已到同城,预计今天送达" ─│                  │                │
+ │                     │                                       │
+ │   状态全程只写 Redis;Agent 本体无状态,可随时重启/扩容
+    </pre>
+    <p>任务卡片长什么样?本质上是一张"RPC 请求体":</p>
+    <pre class="code">
+{
+  "task_id": "T-1024",                    // 全局唯一: 幂等键 + 追踪键
+  "from": "supervisor",
+  "to": "order_agent",
+  "goal": "查询订单 O-8899 的运单号和收货城市",
+  "context": {"order_id": "O-8899", "user_id": "U-3312"},  // 按需传字段
+  "result_slot": {"waybill_no": null, "city": null},       // 槽位: 结果填这里
+  "budget": {"max_tool_calls": 3, "max_rounds": 2}         // 轮次预算
+}
+    </pre>
+    <p>from/to 是路由头,context 是请求参数,result_slot 是响应结构,budget 是超时与重试上限。子 Agent 拿到卡只需要:理解 goal → 调工具 → 填满槽位 → 写回状态。职责单一到想跑偏都难。</p>
+
     <p><b>4. 通信与状态(协同的"协议层")</b></p>
     <ul>
-      <li><b>结构化消息</b>:不用自然语言互聊(易歧义、难解析),而是传"任务卡片"这种结构化对象(角色、目标、已知字段、结果槽位),可靠且好调试。</li>
-      <li><b>共享状态</b>:会话状态放 Redis/内存,Agent 无状态,读写共享工作区完成交接——避免"两个 Agent 各记一份、数据打架"。</li>
-      <li><b>上下文按需传递</b>:每个子 Agent 只拿自己需要的字段,不塞整段历史,token 省、也少幻觉。</li>
+      <li><b>结构化消息</b>:不用自然语言互聊(易歧义、难解析、token 还贵),而是传"任务卡片"这种结构化对象(角色、目标、已知字段、结果槽位),可靠且好调试——就像服务间通信用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Protocol_Buffers">Protobuf</a> 而不是发邮件;消息体可过 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/JSON_Schema">JSON Schema</a> 校验。这套"只靠消息、不共享内存"的哲学,和 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Actor_model">Actor 模型</a>一脉相承。</li>
+      <li><b>共享状态</b>:会话状态放 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Redis">Redis</a>/内存,Agent 无状态,读写共享工作区完成交接——避免"两个 Agent 各记一份、数据打架"。这就是你熟悉的计算存储分离:worker 随便杀、随便扩,因为状态在"外面"。进阶做法:给关键状态做 checkpoint 落库,流程可从任意断点恢复——等于给 Agent 流程做"备份 + 断点续传",LangGraph 的 checkpointing 就是这个思路。并发写同一字段时用版本号兜底(<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Optimistic_concurrency_control">乐观并发控制</a>)。</li>
+      <li><b>上下文按需传递</b>:每个子 Agent 只拿自己需要的字段,不塞整段历史——RPC 只传参数、不传整个内存镜像,同理。token 省是其次,更关键的是无关上下文是幻觉的主要来源之一:给订单 Agent 看三页聊天记录,它就开始"发挥"了。</li>
     </ul>
-    <p><b>5. 收敛与冲突解决</b></p>
+
+    <p><b>5. 收敛与冲突解决(协同的"治理层")</b></p>
     <ul>
-      <li>限定最大调度轮次和 token 预算,超了强制收敛(输出当前最优 + 转人工)。</li>
-      <li>冲突由 Supervisor 仲裁(投票、置信度加权、规则兜底),而不是让 Agent 自己争。</li>
-      <li>路由职责在 Supervisor,子 Agent 只执行不转发——从机制上杜绝互相踢皮球。</li>
+      <li>限定最大调度轮次和 token 预算,超了强制收敛(输出当前最优 + 转人工)——就是给任务挂 TTL 加 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Watchdog_timer">watchdog</a>:LLM 不会崩溃,但会体面地空转,必须有人能掐表。</li>
+      <li>冲突由 Supervisor 仲裁(投票、置信度加权、规则兜底),而不是让 Agent 自己争——多个专家给出矛盾结论时,由控制点一次性收口,类似主节点裁决,不开现场辩论会。</li>
+      <li>路由职责在 Supervisor,子 Agent 只执行不转发——从机制上杜绝互相踢皮球,等价于分布式里靠 TTL 递减防转发环。</li>
     </ul>
+
+    <p><b>6. 落地排坑清单(背下来,追问必中)</b></p>
+    <table>
+      <tr><th>症状</th><th>根因</th><th>解药(分布式老朋友)</th></tr>
+      <tr><td>两个 Agent 互相转派,空转烧 token</td><td>路由权下放给了子 Agent</td><td>路由收归 Supervisor + 轮次预算(= TTL)</td></tr>
+      <tr><td>共享状态被并发写坏</td><td>没有单一事实源和合并策略</td><td>Redis 单一事实源 + 版本号 + reducer(= 乐观并发控制)</td></tr>
+      <tr><td>成本是单 Agent 的好几倍</td><td>全量历史广播给每个子 Agent</td><td>按需传字段,汇总只读结论槽</td></tr>
+      <tr><td>出错不知道是哪个 Agent 的锅</td><td>没有全链路追踪</td><td>task_id 贯穿所有消息与工具调用(= 作业日志)</td></tr>
+    </table>
+    <p>一句话收束,面试时可以直接说:<b>多 Agent 系统 = 一群不可靠的智能进程 + 你早就熟悉的那套分布式治理(分片、消息协议、单一事实源、TTL、熔断降级、全链路追踪)</b>——多出来的新增量只有一个:对"自信地出错"的输出校验。</p>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:什么时候用编排,什么时候用自由对话协商?</summary><div class="an">看任务的结构化程度和可逆性:流程可预测、有明确步骤、需要审计的(客服、工单、合规),用编排——可控、可测、可回放;探索型、开放式、路径事先未知的(头脑风暴、研究、代码架构讨论),用自由协商——灵活但代价是成本高、结果不稳定。实践铁律:<b>能编排就不自由对话</b>,自由对话先当"最后手段"。能主动说出这个取舍是加分点。</div></details>
-    <details class="qa"><summary class="qu">Q:多个 Agent 怎么避免互相踢皮球?</summary><div class="an">三点:① 路由权收在 Supervisor,子 Agent 无权说"这不归我管"再转手,只执行分配给它的任务;② 每个 Agent 职责边界清晰、不重叠,重叠区由 Supervisor 显式仲裁;③ 设兜底——Supervisor 连续 N 轮没进展、置信度低,就反问用户或转人工,不让 Agent 之间空转。核心是<b>收敛责任落实到某一个节点</b>。</div></details>
-    <details class="qa"><summary class="qu">Q:协同里共享状态的一致性怎么保证?</summary><div class="an">把状态做成"单一事实源"(single source of truth):统一放 Redis/DB,Agent 只读写它、不各自缓存;写操作加版本号或锁避免并发覆盖;关键状态(如退款单)走状态机,每次变更落库可审计。多 Agent 同时写同一字段时,用 reducer(合并策略,如追加、覆盖、投票)显式定义冲突如何收敛,而不是让写入顺序随机决定结果。</div></details>
+    <details class="qa"><summary class="qu">Q:什么时候用编排,什么时候用自由对话协商?</summary><div class="an"><b>人话:</b>流程能提前画出来的,用编排;画不出来、要边走边探的,才让 Agent 自由聊。铁律:能编排就不群聊。<b>类比:</b>备份域一模一样——策略驱动的定时备份永远走编排器,只有容灾演练这种路径未知的探索,才值得拉一屋子专家现场商量。<b>技术:</b>客服、工单、合规这类可预测、要审计的场景,用 Supervisor/流水线——可控、可测、可回放;头脑风暴、研究、架构讨论这类开放式任务,用 AutoGen 式自由协商——灵活但成本高、结果方差大,必须挂轮数和 token 上限,只当最后手段。</div></details>
+    <details class="qa"><summary class="qu">Q:多个 Agent 怎么避免互相踢皮球?</summary><div class="an"><b>人话:</b>把"派活"和"转活"分开:只有主管能派活,干活的只能干活,干不了就上报,不许再转手。<b>类比:</b>就是分布式里防请求转发环——每一跳 TTL 递减,归零就丢弃并上报,没人能把请求无限踢下去。<b>技术:</b>① 路由权收在 Supervisor,子 Agent 无权说"不归我管"再转手;② 职责边界不重叠,重叠区由 Supervisor 显式仲裁;③ 兜底:连续 N 轮无进展或置信度低,反问用户或转人工。核心是把收敛责任钉死在一个节点上。</div></details>
+    <details class="qa"><summary class="qu">Q:协同里共享状态的一致性怎么保证?</summary><div class="an"><b>人话:</b>状态只存一份,所有人读写它,谁都不许自己留小抄;写冲突的合并规则要提前定好。<b>类比:</b>就是备份系统的元数据库——worker 不落本地状态,进度全写元数据层并带版本号,任何变更可审计。<b>技术:</b>会话状态统一放 Redis 做单一事实源,Agent 无状态;写操作带版本号或锁防并发覆盖;关键单据(如退款单)走<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Finite-state_machine">状态机</a>;同一槽位并发写用 reducer 显式定义合并策略(追加/覆盖/投票),借 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Conflict-free_replicated_data_type">CRDT</a> 的思路,而不是让写入顺序随机决定结果。</div></details>
+    <details class="qa"><summary class="qu">Q:为什么不直接用一个更大的 Agent,非要拆多个?</summary><div class="an"><b>人话:</b>大 Agent 会撞三堵墙:工具表太长选不准、上下文太长记不住、改一处 prompt 全链路回归。<b>类比:</b>为什么不造一台无限大的单体服务器,而要做分布式拆分?为了故障隔离(爆炸半径)、独立扩缩容和单一职责——Agent 拆分是同一逻辑在 LLM 上的复刻。<b>技术:</b>① 上下文隔离:子 Agent 只看任务卡,token 省、幻觉少;② 工具表最小化:工具一多,选择准确率明显下降;③ 子 Agent 可独立迭代、并行执行、单独灰度;④ Supervisor 可换小模型省成本。反过来,简单任务单 Agent 更优——别为了架构而架构。</div></details>
+    <details class="qa"><summary class="qu">Q:多 Agent 的延迟和成本明显比单 Agent 高,怎么压?</summary><div class="an"><b>人话:</b>三板斧:能并行就并行、能不叫就不叫、能小的就小。<b>类比:</b>和压备份窗口同一个思路:并行流拉满、冷数据别走高速通道、轻活别上重装备。<b>技术:</b>① 无依赖的子任务并行派发,查订单和查用户画像同时出发;② 按需唤起,单 Agent 能答就不拆;③ Supervisor 只干意图识别和路由,用小模型;④ 路由结果按意图缓存,命中直接走单 Agent;⑤ 全链路挂 P99 延迟和 token 成本监控,超 SLA 告警。</div></details>
+    <details class="qa"><summary class="qu">Q:出了错,怎么定位是哪个 Agent 的问题?</summary><div class="an"><b>人话:</b>给每张任务卡发全局 ID,所有消息、工具调用、状态变更都挂上它,出错按 ID 回放。<b>类比:</b>就是备份作业日志——一次备份失败,顺着 job id 逐阶段看是快照没拍成还是复制断了,Agent 链路一模一样。<b>技术:</b>① task_id/trace_id 贯穿 Supervisor、子 Agent、工具调用和状态写入;② 每步落结构化日志:输入摘要、输出、token 数、耗时;③ 关键节点做输入输出断言,失败当场定位环节;④ 支持按消息序列重放,复现问题。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>Supervisor 模式</b>:中心主管统一调度子 Agent。</div>
-      <div class="term-item"><b>黑板模式</b>:多 Agent 读写共享工作区协作。</div>
-      <div class="term-item"><b>流水线</b>:任务按固定顺序在 Agent 间接力。</div>
-      <div class="term-item"><b>结构化消息</b>:用对象而非自然语言在 Agent 间传参。</div>
-      <div class="term-item"><b>共享状态</b>:协作各方共用的单一事实源。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Multi-agent_system">Multi-Agent 系统</a></b>:多个能自主决策、互相通信的 Agent 协作完成单个 Agent 干不动的任务。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://langchain-ai.github.io/langgraph/">Supervisor 模式</a></b>:中心主管负责拆解、分派、汇总,子 Agent 只执行,LangGraph 的经典编排结构。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Blackboard_system">黑板模式</a></b>:多个 Agent 通过读写同一块共享工作区间接协作,无需直接对话。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Pipeline_(computing)">流水线</a></b>:任务按固定顺序在 Agent 间接力,每环只做一类变换,可控性最高。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/AutoGen_(software)">AutoGen</a></b>:微软开源的多 Agent 对话框架,群聊协商模式的代表实现。</div>
+      <div class="term-item"><b>结构化消息</b>:Agent 间用带 schema 的对象(任务卡片)传参,而非自然语言对话。</div>
+      <div class="term-item"><b>共享状态</b>:协作各方共用的单一事实源,Agent 本体保持无状态。</div>
     </div>
   </div>
 </article>

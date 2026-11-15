@@ -8,22 +8,57 @@
     <span class="company">字节(真题)</span>
   </div>
 
+  <div class="note"><b>先说人话:</b>这题表面问"外部工具挂了怎么办",骨子里考的是分布式容错四件套——超时、重试、熔断、降级,外加 Agent 特有的一环:失败信息要回灌给 LLM 让它自我纠错。面试官爱考它,因为一开口就能分清背八股的和救过火的——只会说"加重试"却讲不清幂等和退避的,基本没碰过生产。</div>
+
   <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-    <p>"工具数量我坚持<b>少而精</b>——核心 8~15 个,按领域分组,多了模型选错率上升。容错我按<b>五层防线</b>设计:① <b>超时</b>——每个工具设 deadline(如 3~5s),全链路还有总预算;② <b>重试</b>——只对幂等操作重试,指数退避+抖动,上限 2~3 次;③ <b>熔断</b>——某工具连续失败就短路,不再无效调用;④ <b>降级</b>——换备用工具/缓存结果/兜底话术;⑤ <b>超时预算</b>——把剩余时间写进上下文,让 LLM 知道"该收敛了"。关键:失败信息要<b>结构化回灌</b>给 LLM 让它重新决策,而不是静默吞掉。"</p>
+    <p>"工具数量我坚持<b>少而精</b>——核心 8~15 个,按领域分组,再多模型选错率就往上蹿。容错按<b>五层防线</b>叠:① <b>超时</b>——每个工具设 deadline(如 3~5s),全链路另有总预算;② <b>重试</b>——只对幂等操作重试,指数退避+抖动,上限 2~3 次;③ <b>熔断</b>——某工具连续失败就短路,不再做无效调用;④ <b>降级</b>——换备用工具、回缓存结果或兜底话术;⑤ <b>总预算</b>——把剩余时间写进上下文,让 LLM 知道"该收敛了"。最关键一条:失败信息要<b>结构化回灌</b>给 LLM 让它重新决策,而不是静默吞掉。"</p>
   </div>
 
   <div class="block ana"><span class="badge b-ana">通俗类比</span>
-    <p>就像<b>项目经理带一群外包供应商</b>:手上只留 10 家靠谱供应商(工具少而精),多了管不过来、还容易派错活。每次派活都签个"交付截止时间"(超时);供应商失联,再催一次、催的间隔越来越长(重试退避);某家连续三次放鸽子,先拉黑不再派活(熔断);工期不够就换备用供应商或先给客户一个"部分结果"(降级);整个项目还有一个总截止日期,快到点必须收尾(总预算)。供应商交回来的坏消息要如实转达,让经理重新安排(失败回灌),而不是装没发生。</p>
+    <p><b>整条调用链(拿备份编排系统想)</b>:LLM 是备份软件里的<b>调度器</b>,外部工具是被调度的一排<b>客户端和介质服务</b>——调度器每轮决定"下一步调谁、传什么参数",拿到结果再定下一步,循环到任务完成。<b>哪里像</b>:都是用一套编排逻辑,驱动一批不可靠的外部执行单元,在限定时间内交付结果。<b>哪里不像</b>:备份调度器的决策是确定性代码,会出错的只有下游;Agent 的决策者 LLM 本身是概率性的,它可能<b>选错工具、编错参数</b>——你的容错必须多罩一层"决策者自己"。</p>
+    <p><b>超时与总预算(拿 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Recovery_time_objective">RTO</a> 想)</b>:单工具 deadline 像单个子作业的恢复时限,链路总预算像整个恢复计划的 RTO。<b>哪里像</b>:都讲究时间自顶向下分解——先定总账,再拆子账,子任务预算之和不许超总预算,超了就砍内容。<b>哪里不像</b>:备份作业被掐掉还能延后重排,大不了等下一个窗口;Agent 对面坐着等答复的真人,掐掉等于体验当场崩塌,所以超时必须配"软着陆"——部分结果、兜底话术,而不是一刀切报错。</p>
+    <p><b>重试与幂等(拿备份重跑想)</b>:查询类工具重试像重读一次元数据,天然无副作用;写类工具裸重试,就像对同一个卷不带检查地恢复两次。<b>哪里像</b>:能不能安全重试的判据完全一致——看操作是否<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Idempotence">幂等</a>。<b>哪里不像</b>:分布式系统里重复调用多半是网络抖动"被动"造成的;Agent 里 LLM 还会"主动"再发起一次,所以幂等键不能指望调用方自觉,要在工具侧强制。</p>
+    <p><b>熔断与降级(拿容灾切换想)</b>:某工具连续失败就熔断,像生产端持续故障后把流量切走、不再往故障端灌;<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Circuit_breaker_design_pattern">熔断器</a>的半开状态,像切换前的<b>演练流量</b>——先放一小股试试水。<b>哪里像</b>:都是"快速失败优于缓慢等死",用失败计数或错误率触发,冷却后小流量试探恢复。<b>哪里不像</b>:容灾切换受 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Recovery_point_objective">RPO</a> 约束、常带人工审批,是重动作;熔断是秒级全自动的小开关,可以频繁开合。<b>降级</b>则像"主中心→同城→异地"的多级 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Failover">故障切换</a>,一级级往下兜,最底下是兜底话术。</p>
+    <p><b>失败回灌(拿作业日志想)</b>:传统系统里,失败日志是给值班工程师看的;Agent 里,错误要结构化地喂回给 LLM——它既是值班工程师又是决策者,读完错误自己决定换参数、换工具还是反问用户。<b>哪里像</b>:都得把失败原因讲清楚,才谈得上修复。<b>哪里不像</b>:工程师读日志大概率能修好;LLM 可能修不好,甚至陷进"失败-重试-再失败"的死循环,所以要设纠错轮次上限,超限就走降级。</p>
   </div>
 
   <div class="block det"><span class="badge b-det">详细拆解</span>
+    <p><b>0. 先把调用链摆上桌</b></p>
+    <p>Agent 的"工具调用"说白了就是一个循环:LLM 看着用户问题和已有结果,输出"我要调哪个工具、参数是什么"(结构化 JSON,不是自由文本);框架层替它真的去调;把结果或错误再喂回给 LLM;循环往复,直到它给出最终回答。后面所有容错手段,都是罩在这个循环的不同环节上。</p>
+    <pre class="code">
+用户提问
+   │
+   ▼
+[LLM 决策] ──选工具 + 填参数──▶ [工具执行: 外部 API / DB / 搜索]
+   ▲                                │
+   │          结果 / 错误回灌        │
+   └────────────────────────────────┘
+        循环, 直到 LLM 给出最终答案
+    </pre>
+    <p>L1~L4 四层防线装在"工具执行"这一跳的护栏上,L5 总预算罩住整个循环,第 6 点的回灌走的则是回程箭头——先有这张地图,后面的机制才好对号入座。</p>
     <p><b>1. 工具数量怎么定</b></p>
     <ul>
-      <li><b>少而精</b>:核心 8~15 个,按领域分组(订单/物流/售后/搜索),每个工具职责单一、描述清晰。</li>
-      <li>数量与可靠性的关系:工具越多,模型选错/参数乱填概率越高;功能重叠的工具要先合并。</li>
-      <li>命名与描述:工具名动词化、描述写明"何时用/入参/出参/错误",这本身就是容错的一部分(少选错)。</li>
+      <li><b>少而精</b>:核心 8~15 个,按领域分组(订单/物流/售后/搜索),每个工具职责单一、描述清晰。为什么不敢堆多:工具清单每次都要随 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Prompt_engineering">prompt</a> 塞给模型,每加一个,既多花 token,又多一个"被选错"的候选。</li>
+      <li>数量与可靠性的关系:工具越多,模型选错/参数乱填概率越高——和"依赖越多,构建越容易挂"是同一个道理;功能重叠的工具要先合并,合并本身就是容错。</li>
+      <li>命名与描述:工具名动词化、描述写明"何时用/入参/出参/错误",这本身就是容错的一部分(少选错)。<a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">function calling</a> 的选工具准确率,一半取决于描述写得好不好。</li>
     </ul>
+    <table>
+      <tr><th>设计选择</th><th>为什么算容错</th></tr>
+      <tr><td>核心控制在 8~15 个,按领域分组</td><td>候选少 → 选错率低;分组 → 可先路由再选</td></tr>
+      <tr><td>职责单一,合并功能重叠的工具</td><td>两个"都能干"的工具最容易互相打架</td></tr>
+      <tr><td>描述写清"何时用/入参/出参/错误"</td><td>模型选错,多半是描述含糊造成的</td></tr>
+      <tr><td>命名动词化(query_order 而非 order_api)</td><td>名字即文档,降低模型的理解成本</td></tr>
+    </table>
     <p><b>2. 五层容错防线(重点)</b></p>
+    <p>五层各挡<b>不同性质的故障</b>,谁也替代不了谁:超时挡"慢",重试挡"抖",熔断挡"坏",降级挡"不可用",总预算挡"失控"。一张表对齐:</p>
+    <table>
+      <tr><th>防线</th><th>挡什么</th><th>关键参数</th><th>不设防的后果</th></tr>
+      <tr><td>L1 超时</td><td>慢调用占死整轮会话</td><td>单工具 deadline 3~5s</td><td>一次卡顿,用户干等到天荒地老</td></tr>
+      <tr><td>L2 重试</td><td>瞬时抖动(网络毛刺/限流)</td><td>幂等才重试 · ≤3 次 · 退避+抖动</td><td>小毛刺变硬失败,或重试风暴打挂下游</td></tr>
+      <tr><td>L3 熔断</td><td>持续性故障</td><td>连续 N 次失败/错误率阈值</td><td>每轮都白等满超时,雪上加霜</td></tr>
+      <tr><td>L4 降级</td><td>主路径不可用</td><td>备用工具→缓存→兜底话术</td><td>直接甩报错,体验当场崩塌</td></tr>
+      <tr><td>L5 总预算</td><td>全链路失控/死循环</td><td>总 deadline 20~30s + 轮次/token 预算</td><td>烧钱转圈,用户流失</td></tr>
+    </table>
     <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 448 458" role="img" aria-label="工具调用五层容错防线">
   <rect class="sd-layer" x="4" y="8" width="440" height="442"/>
   <text class="sd-l" x="16" y="26">工具调用 · 五层容错防线</text>
@@ -52,45 +87,119 @@
 </svg></div>
     <p><b>3. 超时机制细节</b></p>
     <ul>
-      <li><b>分层超时</b>:单工具 3~5s;整条链路 20~30s;LLM 调用单独超时。</li>
-      <li><b>deadline 传播</b>:把剩余时间预算写进上下文("你还有 8 秒,请给出当前最优答案"),让模型主动收敛而不是被硬掐。</li>
-      <li>超时不是失败:区分"慢但会成功"与"真失败"——能异步就异步(先回执,后台继续),交互场景则降级返回部分结果。</li>
+      <li><b>分层超时</b>:单工具 3~5s;整条链路 20~30s;LLM 调用单独超时。三层各管各的:单工具超时保护"这一跳",链路总预算保护"整个会话",LLM 超时保护"大脑本身"。定值经验:按该工具 P99 延迟的 2~3 倍设,别贴平均值——平均值护不住长尾请求。</li>
+      <li><b><a target="_blank" rel="noopener" href="https://grpc.io/docs/guides/deadlines/">deadline 传播</a></b>:把剩余时间预算写进上下文("你还有 8 秒,请给出当前最优答案"),让模型主动收敛而不是被硬掐。这招直接学自分布式系统:上级把剩余时间带给下级,下级按余量调整自己的行为——gRPC 的 deadline 机制就是这么设计的。</li>
+      <li>超时不是失败:区分"慢但会成功"与"真失败"——能异步就异步(先回执、后台继续,结果靠通知或轮询补上),能流式就尽早流式输出让用户先看见进展;交互场景则降级返回部分结果,而不是把用户晾在原地。</li>
     </ul>
+    <pre class="code">
+一次真实调用的时间线(总预算 25s):
+
+t=0s    LLM 思考 1              (2s)
+t=2s    工具A·查订单            deadline 5s, 3.5s 返回 ✓
+t=5.5s  LLM 思考 2              (1.5s)
+t=7s    工具B·查物流            deadline 5s 到点, 超时 ✗
+t=13s   重试 1(退避 1s+抖动)    3.5s 后返回 ✓
+t=17s   LLM 思考 3              上下文提示"剩 8s, 请收敛" (1s)
+t=18s   汇总生成最终回答         ≈ t=21s 交付 —— 预算内软着陆
+    </pre>
     <p><b>4. 重试与幂等(成败关键)</b></p>
     <ul>
-      <li>只重试幂等操作:GET/查询可重试;下单/扣款/发消息必须带幂等键,否则重试造成重复副作用。</li>
-      <li>指数退避+抖动防重试风暴;区分可重试错误(超时/429/5xx)与不可重试(参数错/权限/审核拒绝)。</li>
-      <li>工具调用重试前,判断"这一步是否可能已执行"(先查后写)。</li>
+      <li>只重试幂等操作:GET/查询可重试;下单/扣款/发消息必须带幂等键,否则重试造成重复副作用。判断口诀:同一操作执行两次,世界会不会多出一份效果?会,就必须上幂等键。</li>
+      <li><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Exponential_backoff">指数退避</a>+抖动防重试风暴:等待时间 1s→2s→4s 递增,再叠一个随机抖动,避免所有调用方同步重试、形成<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Thundering_herd_problem">惊群</a>。同时区分可重试错误(超时/429/5xx)与不可重试错误(参数错/权限/审核拒绝)——后者重试一百次结果也一样。</li>
+      <li>工具调用重试前,判断"这一步是否可能已执行"(先查后写):超时不等于没执行,请求可能已到服务端并生效,只是响应没回来;先查状态,再决定要不要重做。</li>
     </ul>
+    <table>
+      <tr><th>错误类别</th><th>典型信号</th><th>可重试?</th><th>正确动作</th></tr>
+      <tr><td>网络/超时</td><td>连接超时、读超时</td><td>可(需幂等)</td><td>退避重试;重试前先确认副作用未发生</td></tr>
+      <tr><td>限流</td><td><a target="_blank" rel="noopener" href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429">HTTP 429</a></td><td>可</td><td>按 Retry-After 头等待后重试</td></tr>
+      <tr><td>服务端错误</td><td>HTTP 5xx</td><td>可</td><td>退避重试,同时计入熔断失败数</td></tr>
+      <tr><td>参数错误</td><td>HTTP 400、参数校验失败</td><td>不可</td><td>结构化回灌 LLM,让它改参数</td></tr>
+      <tr><td>权限/审核</td><td>HTTP 403、内容审核拒绝</td><td>不可</td><td>降级或直接告知用户,别浪费轮次</td></tr>
+    </table>
+    <pre class="code">
+写类工具调用: 幂等键 + 超时 + 受控重试, 一次配齐
+
+result = call_tool(
+    "send_message",
+    args={"to": user_id, "text": reply},
+    idempotency_key=f"{session_id}:{step_no}",  # 同一步的重试共用一个键, 服务端据此去重、不会双发
+    timeout=5,                   # L1 超时: 单工具 deadline 5 秒
+    retries=2,                   # L2 重试: 上限 2 次, 只对可重试错误生效
+    backoff="exponential+jitter" # 指数退避 1s→2s, 每次叠加随机抖动
+)
+    </pre>
     <p><b>5. 熔断与降级</b></p>
     <ul>
-      <li>熔断器三态:关闭 → 打开(连续失败 N 次/错误率超阈值)→ 半开(冷却后放一个试探)。</li>
-      <li>降级链:主工具 → 备用工具 → 缓存/规则结果 → 兜底话术+转人工,逐级降。</li>
+      <li>熔断器三态:关闭 → 打开(连续失败 N 次/错误率超阈值)→ 半开(冷却后放一个试探)。打开状态下调用根本不发出去,直接本地失败——省下的是每一次白等满超时的时间。</li>
+      <li>降级链:主工具 → 备用工具 → 缓存/规则结果 → 兜底话术+转人工,逐级降。降级不是失败,是"给用户一个诚实的次优答案"。</li>
     </ul>
+    <pre class="code">
+熔断器状态流转:
+
+  关闭 CLOSED(正常放行)
+    │ 连续失败 N 次 / 错误率超阈值
+    ▼
+  打开 OPEN(短路: 立刻返回失败, 不再真调用)
+    │ 冷却期到(如 30s)
+    ▼
+  半开 HALF-OPEN(只放 1 个试探请求)
+    ├── 试探成功 → 回到"关闭", 恢复放行
+    └── 试探失败 → 回到"打开", 重新计时
+    </pre>
+    <pre class="code">
+降级链(越往下结果越"糙", 但绝不空手而归):
+
+  主工具(实时物流 API)
+    └▶ 备用工具(第二数据源)
+        └▶ 缓存(该订单最近一次查到的物流)
+            └▶ 规则结果(按订单状态推算的预计送达)
+                └▶ 兜底话术 + 转人工
+    </pre>
     <p><b>6. 失败回灌 LLM(Agent 特有)</b></p>
     <ul>
-      <li>把工具错误转成结构化描述(错误码+原因+建议下一步)塞回对话,让模型自我纠错(换参数/换工具/澄清用户)。</li>
-      <li>限制纠错轮次(如 3 轮),防"失败-重试-再失败"死循环,超限走降级。</li>
+      <li>把工具错误转成结构化描述(错误码+原因+建议下一步)塞回对话,让模型自我纠错(换参数/换工具/澄清用户)。错误消息要写给 LLM 看,不是写给日志系统看:说人话、给建议、别甩一坨堆栈。</li>
+      <li>限制纠错轮次(如 3 轮),防"失败-重试-再失败"死循环,超限走降级。轮次上限是兜住 LLM"执迷不悟"的最后一道闸。</li>
     </ul>
+    <pre class="code">
+回灌给 LLM 的错误, 要"结构化 + 可行动":
+
+{
+  "tool": "query_logistics",
+  "error_code": "TIMEOUT",
+  "message": "物流接口 5 秒内未返回, 已重试 2 次仍超时",
+  "hint": "可改用 query_order_status 查订单状态, 或直接告知用户稍后查询"
+}
+
+LLM 读完自己决定: 换工具 / 改参数 / 向用户说明——而不是原地再撞一次
+    </pre>
     <p><b>7. 可观测</b></p>
     <ul>
-      <li>每个工具调用记录:耗时、成功率、重试次数、熔断状态;工具级 dashboard,哪个工具常超时一目了然。</li>
+      <li>每个工具调用记录:耗时、成功率、重试次数、熔断状态;工具级 dashboard,哪个工具常超时一目了然。重点盯三个数:P99 耗时(慢不慢)、重试率(稳不稳)、熔断开合频次(坏得勤不勤)。</li>
+      <li>再加一层会话级指标:平均工具调用轮数、纠错轮次触发率——若 LLM 频繁触发纠错,多半是工具描述写得差,该回去修描述,而不是无脑加容错。</li>
+      <li>验证手段学<a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Chaos_engineering">混沌工程</a>:测试环境定期"拔掉"一个工具(让它超时/5xx),看熔断、降级、回灌是否都按剧本走。容错没演练过,约等于没有。</li>
     </ul>
+    <p>一句话收束:<b>少而精的工具是源头减错,五层防线是过程兜错,结构化回灌是事后纠错,可观测让整套机制可持续</b>——四句话连起来,就是这道题的完整答案骨架。</p>
   </div>
 
   <div class="block fol"><span class="badge b-fol">面试官追问</span>
-    <details class="qa"><summary class="qu">Q:工具多了选错怎么办?</summary><div class="an">三层:① 从源头减——合并重叠工具、功能分组,控制在 15 个以内;② 描述质量——工具 description 写清"何时用/参数/返回/错误",很多选错是描述含糊导致;③ 选择辅助——用 function calling 的原生工具选择能力,必要时先过一层轻量路由(意图→工具组),让模型在组内选,缩小候选集。</div></details>
-    <details class="qa"><summary class="qu">Q:超时和熔断会不会把正常请求也误杀?</summary><div class="an">会,所以参数要调:超时按 P99 延迟的 2~3 倍设,别贴平均值;熔断阈值看"错误率"而非单次失败,半开状态放试探请求逐步恢复。误杀的本质是阈值太紧,用指标(熔断误伤率、超时占比)持续校准。</div></details>
-    <details class="qa"><summary class="qu">Q:工具返回超大结果怎么办?</summary><div class="an">工具侧先裁剪/分页(只返回 top N 或摘要),不要在 Agent 层硬塞;超大结果既拖慢又费 token,还容易让模型迷失重点。必要时工具返回"命中 M 条,已取前 N 条",把进一步筛选交给后续步骤。</div></details>
+    <details class="qa"><summary class="qu">Q:工具多了选错怎么办?</summary><div class="an"><b>人话:</b>三步走:先从源头减少工具,再把每个工具的"说明书"写好,最后加一层路由缩小候选范围。<b>类比:</b>存储系统从不把几千块裸盘直接暴露给上层,而是先划池、再建卷——LLM 也不该直面一百个工具,先按意图路由到某个"工具组",在组内挑。<b>技术:</b>① 合并功能重叠的工具、按领域分组,核心控制在 15 个以内;② description 写清"何时用/入参/返回/错误",多数选错源于描述含糊;③ 必要时前置一层轻量路由(意图→工具组),让模型只在组内选择,缩小候选集。</div></details>
+    <details class="qa"><summary class="qu">Q:超时和熔断会不会把正常请求也误杀?</summary><div class="an"><b>人话:</b>会,所以阈值不能拍脑袋:要拿真实延迟数据校准,还要留一条自动恢复的通道。<b>类比:</b>备份窗口定太紧,偶尔慢一点的大作业全被误判失败;定太松又护不住 SLA——阈值必须贴着真实分布调,并留"半开试探"当恢复通道,不能一刀切到底。<b>技术:</b>超时按该工具 P99 的 2~3 倍设,别贴平均值,否则长尾请求全被误杀;熔断看错误率而非单次失败,半开状态放试探请求逐步放量;上线后盯熔断误伤率、超时占比两个指标,新阈值先走灰度发布再全量。</div></details>
+    <details class="qa"><summary class="qu">Q:工具返回超大结果怎么办?</summary><div class="an"><b>人话:</b>在工具侧就裁剪好,别等大结果进了上下文再补救——又慢又贵,模型还容易看花眼。<b>类比:</b>备份系统从不把整卷裸数据塞给调度器,而是先给元数据摘要、按需再读详情;工具也应该只回"摘要+分页句柄",要细看再翻。<b>技术:</b>工具返回只取 top-k 或摘要,并注明"命中 M 条、已取前 N 条",模型需要更多时带游标翻页;长文本先摘要、按需取原文,把进一步筛选交给后续步骤完成。</div></details>
+    <details class="qa"><summary class="qu">Q:重试和熔断会不会打架——重试本身把下游打挂怎么办?</summary><div class="an"><b>人话:</b>真会打架:一次失败经重试放大成两三次请求,流量翻倍、错误率虚高,更容易触发熔断,甚至压垮本来健康的下游。<b>类比:</b>备份重跑风暴——一台客户端超时就地狂重试,介质端 QPS 瞬间翻倍,把健康作业也拖下水,典型的自己人打自己人。<b>技术:</b>给每用户每工具设重试预算;熔断阈值按逻辑请求数而非放大后的物理请求数计算;退避必须带抖动错峰;链路总预算耗尽就放弃重试,直接走降级。</div></details>
+    <details class="qa"><summary class="qu">Q:这套容错怎么验证真的有效,而不是纸面功夫?</summary><div class="an"><b>人话:</b>别等线上出事才见真章,平时就主动"点火"演练。<b>类比:</b>容灾演练——没人等真删库才验证主备切换,而是定期模拟故障、掐表核对 RTO 是否达标;容错链路同样要定期拉出来遛。<b>技术:</b>单测里 mock 工具的超时/429/5xx/畸形返回;集成环境用工具挡板按脚本注入故障,验证熔断开合、降级链、回灌与纠错轮次上限是否按剧本走;上线后定期混沌演练,拔掉一个工具,对照 dashboard 与用户侧表现复盘。</div></details>
   </div>
 
   <div class="block term"><span class="badge b-term">术语卡</span>
     <div class="terms-grid">
-      <div class="term-item"><b>幂等(Idempotency)</b>:同一操作执行多次,效果与一次相同。</div>
-      <div class="term-item"><b>熔断器(Circuit Breaker)</b>:连续失败后短路,防止无效调用。</div>
-      <div class="term-item"><b>指数退避</b>:重试等待时间按 1s→2s→4s 递增。</div>
-      <div class="term-item"><b>deadline 传播</b>:把剩余时间预算传给下游,让其主动收敛。</div>
-      <div class="term-item"><b>function calling</b>:模型输出结构化工具调用而非自由文本。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Idempotence">幂等(Idempotency)</a></b>:同一操作执行多次,效果与执行一次相同——判断能否安全重试的标尺。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Circuit_breaker_design_pattern">熔断器(Circuit Breaker)</a></b>:连续失败后短路、直接返回失败,冷却后试探恢复,防止无效调用雪崩。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Exponential_backoff">指数退避(Exponential Backoff)</a></b>:重试等待按 1s→2s→4s 翻倍递增,通常叠加随机抖动防同步重试。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Thundering_herd_problem">惊群(Thundering Herd)</a></b>:大量调用方同时重试形成流量尖峰,反而打挂下游,即"重试风暴"。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://grpc.io/docs/guides/deadlines/">deadline 传播</a></b>:把剩余时间预算逐级传给下游,让下游按余量主动收敛,而非被上级硬掐。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Failover">故障切换</a></b>:主路径故障时自动切到备用路径,容灾的核心动作,对应 Agent 的降级链。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Recovery_time_objective">RTO(恢复时间目标)</a></b>:容灾中"多久必须恢复业务"的时间上限,对应 Agent 的链路总预算。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://platform.openai.com/docs/guides/function-calling">function calling</a></b>:LLM 输出结构化的工具调用(工具名+参数),由框架代为执行再回灌结果。</div>
+      <div class="term-item"><b><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Chaos_engineering">混沌工程</a></b>:主动注入故障、演练系统韧性,验证容错机制真的有效。</div>
     </div>
   </div>
 </article>
