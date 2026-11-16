@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: careerpilot-db
+    environment:
+      POSTGRES_USER: careerpilot
+      POSTGRES_PASSWORD: careerpilot_dev
+      POSTGRES_DB: careerpilot
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "${PG_HOST_PORT:-5432}:5432"   # 宿主机可见, 便于 pg_dump 备份(冲突时可用 PG_HOST_PORT 改口)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U careerpilot -d careerpilot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  server:
+    build: ./server
+    container_name: careerpilot-api
+    environment:
+      DATABASE_URL: postgresql+asyncpg://careerpilot:careerpilot_dev@postgres:5432/careerpilot
+      API_TOKEN: ${API_TOKEN:-cp-dev-token}
+      DEFAULT_WORKSPACE_SLUG: ${DEFAULT_WORKSPACE_SLUG:-demo}
+      # LLM(可选; 不配置则走确定性规则引擎, 功能不缺失只降级)
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      # 公开内容发布(GitHub, 可选)
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      PORTAL_TARGET_REPO: ${PORTAL_TARGET_REPO:-Lueyu/agent-interview}
+      PORTAL_BASE_BRANCH: ${PORTAL_BASE_BRANCH:-master}
+      PORTAL_CONTENT_DIR: ${PORTAL_CONTENT_DIR:-portal/content}
+      PORTAL_AUTO_MERGE: ${PORTAL_AUTO_MERGE:-true}
+    ports:
+      - "${API_HOST_PORT:-8000}:8000"  # 本机 8000 被占用时可用 API_HOST_PORT 改口
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .            # 仓库根: 题库构建需要 data.js
+      dockerfile: web/Dockerfile
+    container_name: careerpilot-web
+    ports:
+      - "${WEB_HOST_PORT:-5173}:80"    # 本机 5173 被占用时可用 WEB_HOST_PORT 改口
+    depends_on:
+      - server
+
+volumes:
+  pgdata:

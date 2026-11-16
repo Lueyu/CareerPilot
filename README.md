@@ -11,6 +11,13 @@ Evidence-driven career growth platform for AI engineers
 
 ---
 
+## 更多文档
+
+- [后端审计与架构](BACKEND_AUDIT.md) · [API 对照](API_GAP_REPORT.md) · [数据模型](DATABASE_GAP_REPORT.md)
+- [公开内容发布设计与安全红线](PUBLIC_CONTENT_BACKEND_PLAN.md) · [部署指南](LOCAL_DEPLOYMENT_GUIDE.md)
+
+---
+
 ## 这是什么
 
 CareerPilot 不做"刷题工具"。它围绕一条核心闭环工作：
@@ -60,14 +67,18 @@ deploy/               agent-interview.icu 发布脚本（OSS 静态托管链路�
 
 ## 快速开始
 
-### 前置
+**方式 A · Docker Compose（推荐）**
 
-- Node.js ≥ 18
-- Python ≥ 3.11
-- PostgreSQL（本地 5432）
+```powershell
+cp .env.example .env    # 按需填入 LLM / GitHub Token（均可留空，功能自动降级）
+docker compose up -d --build
+# 打开 http://localhost:5173 ，API 文档 http://localhost:8000/api/v1/docs
+```
+
+**方式 B · 本地裸跑（开发）**
 
 ```bash
-# 1) 数据库（一次性）
+# 1) 数据库（一次性, 本地 PostgreSQL 或只起一个 DB 容器）
 createuser careerpilot --createdb 2>/dev/null || true
 psql -c "ALTER USER careerpilot PASSWORD 'careerpilot_dev';"
 createdb careerpilot -O careerpilot
@@ -75,8 +86,9 @@ createdb careerpilot -O careerpilot
 # 2) 后端
 cd server
 pip install -r requirements.txt
-python -m app.seed          # 幂等种子：8 能力域 + 161 题 + demo 工作空间
+python migrate.py           # 幂等 SQL 迁移（可重复执行）
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+#    首次启动自动 create_all + 种子（8 能力域 / 题库映射 / demo 工作空间）
 
 # 3) 前端
 cd web
@@ -86,15 +98,20 @@ npm run dev                 # http://localhost:5173
 
 后端不可用时前端自动降级为静态演示模式（页面顶部会提示）。
 
-### 环境变量（server/.env，均可省略）
+### 环境变量（.env，均可省略）
 
 ```
 DATABASE_URL=postgresql+asyncpg://careerpilot:careerpilot_dev@localhost:5432/careerpilot
 API_TOKEN=cp-dev-token
-LLM_PROVIDER=          # 空 = 规则引擎模式（不依赖外部 LLM）
+LLM_PROVIDER=          # 空 = 确定性规则引擎（不依赖外部 LLM）
 LLM_API_KEY=
+LLM_BASE_URL=
 LLM_MODEL=
+GITHUB_TOKEN=          # 空 = 公开内容发布功能停用（页面诚实标注）
 ```
+
+数据备份/恢复（`deploy/backup.ps1` · `restore.ps1`）、公开门户构建与完整部署说明见
+**[LOCAL_DEPLOYMENT_GUIDE.md](LOCAL_DEPLOYMENT_GUIDE.md)**。
 
 ## 界面主题
 
