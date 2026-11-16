@@ -82,9 +82,9 @@ export default function Settings() {
           )}
           {!loading && !loadErr && ov && (
             <>
-              {tab === 'account' && <AccountTab ov={ov} />}
+              {tab === 'account' && <AccountTab ov={ov} reload={load} toast={toast} />}
               {tab === 'workspace' && <WorkspaceTab ov={ov} reload={load} toast={toast} />}
-              {tab === 'models' && <ModelsTab ov={ov} />}
+              {tab === 'models' && <ModelsTab toast={toast} />}
               {tab === 'data' && <DataTab ov={ov} toast={toast} />}
               {tab === 'rules' && <RulesTab />}
             </>
@@ -95,21 +95,56 @@ export default function Settings() {
   );
 }
 
-/* ---------------- 账号 ---------------- */
-function AccountTab({ ov }: { ov: SettingsOverview }) {
+/* ---------------- 账号(可编辑) ---------------- */
+function AccountTab({ ov, reload, toast }: { ov: SettingsOverview; reload: () => Promise<void>; toast: (ic: string, msg: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(ov.account.display_name || '');
+  const [email, setEmail] = useState(ov.account.email || '');
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (!name.trim() || !email.trim()) { toast('⚠️', '昵称与邮箱都不能为空'); return; }
+    if (!email.includes('@')) { toast('⚠️', '邮箱格式不正确'); return; }
+    setSaving(true);
+    try {
+      await api.patch('/settings/account', { display_name: name.trim(), email: email.trim() });
+      await reload();
+      setEditing(false);
+      toast('✅', '账号信息已更新');
+    } catch (e) {
+      toast('❌', `保存失败: ${e instanceof ApiError ? e.message : String(e)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="card">
-      <div className="card-head"><span className="card-title">账号</span></div>
+      <div className="card-head">
+        <span className="card-title">账号</span>
+        {!editing && <button className="btn btn-outline btn-sm" onClick={() => { setName(ov.account.display_name || ''); setEmail(ov.account.email || ''); setEditing(true); }}>编辑</button>}
+      </div>
       <div className="list-row">
         <div className="list-ic avatar">🧑</div>
-        <div className="list-main">
-          <div className="list-title">{ov.account.display_name} · {ov.account.email}</div>
-          <div className="list-sub">个人账号 · 拥有 {ov.members.length} 个成员身份</div>
-        </div>
+        {!editing ? (
+          <div className="list-main">
+            <div className="list-title">{ov.account.display_name} · {ov.account.email}</div>
+            <div className="list-sub">个人账号 · 拥有 {ov.members.length} 个成员身份</div>
+          </div>
+        ) : (
+          <div className="list-main" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div className="field"><label>昵称</label><input className="inp" value={name} onChange={(e) => setName(e.target.value)} /></div>
+            <div className="field"><label>邮箱</label><input className="inp" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+          </div>
+        )}
       </div>
-      <p className="hint" style={{ marginTop: 8 }}>
-        账号信息由本地数据库管理；当前版本为单用户本地部署，登录与邮箱修改暂未开放。
-      </p>
+      {editing && (
+        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+          <button className="btn btn-primary btn-sm" disabled={saving} onClick={() => void save()}>{saving ? '保存中…' : '保存'}</button>
+          <button className="btn btn-outline btn-sm" onClick={() => setEditing(false)}>取消</button>
+        </div>
+      )}
+      <p className="hint" style={{ marginTop: 8 }}>账号信息存本地数据库（单用户本地部署）；邮箱用于数据导出标识。</p>
     </div>
   );
 }
@@ -193,32 +228,197 @@ function WorkspaceTab({ ov, reload, toast }: { ov: SettingsOverview; reload: () 
   );
 }
 
-/* ---------------- 模型与连接 ---------------- */
-function ModelsTab({ ov }: { ov: SettingsOverview }) {
-  const llm = ov.connections.llm;
-  const gh = ov.connections.github_publish;
+/* ---------------- 模型与连接(全可配置) ---------------- */
+type LlmCfg = {
+  active: boolean; provider: string | null; base_url: string | null; model: string | null;
+  api_key_set: boolean; api_key_hint: string | null; source: 'db' | 'env' | 'none';
+};
+type GhCfg = {
+  active: boolean; token_hint: string | null; source: 'db' | 'env' | 'none';
+  target_repo?: string; base_branch?: string; content_dir?: string;
+};
+
+function ModelsTab({ toast }: { toast: (ic: string, msg: string) => void }) {
+  // ---- LLM 配置 ----
+  const [llm, setLlm] = useState<LlmCfg | null>(null);
+  const [provider, setProvider] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [model, setModel] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [llmSaving, setLlmSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testRes, setTestRes] = useState<{ ok: boolean; latency_ms?: number; model?: string; reply?: string; error?: string } | null>(null);
+  const [llmErr, setLlmErr] = useState<string | null>(null);
+
+  // ---- GitHub 配置 ----
+  const [gh, setGh] = useState<GhCfg | null>(null);
+  const [ghToken, setGhToken] = useState('');
+  const [ghSaving, setGhSaving] = useState(false);
+
+  const loadLlm = useCallback(async () => {
+    try {
+      const c = await api.get<LlmCfg>('/settings/llm');
+      setLlm(c);
+      setProvider(c.provider || 'gateway');
+      setBaseUrl(c.base_url || '');
+      setModel(c.model || '');
+      setApiKey(''); // 密钥不回显, 空=保留现有
+      setLlmErr(null);
+    } catch (e) {
+      setLlmErr(e instanceof ApiError ? e.message : String(e));
+    }
+  }, []);
+  const loadGh = useCallback(async () => {
+    try { setGh(await api.get<GhCfg>('/settings/github')); } catch { /* 忽略, 卡片显示未配置 */ }
+  }, []);
+  useEffect(() => { void loadLlm(); void loadGh(); }, [loadLlm, loadGh]);
+
+  const saveLlm = async () => {
+    setLlmSaving(true);
+    try {
+      await api.put('/settings/llm', {
+        provider: provider.trim() || undefined,
+        base_url: baseUrl.trim() || undefined,
+        model: model.trim() || undefined,
+        api_key: apiKey.trim(), // 空字符串 = 保留现有密钥
+      });
+      await loadLlm();
+      toast('✅', 'LLM 连接已保存并立即生效');
+    } catch (e) {
+      toast('❌', `保存失败: ${e instanceof ApiError ? e.message : String(e)}`);
+    } finally {
+      setLlmSaving(false);
+    }
+  };
+
+  const testLlm = async () => {
+    setTesting(true);
+    setTestRes(null);
+    try {
+      const r = await api.post<typeof testRes>('/settings/llm/test', {
+        provider: provider.trim() || undefined,
+        base_url: baseUrl.trim() || undefined,
+        model: model.trim() || undefined,
+        api_key: apiKey.trim() || undefined, // 测试允许用未保存的新 key 试连
+      });
+      setTestRes(r);
+    } catch (e) {
+      setTestRes({ ok: false, error: e instanceof ApiError ? e.message : String(e) });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const resetLlm = async () => {
+    try {
+      await api.del('/settings/llm');
+      await loadLlm();
+      setTestRes(null);
+      toast('↩️', '已恢复 server/.env 默认 LLM 配置');
+    } catch (e) {
+      toast('❌', `重置失败: ${String(e)}`);
+    }
+  };
+
+  const saveGh = async () => {
+    if (!ghToken.trim()) { toast('⚠️', '粘贴新的 GitHub token（留空不保存）'); return; }
+    setGhSaving(true);
+    try {
+      await api.put('/settings/github', { token: ghToken.trim() });
+      setGhToken('');
+      await loadGh();
+      toast('✅', 'GitHub token 已保存并立即生效');
+    } catch (e) {
+      toast('❌', `保存失败: ${e instanceof ApiError ? e.message : String(e)}`);
+    } finally {
+      setGhSaving(false);
+    }
+  };
+
+  const resetGh = async () => {
+    try {
+      await api.del('/settings/github');
+      await loadGh();
+      toast('↩️', '已恢复 server/.env 默认 GITHUB_TOKEN');
+    } catch (e) {
+      toast('❌', `重置失败: ${String(e)}`);
+    }
+  };
+
+  const srcChip = (s?: string) => s === 'db' ? <span className="chip chip-purple">页面配置</span> : s === 'env' ? <span className="chip chip-slate">.env 默认</span> : null;
+
   return (
     <>
       <div className="card">
-        <div className="card-head"><span className="card-title">已配置的连接</span></div>
-        <div className="list-row">
-          <div className="list-ic">🤖</div>
-          <div className="list-main">
-            <div className="list-title">LLM（推理与生成）</div>
-            <div className="list-sub">{llm.active ? `${llm.provider} · ${llm.model} · 面经提取/答案草稿/评分增强走模型，失败自动降级规则` : '未配置 · 全部走规则引擎降级（server/.env 设置 LLM_PROVIDER / LLM_API_KEY 后启用）'}</div>
-          </div>
-          <span className={`chip ${llm.active ? 'chip-green' : 'chip-slate'}`}>{llm.active ? '已连接' : '未配置'}</span>
+        <div className="card-head">
+          <span className="card-title">LLM 连接（推理与生成）</span>
+          {llm && <span className={`chip ${llm.active ? 'chip-green' : 'chip-slate'}`}>{llm.active ? '已连接' : '未配置'}</span>}
         </div>
-        <div className="list-row">
-          <div className="list-ic">🐙</div>
-          <div className="list-main">
-            <div className="list-title">GitHub 发布</div>
-            <div className="list-sub">{gh.active ? `${gh.target_repo} · 内容目录 ${gh.content_dir} · 基线 ${gh.base_branch} · 低风险自动合并默认${gh.auto_merge_default ? '开' : '关'}` : '未配置 · server/.env 设置 GITHUB_TOKEN 后启用（公开内容发布需要）'}</div>
-          </div>
-          <span className={`chip ${gh.active ? 'chip-green' : 'chip-slate'}`}>{gh.active ? '已连接' : '未配置'}</span>
-        </div>
-        <p className="hint" style={{ marginTop: 8 }}>密钥只存本地 server/.env，接口不回显。</p>
+        {llmErr && <p className="hint" style={{ color: 'var(--red)' }}>加载失败: {llmErr}</p>}
+        {llm && (
+          <>
+            <p className="hint" style={{ margin: '4px 0 12px' }}>
+              当前生效：{llm.provider || '—'} · {llm.model || '—'} · 密钥 {llm.api_key_hint || '未设置'} {srcChip(llm.source)}
+              <br />修改后立即生效，无需重启后端；密钥只存本地（DB/env），接口不回显。LLM 失败时自动降级规则引擎。
+            </p>
+            <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="field">
+                <label>Provider（标识名，任意）</label>
+                <input className="inp" value={provider} onChange={(e) => setProvider(e.target.value)} placeholder="gateway / deepseek / glm" />
+              </div>
+              <div className="field">
+                <label>模型名</label>
+                <input className="inp" value={model} onChange={(e) => setModel(e.target.value)} placeholder="如 deepseek-v4-flash" />
+              </div>
+            </div>
+            <div className="field">
+              <label>Base URL（OpenAI 兼容 /v1）</label>
+              <input className="inp" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://…/v1" />
+            </div>
+            <div className="field">
+              <label>API Key {llm.api_key_set && <span className="hint" style={{ display: 'inline' }}>（已设置 {llm.api_key_hint}，留空保留）</span>}</label>
+              <input className="inp" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="粘贴新 Key，留空保留现有" />
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button className="btn btn-primary btn-sm" disabled={llmSaving} onClick={() => void saveLlm()}>{llmSaving ? '保存中…' : '保存'}</button>
+              <button className="btn btn-outline btn-sm" disabled={testing} onClick={() => void testLlm()}>{testing ? '测试中…' : '🔌 测试连接'}</button>
+              {llm.source === 'db' && <button className="btn btn-ghost btn-sm" onClick={() => void resetLlm()}>恢复 .env 默认</button>}
+            </div>
+            {testRes && (
+              <div className={`hint`} style={{ marginTop: 10, color: testRes.ok ? 'var(--green)' : 'var(--red)' }}>
+                {testRes.ok
+                  ? `✅ 连接成功 · ${testRes.model} · ${testRes.latency_ms}ms · 回复「${testRes.reply}」`
+                  : `❌ 测试失败：${testRes.error}`}
+              </div>
+            )}
+          </>
+        )}
       </div>
+
+      <div className="card">
+        <div className="card-head">
+          <span className="card-title">GitHub 发布</span>
+          {gh && <span className={`chip ${gh.active ? 'chip-green' : 'chip-slate'}`}>{gh.active ? '已连接' : '未配置'}</span>}
+        </div>
+        {gh && (
+          <>
+            <p className="hint" style={{ margin: '4px 0 12px' }}>
+              当前：token {gh.token_hint || '未设置'} {srcChip(gh.source)}
+              {gh.active && <> · 仓库 {gh.target_repo} · 目录 {gh.content_dir} · 基线 {gh.base_branch}</>}
+              <br />token 需要 contents:write + pull requests:write 权限；只存本地，接口不回显。
+            </p>
+            <div className="field">
+              <label>Personal Access Token {gh.token_hint && <span className="hint" style={{ display: 'inline' }}>（已设置 {gh.token_hint}）</span>}</label>
+              <input className="inp" type="password" value={ghToken} onChange={(e) => setGhToken(e.target.value)} placeholder="ghp_… / gho_…，留空保留现有" />
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+              <button className="btn btn-primary btn-sm" disabled={ghSaving || !ghToken.trim()} onClick={() => void saveGh()}>{ghSaving ? '保存中…' : '保存'}</button>
+              {gh.source === 'db' && <button className="btn btn-ghost btn-sm" onClick={() => void resetGh()}>恢复 .env 默认</button>}
+            </div>
+          </>
+        )}
+      </div>
+
       <div className="card">
         <div className="card-head"><span className="card-title">尚未接入</span></div>
         {[

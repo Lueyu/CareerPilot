@@ -38,7 +38,7 @@ from app.models.public_content import (
     DRAFT_STATUS_VALIDATION_FAILED,
 )
 from app.services.content_validation import is_low_risk, run_all
-from app.services.github_publish import GitHubError, GitHubPublisher, make_publisher
+from app.services.github_publish import GitHubError, GitHubPublisher, make_publisher_rt
 from app.services.tracing import add_span, emit_event, finish_trace, start_trace
 
 router = APIRouter()
@@ -400,7 +400,7 @@ async def publish_draft(
     await session.flush()
 
     try:
-        publisher = make_publisher(dry_run=dry_run)
+        publisher = await make_publisher_rt(dry_run=dry_run)
         # 1) base sha(只读)
         base_sha = await publisher.get_base_sha(repo, base_branch)
         pub.base_sha = base_sha
@@ -522,7 +522,7 @@ async def refresh_build(
         raise HTTPException(status_code=404, detail=f"publication {pub_id} not found")
     if not p.head_sha:
         return _pub_view(p)
-    publisher = make_publisher()
+    publisher = await make_publisher_rt()
     runs = await publisher.get_workflow_runs(p.target_repo, p.head_sha)
     if runs:
         latest = max(runs, key=lambda r: r.get("created_at") or "")
@@ -576,7 +576,7 @@ async def rollback_publication(
     content_dir = settings.portal_content_dir.rstrip("/")
     path = draft.target_path or f"{content_dir}/{draft.slug}.md"
 
-    publisher = make_publisher()
+    publisher = await make_publisher_rt()
     t0 = time.perf_counter()
     trace = await start_trace(session, ws.id, "public_content_rollback", f"回滚公开内容: {draft.title}", short_code=f"TR-R{int(t0)}")
     try:

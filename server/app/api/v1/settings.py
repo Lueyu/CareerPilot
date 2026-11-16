@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -23,6 +24,7 @@ from app.api.deps import get_workspace
 from app.config import get_settings
 from app.db import get_session
 from app.models import (
+    AppSetting,
     ContentPublication,
     ContentPublicationRule,
     ContentReleaseAudit,
@@ -47,6 +49,8 @@ from app.models import (
     Workspace,
     WorkspaceMember,
 )
+from app.services.github_publish import get_github_token, set_github_token_cache
+from app.services.llm import adapter, get_llm_config, set_llm_config_cache
 
 router = APIRouter()
 
@@ -294,3 +298,199 @@ async def delete_workspace(
     await session.execute(delete(Workspace).where(Workspace.id == ws.id))
     await session.commit()
     return {"deleted": ws.slug}
+
+
+# --------------------------------------------------------------------------
+# 账号编辑(本地单用户: 直接更新 owner 用户行)
+# --------------------------------------------------------------------------
+class AccountUpdate(BaseModel):
+    display_name: str | None = None
+    email: str | None = None
+
+
+async def _owner_user(session: AsyncSession, ws: Workspace) -> User | None:
+    row = (
+        await session.execute(
+            select(User)
+            .join(WorkspaceMember, WorkspaceMember.user_id == User.id)
+            .where(WorkspaceMember.workspace_id == ws.id, WorkspaceMember.role == "owner")
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        row = (
+            await session.execute(
+                select(User)
+                .join(WorkspaceMember, WorkspaceMember.user_id == User.id)
+                .where(WorkspaceMember.workspace_id == ws.id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    return row
+
+
+@router.patch("/settings/account")
+async def update_account(
+    body: AccountUpdate,
+    ws: Workspace = Depends(get_workspace),
+    session: AsyncSession = Depends(get_session),
+):
+    user = await _owner_user(session, ws)
+    if user is None:
+        raise HTTPException(status_code=404, detail="找不到工作空间的账号记录")
+    data = body.model_dump(exclude_none=True)
+    if not data:
+        raise HTTPException(status_code=422, detail="没有要更新的字段")
+    if "email" in data and ("@" not in data["email"]):
+        raise HTTPException(status_code=422, detail="邮箱格式不正确")
+    for k, v in data.items():
+        setattr(user, k, v)
+    await session.commit()
+    return {"account": {"display_name": user.display_name, "email": user.email}}
+
+
+# --------------------------------------------------------------------------
+# LLM 连接: 设置页在线配置(AppSetting 'llm' 优先, env 兜底), 保存即时生效
+# --------------------------------------------------------------------------
+class LlmUpdate(BaseModel):
+    provider: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+
+
+class LlmTest(BaseModel):
+    provider: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+
+
+def _hint(key: str) -> str | None:
+    return f"****{key[-4:]}" if key else None
+
+
+async def _llm_payload() -> dict:
+    cfgv = await get_llm_config()
+    provider = cfgv.get("provider") or ""
+    key = cfgv.get("api_key") or ""
+    return {
+        "active": bool(provider and key),
+        "provider": provider or None,
+        "base_url": cfgv.get("base_url") or None,
+        "model": cfgv.get("model") or None,
+        "api_key_set": bool(key),
+        "api_key_hint": _hint(key),
+        "source": cfgv.get("source", "none"),
+    }
+
+
+@router.get("/settings/llm")
+async def get_llm():
+    return await _llm_payload()
+
+
+@router.put("/settings/llm")
+async def update_llm(
+    body: LlmUpdate,
+    session: AsyncSession = Depends(get_session),
+):
+    row = (await session.execute(select(AppSetting).where(AppSetting.key == "llm"))).scalar_one_or_none()
+    existing = dict(row.value) if (row and isinstance(row.value, dict)) else {}
+    if not row:
+        row = AppSetting(key="llm", value={})
+        session.add(row)
+    data = body.model_dump(exclude_none=True)
+    if not data:
+        raise HTTPException(status_code=422, detail="没有要更新的字段")
+    # api_key 为空字符串 = 保留现有密钥(不覆盖)
+    if data.get("api_key") == "":
+        data.pop("api_key")
+    existing.update(data)
+    # 清理空值字段, 保留结构
+    existing = {k: v for k, v in existing.items() if v}
+    row.value = existing
+    await session.commit()
+    set_llm_config_cache(None)  # 立即重新解析(下次 get_llm_config 查库)
+    return await _llm_payload()
+
+
+@router.delete("/settings/llm")
+async def reset_llm(session: AsyncSession = Depends(get_session)):
+    """清除 DB 覆盖, 回落到 env 默认配置。"""
+    await session.execute(delete(AppSetting).where(AppSetting.key == "llm"))
+    await session.commit()
+    set_llm_config_cache(None)
+    return {"reset": True}
+
+
+@router.post("/settings/llm/test")
+async def test_llm(body: LlmTest):
+    """用「生效配置 + 请求覆盖」真实调用一次 chat, 验证连通性。"""
+    cfgv = dict(await get_llm_config())
+    for k, v in body.model_dump(exclude_none=True).items():
+        if v:
+            cfgv[k] = v
+    t0 = time.monotonic()
+    result = await adapter.chat_with(cfgv, "你是连接测试助手。", "请只回复两个字符: OK", timeout=30.0)
+    latency_ms = int((time.monotonic() - t0) * 1000)
+    if result is None:
+        return {"ok": False, "latency_ms": latency_ms, "model": cfgv.get("model"), "error": "调用失败(网络/凭证/模型名), 未返回内容"}
+    reply = (result.get("content") or "").strip()
+    return {"ok": True, "latency_ms": latency_ms, "model": cfgv.get("model"), "reply": reply[:120]}
+
+
+# --------------------------------------------------------------------------
+# GitHub token: 设置页在线配置(AppSetting 'github' 优先, env 兜底)
+# --------------------------------------------------------------------------
+class GithubUpdate(BaseModel):
+    token: str
+
+
+async def _github_payload() -> dict:
+    token = await get_github_token()
+    cfg = get_settings()
+    if not token:
+        return {"active": False, "token_hint": None, "source": "none"}
+    # 判断来源: DB 行存在 → db
+    from app.db import SessionLocal
+
+    async with SessionLocal() as s:
+        row = (await s.execute(select(AppSetting).where(AppSetting.key == "github"))).scalar_one_or_none()
+    return {
+        "active": True,
+        "token_hint": _hint(token),
+        "source": "db" if row else "env",
+        "target_repo": cfg.portal_target_repo,
+        "base_branch": cfg.portal_base_branch,
+        "content_dir": cfg.portal_content_dir,
+    }
+
+
+@router.get("/settings/github")
+async def get_github():
+    return await _github_payload()
+
+
+@router.put("/settings/github")
+async def update_github(body: GithubUpdate, session: AsyncSession = Depends(get_session)):
+    token = body.token.strip()
+    if not token:
+        raise HTTPException(status_code=422, detail="token 不能为空")
+    row = (await session.execute(select(AppSetting).where(AppSetting.key == "github"))).scalar_one_or_none()
+    if not row:
+        row = AppSetting(key="github", value={"token": token})
+        session.add(row)
+    else:
+        row.value = {"token": token}
+    await session.commit()
+    set_github_token_cache(token)
+    return await _github_payload()
+
+
+@router.delete("/settings/github")
+async def reset_github(session: AsyncSession = Depends(get_session)):
+    await session.execute(delete(AppSetting).where(AppSetting.key == "github"))
+    await session.commit()
+    set_github_token_cache(None)
+    return {"reset": True}

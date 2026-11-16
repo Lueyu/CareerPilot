@@ -7,11 +7,47 @@
 from __future__ import annotations
 
 import base64
+import time
 from typing import Any
 
 import httpx
+from sqlalchemy import select
 
 from app.config import get_settings
+
+# GitHub token 运行时解析缓存(AppSetting 'github' 优先于 env; 设置页保存后刷新)
+_GH_CACHE: str | None = None
+_GH_AT: float = 0.0
+_GH_TTL = 10.0
+
+
+async def get_github_token() -> str:
+    """设置页可在线修改 GitHub token: DB AppSetting('github') 优先, env 兜底。"""
+    global _GH_CACHE, _GH_AT
+    now = time.monotonic()
+    if _GH_CACHE is not None and (now - _GH_AT) < _GH_TTL:
+        return _GH_CACHE
+    token = get_settings().github_token or ""
+    try:
+        from app.db import SessionLocal
+        from app.models import AppSetting
+
+        async with SessionLocal() as session:
+            row = (await session.execute(select(AppSetting).where(AppSetting.key == "github"))).scalar_one_or_none()
+        if row and isinstance(row.value, dict) and row.value.get("token"):
+            token = row.value["token"]
+    except Exception:
+        pass
+    _GH_CACHE = token
+    _GH_AT = now
+    return token
+
+
+def set_github_token_cache(value: str | None) -> None:
+    """设置页保存/清除 token 后立即刷新缓存。"""
+    global _GH_CACHE, _GH_AT
+    _GH_CACHE = value
+    _GH_AT = time.monotonic()
 
 
 class GitHubError(Exception):
@@ -134,3 +170,9 @@ class GitHubPublisher:
 
 def make_publisher(dry_run: bool = False) -> GitHubPublisher:
     return GitHubPublisher(dry_run=dry_run)
+
+
+async def make_publisher_rt(dry_run: bool = False) -> GitHubPublisher:
+    """运行时 publisher: token 从 AppSetting/env 动态解析(设置页在线修改即时生效)。"""
+    token = await get_github_token()
+    return GitHubPublisher(token=token or None, dry_run=dry_run)
