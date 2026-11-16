@@ -184,7 +184,23 @@ export interface LearningTaskView {
   id: number; title: string; kind: string; why?: string | null; why_ref?: string | null;
   est_minutes: number; acceptance?: string | null; status: string;
   skill_name?: string | null; due_date?: string | null; retest_round?: number;
-  content?: { steps?: string[]; principles?: string[]; verify?: string } | null;
+  content?: {
+    steps?: string[]; principles?: string[]; verify?: string;
+    analogy?: string; example?: string; source?: string;
+    help_cache?: Record<string, { text: string; source: string }>;
+  } | null;
+}
+
+export interface TaskContentResp {
+  id: number;
+  content: {
+    analogy?: string; example?: string; principles?: string[]; steps?: string[]; verify?: string; source?: string;
+  };
+  llm_active?: boolean;
+}
+
+export interface TaskHelpResp {
+  mode: string; text: string | null; source: string; error?: string;
 }
 
 export interface BankData {

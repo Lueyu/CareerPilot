@@ -33,7 +33,7 @@ export default function Learning() {
         day: `${r.due_in_days <= 0 ? '今天' : `${r.due_in_days} 天后`}`, date: r.due_date.slice(0, 10),
         tasks: [r.title], id: r.id,
       }))
-    : RETEST_PLAN.map((r) => ({ ...r, id: 't3' }));
+    : RETEST_PLAN.map((r, i) => ({ ...r, id: `t3-${i}` }));
 
   return (
     <div>

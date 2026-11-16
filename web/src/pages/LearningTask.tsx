@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAppState } from '../components/AppState';
 import { DemoBanner, Modal, PageHead } from '../components/ui';
-import { api, LearningTaskView } from '../api/client';
+import { api, LearningTaskView, TaskContentResp, TaskHelpResp } from '../api/client';
 import { TODAY_TASKS } from '../data/demo';
 
 const TYPE_NAME: Record<string, string> = { UNDERSTAND: '理解', PRACTICE: '实践', RETEST: '复测' };
@@ -73,13 +73,6 @@ const STEP_META = [
 ];
 
 // 每步帮助文案(demo)
-const HELP_TEXT: Record<string, string> = {
-  simpler: '好，用更基础的话再讲一遍：先把这步的结论记成一个「如果…就…」的句子，再回来看类比。仍然抽象时，跳过术语只记场景。',
-  example: '换一个场景：想象你在给同事讲这个概念，同事只听懂了「外卖/取餐号/白板」这类生活词——用同样的方式把这一步再描述一次。',
-  project: '把这一步映射到你的项目：找到你代码里对应的位置（或计划补上的位置），写下「这里对应这步的什么」。写不出来 = 这步还没懂。',
-  code: '看代码（示例）：伪代码层面把这一步落成 5-10 行，参数怎么传、返回什么、错误往哪走。写不出来再回上一步。',
-  stuck: '没关系，把它记下来：这个点已加入你的「知识缺口」清单，学习中心会安排复测，现在可以先继续往下走。',
-};
 
 export default function LearningTask() {
   const { id } = useParams();
@@ -90,6 +83,13 @@ export default function LearningTask() {
   const [stepIdx, setStepIdx] = useState(0);
   const [helpKey, setHelpKey] = useState<string | null>(null);
   const [stepDone, setStepDone] = useState<boolean[]>([false, false, false, false, false]);
+  // M-D: 真实教学内容(LLM/规则生成) + 求助接口
+  const [gen, setGen] = useState<LearningTaskView['content'] | null>(null);
+  const [contentBusy, setContentBusy] = useState(false);
+  const [contentErr, setContentErr] = useState<string | null>(null);
+  const [helpText, setHelpText] = useState<string | null>(null);
+  const [helpSrc, setHelpSrc] = useState<string>('');
+  const [helpBusy, setHelpBusy] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -98,6 +98,56 @@ export default function LearningTask() {
       .catch(() => { if (alive) setNotFound(true); });
     return () => { alive = false; };
   }, [id]);
+
+  // 教学内容: 已缓存(任务 detail 带 analogy)直接用; 否则调生成接口(LLM/规则)
+  useEffect(() => {
+    const c = task?.content;
+    if (c?.analogy && (c.source === 'llm' || c.source === 'rule')) {
+      setGen(c);
+      return;
+    }
+    if (!task) return;
+    let alive = true;
+    setContentBusy(true);
+    setContentErr(null);
+    api.get<TaskContentResp>(`/learning/tasks/${task.id}/content`)
+      .then((r) => { if (alive) setGen(r.content); })
+      .catch((e: any) => { if (alive) setContentErr(String(e.message || e)); })
+      .finally(() => { if (alive) setContentBusy(false); });
+    return () => { alive = false; };
+  }, [task]);
+
+  const doHelp = async (mode: string) => {
+    if (!task) return;
+    // 缓存命中直接展示
+    const cached = task.content?.help_cache?.[mode] || gen?.help_cache?.[mode];
+
+    if (cached?.text) {
+      setHelpText(cached.text);
+      setHelpSrc(cached.source);
+      setHelpKey(mode);
+      return;
+    }
+    setHelpKey(mode);
+    setHelpBusy(true);
+    setHelpText(null);
+    setHelpSrc('');
+    try {
+      const r = await api.post<TaskHelpResp>(`/learning/tasks/${task.id}/help`, { mode });
+      if (r.error) {
+        setHelpText(r.error);
+        setHelpSrc('none');
+      } else {
+        setHelpText(r.text || '（暂时没有生成内容，请稍后再试）');
+        setHelpSrc(r.source);
+      }
+    } catch (e: any) {
+      setHelpText(`求助失败: ${e.message || e}`);
+      setHelpSrc('none');
+    } finally {
+      setHelpBusy(false);
+    }
+  };
 
   // 后端任务优先; 失败降级 demo
   const fbTask = TODAY_TASKS.find((t) => t.id === id) ?? TODAY_TASKS[0];
@@ -110,12 +160,13 @@ export default function LearningTask() {
 
   const fb: FiveStep = FALLBACK_CONTENT[(fbTask.id as string)] ?? FALLBACK_CONTENT.t1;
   const content: FiveStep = {
-    analogy: fb.analogy,
-    example: fb.example,
-    principles: task?.content?.principles?.length ? task.content.principles : fb.principles,
-    practice: task?.content?.steps?.length ? task.content.steps : fb.practice,
-    verify: task?.content?.verify || acceptance || fb.verify,
+    analogy: gen?.analogy || fb.analogy,
+    example: gen?.example || fb.example,
+    principles: gen?.principles?.length ? gen.principles : (task?.content?.principles?.length ? task.content.principles : fb.principles),
+    practice: gen?.steps?.length ? gen.steps : (task?.content?.steps?.length ? task.content.steps : fb.practice),
+    verify: gen?.verify || acceptance || fb.verify,
   };
+  const genSource = gen?.source;
 
   const step = STEP_META[stepIdx];
   const allPrevDone = stepDone.slice(0, 4).every(Boolean);
@@ -135,12 +186,14 @@ export default function LearningTask() {
     navigate('/learning');
   };
 
-  const helpBtns: { key: keyof typeof HELP_TEXT; label: string }[] = [
+  const helpBtns: { key: string; label: string }[] = [
     { key: 'simpler', label: '更简单一点' },
+    { key: 'analogy', label: '换个类比' },
     { key: 'example', label: '换个例子' },
     { key: 'project', label: '结合我的项目' },
     { key: 'code', label: '看代码' },
-    { key: 'stuck', label: '还是不理解' },
+    { key: 'diagram', label: '画个图' },
+    { key: 'unclear', label: '还是不理解' },
   ];
 
   const renderStepBody = () => {
@@ -209,7 +262,11 @@ export default function LearningTask() {
         <div className="card learn-nav">
           <div className="card-head">
             <span className="card-title">五步教学流</span>
-            <span className="card-sub">完成第 5 步验证即完成任务</span>
+            {genSource === 'llm' && <span className="chip chip-purple">✨ AI 生成</span>}
+            {genSource === 'rule' && <span className="chip chip-slate">⚙️ 规则生成</span>}
+          </div>
+          <div className="hint" style={{ padding: '0 14px', marginTop: 8 }}>
+            内容依据题库材料生成，服务于「{domain || '当前能力域'}」差距。
           </div>
           {STEP_META.map((s, i) => (
             <div
@@ -232,12 +289,19 @@ export default function LearningTask() {
             <span className="card-title">{step.ic} {step.title}</span>
             <span className="chip chip-slate">{stepIdx + 1}/5</span>
           </div>
-          {renderStepBody()}
+          {contentBusy && !gen ? (
+            <div style={{ padding: '28px 8px', textAlign: 'center', color: 'var(--text-2)', fontSize: 13.5 }}>
+              <span style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid var(--border)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', marginRight: 8 }} />
+              正在按你的能力画像生成教学内容…
+            </div>
+          ) : (
+            renderStepBody()
+          )}
 
           {/* 每步常驻帮助 */}
           <div className="step-help">
             {helpBtns.map((b) => (
-              <button key={b.key} className="btn btn-ghost btn-sm" onClick={() => setHelpKey(b.key)}>
+              <button key={b.key} className="btn btn-ghost btn-sm" onClick={() => doHelp(b.key)}>
                 {b.label}
               </button>
             ))}
@@ -263,17 +327,30 @@ export default function LearningTask() {
         </div>
       </div>
 
-      <Modal
-        title="学习帮助"
-        onClose={() => setHelpKey(null)}
-        size="sm"
-        footer={<button className="btn btn-primary" onClick={() => setHelpKey(null)}>知道了</button>}
-      >
-        <p style={{ fontSize: 13.5, lineHeight: 1.8, color: 'var(--text-2)' }}>
-          {helpKey ? HELP_TEXT[helpKey] : ''}
-        </p>
-        <div className="hint" style={{ marginTop: 10 }}>DEMO · 正式版由大模型按你的画像实时生成。</div>
-      </Modal>
+      {helpKey && (
+        <Modal
+          title="学习帮助"
+          onClose={() => setHelpKey(null)}
+          size="sm"
+          footer={<button className="btn btn-primary" onClick={() => setHelpKey(null)}>知道了</button>}
+        >
+        {helpBusy ? (
+          <p style={{ fontSize: 13.5, lineHeight: 1.8, color: 'var(--text-2)' }}>
+            <span style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid var(--border)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', marginRight: 8 }} />
+            AI 正在按你的任务生成解答…
+          </p>
+        ) : (
+          <p style={{ fontSize: 13.5, lineHeight: 1.8, color: 'var(--text-2)', whiteSpace: 'pre-wrap' }}>
+            {helpText || ''}
+          </p>
+        )}
+        <div className="hint" style={{ marginTop: 10 }}>
+          {helpSrc === 'llm' && '✨ 由 AI 结合题库材料生成 · 结果已缓存，可反复查看'}
+          {helpSrc === 'rule' && '⚙️ 规则生成（LLM 未配置时的确定性回答）'}
+          {helpSrc === 'none' && 'ℹ️ 本次为错误提示，未缓存'}
+        </div>
+        </Modal>
+      )}
     </div>
   );
 }
