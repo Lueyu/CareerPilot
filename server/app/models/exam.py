@@ -83,6 +83,8 @@ class ExamAnswer(Base):
     max_points: Mapped[float] = mapped_column(Float, default=5.0)
     verdict: Mapped[str | None] = mapped_column(String(24), nullable=True)   # CORRECT | PARTIAL | WRONG
     feedback: Mapped[str | None] = mapped_column(JSONB, nullable=True)       # 逐要点点评+建议
+    # 评分器版本: rule-v1(关键词覆盖) / judge-v1(LLM Judge); SCORING_FAILED 时 points 保持 NULL
+    judge_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
     evidence_refs: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

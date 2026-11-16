@@ -24,6 +24,8 @@ from app.models.project import (  # noqa: F401
     AssetUpdateRun,
 )
 from app.models.evolution import EvolutionCandidate, EvolutionRun  # noqa: F401
+from app.models.competency import CompetencySnapshot  # noqa: F401
+from app.models.jd import JdSource  # noqa: F401
 
 __all__ = [
     "Base", "User", "Workspace", "WorkspaceMember", "AppSetting",
@@ -35,5 +37,5 @@ __all__ = [
     "PublicContentSource", "PublicContentDraft", "ContentPublication",
     "ContentPublicationRule", "ContentReleaseAudit",
     "Project", "ProjectScan", "ProjectFinding", "CareerAsset", "AssetUpdateRun",
-    "EvolutionCandidate", "EvolutionRun",
+    "EvolutionCandidate", "EvolutionRun", "CompetencySnapshot", "JdSource",
 ]

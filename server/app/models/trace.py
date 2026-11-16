@@ -26,6 +26,9 @@ class Trace(Base):
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"))
     kind: Mapped[str] = mapped_column(String(48))    # interview_import / diagnosis_scoring / project_scan ...
     title: Mapped[str] = mapped_column(String(255))
+    # 触发来源: api(用户操作) / scheduler(定时) / system(内部) + 引用标识(如 E-12)
+    trigger: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    trigger_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default=STATUS_RUNNING)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
     cost_cny: Mapped[float] = mapped_column(Float, default=0.0)
