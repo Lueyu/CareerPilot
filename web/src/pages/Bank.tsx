@@ -60,6 +60,7 @@ export default function Bank() {
   }, [location.search]);
   const [stage, setStage] = useState<ImportStage>('upload');
   const [stepIdx, setStepIdx] = useState(0);
+  const [stepNote, setStepNote] = useState('');
   const [approved, setApproved] = useState<string[]>([]);
 
   // 后端题库
@@ -209,35 +210,49 @@ export default function Bank() {
     setImportErr(null);
     setStage('processing');
     setStepIdx(0);
-    let i = 0;
-    const t = setInterval(() => {
-      i += 1;
-      setStepIdx(i);
-      if (i >= 5) clearInterval(t);
-    }, 500);
-    const finish = (r: ImportReview | null) => {
-      setTimeout(() => {
-        clearInterval(t);
-        setStepIdx(5);
-        setReview(r);
-        setStage('review');
-      }, Math.max(0, 1800 - 5 * 500));
-    };
     try {
-      let r: ImportReview;
+      let start: ImportReview;
       if (files.length) {
         const form = new FormData();
         files.forEach((f) => form.append('files', f, f.name));
         if (text) form.append('pasted_text', text);
         if (company.trim()) form.append('company', company.trim());
         if (level.trim()) form.append('level', level.trim());
-        r = await api.upload<ImportReview>('/bank/imports/upload', form);
+        start = await api.upload<ImportReview>('/bank/imports/upload', form);
       } else {
-        r = await api.post<ImportReview>('/bank/imports', { pasted_text: text });
+        start = await api.post<ImportReview>('/bank/imports', { pasted_text: text });
       }
-      finish(r);
+      // 真进度: 后台流水线每阶段落库 meta.progress.step, 这里轮询真实状态
+      const startedAt = Date.now();
+      const poll = setInterval(() => {
+        void (async () => {
+          try {
+            const r = await api.get<ImportReview>(`/bank/imports/${start.id}`);
+            const step = Number(r.meta?.progress?.step ?? 0);
+            setStepIdx(Math.min(5, Math.max(0, step)));
+            setStepNote(r.meta?.progress?.note || '');
+            if (r.status === 'REVIEW') {
+              clearInterval(poll);
+              setStepIdx(5);
+              setReview(r);
+              setStage('review');
+            } else if (r.status === 'FAILED') {
+              clearInterval(poll);
+              setStage('upload');
+              const msg = r.meta?.error || '解析失败，请重试';
+              setImportErr(msg);
+              toast('⚠️', `解析失败: ${msg}`);
+            } else if (Date.now() - startedAt > 180_000) {
+              clearInterval(poll);
+              setStage('upload');
+              setImportErr('解析超时（3 分钟）。请减少文件数量后重试。');
+            }
+          } catch {
+            /* 单次轮询失败忽略, 下个周期重试 */
+          }
+        })();
+      }, 600);
     } catch (e: any) {
-      clearInterval(t);
       setStage('upload');
       setImportErr(String(e.message || e));
       toast('⚠️', `解析失败: ${e.message}`);
@@ -661,7 +676,7 @@ export default function Bank() {
                 <div className="ring-label" style={{ position: 'static', fontSize: 15 }}>
                   {files.length ? `正在解析 ${files.length} 个文件并生成解答…` : '正在解析粘贴的面经文本…'}
                 </div>
-                <div className="hint" style={{ marginTop: 8 }}>提取问题 → 映射技能 → 查重 → 为缺答案的题生成详细解答</div>
+                <div className="hint" style={{ marginTop: 8 }}>{stepNote || '提取问题 → 映射技能 → 查重 → 为缺答案的题生成详细解答'}</div>
               </div>
             </>
           )}

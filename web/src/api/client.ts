@@ -201,7 +201,10 @@ export interface ImportFileMeta {
 
 export interface ImportReview {
   id: number; short_code: string; status: string;
-  meta?: { source?: string; chars?: number; files?: ImportFileMeta[]; company?: string | null; level?: string | null };
+  meta?: {
+    source?: string; chars?: number; files?: ImportFileMeta[]; company?: string | null; level?: string | null;
+    progress?: { step: number; total: number; note?: string }; error?: string;
+  };
   items: {
     id: number; title: string; extract_confidence: number; suggested_skill_key: string;
     draft_answer?: string | null; draft_rubric?: any; is_duplicate_of?: number | null; status: string;

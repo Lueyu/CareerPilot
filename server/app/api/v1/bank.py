@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.api.deps import get_workspace
-from app.db import get_session
+from app.db import SessionLocal, get_session
 from app.models import ImportItem, ImportSession, Question, Skill, Trace, Workspace
 from app.services.answer_gen import generate_answer
 from app.services.llm import AgentAdapter
@@ -189,16 +189,17 @@ async def start_import(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    """粘贴文本导入。"""
+    """粘贴文本导入: 立即建导入会话并返回, 流水线后台执行, 前端轮询真实进度。"""
     source_text = (req.pasted_text or "").strip() or "\n".join(req.file_names or [])
     if not source_text:
         raise HTTPException(status_code=400, detail="empty import: pasted_text or file_names required")
-    return await _run_import(
+    return await _start_import_session(
         session,
         ws,
-        source_text,
+        paste_text=source_text,
         filename=(req.file_names or [None])[0],
-        meta={"source": "pasted" if req.pasted_text else "files", "chars": len(source_text), "files": []},
+        meta={"source": "pasted" if req.pasted_text else "files", "chars": len(source_text), "files": [], "pasted_text": source_text},
+        raw_items=[],
     )
 
 
@@ -211,8 +212,9 @@ async def start_import_upload(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    """拖拽/选择文件上传(PDF / DOCX / Markdown / TXT) + 可选粘贴文本。
+    """拖拽/选择文件上传(PDF / DOCX / Markdown / TXT / JPG / PNG) + 可选粘贴文本。
 
+    立即建导入会话并返回(耗时解析在后台执行), 前端轮询 /bank/imports/{id} 获取真实进度。
     每个文件独立解析: 成功的进入流水线, 失败的把原因回给前端展示, 不影响其他文件。
     """
     raw_items: list[tuple[str, bytes]] = []
@@ -221,103 +223,218 @@ async def start_import_upload(
             continue
         raw_items.append((f.filename, await f.read()))
 
-    extracted = extract_many(raw_items)
-    file_meta = [x.as_meta() for x in extracted.files]
-    ok_names = [f.name for f in extracted.ok_files]
+    if not raw_items and not (pasted_text or "").strip():
+        raise HTTPException(status_code=400, detail="没有可解析的内容: 请选择文件或粘贴文本")
 
-    text_parts = [t for t in [(pasted_text or "").strip(), extracted.text] if t]
-    source_text = "\n\n".join(text_parts).strip()
-    if not source_text:
-        detail = "没有可解析的内容"
-        if file_meta:
-            detail = "; ".join(f"{m['name']}: {m['error']}" for m in file_meta if m["error"]) or detail
-        raise HTTPException(status_code=400, detail=detail)
-
-    return await _run_import(
+    basic_meta = [
+        {"name": name, "suffix": name.rsplit(".", 1)[-1].lower() if "." in name else "", "size": len(raw), "ok": True, "chars": 0}
+        for name, raw in raw_items
+    ]
+    return await _start_import_session(
         session,
         ws,
-        source_text,
-        filename=", ".join(ok_names)[:255] or None,
+        paste_text=(pasted_text or "").strip() or None,
+        filename=", ".join(name for name, _ in raw_items)[:255] or None,
         meta={
-            "source": "uploads" if ok_names else "pasted",
-            "chars": len(source_text),
-            "files": file_meta,
+            "source": "uploads" if raw_items else "pasted",
+            "files": basic_meta,
             "company": company or None,
             "level": level or None,
+            "pasted_text": (pasted_text or "").strip() or None,
         },
+        raw_items=raw_items,
     )
 
 
-async def _run_import(
+# 后台导入任务注册表: 防止 asyncio.Task 被 GC, 结束后移除
+_BG_IMPORT_TASKS: set[asyncio.Task] = set()
+
+IMPORT_STEPS = ["解析文档", "提取实体", "技能映射", "去重", "生成草稿"]
+
+
+async def _start_import_session(
     session: AsyncSession,
     ws: Workspace,
-    source_text: str,
     *,
+    paste_text: str | None,
     filename: str | None,
     meta: dict,
+    raw_items: list[tuple[str, bytes]],
 ) -> dict:
-    """上传 → 解析(规则/LLM) → 提取题目 → 技能映射 → 查重 → 生成答案草稿 → 待审核。"""
-    t0 = time.perf_counter()
-    trace = await start_trace(session, ws.id, "bank_import", "导入面经: 上传与解析", short_code=f"TR-I{int(t0)}")
-
+    """建 ImportSession(status=UPLOADED) → 提交 → 后台跑流水线 → 立即返回。"""
     n_sessions = (await session.execute(select(func.count(ImportSession.id)))).scalar() or 0
     imp = ImportSession(
         short_code=f"IM-{100 + n_sessions + 1}",
         workspace_id=ws.id,
         filename=filename,
-        paste_text=(source_text or "")[:10000] or None,
-        status="PARSING",
-        meta=meta,
+        paste_text=(paste_text or "")[:10000] or None,
+        status="UPLOADED",
+        meta={**meta, "progress": {"step": 0, "total": 5, "note": "已接收，排队解析中"}},
     )
     session.add(imp)
-    await session.flush()
-    add_span(session, trace, "parse", 40, detail={"chars": len(source_text), "files": len(meta.get("files") or [])})
-
-    # 提取候选题(规则: 按行拆, 疑似题目行), LLM 可用时走结构化提取
-    candidates = await _extract_questions(source_text)
-    add_span(session, trace, "extract", 60, detail={"candidates": len(candidates)})
-
-    sm = await _skill_map(session)
-    all_questions = (
-        await session.execute(
-            select(Question.id, Question.title).where(
-                (Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id)
-            )
-        )
-    ).all()
-    title_map = {t.strip().lower(): qid for qid, t in all_questions}
-
-    # 原文没带答案的题, 系统补写一份详细讲解(LLM 优先, 未配置则规则模板)
-    need_answer = [c for c in candidates if not (c.get("draft_answer") or "").strip()]
-    filled = await _fill_answers(session, need_answer, sm)
-    add_span(session, trace, "answer", 90, detail={"generated": filled})
-
-    n_new = n_dup = 0
-    for i, c in enumerate(candidates, start=1):
-        dup_id = title_map.get(c["title"].strip().lower())
-        item = ImportItem(
-            session_id=imp.id,
-            title=c["title"],
-            extract_confidence=c["confidence"],
-            suggested_skill_key=c["skill_key"],
-            draft_answer=c.get("draft_answer", ""),
-            draft_rubric=c.get("rubric"),
-            is_duplicate_of=dup_id,
-            status="DRAFT",
-        )
-        session.add(item)
-        if dup_id:
-            n_dup += 1
-        else:
-            n_new += 1
-    add_span(session, trace, "dedup", 20, detail={"duplicates": n_dup})
-    add_span(session, trace, "draft", 30, detail={"drafts": n_new})
-
-    imp.status = "REVIEW"
-    await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000), 0.08)
-    await emit_event(session, ws.id, "import.review_ready", {"import_id": imp.id}, "import", imp.id)
     await session.commit()
-    return await _import_review(session, ws, imp.id)
+
+    task = asyncio.create_task(
+        _process_import(
+            imp.id,
+            ws.id,
+            raw_items=raw_items,
+            paste_text=paste_text or "",
+            filename=filename,
+        )
+    )
+    _BG_IMPORT_TASKS.add(task)
+    task.add_done_callback(_BG_IMPORT_TASKS.discard)
+
+    return {
+        "id": imp.id,
+        "short_code": imp.short_code,
+        "status": imp.status,
+        "meta": imp.meta,
+        "items": [],
+    }
+
+
+async def _process_import(
+    import_id: int,
+    workspace_id: int,
+    *,
+    raw_items: list[tuple[str, bytes]],
+    paste_text: str,
+    filename: str | None,
+) -> None:
+    """后台导入流水线(独立 DB 会话): 解析→提取→技能映射→去重→生成草稿。
+
+    每完成一个阶段就把 meta.progress.step 落库并 commit, 前端轮询看到的是真实进度。
+    """
+    session = SessionLocal()
+    trace: Trace | None = None
+    t0 = time.perf_counter()
+    try:
+        ws = (
+            await session.execute(select(Workspace).where(Workspace.id == workspace_id))
+        ).scalar_one()
+        trace = await start_trace(
+            session, workspace_id, "bank_import", "导入面经: 上传与解析",
+            short_code=await _unique_trace_code(session, f"TR-I{int(t0)}"),
+        )
+
+        async def advance(step: int, note: str) -> None:
+            imp = (await session.execute(select(ImportSession).where(ImportSession.id == import_id))).scalar_one()
+            imp.status = "PARSING"
+            imp.meta = {**(imp.meta or {}), "progress": {"step": step, "total": 5, "note": note}}
+            await session.commit()
+
+        # 阶段 0: 解析文档(文件 OCR/Office 解析是最慢的一步)
+        if raw_items:
+            extracted = extract_many(raw_items)
+            file_meta = [x.as_meta() for x in extracted.files]
+            ok_names = [f.name for f in extracted.ok_files]
+            text_parts = [t for t in [paste_text.strip(), extracted.text] if t]
+        else:
+            file_meta, ok_names = [], []
+            text_parts = [t for t in [paste_text.strip()] if t]
+        source_text = "\n\n".join(text_parts).strip()
+        if not source_text:
+            detail = "没有可解析的内容"
+            if file_meta:
+                detail = "; ".join(f"{m['name']}: {m['error']}" for m in file_meta if m["error"]) or detail
+            raise RuntimeError(detail)
+        await advance(1, f"已解析 {len(file_meta) or '文本'} · {len(source_text)} 字符")
+        add_span(session, trace, "parse", 40, detail={"chars": len(source_text), "files": len(file_meta)})
+
+        # 阶段 1: 提取题目(规则/LLM)
+        candidates = await _extract_questions(source_text)
+        await advance(2, f"提取到 {len(candidates)} 道候选题")
+        add_span(session, trace, "extract", 60, detail={"candidates": len(candidates)})
+
+        # 阶段 2: 技能映射(映射在提取阶段已打标, 此处加载技能表并核对)
+        sm = await _skill_map(session)
+        all_questions = (
+            await session.execute(
+                select(Question.id, Question.title).where(
+                    (Question.workspace_id.is_(None)) | (Question.workspace_id == workspace_id)
+                )
+            )
+        ).all()
+        title_map = {t.strip().lower(): qid for qid, t in all_questions}
+        unknown_skills = {c["skill_key"] for c in candidates if c["skill_key"] not in sm}
+        await advance(3, f"映射到 {len(sm)} 个能力域" + (f"，{len(unknown_skills)} 个未知域回退" if unknown_skills else ""))
+        add_span(session, trace, "map", 15, detail={"skills": len(sm), "fallback": len(unknown_skills)})
+
+        # 阶段 3: 去重(与现有题库按标题比对)
+        dup_map: dict[int, int | None] = {}
+        n_dup = 0
+        for i, c in enumerate(candidates):
+            dup_id = title_map.get(c["title"].strip().lower())
+            dup_map[i] = dup_id
+            if dup_id:
+                n_dup += 1
+        await advance(4, f"发现 {n_dup} 道重复题" if n_dup else "无重复题")
+        add_span(session, trace, "dedup", 20, detail={"duplicates": n_dup})
+
+        # 阶段 4: 为缺答案的题生成详细讲解(LLM 优先, 未配置则规则模板), 再写导入项
+        need_answer = [c for c in candidates if not (c.get("draft_answer") or "").strip()]
+        filled = await _fill_answers(session, need_answer, sm)
+        add_span(session, trace, "answer", 90, detail={"generated": filled})
+
+        n_new = 0
+        for i, c in enumerate(candidates):
+            item = ImportItem(
+                session_id=import_id,
+                title=c["title"],
+                extract_confidence=c["confidence"],
+                suggested_skill_key=c["skill_key"],
+                draft_answer=c.get("draft_answer", ""),
+                draft_rubric=c.get("rubric"),
+                is_duplicate_of=dup_map[i],
+                status="DRAFT",
+            )
+            session.add(item)
+            if not dup_map[i]:
+                n_new += 1
+        add_span(session, trace, "draft", 30, detail={"drafts": n_new})
+
+        imp = (await session.execute(select(ImportSession).where(ImportSession.id == import_id))).scalar_one()
+        imp.status = "REVIEW"
+        imp.meta = {
+            **(imp.meta or {}),
+            "source": "uploads" if ok_names else "pasted",
+            "chars": len(source_text),
+            "files": file_meta,
+            "progress": {"step": 5, "total": 5, "note": f"提取 {len(candidates)} 道题 · 待审核"},
+        }
+        if filename and ok_names:
+            imp.filename = ", ".join(ok_names)[:255]
+        await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000), 0.08)
+        await emit_event(session, workspace_id, "import.review_ready", {"import_id": import_id}, "import", import_id)
+        await session.commit()
+    except Exception as e:  # noqa: BLE001 — 后台任务必须自己兜底, 状态可见
+        await session.rollback()
+        try:
+            imp = (
+                await session.execute(select(ImportSession).where(ImportSession.id == import_id))
+            ).scalar_one()
+            imp.status = "FAILED"
+            imp.meta = {**(imp.meta or {}), "error": str(e)[:500], "progress": {"step": 0, "total": 5, "note": "解析失败"}}
+            if trace is not None:
+                await finish_trace(session, trace, "FAILED", int((time.perf_counter() - t0) * 1000), 0.0, fail_reason=str(e)[:300])
+            await emit_event(session, workspace_id, "import.failed", {"import_id": import_id, "error": str(e)[:300]}, "import", import_id)
+            await session.commit()
+        except Exception:  # noqa: BLE001 — 兜底失败只能记日志
+            await session.rollback()
+    finally:
+        await session.close()
+
+
+@router.get("/bank/imports/{import_id}")
+async def import_status(
+    import_id: int,
+    ws: Workspace = Depends(get_workspace),
+    session: AsyncSession = Depends(get_session),
+):
+    """导入会话状态/进度轮询: status=UPLOADED|PARSING|REVIEW|FAILED; REVIEW 时返回完整 items。"""
+    return await _import_review(session, ws, import_id)
 
 
 async def _fill_answers(session: AsyncSession, candidates: list[dict], sm: dict[str, Skill]) -> int:
