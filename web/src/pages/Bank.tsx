@@ -24,6 +24,20 @@ const TOPIC_NAME: Record<string, string> = Object.fromEntries(TOPICS.map((t) => 
 
 type ImportStage = 'upload' | 'processing' | 'review' | 'done';
 
+/** 架构图箭头 marker: 题库 html 引用 #sd-arr 但源数据无 defs, 渲染时统一注入 */
+const SD_MARKER_DEFS =
+  '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>' +
+  '<marker id="sd-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">' +
+  '<path d="M0,0 L10,5 L0,10 z" fill="#5b5bd6"/></marker></defs></svg>';
+
+/** 章节标题结构化: <p><b>N. 标题</b></p> → qa-h 带编号胶囊的标题条 */
+function transformAnswer(html: string): string {
+  return html.replace(
+    /<p><b>(\d+)\. ?([^<]+)<\/b><\/p>/g,
+    '<div class="qa-h"><span class="qa-no">$1</span><span class="qa-t">$2</span></div>',
+  );
+}
+
 /** 后端题目行 -> 前端展示行(静态 bank.json 提供答案 html) */
 interface Row {
   id: string;
@@ -43,6 +57,11 @@ export default function Bank() {
   const { toast } = useAppState();
   const [filter, setFilter] = useState<{ kind: 'all' | 'pending' | 'company' | 'topic'; value?: string }>({ kind: 'all' });
   const [detail, setDetail] = useState<Row | null>(null);
+  const [zoomSvg, setZoomSvg] = useState<string | null>(null);
+  const answerRef = useRef<HTMLDivElement>(null);
+  const toggleQA = (open: boolean) => {
+    answerRef.current?.querySelectorAll('details.qa').forEach((d) => { (d as HTMLDetailsElement).open = open; });
+  };
   const [editQ, setEditQ] = useState<Row | null>(null);
   const [mergeQ, setMergeQ] = useState<Row | null>(null);
   const [importOpen, setImportOpen] = useState(window.location.search.includes('import=1'));
@@ -478,9 +497,9 @@ export default function Bank() {
         </div>
       </div>
 
-      {/* —— 题目详情 —— */}
+      {/* —— 题目详情(全屏最大化) —— */}
       {detail && (
-        <Modal title={`${detail.id} · 题目详情`} size="lg" onClose={() => setDetail(null)}
+        <Modal title={`${detail.id} · 题目详情`} size="xl" onClose={() => setDetail(null)}
           footer={
             <>
               <button className="btn btn-outline" onClick={() => { setDetail(null); setEditQ(detail); }}>编辑</button>
@@ -495,7 +514,24 @@ export default function Bank() {
           <h3 style={{ fontSize: 17, fontWeight: 650, marginBottom: 14 }}>{detail.title}</h3>
           {detailErr && <div className="demo-banner demo-banner-err" style={{ marginBottom: 10 }}>{detailErr}</div>}
           {detailHtml ? (
-            <div className="bank-answer" dangerouslySetInnerHTML={{ __html: detailHtml }} />
+            <>
+              {detailHtml.includes('<details') && (
+                <div className="qa-tools">
+                  <span className="qa-tools-label">💬 面试官追问 · 点击问题可展开/收起参考答案</span>
+                  <button className="btn btn-ghost btn-sm" onClick={() => toggleQA(true)}>全部展开</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => toggleQA(false)}>全部收起</button>
+                </div>
+              )}
+              <div
+                ref={answerRef}
+                className="bank-answer"
+                onClick={(e) => {
+                  const svg = (e.target as HTMLElement).closest('svg.sdiagram') as SVGSVGElement | null;
+                  if (svg) setZoomSvg(svg.outerHTML);
+                }}
+                dangerouslySetInnerHTML={{ __html: SD_MARKER_DEFS + transformAnswer(detailHtml) }}
+              />
+            </>
           ) : (
             <div className="ans-empty">
               <p>这道题还没有答案内容。</p>
@@ -506,6 +542,14 @@ export default function Bank() {
             </div>
           )}
         </Modal>
+      )}
+
+      {/* —— 架构图放大查看 —— */}
+      {zoomSvg && (
+        <div className="svg-lightbox" onClick={() => setZoomSvg(null)}>
+          <div className="svg-lightbox-inner" dangerouslySetInnerHTML={{ __html: zoomSvg }} />
+          <div className="svg-lightbox-hint">点击任意位置关闭 · 架构图已放大</div>
+        </div>
       )}
 
       {/* —— 编辑草稿 —— */}

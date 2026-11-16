@@ -55,12 +55,12 @@ export function Modal({
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
-  size?: 'sm' | 'lg';
+  size?: 'sm' | 'lg' | 'xl';
 }) {
   return (
     <div className="modal-mask" onClick={onClose}>
       <div
-        className={`modal ${size === 'lg' ? 'modal-lg' : size === 'sm' ? 'modal-sm' : ''}`}
+        className={`modal ${size === 'lg' ? 'modal-lg' : size === 'sm' ? 'modal-sm' : size === 'xl' ? 'modal-xl' : ''}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-head">

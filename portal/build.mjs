@@ -91,6 +91,10 @@ const NAV = [
 ];
 
 const LEVEL_NAME = { beginner: '入门', intermediate: '进阶', advanced: '高级' };
+function transformAnswer(html) {
+  return html.replace(/<p><b>(\d+)\. ?([^<]+)<\/b><\/p>/g, '<div class="qa-h"><span class="qa-no">$1</span><span class="qa-t">$2</span></div>');
+}
+const SD_MARKER_DEFS = '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><marker id="sd-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b5bd6"/></marker></defs></svg>';
 const CAT_NAME = { paths: '学习路线', guides: '技术知识库', questions: '面试题库', labs: '实践实验室', cases: '工程案例', changelog: '更新日志', about: '关于' };
 
 function layout({ title, desc, body, activeNav = '', extraHead = '' }) {
@@ -171,6 +175,18 @@ article .doc blockquote{border-left:3px solid var(--primary);margin:14px 0;paddi
 .q-item h3 a{color:var(--text)}
 .q-item p{margin:0;color:var(--text2);font-size:13px}
 /* 面试题详解(bank html) */
+/* 架构图(sd-* SVG): 亮底保证可见 */
+.bank-answer .sdiagram{display:block;width:100%;height:auto;max-width:920px;margin:14px 0;background:#fff;border:1px solid #e2e6f2;border-radius:12px;padding:10px 6px;box-sizing:border-box}
+.bank-answer .sd-layer{fill:#eef1f8;stroke:#d6dbec;stroke-width:1.2}
+.bank-answer .sd-l{fill:#44506e;font-size:15px;font-weight:700}
+.bank-answer .sd-box,.bank-answer .sd-box2{fill:#fff;stroke:#b9c2dd;stroke-width:1.3}
+.bank-answer .sd-box-amber{fill:#fdf3e2;stroke:#e4b45c;stroke-width:1.3}
+.bank-answer .sd-box-rose{fill:#fdeef0;stroke:#e79aa4;stroke-width:1.3}
+.bank-answer .sd-box-teal{fill:#e6f6f3;stroke:#6fc3b4;stroke-width:1.3}
+.bank-answer .sd-t{fill:#1f2937;font-size:13px;font-weight:600}
+.bank-answer .sd-ts{fill:#6b7280;font-size:10.5px}
+.bank-answer .sd-a{fill:none;stroke:#5b5bd6;stroke-width:1.6}
+.bank-answer .sd-an{fill:none;stroke:#9aa3bd;stroke-width:1.2;stroke-dasharray:4 3}
 .bank-answer h3{font-size:16.5px;margin:24px 0 8px;color:var(--text)}
 .bank-answer p{color:var(--text2);margin:8px 0}
 .bank-answer ul,.bank-answer ol{color:var(--text2);padding-left:22px;margin:8px 0}
@@ -203,6 +219,15 @@ article .doc blockquote{border-left:3px solid var(--primary);margin:14px 0;paddi
 .bank-answer .terms-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
 .bank-answer .term-item{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:13.5px;color:var(--text2)}
 .bank-answer .term-item b{display:block;color:var(--text);margin-bottom:3px}
+/* 可读性 v2: 章节标题/追问折叠箭头/图表居中 */
+.bank-answer .qa-h{display:flex;align-items:baseline;gap:10px;margin:26px 0 12px;padding:10px 14px 10px 12px;background:var(--surface);border-left:3px solid var(--primary);border-radius:0 10px 10px 0;font-size:15.5px;font-weight:700;color:var(--text)}
+.bank-answer .qa-no{flex-shrink:0;font-size:12px;font-weight:800;color:#fff;background:var(--primary);border-radius:6px;padding:2px 8px}
+.bank-answer tbody tr:nth-child(even),.bank-answer tr:nth-child(even){background:var(--surface)}
+.bank-answer details.qa{position:relative}
+.bank-answer details.qa summary.qu{position:static;padding-left:34px}
+.bank-answer details.qa summary.qu::before{content:'▸';position:absolute;left:14px;color:var(--primary);transition:transform .15s ease}
+.bank-answer details.qa[open] summary.qu::before{transform:rotate(90deg)}
+.bank-answer .sdiagram{margin:16px auto;max-width:880px}
 @media (max-width:900px){.grid3{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}article.page{grid-template-columns:1fr}aside.toc{display:none}nav.main a{padding:6px 8px;font-size:13px}}
 </style>
 </head>
@@ -363,7 +388,7 @@ for (const d of docs) {
     const body = `<div class="wrap"><article class="page"><div class="doc">
       <h1>${esc(q.title)}</h1>
       <div class="pmeta">面试题库 · ${TOPIC_NAME[q.topic] || q.topic} · ${'★'.repeat(Math.min(5, q.difficulty || 3))}${q.company ? ' · ' + esc(q.company) : ''}</div>
-      <div class="bank-answer">${q.html}</div>
+      <div class="bank-answer">${SD_MARKER_DEFS}${transformAnswer(q.html)}</div>
       <p style="margin-top:26px"><a href="/questions/">← 返回题库列表</a></p>
     </div></article></div>`;
     write(`questions/q-${i + 1}/index.html`, layout({ title: q.title, desc: stripHtml(q.html).slice(0, 80), body, activeNav: '/questions/' }));
