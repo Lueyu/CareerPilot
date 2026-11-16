@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Exam, Question, SkillState
+from app.services.evolution import get_active_candidate
 
 INFO_GAIN_ORDER = {
     SkillState.STATUS_UNKNOWN: 0,          # 完全未知, 信息增益最大
@@ -31,6 +32,10 @@ async def select_questions_for_exam(
             select(SkillState).where(SkillState.workspace_id == workspace_id)
         )
     ).scalars().all()
+
+    # 进化实验室: 若该工作空间有生效中的 exam_selection 候选, 应用其配置
+    cand = await get_active_candidate(session, workspace_id, "exam_selection")
+    cfg: dict = (cand.body or {}).get("candidate") or {} if cand else {}
 
     # 技能 -> (状态优先级, 置信度)
     priority: dict[int, tuple[int, float]] = {}
@@ -70,7 +75,22 @@ async def select_questions_for_exam(
     for skill_id, questions in by_skill.items():
         prio = priority.get(skill_id, (INFO_GAIN_ORDER[SkillState.STATUS_UNKNOWN], 0.0))[0]
         buckets.append((prio, questions))
+    buckets.sort(key=lambda x: x[0])
     picked = pick_from(buckets)
+
+    # 候选策略 difficulty_bias: >0 更基础(桶内索引后移), <0 更进阶(索引前移)
+    bias = int(cfg.get("difficulty_bias") or 0)
+    if bias != 0:
+        shifted: list[Question] = []
+        for q in picked:
+            qs = by_skill.get(q.skill_id, [q])
+            if len(qs) > 1:
+                idx = qs.index(q)
+                new_idx = min(max(idx + bias, 0), len(qs) - 1)
+                shifted.append(qs[new_idx])
+            else:
+                shifted.append(q)
+        picked = shifted
 
     # 不足则补齐(允许同域第二题)
     i = 0
@@ -79,8 +99,10 @@ async def select_questions_for_exam(
             picked.append(pool[i])
         i += 1
 
+    strat = f"rule-v1+{cand.short_code}" if cand and cfg else "rule-v1"
     reason = (
-        "自适应选题(rule-v1): 优先覆盖状态未知/待验证/低于目标的能力域, "
-        f"共选 {len(picked)} 题, 覆盖 {len({q.skill_id for q in picked})} 个能力域。"
+        f"自适应选题({strat}): 优先覆盖状态未知/待验证/低于目标的能力域"
+        + (f"; 已应用候选策略「{cand.title}」" if cand and cfg else "")
+        + f", 共选 {len(picked)} 题, 覆盖 {len({q.skill_id for q in picked})} 个能力域。"
     )
     return picked[:count], reason
