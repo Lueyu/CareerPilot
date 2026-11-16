@@ -69,13 +69,23 @@ export default function Assets() {
     setImporting(true);
     try {
       const p = await api.post<ProjectView>('/projects', { name: importName.trim(), repo_url: importRepo.trim(), branch: importBranch.trim() || 'master' });
-      toast('📦', `仓库已导入：${p.owner}/${p.repo}，开始扫描…`);
+      toast('📦', `仓库已导入：${p.owner}/${p.repo}，正在扫描（约 5~20 秒）…`);
       setImportOpen(false);
       setImportName(''); setImportRepo('');
-      await api.post(`/projects/${p.id}/scan`).catch(() => undefined);
+      reload(); // 先让卡片立刻出现(未扫描态), 扫描完再刷新一次
+      try {
+        await api.post(`/projects/${p.id}/scan`);
+        toast('✅', `扫描完成：${p.name}，能力矩阵已生成`);
+      } catch (se: any) {
+        toast('⚠️', `扫描失败：${se.message || se}（可在卡片上点「重新分析」重试）`);
+      }
       reload();
     } catch (e: any) {
-      toast('⚠️', `导入失败：${e.message || e}`);
+      if (e?.status === 409) {
+        toast('⚠️', '该仓库已导入过，无需重复导入；可在项目卡上点「重新分析」更新扫描');
+      } else {
+        toast('⚠️', `导入失败：${e.message || e}`);
+      }
     } finally {
       setImporting(false);
     }
