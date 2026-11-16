@@ -108,10 +108,10 @@ class AgentAdapter:
             # 网络失败也降级到规则引擎, 不阻塞主流程(PRD 可靠性要求)
             return None
 
-    async def chat(self, system: str, user: str, json_mode: bool = False) -> dict[str, Any] | None:
+    async def chat(self, system: str, user: str, json_mode: bool = False, timeout: float = 60.0) -> dict[str, Any] | None:
         """返回 {"content": str} 或 None(降级信号)。配置动态解析(设置页在线修改即时生效)。"""
         cfg = await self._effective()
-        return await self.chat_with(cfg, system, user, json_mode=json_mode)
+        return await self.chat_with(cfg, system, user, json_mode=json_mode, timeout=timeout)
 
 
 adapter = AgentAdapter()

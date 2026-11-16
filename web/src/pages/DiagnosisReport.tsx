@@ -21,8 +21,24 @@ export default function DiagnosisReport() {
   const [open, setOpen] = useState<number[]>([0]);
   const [report, setReport] = useState<ExamReportData | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [deepBusy, setDeepBusy] = useState(false);
+  const [deepErr, setDeepErr] = useState<string | null>(null);
   const toggle = (i: number) =>
     setOpen((o) => (o.includes(i) ? o.filter((x) => x !== i) : [...o, i]));
+
+  const genDeep = async () => {
+    if (!report) return;
+    setDeepBusy(true);
+    setDeepErr(null);
+    try {
+      const deep = await api.post<ExamReportData['diagnosis_deep']>(`/exams/${report.id}/report/deep`);
+      setReport({ ...report, diagnosis_deep: deep, has_deep: true });
+    } catch (e: any) {
+      setDeepErr(String(e.message || e));
+    } finally {
+      setDeepBusy(false);
+    }
+  };
 
   // 优先读 ?id=, 否则取最近一次 COMPLETED 考试
   useEffect(() => {
@@ -53,6 +69,8 @@ export default function DiagnosisReport() {
   // 后端报告
   if (report) {
     const r = report;
+    const deep = r.diagnosis_deep;
+    const ob = r.overall;
     return (
       <div>
         <PageHead title="独立诊断报告" sub={`${(r.completed_at || '').replace('T', ' ').slice(0, 16)} · 答卷已冻结并计入证据`}>
@@ -81,14 +99,135 @@ export default function DiagnosisReport() {
           </div>
         </div>
 
+        {/* 诊断结论(确定性) */}
+        {ob && (
+          <div className="card" style={{ marginBottom: 18 }}>
+            <div className="card-head">
+              <span className="card-title">诊断结论</span>
+              <span className="card-sub">基于本次答卷的确定性判定 · 评分 rule-v1</span>
+            </div>
+            <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.8 }}>{ob.conclusion}</p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+              {ob.strong.map((s) => <span key={s} className="chip chip-green">✓ {s}</span>)}
+              {ob.mid.map((s) => <span key={s} className="chip chip-amber">△ {s}</span>)}
+              {ob.weak.map((s) => <span key={s} className="chip chip-red">✗ {s}</span>)}
+            </div>
+            {ob.priority && (
+              <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 10, background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.25)' }}>
+                <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 4 }}>🎯 优先行动</div>
+                <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.75 }}>{ob.priority.advice}</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 能力域得分 */}
+        {!!r.skill_breakdown?.length && (
+          <div className="card" style={{ marginBottom: 18 }}>
+            <div className="card-head">
+              <span className="card-title">能力域得分</span>
+              <span className="card-sub">按本次各题得分率聚合 · 薄弱的排前面</span>
+            </div>
+            <div style={{ display: 'grid', gap: 12 }}>
+              {r.skill_breakdown.map((g) => {
+                const pct = Math.round(g.ratio * 100);
+                const color = g.ratio >= 0.8 ? 'var(--green)' : g.ratio >= 0.6 ? 'var(--amber)' : 'var(--red)';
+                return (
+                  <div key={g.skill_key} style={{ display: 'grid', gridTemplateColumns: '150px 1fr 130px', gap: 14, alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: 13.5, fontWeight: 600 }}>{g.skill_name}</div>
+                      <div className="hint" style={{ margin: 0 }}>{g.q_count} 题 · Q{g.order_nos.join(' Q')}</div>
+                    </div>
+                    <div>
+                      <div style={{ height: 8, borderRadius: 4, background: 'var(--surface-3)', overflow: 'hidden' }}>
+                        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 4, transition: 'width .4s ease' }} />
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: 'var(--text-3)', textAlign: 'right' }}>
+                      <b style={{ color }}>{g.earned}/{g.max}</b>
+                      <span style={{ marginLeft: 8 }}>✓{g.verdicts.CORRECT} △{g.verdicts.PARTIAL} ✗{g.verdicts.WRONG}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 深度诊断(LLM) */}
         <div className="card" style={{ marginBottom: 18 }}>
           <div className="card-head">
-            <span className="card-title">能力小结</span>
-            <span className="card-sub">答卷已作为证据写入能力画像 · 评分详情：scorer rule-v1</span>
+            <span className="card-title">AI 深度诊断</span>
+            <span className="card-sub">
+              {deep?.model ? `${deep.model} · ${(deep.generated_at || '').replace('T', ' ').slice(0, 16)}` : '逐题剖析作答内容 · 归纳强弱项 · 给出行动清单'}
+            </span>
           </div>
-          <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.75 }}>
-            {r.questions.map((q) => `${q.short_code} ${q.answer?.verdict === 'CORRECT' ? '✓' : q.answer?.verdict === 'PARTIAL' ? '△' : '✗'}(${q.answer?.points ?? 0}/${q.answer?.max_points ?? 5})`).join(' · ')}
-          </p>
+          {!deep && !deepBusy && (
+            <div style={{ textAlign: 'center', padding: '10px 0 4px' }}>
+              <p className="hint" style={{ marginBottom: 12 }}>
+                AI 会逐题阅读你的作答与参考答案，指出差在哪、正确姿势是什么，并给出优先级行动清单（约 30 秒）。
+              </p>
+              <button className="btn btn-primary" onClick={genDeep}>✨ 生成深度诊断</button>
+            </div>
+          )}
+          {deepBusy && (
+            <div style={{ textAlign: 'center', padding: '14px 0' }}>
+              <div style={{
+                width: 28, height: 28, margin: '0 auto 10px', borderRadius: '50%',
+                border: '3px solid var(--border-2)', borderTopColor: 'var(--primary)',
+                animation: 'spin 0.9s linear infinite',
+              }} />
+              <style>{'@keyframes spin { to { transform: rotate(360deg); } }'}</style>
+              <div style={{ fontSize: 13, color: 'var(--text-3)' }}>AI 正在逐题分析你的作答…（约 30 秒，不要关闭页面）</div>
+            </div>
+          )}
+          {deepErr && (
+            <div className="demo-banner demo-banner-err" style={{ marginBottom: 10 }}>深度诊断生成失败：{deepErr}</div>
+          )}
+          {deep && !deepBusy && (
+            <>
+              <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.85, whiteSpace: 'pre-wrap' }}>{deep.conclusion}</p>
+              {!!deep.weaknesses.length && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8 }}>📉 薄弱项（为什么弱 / 还差什么）</div>
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {deep.weaknesses.map((w, i) => (
+                      <div key={i} style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(220,38,38,0.07)', border: '1px solid rgba(220,38,38,0.2)' }}>
+                        <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 4 }}>{w.skill}</div>
+                        <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.75 }}>{w.why}</div>
+                        {w.gap && <div style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.7, marginTop: 6 }}><b>还差：</b>{w.gap}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {!!deep.strengths.length && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8 }}>📈 强项（保持住）</div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {deep.strengths.map((s, i) => (
+                      <div key={i} style={{ padding: '8px 14px', borderRadius: 10, background: 'rgba(22,163,74,0.07)', border: '1px solid rgba(22,163,74,0.2)', fontSize: 13, lineHeight: 1.7 }}>
+                        <b>{s.skill}</b><span style={{ color: 'var(--text-2)' }}> — {s.why}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {!!deep.actions.length && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 8 }}>🧭 行动清单（按优先级）</div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {deep.actions.map((a, i) => (
+                      <div key={i} style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border-2)' }}>
+                        <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 4 }}>{i + 1}. {a.title}</div>
+                        <div style={{ fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.75 }}>{a.detail}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         <div className="card-head" style={{ margin: '0 0 12px' }}>
@@ -97,6 +236,7 @@ export default function DiagnosisReport() {
         {r.questions.map((q, i) => {
           const a = q.answer;
           const ok = a?.verdict === 'CORRECT';
+          const dq = deep?.per_question?.[String(q.order_no)];
           return (
             <div className="report-q" key={q.order_no}>
               <div className="report-q-head" onClick={() => toggle(i)}>
@@ -110,7 +250,17 @@ export default function DiagnosisReport() {
               </div>
               {open.includes(i) && (
                 <div className="report-q-body">
-                  <p><b>你的回答：</b>{a?.text_answer || '（未作答）'}</p>
+                  {dq && (
+                    <>
+                      <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(109,93,246,0.09)', border: '1px solid rgba(109,93,246,0.25)', marginBottom: 12 }}>
+                        <div style={{ fontSize: 13, fontWeight: 650, marginBottom: 4 }}>🔍 AI 剖析 · 为什么是这个分</div>
+                        <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.8 }}>{dq.why}</div>
+                        <div style={{ fontSize: 13, fontWeight: 650, margin: '10px 0 4px', color: 'var(--primary)' }}>🛠 正确姿势 / 如何改进</div>
+                        <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.8 }}>{dq.how}</div>
+                      </div>
+                    </>
+                  )}
+                  <p><b>你的回答：</b>{a?.text_answer || (a?.choice_index != null ? `选择题，选了第 ${a.choice_index + 1} 项` : '（未作答）')}</p>
                   {a?.feedback && (
                     <>
                       <p>

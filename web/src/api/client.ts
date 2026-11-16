@@ -125,10 +125,27 @@ export interface ExamDetail {
 }
 
 export interface ExamReportData {
-  id: number; title: string; status: string; score: number;
+  id: number; title: string; status: string; kind?: string; score: number;
   total_points: number; gained_points: number;
   selection_reason?: string | null;
   summary?: { score?: number; verdicts?: { order_no: number; title: string; verdict: string }[] } | null;
+  skill_breakdown?: {
+    skill_key: string; skill_name: string; q_count: number; earned: number; max: number; ratio: number;
+    verdicts: { CORRECT: number; PARTIAL: number; WRONG: number }; order_nos: number[];
+  }[];
+  overall?: {
+    conclusion: string; strong: string[]; mid: string[]; weak: string[];
+    priority?: { skill_key: string; skill_name: string; ratio: number; current_level: number | null; status: string; advice: string } | null;
+  } | null;
+  diagnosis_deep?: {
+    conclusion: string;
+    strengths: { skill: string; why: string }[];
+    weaknesses: { skill: string; why: string; gap?: string }[];
+    actions: { title: string; detail: string }[];
+    per_question: Record<string, { why: string; how: string }>;
+    generated_at?: string; model?: string;
+  } | null;
+  has_deep?: boolean;
   completed_at?: string | null;
   questions: {
     order_no: number; short_code: string; title: string; qtype: string; options: string[] | null;
