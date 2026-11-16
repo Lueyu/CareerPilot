@@ -55,7 +55,9 @@ async function reqForm<T = any>(path: string, form: FormData): Promise<T> {
 export const api = {
   get: <T = any>(path: string) => req<T>('GET', path),
   post: <T = any>(path: string, body?: unknown) => req<T>('POST', path, body ?? {}),
-  del: <T = any>(path: string) => req<T>('DELETE', path),
+  patch: <T = any>(path: string, body?: unknown) => req<T>('PATCH', path, body ?? {}),
+  put: <T = any>(path: string, body?: unknown) => req<T>('PUT', path, body ?? {}),
+  del: <T = any>(path: string, body?: unknown) => req<T>('DELETE', path, body),
   upload: <T = any>(path: string, form: FormData) => reqForm<T>(path, form),
 };
 
@@ -213,6 +215,37 @@ export interface QuestionDetail {
   answer_html?: string | null; rubric?: any;
   company?: string | null; role?: string | null; level?: string | null;
   occurred_on?: string | null; source_type: string; tags?: string[]; keywords?: string[];
+}
+
+// ---------- 设置与工作空间 ----------
+
+export interface SettingsOverview {
+  account: { display_name: string; email: string };
+  workspace: {
+    id: number; name: string; slug: string; target_role: string; target_level: string;
+    is_demo: boolean; created_at: string;
+  };
+  members: { display_name: string; email: string; role: string }[];
+  counts: {
+    evidence: number; memory: number; tasks: number; questions: number;
+    imports_review: number; exams: number; drafts: number; publications: number;
+  };
+  connections: {
+    llm: { active: boolean; provider: string | null; model: string | null };
+    github_publish: {
+      active: boolean; target_repo: string; base_branch: string;
+      content_dir: string; auto_merge_default: boolean;
+    };
+  };
+}
+
+export interface PublicationRule {
+  id: number; key: string; value: string; is_enabled: boolean; description?: string | null;
+}
+
+export interface AuditItem {
+  id: number; action: string; draft_id?: number | null; publication_id?: number | null;
+  detail?: any; created_at: string;
 }
 
 // ---------- hooks ----------
