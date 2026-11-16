@@ -14,28 +14,47 @@ export default function Diagnosis() {
   const [idx, setIdx] = useState(0);
   const [answers, setAnswers] = useState<(number | string)[]>([]);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [abortOpen, setAbortOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [secs, setSecs] = useState(30 * 60);
   const recTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 创建考试(真实后端) — 失败则降级为本地 demo 试卷
+  // 创建/恢复考试(真实后端) — 失败则降级为本地 demo 试卷
+  // 说明: React StrictMode 下 effect 双触发, 若直接 POST /exams 会建出两条考试;
+  // 改为「先恢复进行中的诊断考试, 没有才新建」。
   useEffect(() => {
     let alive = true;
-    api.post<ExamDetail>('/exams', { kind: 'diagnosis' })
-      .then((d) => {
+    (async () => {
+      try {
+        const list = await api.get<{ history: any[] }>('/exams');
+        const active = (list.history || []).find((x: any) => x.kind === 'diagnosis' && x.status === 'ACTIVE');
+        if (active) {
+          const d = await api.get<ExamDetail>(`/exams/${active.id}`);
+          if (!alive) return;
+          setExam(d);
+          const elapsed = d.started_at ? (Date.now() - new Date(d.started_at).getTime()) / 1000 : 0;
+          setSecs(Math.max(60, Math.round((d.duration_minutes || 30) * 60 - elapsed)));
+          setAnswers(d.questions.map((q) => {
+            if (q.answer) return q.qtype === 'mcq' ? (q.answer.choice_index ?? -1) : (q.answer.text_answer ?? '');
+            return q.qtype === 'mcq' ? -1 : '';
+          }));
+          setPhase('quiz');
+          return;
+        }
+        const d = await api.post<ExamDetail>('/exams', { kind: 'diagnosis' });
         if (!alive) return;
         setExam(d);
         setSecs((d.duration_minutes || 30) * 60);
         setAnswers(d.questions.map((q) => (q.qtype === 'mcq' ? -1 : '')));
         setPhase('quiz');
-      })
-      .catch((e) => {
+      } catch (e: any) {
         if (!alive) return;
         setCreateErr(String(e.message || e));
         setSecs(30 * 60);
         setAnswers(QUIZ.map((q) => (q.type === 'text' ? '' : -1)));
         setPhase('quiz');
-      });
+      }
+    })();
     return () => { alive = false; };
   }, []);
 
@@ -88,6 +107,14 @@ export default function Diagnosis() {
   };
 
   useEffect(() => () => { if (recTimer.current) clearTimeout(recTimer.current); }, []);
+
+  const doAbort = async () => {
+    setAbortOpen(false);
+    if (exam) {
+      try { await api.post(`/exams/${exam.id}/abort`); } catch { /* 尽力而为 */ }
+    }
+    navigate('/exam');
+  };
 
   const submit = async () => {
     setConfirmOpen(false);
@@ -172,10 +199,13 @@ export default function Diagnosis() {
             {!exam && createErr && <span className="chip chip-amber" style={{ marginLeft: 8 }}>后端不可用 · 演示试卷</span>}
           </div>
         </div>
-        <div className="quiz-timer">
-          <span className="timer-ic">⏱</span>
-          <b>{mm}:{ss}</b>
-          <span className="chip chip-purple">剩余时间</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div className="quiz-timer">
+            <span className="timer-ic">⏱</span>
+            <b>{mm}:{ss}</b>
+            <span className="chip chip-purple">剩余时间</span>
+          </div>
+          <button className="btn btn-outline btn-sm" onClick={() => setAbortOpen(true)}>放弃考试</button>
         </div>
       </div>
       <DemoBanner />
@@ -235,6 +265,20 @@ export default function Diagnosis() {
         </div>
       </div>
 
+      {abortOpen && (
+        <Modal title="放弃考试" onClose={() => setAbortOpen(false)} size="sm"
+          footer={
+            <>
+              <button className="btn btn-outline" onClick={() => setAbortOpen(false)}>继续作答</button>
+              <button className="btn btn-danger" onClick={doAbort}>确认放弃</button>
+            </>
+          }>
+          <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.7 }}>
+            放弃后本场考试标记为「已放弃」，已作答内容不会计入能力证据，也不会生成报告。
+          </p>
+          <p className="hint" style={{ marginTop: 6 }}>提示：只是想跳出可以先交卷，报告会照常生成。</p>
+        </Modal>
+      )}
       {confirmOpen && (
         <Modal title="提交答卷" onClose={() => setConfirmOpen(false)} size="sm"
           footer={

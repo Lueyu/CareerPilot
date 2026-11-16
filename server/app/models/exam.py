@@ -26,6 +26,10 @@ class Exam(Base):
     STATUS_FROZEN = "FROZEN"
     STATUS_SCORING = "SCORING"
     STATUS_COMPLETED = "COMPLETED"
+    # 异常态: LLM 评分失败(不给假分, 可 rescore) / 用户主动放弃 / 超时未交卷
+    STATUS_SCORING_FAILED = "SCORING_FAILED"
+    STATUS_ABORTED = "ABORTED"
+    STATUS_EXPIRED = "EXPIRED"
 
     KIND_DIAGNOSIS = "diagnosis"
     KIND_FOCUSED = "focused"

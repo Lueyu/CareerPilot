@@ -21,7 +21,9 @@ from app.models import (
     Evidence, Exam, ExamAnswer, ExamQuestion, SkillState, Workspace,
 )
 from app.services.competency import recompute_skill_states
+from app.services.followup import suggest_followups
 from app.services.llm import adapter as llm_adapter
+from app.services.llm_judge import judge_open_answer
 from app.services.planner import plan_tasks_for_workspace
 from app.services.scorer import build_feedback, score_question
 from app.services.selection import select_questions_for_exam
@@ -165,6 +167,153 @@ async def save_answer(
     return {"ok": True, "saved_at": dt.datetime.now(dt.timezone.utc).isoformat()}
 
 
+
+def _maybe_expire(exam: Exam) -> bool:
+    """超时未交卷 → EXPIRED(2 分钟宽限)。返回是否刚好置为 EXPIRED。"""
+    if exam.status == Exam.STATUS_ACTIVE and exam.started_at and exam.duration_minutes:
+        deadline = exam.started_at + dt.timedelta(minutes=exam.duration_minutes + 2)
+        if dt.datetime.now(dt.timezone.utc) > deadline:
+            exam.status = Exam.STATUS_EXPIRED
+            return True
+    return False
+
+
+async def _score_questions(session: AsyncSession, trace, exam: Exam) -> list[int]:
+    """评分全部题目。MCQ/空作答/未配置 LLM → 确定性规则(rule-v1);
+    开放题且 LLM 可用 → LLM Judge(judge-v1), 失败 → SCORING_FAILED(points 保持 NULL, 不给假分)。
+    返回评分失败的题号列表。"""
+    failed: list[int] = []
+    gained = 0.0
+    total = 0.0
+    for eq in exam.questions:
+        q = eq.question
+        answer = eq.answer
+        max_p = (q.rubric or {}).get("max_points", 5.0)
+        total += max_p
+        if answer is None:
+            answer = ExamAnswer(exam_question_id=eq.id, max_points=max_p)
+            session.add(answer)
+            await session.flush()
+            eq.answer = answer
+
+        if q.qtype == "open" and llm_adapter.active and (answer.text_answer or "").strip():
+            tq = time.perf_counter()
+            jr = await judge_open_answer(
+                llm_adapter,
+                title=q.title,
+                skill_name=q.skill.name if q.skill else None,
+                rubric=q.rubric or {},
+                text=answer.text_answer,
+            )
+            qms = int((time.perf_counter() - tq) * 1000)
+            if jr is not None:
+                answer.points = jr["points"]
+                answer.verdict = jr["verdict"]
+                answer.judge_version = "judge-v1"
+                answer.feedback = {
+                    "hit_points": jr["hit"],
+                    "missed_points": jr["missing"],
+                    "advice": jr["reasoning"],
+                    "judge_reasoning": jr["reasoning"],
+                    "followups": suggest_followups(q.title, jr["verdict"], jr["missing"]),
+                }
+                gained += jr["points"]
+                add_span(session, trace, f"judge_q{eq.order_no}", qms, detail={"judge": "judge-v1", "verdict": jr["verdict"], "points": jr["points"]})
+                continue
+            # judge 失败: 该题显式 SCORING_FAILED, 不给任何分数
+            failed.append(eq.order_no)
+            answer.points = None
+            answer.verdict = "SCORING_FAILED"
+            answer.judge_version = None
+            answer.feedback = {"error": "AI 评分失败，未生成分数（不会用假分顶替；可点「重新评分」重试）"}
+            add_span(session, trace, f"judge_q{eq.order_no}", qms, status="ERROR", detail={"reason": "judge_failed"})
+            continue
+
+        # 规则路径: MCQ 恒走; 开放题在未配置 LLM 或空白作答时走(诚实标注 rule-v1)
+        result = score_question(q, choice_index=answer.choice_index, text=answer.text_answer)
+        answer.points = result["points"]
+        answer.verdict = result["verdict"]
+        answer.judge_version = "rule-v1"
+        fb = build_feedback(q, result)
+        fb["followups"] = suggest_followups(
+            q.title, result["verdict"],
+            [p.get("title", "") if isinstance(p, dict) else str(p) for p in result.get("misses", [])],
+        )
+        answer.feedback = fb
+        gained += result["points"]
+
+    exam.total_points = total
+    if failed:
+        exam.gained_points = None
+        exam.score = None
+    else:
+        exam.gained_points = round(gained, 1)
+        exam.score = round(100 * gained / total, 1) if total else 0.0
+    return failed
+
+
+async def _failed_summary(exam: Exam, failed: list[int]) -> dict:
+    return {
+        "verdicts": [
+            {"order_no": eq.order_no, "title": eq.question.title[:40], "verdict": eq.answer.verdict if eq.answer else "WRONG"}
+            for eq in exam.questions
+        ],
+        "score": None,
+        "scoring_failed": failed,
+    }
+
+
+async def _finalize_exam(session: AsyncSession, ws: Workspace, exam: Exam, trace, t0: float) -> None:
+    """全部题评分成功后的收尾: COMPLETED + 报告小结 + 证据 + 重算能力 + 学习任务。"""
+    exam.status = Exam.STATUS_COMPLETED
+    exam.completed_at = dt.datetime.now(dt.timezone.utc)
+    exam.summary = {
+        "verdicts": [
+            {"order_no": eq.order_no, "title": eq.question.title[:40], "verdict": eq.answer.verdict if eq.answer else "WRONG"}
+            for eq in exam.questions
+        ],
+        "score": exam.score,
+        "judges": {
+            "judge_v1": sum(1 for eq in exam.questions if eq.answer and eq.answer.judge_version == "judge-v1"),
+            "rule_v1": sum(1 for eq in exam.questions if eq.answer and eq.answer.judge_version == "rule-v1"),
+        },
+    }
+
+    # 6) 写证据(完成后才有资格作为能力证据)
+    ev_counter = 0
+    for eq in exam.questions:
+        answer = eq.answer
+        verdict = answer.verdict if answer else "WRONG"
+        support = {"CORRECT": 0.6, "PARTIAL": 0.15, "WRONG": -0.4}.get(verdict, 0.0)
+        grade = "VERIFIED" if verdict == "CORRECT" else ("MEDIUM" if verdict == "PARTIAL" else "LOW")
+        ev_counter += 1
+        ev = Evidence(
+            short_code=f"EV-X{exam.id}-{eq.order_no}",
+            workspace_id=ws.id,
+            skill_id=eq.question.skill_id,
+            kind="EXAM_ANSWER",
+            title=f"{exam.title} Q{eq.order_no}: {eq.question.title[:60]}",
+            detail=f"判定 {verdict}, 得分 {answer.points if answer else 0}",
+            grade=grade,
+            support=support,
+            source_ref=f"exam:{exam.id}#q{eq.order_no}",
+            occurred_at=exam.completed_at,
+        )
+        session.add(ev)
+        if answer is not None:
+            answer.evidence_refs = [ev.short_code]
+    add_span(session, trace, "write_evidence", 12, detail={"evidence": len(exam.questions)})
+
+    # 7) 重算能力 + 生成学习任务
+    states = await recompute_skill_states(session, ws.id)
+    tasks = await plan_tasks_for_workspace(session, ws.id)
+    add_span(session, trace, "recompute_and_plan", 15, detail={"tasks": len(tasks)})
+
+    cost = round(0.02 * len(exam.questions), 3)
+    await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000), cost)
+    await emit_event(session, ws.id, "exam.completed", {"exam_id": exam.id, "score": exam.score}, "exam", exam.id)
+
+
 @router.post("/exams/{exam_id}/submit")
 async def submit_exam(
     exam_id: int,
@@ -173,6 +322,9 @@ async def submit_exam(
 ):
     """提交 → 誊写确认 → 冻结 → 评分 → 报告 → 证据 → 重算能力 → 学习任务。"""
     exam = await _get_own_exam(session, ws, exam_id)
+    if _maybe_expire(exam):
+        await session.commit()
+        raise HTTPException(status_code=409, detail="考试已超时（EXPIRED），作答已保留；请重新开始一场考试")
     if exam.status not in (Exam.STATUS_ACTIVE, Exam.STATUS_SUBMITTED):
         raise HTTPException(status_code=409, detail=f"exam status is {exam.status}, cannot submit")
 
@@ -200,79 +352,71 @@ async def submit_exam(
             }
     add_span(session, trace, "freeze", 6, detail={"status": "FROZEN", "snapshots": len(exam.questions)})
 
-    # 4) SCORING
+    # 4) SCORING: MCQ 规则; 开放题 LLM Judge(失败→SCORING_FAILED, 不给假分)
     exam.status = Exam.STATUS_SCORING
     add_span(session, trace, "scoring", 10, detail={"status": "SCORING"})
-
-    gained = 0.0
-    total = 0.0
-    for eq in exam.questions:
-        q = eq.question
-        answer = eq.answer
-        total += (q.rubric or {}).get("max_points", 5.0)
-        if answer is None:
-            answer = ExamAnswer(exam_question_id=eq.id, max_points=(q.rubric or {}).get("max_points", 5.0))
-            session.add(answer)
-            await session.flush()
-            eq.answer = answer
-        result = score_question(q, choice_index=answer.choice_index, text=answer.text_answer)
-        answer.points = result["points"]
-        answer.verdict = result["verdict"]
-        answer.feedback = build_feedback(q, result)
-        answer.evidence_refs = []
-        gained += result["points"]
-
-    exam.total_points = total
-    exam.gained_points = round(gained, 1)
-    exam.score = round(100 * gained / total, 1) if total else 0.0
-
-    # 5) COMPLETED + 报告小结
-    exam.status = Exam.STATUS_COMPLETED
-    exam.completed_at = dt.datetime.now(dt.timezone.utc)
-    exam.summary = {
-        "verdicts": [
-            {"order_no": eq.order_no, "title": eq.question.title[:40], "verdict": eq.answer.verdict if eq.answer else "WRONG"}
-            for eq in exam.questions
-        ],
-        "score": exam.score,
-    }
-
-    # 6) 写证据(每题一条)
-    ev_counter = 1
-    for eq in exam.questions:
-        q = eq.question
-        answer = eq.answer
-        verdict = answer.verdict if answer else "WRONG"
-        support = {"CORRECT": 0.6, "PARTIAL": 0.15, "WRONG": -0.4}.get(verdict, 0.0)
-        grade = "VERIFIED" if verdict == "CORRECT" else ("MEDIUM" if verdict == "PARTIAL" else "LOW")
-        ev = Evidence(
-            short_code=f"EV-X{exam.id}-{eq.order_no}",
-            workspace_id=ws.id,
-            skill_id=q.skill_id,
-            kind="EXAM_ANSWER",
-            title=f"{exam.title} Q{eq.order_no}: {q.title[:60]}",
-            detail=f"判定 {verdict}, 得分 {answer.points if answer else 0}",
-            grade=grade,
-            support=support,
-            source_ref=f"exam:{exam.id}#q{eq.order_no}",
-            occurred_at=exam.completed_at,
-        )
-        session.add(ev)
-        if answer is not None:
-            answer.evidence_refs = [ev.short_code]
-        ev_counter += 1
-    add_span(session, trace, "write_evidence", 12, detail={"evidence": len(exam.questions)})
-
-    # 7) 重算能力 + 生成学习任务
-    states = await recompute_skill_states(session, ws.id)
-    tasks = await plan_tasks_for_workspace(session, ws.id)
-    add_span(session, trace, "recompute_and_plan", 15, detail={"tasks": len(tasks)})
-
-    cost = round(0.02 * len(exam.questions), 3)
-    await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000), cost)
-    await emit_event(session, ws.id, "exam.completed", {"exam_id": exam.id, "score": exam.score}, "exam", exam.id)
     await session.commit()
 
+    failed = await _score_questions(session, trace, exam)
+    if failed:
+        exam.status = Exam.STATUS_SCORING_FAILED
+        exam.summary = await _failed_summary(exam, failed)
+        await finish_trace(session, trace, "FAILED", int((time.perf_counter() - t0) * 1000), fail_reason=f"LLM judge failed: Q{','.join(map(str, failed))}")
+        await emit_event(session, ws.id, "exam.scoring_failed", {"exam_id": exam.id, "questions": failed}, "exam", exam.id)
+        await session.commit()
+        raise HTTPException(status_code=502, detail=f"AI 评分失败（题目 {failed}），未生成分数；可在报告页点「重新评分」重试")
+
+    await _finalize_exam(session, ws, exam, trace, t0)
+    await session.commit()
+    return await _exam_report(session, ws, exam.id)
+
+
+@router.post("/exams/{exam_id}/abort")
+async def abort_exam(
+    exam_id: int,
+    ws: Workspace = Depends(get_workspace),
+    session: AsyncSession = Depends(get_session),
+):
+    """放弃考试: CREATED/ACTIVE/SUBMITTED → ABORTED(不可恢复)。"""
+    exam = await _get_own_exam(session, ws, exam_id)
+    if exam.status not in (Exam.STATUS_CREATED, Exam.STATUS_ACTIVE, Exam.STATUS_SUBMITTED):
+        raise HTTPException(status_code=409, detail=f"exam status is {exam.status}, cannot abort")
+    exam.status = Exam.STATUS_ABORTED
+    t0 = time.perf_counter()
+    trace = await start_trace(session, ws.id, "exam_abort", f"放弃考试: {exam.title}", trigger="user", trigger_ref=f"exam:{exam.id}")
+    add_span(session, trace, "abort", 5, detail={"status": "ABORTED"})
+    await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000))
+    await emit_event(session, ws.id, "exam.aborted", {"exam_id": exam.id}, "exam", exam.id)
+    await session.commit()
+    return {"id": exam.id, "status": Exam.STATUS_ABORTED}
+
+
+@router.post("/exams/{exam_id}/rescore")
+async def rescore_exam(
+    exam_id: int,
+    ws: Workspace = Depends(get_workspace),
+    session: AsyncSession = Depends(get_session),
+):
+    """SCORING_FAILED 后安全重试: 只在显式失败态可用; 重新评分→全部成功才收尾。"""
+    exam = await _get_own_exam(session, ws, exam_id)
+    if exam.status != Exam.STATUS_SCORING_FAILED:
+        raise HTTPException(status_code=409, detail=f"exam status is {exam.status}, only SCORING_FAILED can rescore")
+    t0 = time.perf_counter()
+    trace = await start_trace(session, ws.id, "diagnosis_rescore", f"重新评分: {exam.title}", trigger="manual", trigger_ref=f"exam:{exam.id}")
+    exam.status = Exam.STATUS_SCORING
+    add_span(session, trace, "rescore_restart", 5, detail={"status": "SCORING"})
+
+    failed = await _score_questions(session, trace, exam)
+    if failed:
+        exam.status = Exam.STATUS_SCORING_FAILED
+        exam.summary = await _failed_summary(exam, failed)
+        await finish_trace(session, trace, "FAILED", int((time.perf_counter() - t0) * 1000), fail_reason=f"LLM judge failed: Q{','.join(map(str, failed))}")
+        await emit_event(session, ws.id, "exam.scoring_failed", {"exam_id": exam.id, "questions": failed}, "exam", exam.id)
+        await session.commit()
+        raise HTTPException(status_code=502, detail=f"AI 评分再次失败（题目 {failed}）；请检查「设置与工作空间 → 模型」的 LLM 连接后重试")
+
+    await _finalize_exam(session, ws, exam, trace, t0)
+    await session.commit()
     return await _exam_report(session, ws, exam.id)
 
 
@@ -298,6 +442,8 @@ async def _get_own_exam(session: AsyncSession, ws: Workspace, exam_id: int) -> E
 
 async def _exam_detail(session: AsyncSession, ws: Workspace, exam_id: int) -> dict:
     exam = await _get_own_exam(session, ws, exam_id)
+    if _maybe_expire(exam):
+        await session.commit()  # 懒惰置为 EXPIRED, 让考试中心如实显示
     return {
         "id": exam.id,
         "title": exam.title,
@@ -565,8 +711,9 @@ async def exam_report_deep(
 
 async def _exam_report(session: AsyncSession, ws: Workspace, exam_id: int) -> dict:
     exam = await _get_own_exam(session, ws, exam_id)
-    if exam.status != Exam.STATUS_COMPLETED:
+    if exam.status not in (Exam.STATUS_COMPLETED, Exam.STATUS_SCORING_FAILED):
         raise HTTPException(status_code=409, detail="exam not completed yet")
+    degraded = exam.status == Exam.STATUS_SCORING_FAILED  # 降级报告: 展示失败题目+重评入口, 不给假分
     breakdown = _skill_breakdown(exam.questions)
     states_map = await _states_map(session, ws, breakdown)
     summary = exam.summary or {}
@@ -576,13 +723,14 @@ async def _exam_report(session: AsyncSession, ws: Workspace, exam_id: int) -> di
         "title": exam.title,
         "kind": exam.kind,
         "status": exam.status,
+        "scoring_failed": summary.get("scoring_failed") if degraded else None,
         "score": exam.score,
         "total_points": exam.total_points,
         "gained_points": exam.gained_points,
         "selection_reason": exam.selection_reason,
         "summary": summary,
         "skill_breakdown": breakdown,
-        "overall": _overall_diagnosis(breakdown, exam, states_map),
+        "overall": None if degraded else _overall_diagnosis(breakdown, exam, states_map),
         "diagnosis_deep": deep,
         "has_deep": bool(deep),
         "completed_at": exam.completed_at.isoformat() if exam.completed_at else None,
@@ -603,6 +751,7 @@ async def _exam_report(session: AsyncSession, ws: Workspace, exam_id: int) -> di
                         "points": eq.answer.points,
                         "max_points": eq.answer.max_points,
                         "verdict": eq.answer.verdict,
+                        "judge_version": eq.answer.judge_version,
                         "feedback": eq.answer.feedback,
                         "evidence_refs": eq.answer.evidence_refs,
                     }

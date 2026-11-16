@@ -125,10 +125,11 @@ export interface ExamDetail {
 }
 
 export interface ExamReportData {
-  id: number; title: string; status: string; kind?: string; score: number;
-  total_points: number; gained_points: number;
+  id: number; title: string; status: string; kind?: string; score: number | null;
+  total_points: number; gained_points: number | null;
+  scoring_failed?: number[] | null;
   selection_reason?: string | null;
-  summary?: { score?: number; verdicts?: { order_no: number; title: string; verdict: string }[] } | null;
+  summary?: { score?: number; verdicts?: { order_no: number; title: string; verdict: string }[]; judges?: { judge_v1: number; rule_v1: number }; scoring_failed?: number[] } | null;
   skill_breakdown?: {
     skill_key: string; skill_name: string; q_count: number; earned: number; max: number; ratio: number;
     verdicts: { CORRECT: number; PARTIAL: number; WRONG: number }; order_nos: number[];
@@ -151,8 +152,15 @@ export interface ExamReportData {
     order_no: number; short_code: string; title: string; qtype: string; options: string[] | null;
     skill: string | null; reference_answer?: string | null; frozen?: any;
     answer?: {
-      choice_index?: number | null; text_answer?: string | null; points: number; max_points: number;
-      verdict: string; feedback: { hit_points: { title: string; keywords: string[] }[]; missed_points: { title: string; keywords: string[] }[]; advice?: string; next?: string };
+      choice_index?: number | null; text_answer?: string | null; points: number | null; max_points: number;
+      verdict: string | null; judge_version?: string | null;
+      feedback: {
+        hit_points?: (string | { title: string; keywords?: string[] })[];
+        missed_points?: (string | { title: string; keywords?: string[] })[];
+        advice?: string; next?: string; judge_reasoning?: string;
+        followups?: { kind: string; label: string; question: string; why: string }[];
+        error?: string;
+      };
       evidence_refs?: string[] | null;
     } | null;
   }[];

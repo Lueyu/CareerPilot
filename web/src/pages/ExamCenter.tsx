@@ -12,10 +12,14 @@ const STATUS_CLS: Record<string, string> = {
   TRANSCRIPT_CONFIRMED: 'chip-slate',
   FROZEN: 'chip-slate',
   CREATED: 'chip-slate',
+  ABORTED: 'chip-slate',
+  EXPIRED: 'chip-slate',
+  SCORING_FAILED: 'chip-red',
 };
 const STATUS_NAME: Record<string, string> = {
   COMPLETED: '已完成', ACTIVE: '进行中', SCORING: '评分中',
   SUBMITTED: '已提交', TRANSCRIPT_CONFIRMED: '誊写确认', FROZEN: '已冻结', CREATED: '已创建',
+  ABORTED: '已放弃', EXPIRED: '已超时', SCORING_FAILED: '评分失败',
 };
 const KIND_NAME: Record<string, string> = {
   diagnosis: '独立诊断', focused: '专项考试', bank_exam: '面经考试', project: '项目面试',
