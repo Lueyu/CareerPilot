@@ -47,3 +47,4 @@ deploy/.ali-env
 # 公开门户构建产物（portal/content 才是源，portal/dist 由 build.mjs 生成后发布 OSS）
 portal/dist/
 vite-dev.log
+.archify/
