@@ -427,6 +427,25 @@ async def _process_import(
         await session.close()
 
 
+@router.get("/bank/imports/pending")
+async def pending_imports(
+    ws: Workspace = Depends(get_workspace),
+    session: AsyncSession = Depends(get_session),
+):
+    """待审核导入(REVIEW 状态会话)。注意: 必须先于 /bank/imports/{import_id} 注册。"""
+    sessions = (
+        await session.execute(
+            select(ImportSession)
+            .where(ImportSession.workspace_id == ws.id, ImportSession.status == "REVIEW")
+            .order_by(ImportSession.id.desc())
+        )
+    ).scalars().all()
+    result = []
+    for s in sessions:
+        result.append(await _import_review(session, ws, s.id))
+    return {"imports": result}
+
+
 @router.get("/bank/imports/{import_id}")
 async def import_status(
     import_id: int,
@@ -602,24 +621,6 @@ def _guess_skill(text: str) -> str:
         if score > best_score:
             best_key, best_score = key, score
     return best_key
-
-
-@router.get("/bank/imports/pending")
-async def pending_imports(
-    ws: Workspace = Depends(get_workspace),
-    session: AsyncSession = Depends(get_session),
-):
-    sessions = (
-        await session.execute(
-            select(ImportSession)
-            .where(ImportSession.workspace_id == ws.id, ImportSession.status == "REVIEW")
-            .order_by(ImportSession.id.desc())
-        )
-    ).scalars().all()
-    result = []
-    for s in sessions:
-        result.append(await _import_review(session, ws, s.id))
-    return {"imports": result}
 
 
 async def _import_review(session: AsyncSession, ws: Workspace, import_id: int) -> dict:
@@ -822,7 +823,16 @@ async def approve_import(
         created.append(question.short_code)
     add_span(session, trace, "approve", 25, detail={"created": len(created), "merged": sum(1 for i in items if i.is_duplicate_of)})
 
-    imp.status = "APPROVED"
+    # 仅当该会话不再剩 DRAFT 项时才结束审核(单题通过保持 REVIEW, 其余题仍可继续审)
+    remaining = (
+        await session.execute(
+            select(func.count(ImportItem.id)).where(
+                ImportItem.session_id == imp.id, ImportItem.status == "DRAFT"
+            )
+        )
+    ).scalar_one()
+    if remaining == 0:
+        imp.status = "APPROVED"
     await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000), 0.02)
     await emit_event(session, ws.id, "import.approved", {"import_id": imp.id, "created": created}, "import", imp.id)
     await session.commit()

@@ -22,12 +22,6 @@ const QUESTIONS = bank.questions as BankQ[];
 const TOPICS = bank.topics as { code: string; name: string; icon: string; order: number; desc: string }[];
 const TOPIC_NAME: Record<string, string> = Object.fromEntries(TOPICS.map((t) => [t.code, t.name]));
 
-const PENDING = [
-  { id: 'Q-018', topic: 'tools', title: '工具调用超时后，如何避免重复执行？', company: '字节跳动', level: '中级', date: '2026-11-14', confidence: '96%', status: '待审核', sourceFile: 'IM-103' },
-  { id: 'Q-019', topic: 'agent', title: '多智能体系统中如何做任务分工与失败恢复？', company: '字节跳动', level: '高级', date: '2026-11-14', confidence: '91%', status: '待审核', sourceFile: 'IM-103' },
-  { id: 'Q-020', topic: 'memory', title: '对话历史过长时如何设计记忆压缩策略？', company: '阿里云', level: '中级', date: '2026-11-12', confidence: '88%', status: '待审核', sourceFile: 'IM-102' },
-];
-
 type ImportStage = 'upload' | 'processing' | 'review' | 'done';
 
 /** 后端题目行 -> 前端展示行(静态 bank.json 提供答案 html) */
@@ -133,29 +127,56 @@ export default function Bank() {
 
   const rows = apiRows.length || !apiErr ? apiRows : staticRows;
 
-  // 待审核: 后端 pending imports, 降级静态
-  const [pendingReview, setPendingReview] = useState<ImportReview | null | 'none'>(null);
+  // 待审核: 后端 pending imports(真实数据, 可能有多批)
+  const [pendingImports, setPendingImports] = useState<ImportReview[] | null>(null);
+  const [pendingBusy, setPendingBusy] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
-    api.get<{ items: ImportReview[] }>('/bank/imports/pending')
-      .then((d) => { if (alive) setPendingReview(d.items?.[0] ?? 'none'); })
-      .catch(() => { if (alive) setPendingReview('none'); });
+    api.get<{ imports: ImportReview[] }>('/bank/imports/pending')
+      .then((d) => { if (alive) setPendingImports(d.imports ?? []); })
+      .catch(() => { if (alive) setPendingImports([]); });
     return () => { alive = false; };
   }, [reload]);
 
   const pendingRows = useMemo(() => {
-    if (pendingReview && pendingReview !== 'none') {
-      return pendingReview.items.map((it) => ({
-        id: `${pendingReview.short_code}-${it.id}`,
-        title: it.title,
-        company: '私有导入',
-        topic: it.suggested_skill_key,
-        confidence: `${Math.round(it.extract_confidence * 100)}%`,
-        dup: !!it.is_duplicate_of,
-      }));
+    const list: { importId: number; shortCode: string; itemId: number; rowId: string; title: string; topic: string; confidence: string; dup: boolean; busy: boolean }[] = [];
+    (pendingImports ?? []).forEach((imp) => {
+      imp.items.forEach((it) => {
+        list.push({
+          importId: imp.id,
+          shortCode: imp.short_code,
+          itemId: it.id,
+          rowId: `${imp.short_code}-${it.id}`,
+          title: it.title,
+          topic: it.suggested_skill_key,
+          confidence: `${Math.round(it.extract_confidence * 100)}%`,
+          dup: !!it.is_duplicate_of,
+          busy: pendingBusy === `${imp.id}-${it.id}`,
+        });
+      });
+    });
+    return list;
+  }, [pendingImports, pendingBusy]);
+
+  const approveOne = async (importId: number, itemId: number, rowId: string) => {
+    setPendingBusy(`${importId}-${itemId}`);
+    try {
+      const r = await api.post<{ created: string[] }>(`/bank/imports/${importId}/approve`, { item_ids: [itemId] });
+      toast('✅', `${rowId.split('-')[0]} ${r.created?.[0] ?? ''} 已通过审核并加入题库`);
+      setReload((x) => x + 1);
+    } catch (e: any) {
+      toast('⚠️', `审核失败：${e?.message || '请重试'}`);
+    } finally {
+      setPendingBusy(null);
     }
-    return PENDING.map((p) => ({ id: p.id, title: p.title, company: p.company, topic: p.topic, confidence: p.confidence, dup: false }));
-  }, [pendingReview]);
+  };
+
+  const openReviewFor = (imp: ImportReview) => {
+    setReview(imp);
+    setOpenAns({});
+    setStage('review');
+    setImportOpen(true);
+  };
 
   const topicCount = useMemo(() => {
     const m: Record<string, number> = {};
@@ -395,27 +416,36 @@ export default function Bank() {
           </div>
 
           {filter.kind === 'pending' ? (
-            pendingRows.length === 0 ? (
+            pendingImports === null ? (
+              <div className="empty"><b>加载中…</b></div>
+            ) : pendingRows.length === 0 ? (
               <div className="empty"><b>没有待审核的导入</b><p>从「导入面经」开始，提取结果会出现在这里等待审核</p></div>
             ) : (
               pendingRows.map((p) => (
-                <div className="q-card" key={p.id}>
-                  <div className="q-id">{p.id}</div>
+                <div className="q-card" key={p.rowId}>
+                  <div className="q-id">{p.shortCode}</div>
                   <div className="q-body">
-                    <div className="q-title" onClick={() => setEditQ({ id: p.id, title: p.title, company: p.company, topic: p.topic, difficulty: 3, tags: [], source_type: 'USER_PRIVATE', status: '待审核', isApi: false })}>
+                    <div className="q-title" onClick={() => {
+                      const imp = (pendingImports ?? []).find((x) => x.id === p.importId);
+                      if (imp) openReviewFor(imp);
+                    }}>
                       {p.title}
                     </div>
                     <div className="q-meta">
                       <span className="chip chip-amber">待审核</span>
-                      <span>{p.company}</span>
                       <span className="chip chip-slate">{TOPIC_NAME[p.topic] ?? p.topic}</span>
                       <span>提取置信度 {p.confidence}</span>
-                      {p.dup && <span className="chip chip-red">疑似重复</span>}
+                      {p.dup && <span className="chip chip-red">疑似重复 · 将合并为变体</span>}
                     </div>
                   </div>
                   <div className="q-actions">
-                    <button className="btn btn-primary btn-sm" onClick={() => toast('✅', `${p.id} 已通过审核并加入题库`)}>通过</button>
-                    <button className="btn btn-outline btn-sm" onClick={() => setEditQ({ id: p.id, title: p.title, company: p.company, topic: p.topic, difficulty: 3, tags: [], source_type: 'USER_PRIVATE', status: '待审核', isApi: false })}>编辑</button>
+                    <button className="btn btn-primary btn-sm" disabled={p.busy} onClick={() => approveOne(p.importId, p.itemId, p.rowId)}>
+                      {p.busy ? '入库中…' : '通过'}
+                    </button>
+                    <button className="btn btn-outline btn-sm" onClick={() => {
+                      const imp = (pendingImports ?? []).find((x) => x.id === p.importId);
+                      if (imp) openReviewFor(imp);
+                    }}>审核解答</button>
                   </div>
                 </div>
               ))
@@ -765,24 +795,7 @@ export default function Bank() {
                     ))}
                   </>
                 ) : (
-                  <>
-                    <div className="hint" style={{ marginBottom: 12 }}>后端不可用 · 以下为静态演示数据</div>
-                    {PENDING.map((p) => (
-                      <div className="q-card" key={p.id} style={{ borderBottom: '1px solid var(--border-2)' }}>
-                        <div className="q-body">
-                          <div className="q-title">{p.title}</div>
-                          <div className="q-meta">
-                            <span className="chip chip-green">置信度 {p.confidence}</span>
-                            <span>{p.company} · {p.level}</span>
-                            <span>{TOPIC_NAME[p.topic]}</span>
-                          </div>
-                        </div>
-                        <div className="q-actions">
-                          <button className="btn btn-outline btn-sm" onClick={() => toast('✏️', '编辑草稿（Demo）')}>编辑</button>
-                        </div>
-                      </div>
-                    ))}
-                  </>
+                  <div className="empty"><b>没有可审核的内容</b><p>请先上传文件或粘贴文本并开始解析</p></div>
                 )}
               </div>
             </div>

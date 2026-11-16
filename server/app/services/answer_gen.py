@@ -1,11 +1,15 @@
 """面经答案生成。
 
-目标(PRD + 用户要求): 导入的面经常常只有问题、没有答案。系统要能补上一份
-**详细且通俗易懂** 的参考答案(含评分要点), 让题目进入题库后就能直接用来复习/组卷。
+目标(PRD + 用户要求): 导入的面经常常只有问题、没有答案。系统要补上一份
+**深入浅出、能教会人怎么答** 的深度参考答案, 要求:
+- 积极运用类比(点明对应关系与类比失效之处);
+- 给回答脚本(先说什么再说什么怎么收尾);
+- 追问必须带参考答案(不是只列问题);
+- 30 秒电梯稿 + 详细拆解 + 术语卡, 与公开题库 8 段式结构对齐。
 
 两条路径:
-1. LLM 可用(settings.llm_provider + llm_api_key): 让模型按固定结构产出讲解;
-2. 规则引擎降级(默认): 用能力域知识框架 + 关键词命中常见考点拼装讲解。
+1. LLM 可用(settings.llm_provider + llm_api_key): 深度教学式讲解(首选);
+2. 规则引擎降级(默认): 能力域框架 + 关键词考点拼装(结构一致, 深度有限)。
 
 两条路径输出同一种结构, 渲染成 HTML(answer_html) + rubric(JSONB), 前端无差别展示。
 """
@@ -39,7 +43,12 @@ DOMAIN_FRAME: dict[str, dict[str, Any]] = {
             "没有最大步数/预算上限，Agent 原地打转烧钱",
             "只测成功路径，没测工具超时、返回脏数据的情况",
         ],
-        "followups": ["如果模型规划能力不够，你会怎么降低对它的依赖？", "多轮之后目标漂移，你怎么检测？"],
+        "followups": [
+            {"q": "如果模型规划能力不够，你会怎么降低对它的依赖？",
+             "a": "把规划从「一次生成完整计划」降级为「小步推进」：每步只让模型产出下一个动作，用确定性代码串联；关键路径用模板/规则替代模型决策，模型只负责参数填充；同时每步输出做 schema 校验，不合式就重试或转人工。规划能力不足时，架构上多用「约束」，少用「放手」。"},
+            {"q": "多轮之后目标漂移，你怎么检测？",
+             "a": "把任务目标与完成标准在会话开始时结构化落库（不是只放对话里）；每 N 步或每次工具调用后做一次轻量校验：当前状态对完成标准还有贡献吗？偏了就重注入目标摘要，或回滚到最近有效状态。漂移的本质是目标只存在于上下文里，治法是把它变成可校验的外部状态。"},
+        ],
     },
     "tools": {
         "analogy": "工具调用像给同事配钥匙：钥匙越多越能干，但每把钥匙都可能开错门。"
@@ -59,7 +68,12 @@ DOMAIN_FRAME: dict[str, dict[str, Any]] = {
             "把「HTTP 200」当成业务成功",
             "重试没有退避和上限，故障时把下游打挂",
         ],
-        "followups": ["工具返回的内容不可信，怎么防止它污染后续推理？", "工具数量到 50 个以后，怎么让模型选对？"],
+        "followups": [
+            {"q": "工具返回的内容不可信，怎么防止它污染后续推理？",
+             "a": "把工具返回当「数据」而不是「指令」：拼进 prompt 时明确标注来源与边界，禁止把返回内容放进 system 指令区；对返回做结构校验和字段白名单；高风险动作（写库/发消息）执行前二次确认。核心是：模型可以读它，但流程不无条件信它。"},
+            {"q": "工具数量到 50 个以后，怎么让模型选对？",
+             "a": "分层暴露：先按任务类型/域分组，第一层只给目录（每个工具一句话），模型选定域后再展开该域完整 schema；或检索式选择：把任务描述向量化，召回 top-K 工具再给模型。同时工具命名规范（动词+对象）和描述质量决定一大半准确率。"},
+        ],
     },
     "memory": {
         "analogy": "记忆像人的工作台：桌面只放当前要用的，抽屉放常用的，仓库放归档的。"
@@ -79,7 +93,12 @@ DOMAIN_FRAME: dict[str, dict[str, Any]] = {
             "摘要时把「预算 5 万」压成「有预算」，关键约束丢失",
             "记忆只写不读或只读不写，形同虚设",
         ],
-        "followups": ["多个 Agent 共享记忆时怎么隔离？", "用户说「你记错了」，你怎么定位到那条记忆？"],
+        "followups": [
+            {"q": "多个 Agent 共享记忆时怎么隔离？",
+             "a": "按 workspace/会话分区是底线；共享层只放确认过的、低敏的结构化事实（带来源与置信度）；私有上下文（草稿、对话原文）不出智能体边界；写入走审批或规则过滤，读取按角色授权。类比：共享的是公告栏，不是各自的工作台。"},
+            {"q": "用户说「你记错了」，你怎么定位到那条记忆？",
+             "a": "记忆条目必须带来源（哪次对话/哪份文档）与写入时间；按语义检索 top 候选给用户确认，确认后走「纠正」流程：旧条目标记 SUPERSEDED，写入新条目并关联原条目，而不是原地覆盖——保留轨迹才能审计，也才能回滚。"},
+        ],
     },
     "rag": {
         "analogy": "RAG 像开卷考试：检索是翻书，生成是答题。翻错页，答得再漂亮也是错的。",
@@ -98,7 +117,12 @@ DOMAIN_FRAME: dict[str, dict[str, Any]] = {
             "只看最终答案好坏，不知道是检索错还是生成错",
             "把整篇文档塞进上下文，成本高且稀释注意力",
         ],
-        "followups": ["召回率上不去，你会先怀疑哪一环？", "多跳问题怎么处理？"],
+        "followups": [
+            {"q": "召回率上不去，你会先怀疑哪一环？",
+             "a": "按顺序排查：切分（chunk 是否破坏语义边界）→ 查询理解（用户问法和文档措辞是否对齐，要不要改写/扩展）→ 检索方式（纯向量对专有名词弱，上混合检索）→ rerank 阈值是否过严。用带标注的小评测集逐环归因，不要凭感觉调参。"},
+            {"q": "多跳问题怎么处理？",
+             "a": "链式检索：第一跳检索→生成中间结论（带引用）→用结论改写第二跳查询→再检索；或查询分解一次拆成子问题并行检索后合并。关键是中间结论也要过证据校验，否则错误会沿跳数放大。"},
+        ],
     },
     "eval": {
         "analogy": "评估像体检：不是问「你感觉怎么样」，而是抽血、量血压，用指标说话。"
@@ -118,7 +142,12 @@ DOMAIN_FRAME: dict[str, dict[str, Any]] = {
             "只测平均分，不看失败样本分布",
             "没有回归基线，改完不知道是变好还是变坏",
         ],
-        "followups": ["LLM 当裁判，怎么证明它判得准？", "线上没有标注，怎么评估？"],
+        "followups": [
+            {"q": "LLM 当裁判，怎么证明它判得准？",
+             "a": "拿人工标注做对齐集：抽 100-200 条双标注，算裁判与人工的一致率（≥0.8 才可信）；prompt 用 rubric 拆维度打分而非整体印象分；边界样本用成对比较代替绝对打分；定期重跑对齐集防漂移。裁判是工具，不是真理。"},
+            {"q": "线上没有标注，怎么评估？",
+             "a": "代理指标 + 抽样人审：成功率、重试率、拒答率、用户显式反馈（点赞/重写）做日常监控；每周抽 N 条失败样本人工复盘；重要改动用小流量 A/B 对比代理指标。没有标注就先建标注管线，哪怕从失败样本开始——标注能力本身就是评估基建。"},
+        ],
     },
     "backend": {
         "analogy": "后端是 Agent 的地基：模型再聪明，接口一超时就全盘皆输。",
@@ -137,7 +166,12 @@ DOMAIN_FRAME: dict[str, dict[str, Any]] = {
             "同步串行调用外部服务，尾延迟被最慢的一环拖死",
             "只加日志不做结构化，出事只能 grep",
         ],
-        "followups": ["流量涨十倍，先动哪里？", "如何设计一个可回滚的发布？"],
+        "followups": [
+            {"q": "流量涨十倍，先动哪里？",
+             "a": "先压测量化瓶颈段（通常是 DB 慢查询与外部调用串行），再动手：外部调用并行化+缓存、DB 索引/读写分离、同步改异步队列削峰。同时算成本账：十倍流量不一定值十倍资源，很多时候加缓存和批处理就能扛住。"},
+            {"q": "如何设计一个可回滚的发布？",
+             "a": "每次变更可独立回滚：代码不可变版本+蓝绿/灰度切换，配置与代码分离且带版本；DB 变更向前兼容（先加后删，双写过渡）；发布前演练过回滚（不是「应该能回滚」而是「演练过」）；灰度期盯错误率与核心指标，异常自动回滚。"},
+        ],
     },
     "reliability": {
         "analogy": "可靠性不是「不出错」，而是「出错时损失可控、能恢复」。",
@@ -156,7 +190,12 @@ DOMAIN_FRAME: dict[str, dict[str, Any]] = {
             "把检索到的网页内容当系统指令执行",
             "错误吞掉不记录，线上问题无法复现",
         ],
-        "followups": ["如何验证幂等真的生效？", "prompt 注入的检测放在哪一层？"],
+        "followups": [
+            {"q": "如何验证幂等真的生效？",
+             "a": "并发重放测试：同一幂等键并发 N 次相同请求，断言只产生一次副作用（一条订单/一条扣款）且返回同一结果；再测「执行到一半失败后重试」：断言从断点恢复而不是重复执行。验证要打在数据库副作用上，不是看返回值。"},
+            {"q": "prompt 注入的检测放在哪一层？",
+             "a": "多层防御：入口层对不可信内容（网页/文件/工具返回）做标记与过滤，不进指令区；执行层对敏感动作做白名单+二次确认；输出层校验动作参数。单点检测必然漏，防线设计成「即使注入成功也拿不到权限」。"},
+        ],
     },
     "deploy": {
         "analogy": "部署与可观测性像开车时的仪表盘：不看仪表也能开，但不知道什么时候会抛锚。",
@@ -175,7 +214,12 @@ DOMAIN_FRAME: dict[str, dict[str, Any]] = {
             "告警没有分级，最后没人看",
             "成本只在月底看账单，无法归因",
         ],
-        "followups": ["怎么设计一次安全的模型切换？", "成本突然翻倍，你怎么排查？"],
+        "followups": [
+            {"q": "怎么设计一次安全的模型切换？",
+             "a": "把模型当依赖治理：配置化+版本化，切流量用灰度（5%→25%→100%）；切换前用固定评测集跑基线对比，关键指标（成功率/延迟/成本）无回归才放量；新旧模型并行一段时间，异常一键切回；评测集与线上流量分布定期同步，防止「评测过了但线上翻车」。"},
+            {"q": "成本突然翻倍，你怎么排查？",
+             "a": "先归因：是调用量涨了还是单次成本涨了？单次成本拆成输入 token/输出 token/工具调用次数三段，对照近期变更（prompt 变长？检索 top-K 调大？模型换档？循环重试？）；再用 trace 定位到具体请求样本。成本监控要按请求维度，月底看账单只能算 autopsy。"},
+        ],
     },
 }
 
@@ -336,25 +380,30 @@ def _match_topics(title: str, skill_key: str = "") -> list[dict[str, Any]]:
 
 # ---------------------------------------------------------------- LLM 路径
 
-LLM_SYSTEM = """你是资深 AI Agent 工程师，负责为面经题目补写参考答案。
-要求：
-1. 先给一句话结论，再用大白话解释（可以用生活类比），最后给可落地做法；
-2. 面向准备面试的工程师，讲清楚「为什么」而不只是「是什么」；
-3. 具体、可验证，避免空话套话；提到取舍时说明代价；
-4. 只输出 JSON，不要多余文字。"""
+LLM_SYSTEM = """你是资深 AI Agent 工程师兼面试教练，为面经题目补写「能教会人怎么答」的深度参考答案。读者是准备 P6 级别面试的 AI 应用工程师。
+写作要求：
+1. 深入浅出：每个技术点先用大白话讲清「为什么这么设计、怎么运作」，再给专业表述与关键参数/阈值/判断标准；讲机制时不跳步，把因果链条说完整；
+2. 积极运用类比：至少一个贯穿全文的生活化类比，把抽象机制映射到日常事物；类比后要点明「对应关系」和「类比在哪里失效」，不许只贴一个比喻标签；
+3. 教会怎么回答：给出回答脚本——先说什么、再说什么、怎么收尾，像教练给逐字稿大纲一样具体到句式；
+4. 追问必须带答案：每个追问给出可直接口述的参考答案，不是只列问题；
+5. 具体、可验证：避免「注意」「做好」这类空话，写到参数、比例、动作；提取舍时说明代价；
+6. 只输出 JSON，不要多余文字。"""
 
 LLM_USER_TMPL = """题目：{title}
-能力域：{skill}
+能力域：{skill}（面试岗位：AI Agent 应用开发工程师，P6 级别）
 {qtype_hint}
-请输出 JSON：
+请输出 JSON（每个字段都必须有，内容宁多勿少、追求深度）：
 {{
-  "tldr": "一句话结论（40 字内）",
-  "analogy": "通俗类比，把原理讲给非专家听（80-150 字）",
+  "tldr": "一句话结论（40 字内）——面试开口先说的那句结论",
+  "elevator": "30 秒电梯稿：面试时最先说出口的 4-6 句话，覆盖 结论+核心机制+一个亮点/数字（150-250 字）",
+  "analogy": "通俗类比：一个贯穿全文的生活化类比讲透原理，点明与技术的对应关系，并说明类比在哪里失效（150-250 字）",
   "examiner": ["面试官通过这题想验证的 2-4 个点"],
-  "steps": [{{"title": "做法标题", "detail": "具体怎么做，含关键参数或判断标准（40-90 字）"}}],
-  "pitfalls": ["2-4 个常见错误做法及后果"],
-  "followups": ["2-3 个可能的追问"],
-  "key_points": [{{"title": "评分要点", "detail": "命中该要点意味着候选人说清了什么"}}]
+  "steps": [{{"title": "拆解小节标题", "detail": "深入浅出讲透一个机制：为什么这么设计→怎么运作→关键参数/判断标准→失效边界（100-200 字）"}}],
+  "how_to_answer": "回答脚本：这题先说什么（句式给出来）、按什么顺序展开、用什么收尾，让面试官跟上你的结构（150-250 字）",
+  "pitfalls": ["2-4 个常见错误做法及直接后果"],
+  "followups": [{{"q": "面试官可能的追问", "a": "追问的参考答案，可直接口述（100-200 字）"}}],
+  "key_points": [{{"title": "评分要点", "detail": "命中该要点意味着候选人说清了什么"}}],
+  "terms": [{{"term": "本题关键术语", "desc": "一句话解释（20-50 字）"}}]
 }}"""
 
 
@@ -376,6 +425,7 @@ async def _llm_answer(title: str, skill_key: str, skill_name: str, qtype: str) -
         return None
     if not isinstance(data, dict) or not data.get("tldr"):
         return None
+    data["_source"] = "llm"
     return data
 
 
@@ -415,13 +465,39 @@ def _rule_answer(title: str, skill_key: str, skill_name: str) -> dict[str, Any]:
         pitfalls.extend(frame["pitfalls"])
     pitfalls = list(dict.fromkeys(pitfalls))[:5]
 
-    followups = list(dict.fromkeys([*frame["followups"], "如果线上已经出现这个问题，你的排查顺序是什么？"]))[:4]
+    # 追问带答案: 能力域框架内置 q/a 对
+    followups = []
+    seen_q: set[str] = set()
+    for fu in frame["followups"]:
+        q = fu["q"] if isinstance(fu, dict) else str(fu)
+        if q in seen_q:
+            continue
+        seen_q.add(q)
+        followups.append({"q": q, "a": fu.get("a", "") if isinstance(fu, dict) else ""})
+    followups.append({"q": "如果线上已经出现这个问题，你的排查顺序是什么？", "a": "先看监控定位故障段（哪一跳错误率/延迟异常）→ 拉该段 trace 找具体请求样本 → 复现并二分（关掉可疑变更/开关）→ 修复后跑回归评测确认无副作用，最后补一条告警或预案防止复发。排查的原则是先止损（降级/回滚）再归因。"})
+    followups = followups[:4]
+
+    step_titles = [s[0] for s in uniq_steps]
+    elevator = (
+        f"开场先抛结论：{tldr} "
+        f"然后一句话点出核心机制——重点讲「{step_titles[0] if step_titles else '整体思路'}」和"
+        f"「{step_titles[1] if len(step_titles) > 1 else '验证方式'}」，"
+        f"再给一个具体例子或参数收住，最后主动补一个常见坑展示工程判断力。"
+    )
+    how_to_answer = (
+        f"按「结论 → 机制 → 例子 → 边界」四段式回答：①20 秒内先给结论（{tldr[:40]}…）；"
+        f"②按 {'、'.join('「' + t + '」' for t in step_titles[:3])} 的顺序逐条展开机制，每条带一个具体参数或判断标准；"
+        f"③用一个实际例子把机制落地（项目里怎么用的、踩过什么坑）；"
+        f"④收尾主动说一个常见坑与规避方式，把话题引到你熟悉的深度。全程让面试官跟得上结构。"
+    )
 
     return {
         "tldr": tldr,
+        "elevator": elevator,
         "analogy": analogy,
         "examiner": frame["examiner"],
         "steps": [{"title": s[0], "detail": s[1]} for s in uniq_steps],
+        "how_to_answer": how_to_answer,
         "pitfalls": pitfalls,
         "followups": followups,
         "key_points": [
@@ -445,9 +521,16 @@ def render_html(title: str, skill_name: str, data: dict[str, Any], source: str) 
             f'<p>{esc(tldr)}</p></div>'
         )
 
+    elevator = (data.get("elevator") or "").strip()
+    if elevator:
+        parts.append(
+            '<div class="ans-elevator"><div class="ans-elevator-label">⏱ 30 秒电梯稿（先背这段）</div>'
+            f"<p>{esc(elevator)}</p></div>"
+        )
+
     analogy = (data.get("analogy") or "").strip()
     if analogy:
-        parts.append("<h3>先把它讲人话</h3>")
+        parts.append("<h3>先把它讲人话（类比）</h3>")
         parts.append(f"<p>{esc(analogy)}</p>")
 
     examiner = [str(x).strip() for x in (data.get("examiner") or []) if str(x).strip()]
@@ -464,22 +547,41 @@ def render_html(title: str, skill_name: str, data: dict[str, Any], source: str) 
         elif str(s).strip():
             steps.append(("", str(s).strip()))
     if steps:
-        parts.append("<h3>具体怎么做</h3>")
+        parts.append("<h3>详细拆解</h3>")
         items = []
         for i, (t, d) in enumerate(steps, start=1):
             head = f"<b>{esc(t)}</b>：" if t else ""
             items.append(f"<li>{head}{esc(d)}</li>")
         parts.append("<ol>" + "".join(items) + "</ol>")
 
+    how_to = (data.get("how_to_answer") or "").strip()
+    if how_to:
+        parts.append(
+            '<div class="ans-script"><div class="ans-script-label">🎤 这题怎么答（回答脚本）</div>'
+            f"<p>{esc(how_to)}</p></div>"
+        )
+
     pitfalls = [str(x).strip() for x in (data.get("pitfalls") or []) if str(x).strip()]
     if pitfalls:
         parts.append("<h3>常见坑</h3>")
         parts.append("<ul>" + "".join(f"<li>{esc(x)}</li>" for x in pitfalls) + "</ul>")
 
-    followups = [str(x).strip() for x in (data.get("followups") or []) if str(x).strip()]
+    # 追问: 新结构 [{q, a}], 兼容旧字符串列表
+    followups: list[tuple[str, str]] = []
+    for fu in data.get("followups") or []:
+        if isinstance(fu, dict):
+            q, a = str(fu.get("q", "")).strip(), str(fu.get("a", "")).strip()
+            if q:
+                followups.append((q, a))
+        elif str(fu).strip():
+            followups.append((str(fu).strip(), ""))
     if followups:
-        parts.append("<h3>可能的追问</h3>")
-        parts.append("<ul>" + "".join(f"<li>{esc(x)}</li>" for x in followups) + "</ul>")
+        parts.append("<h3>面试官追问（带参考答案）</h3>")
+        blocks = []
+        for q, a in followups:
+            ans = f'<div class="fu-a">{esc(a)}</div>' if a else '<div class="fu-a fu-a-missing">（暂无参考答案，可在审核时补充）</div>'
+            blocks.append(f'<div class="fu-item"><div class="fu-q">Q：{esc(q)}</div>{ans}</div>')
+        parts.append('<div class="fu-list">' + "".join(blocks) + "</div>")
 
     key_points = []
     for k in data.get("key_points") or []:
@@ -499,7 +601,21 @@ def render_html(title: str, skill_name: str, data: dict[str, Any], source: str) 
             f"<tbody>{rows}</tbody></table>"
         )
 
-    tag = "AI 生成" if source == "llm" else "规则引擎生成"
+    terms = []
+    for tm in data.get("terms") or []:
+        if isinstance(tm, dict):
+            w, d = str(tm.get("term", "")).strip(), str(tm.get("desc", "")).strip()
+            if w:
+                terms.append((w, d))
+    if terms:
+        parts.append("<h3>术语卡</h3>")
+        rows = "".join(f"<tr><td><b>{esc(w)}</b></td><td>{esc(d)}</td></tr>" for w, d in terms)
+        parts.append(
+            '<table class="ans-rubric ans-terms"><thead><tr><th>术语</th><th>一句话解释</th></tr></thead>'
+            f"<tbody>{rows}</tbody></table>"
+        )
+
+    tag = "AI 深度生成" if source == "llm" else "规则引擎生成"
     parts.append(
         f'<p class="ans-foot">· 本题答案由{tag}补充，供复习参考，可手动修改。'
         f"能力域：{esc(skill_name or '—')}</p>"
