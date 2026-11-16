@@ -325,9 +325,11 @@ async def _process_import(
             imp.meta = {**(imp.meta or {}), "progress": {"step": step, "total": 5, "note": note}}
             await session.commit()
 
-        # 阶段 0: 解析文档(文件 OCR/Office 解析是最慢的一步)
+        # 阶段 0: 解析文档(文件 OCR/Office 解析是最慢的一步; to_thread 避免阻塞事件循环)
         if raw_items:
-            extracted = extract_many(raw_items)
+            t_stage = time.perf_counter()
+            extracted = await asyncio.to_thread(extract_many, raw_items)
+            parse_ms = int((time.perf_counter() - t_stage) * 1000)
             file_meta = [x.as_meta() for x in extracted.files]
             ok_names = [f.name for f in extracted.ok_files]
             text_parts = [t for t in [paste_text.strip(), extracted.text] if t]
@@ -341,12 +343,14 @@ async def _process_import(
                 detail = "; ".join(f"{m['name']}: {m['error']}" for m in file_meta if m["error"]) or detail
             raise RuntimeError(detail)
         await advance(1, f"已解析 {len(file_meta) or '文本'} · {len(source_text)} 字符")
-        add_span(session, trace, "parse", 40, detail={"chars": len(source_text), "files": len(file_meta)})
+        add_span(session, trace, "parse", parse_ms if raw_items else 5, detail={"chars": len(source_text), "files": len(file_meta)})
 
         # 阶段 1: 提取题目(规则/LLM)
+        t_stage = time.perf_counter()
         candidates = await _extract_questions(source_text)
+        extract_ms = int((time.perf_counter() - t_stage) * 1000)
         await advance(2, f"提取到 {len(candidates)} 道候选题")
-        add_span(session, trace, "extract", 60, detail={"candidates": len(candidates)})
+        add_span(session, trace, "extract", extract_ms, detail={"candidates": len(candidates)})
 
         # 阶段 2: 技能映射(映射在提取阶段已打标, 此处加载技能表并核对)
         sm = await _skill_map(session)
@@ -374,9 +378,15 @@ async def _process_import(
         add_span(session, trace, "dedup", 20, detail={"duplicates": n_dup})
 
         # 阶段 4: 为缺答案的题生成详细讲解(LLM 优先, 未配置则规则模板), 再写导入项
-        need_answer = [c for c in candidates if not (c.get("draft_answer") or "").strip()]
+        # 重复题直接复用原题答案, 不浪费 LLM 调用(审核时合并)
+        need_answer = [
+            c for i, c in enumerate(candidates)
+            if not (c.get("draft_answer") or "").strip() and not dup_map[i]
+        ]
+        t_stage = time.perf_counter()
         filled = await _fill_answers(session, need_answer, sm)
-        add_span(session, trace, "answer", 90, detail={"generated": filled})
+        answer_ms = int((time.perf_counter() - t_stage) * 1000)
+        add_span(session, trace, "answer", answer_ms, detail={"generated": filled})
 
         n_new = 0
         for i, c in enumerate(candidates):
@@ -461,7 +471,7 @@ async def _fill_answers(session: AsyncSession, candidates: list[dict], sm: dict[
     todo = candidates[:20]
     if not todo:
         return 0
-    sem = asyncio.Semaphore(4)
+    sem = asyncio.Semaphore(8)
 
     async def work(c: dict) -> None:
         skill_key = c.get("skill_key") or "agent"

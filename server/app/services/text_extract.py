@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import io
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 # 单文件最大 12MB / 总文本 60k 字符, 防止一次导入撑爆上下文
@@ -111,14 +113,17 @@ def _from_docx(raw: bytes) -> tuple[str, str]:
 
 
 _OCR_ENGINE = None
+_OCR_LOCK = threading.Lock()
 
 
 def _get_ocr_engine():
-    """rapidocr 引擎懒加载并缓存(模型加载较重, 只初始化一次)。"""
+    """rapidocr 引擎懒加载并缓存(模型加载较重, 只初始化一次; 加锁保证多线程并行解析时只建一次)。"""
     global _OCR_ENGINE
     if _OCR_ENGINE is None:
-        from rapidocr_onnxruntime import RapidOCR
-        _OCR_ENGINE = RapidOCR()
+        with _OCR_LOCK:
+            if _OCR_ENGINE is None:
+                from rapidocr_onnxruntime import RapidOCR
+                _OCR_ENGINE = RapidOCR()
     return _OCR_ENGINE
 
 
@@ -192,7 +197,16 @@ def extract_one(name: str, raw: bytes) -> ExtractedFile:
 
 
 def extract_many(items: list[tuple[str, bytes]]) -> ExtractResult:
+    """并行解析多个文件(OCR/Office 解析是 CPU 密集型, 线程池可显著提速多文件导入)。
+
+    onnxruntime InferenceSession.run 线程安全, 共享单个 OCR 引擎实例没有问题。
+    """
     result = ExtractResult()
-    for name, raw in items:
-        result.files.append(extract_one(name, raw))
+    if len(items) <= 1:
+        for name, raw in items:
+            result.files.append(extract_one(name, raw))
+        return result
+    workers = min(3, len(items))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        result.files = list(pool.map(lambda kv: extract_one(kv[0], kv[1]), items))
     return result

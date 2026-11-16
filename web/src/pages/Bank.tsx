@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAppState } from '../components/AppState';
 import { DemoBanner, DiffLabel, Modal, PageHead, Stars } from '../components/ui';
 import { api, BankData, ImportReview, QuestionDetail } from '../api/client';
+import { trackImport } from '../lib/importTracker';
 import bank from '../data/bank.json';
 
 interface BankQ {
@@ -22,7 +23,7 @@ const QUESTIONS = bank.questions as BankQ[];
 const TOPICS = bank.topics as { code: string; name: string; icon: string; order: number; desc: string }[];
 const TOPIC_NAME: Record<string, string> = Object.fromEntries(TOPICS.map((t) => [t.code, t.name]));
 
-type ImportStage = 'upload' | 'processing' | 'review' | 'done';
+type ImportStage = 'upload' | 'review' | 'done';
 
 /** 架构图箭头 marker: 题库 html 引用 #sd-arr 但源数据无 defs, 渲染时统一注入 */
 const SD_MARKER_DEFS =
@@ -72,8 +73,6 @@ export default function Bank() {
     if (location.search.includes('import=1')) setImportOpen(true);
   }, [location.search]);
   const [stage, setStage] = useState<ImportStage>('upload');
-  const [stepIdx, setStepIdx] = useState(0);
-  const [stepNote, setStepNote] = useState('');
   const [approved, setApproved] = useState<string[]>([]);
 
   // 后端题库
@@ -248,8 +247,6 @@ export default function Bank() {
       return;
     }
     setImportErr(null);
-    setStage('processing');
-    setStepIdx(0);
     try {
       let start: ImportReview;
       if (files.length) {
@@ -262,42 +259,35 @@ export default function Bank() {
       } else {
         start = await api.post<ImportReview>('/bank/imports', { pasted_text: text });
       }
-      // 真进度: 后台流水线每阶段落库 meta.progress.step, 这里轮询真实状态
-      const startedAt = Date.now();
-      const poll = setInterval(() => {
-        void (async () => {
-          try {
-            const r = await api.get<ImportReview>(`/bank/imports/${start.id}`);
-            const step = Number(r.meta?.progress?.step ?? 0);
-            setStepIdx(Math.min(5, Math.max(0, step)));
-            setStepNote(r.meta?.progress?.note || '');
-            if (r.status === 'REVIEW') {
-              clearInterval(poll);
-              setStepIdx(5);
-              setReview(r);
-              setStage('review');
-            } else if (r.status === 'FAILED') {
-              clearInterval(poll);
-              setStage('upload');
-              const msg = r.meta?.error || '解析失败，请重试';
-              setImportErr(msg);
-              toast('⚠️', `解析失败: ${msg}`);
-            } else if (Date.now() - startedAt > 180_000) {
-              clearInterval(poll);
-              setStage('upload');
-              setImportErr('解析超时（3 分钟）。请减少文件数量后重试。');
-            }
-          } catch {
-            /* 单次轮询失败忽略, 下个周期重试 */
-          }
-        })();
-      }, 600);
-    } catch (e: any) {
+      // 完全后台化: 注册全局追踪器(跨页面悬浮进度), 立即关闭弹窗不阻塞用户
+      trackImport(start.id, start.short_code);
+      setImportOpen(false);
       setStage('upload');
+      setPasteText('');
+      setFiles([]);
+      setCompany('');
+      setLevel('');
+      toast('🚀', `面经已转入后台解析（${start.short_code}），可以继续其他操作，完成后会通知你`);
+    } catch (e: any) {
       setImportErr(String(e.message || e));
-      toast('⚠️', `解析失败: ${e.message}`);
+      toast('⚠️', `提交失败: ${e.message}`);
     }
   };
+
+  // 后台导入完成: 刷新待审核列表; 若正停留在面经库, 直接打开审核弹窗
+  useEffect(() => {
+    const h = (e: Event) => {
+      setReload((x) => x + 1);
+      const d = (e as CustomEvent).detail as { id: number; status: string } | undefined;
+      if (d?.status === 'REVIEW') {
+        api.get<ImportReview>(`/bank/imports/${d.id}`)
+          .then((r) => { setReview(r); setStage('review'); setImportOpen(true); })
+          .catch(() => { /* 列表已刷新, 用户可从待审核进入 */ });
+      }
+    };
+    window.addEventListener('cp-import-finished', h);
+    return () => window.removeEventListener('cp-import-finished', h);
+  }, []);
 
   /** 重新生成某条导入项的答案 */
   const regenerateItem = async (itemId: number) => {    if (!review) return;
@@ -645,7 +635,7 @@ export default function Bank() {
       {/* —— 导入面经 —— */}
       {importOpen && (
         <Modal
-          title={stage === 'upload' ? '导入面经' : stage === 'processing' ? '正在整理' : stage === 'review' ? '审核提取的问题' : '导入完成'}
+          title={stage === 'upload' ? '导入面经' : stage === 'review' ? '审核提取的问题' : '导入完成'}
           size="lg"
           onClose={() => setImportOpen(false)}
           footer={
@@ -733,25 +723,6 @@ export default function Bank() {
                 />
               </div>
               <div className="hint">私有资料仅当前 Workspace 可见，不会自动进入公共题库；解析结果需人工审核，缺答案的题会自动生成详细解答。</div>
-            </>
-          )}
-
-          {stage === 'processing' && (
-            <>
-              <div className="steps">
-                {['解析文档', '提取实体', '技能映射', '去重', '生成草稿'].map((s, i) => (
-                  <div key={s} className={`step ${i < stepIdx ? 'done' : i === stepIdx ? 'now' : ''}`}>
-                    <span className="step-ic">{i < stepIdx ? '✓' : i + 1}</span>
-                    {s}
-                  </div>
-                ))}
-              </div>
-              <div className="score-box" style={{ padding: '30px 20px' }}>
-                <div className="ring-label" style={{ position: 'static', fontSize: 15 }}>
-                  {files.length ? `正在解析 ${files.length} 个文件并生成解答…` : '正在解析粘贴的面经文本…'}
-                </div>
-                <div className="hint" style={{ marginTop: 8 }}>{stepNote || '提取问题 → 映射技能 → 查重 → 为缺答案的题生成详细解答'}</div>
-              </div>
             </>
           )}
 

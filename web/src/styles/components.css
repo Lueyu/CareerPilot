@@ -2677,3 +2677,13 @@ table.tbl {
 /* —— 追问工具条 —— */
 .qa-tools { display: flex; align-items: center; gap: 8px; margin: 4px 0 10px; padding: 8px 12px; background: var(--surface-2); border: 1px dashed var(--border-2); border-radius: 10px; }
 .qa-tools-label { flex: 1; font-size: 12.5px; color: var(--text-3); }
+
+/* —— 全局面经导入进度悬浮窗（后台解析, 跨页面可见） —— */
+.import-monitor { position: fixed; right: 20px; bottom: 20px; z-index: 960; display: flex; flex-direction: column; gap: 8px; max-width: 320px; }
+.import-monitor-item { display: grid; grid-template-columns: 18px 1fr; grid-template-rows: auto auto; column-gap: 10px; row-gap: 6px; align-items: center; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18); cursor: pointer; animation: popIn 0.18s ease-out; }
+.import-monitor-item:hover { border-color: var(--primary); }
+.import-monitor-spin { grid-row: 1 / span 2; width: 16px; height: 16px; border: 2px solid var(--border-2); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.9s linear infinite; }
+.import-monitor-txt b { display: block; font-size: 13px; color: var(--text); }
+.import-monitor-txt span { display: block; margin-top: 2px; font-size: 12px; color: var(--text-3); }
+.import-monitor-bar { grid-column: 2; height: 4px; background: var(--surface-3); border-radius: 2px; overflow: hidden; }
+.import-monitor-bar i { display: block; height: 100%; background: var(--accent-grad, var(--primary)); border-radius: 2px; transition: width 0.6s ease; }

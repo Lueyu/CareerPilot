@@ -1,6 +1,7 @@
 import React from 'react';
 import { Route, Routes, Outlet, Navigate } from 'react-router-dom';
 import { AppStateProvider } from './components/AppState';
+import ImportMonitor from './components/ImportMonitor';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
 import { CommandPalette, NotificationsPanel, QuickActionsPanel, WorkspaceSwitcher } from './components/Overlays';
@@ -37,6 +38,7 @@ function Layout() {
         <NotificationsPanel />
         <QuickActionsPanel />
         <WorkspaceSwitcher />
+        <ImportMonitor />
       </div>
     </AppStateProvider>
   );
