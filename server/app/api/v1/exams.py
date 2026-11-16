@@ -659,7 +659,7 @@ async def exam_report_deep(
         lines.append("")
     lines.append(f"确定性结论（供参考）：{deterministic['conclusion']}")
 
-    resp = await llm_adapter.chat(DEEP_DIAG_SYSTEM, "\n".join(lines), json_mode=True, timeout=120)
+    resp = await llm_adapter.chat(DEEP_DIAG_SYSTEM, "\n".join(lines), json_mode=True, timeout=120, trace=trace, session=session, span_name="llm:deep_diagnosis")
     if resp is None:
         await finish_trace(session, trace, "FAILED", int((time.perf_counter() - t0) * 1000), fail_reason="llm call failed")
         await session.commit()
@@ -684,7 +684,7 @@ async def exam_report_deep(
             if eq is not None and eq.order_no in q_material:
                 fix.append(q_material[eq.order_no])
                 fix.append("")
-        resp2 = await llm_adapter.chat(DEEP_DIAG_FIX, "\n".join(fix), json_mode=True, timeout=120)
+        resp2 = await llm_adapter.chat(DEEP_DIAG_FIX, "\n".join(fix), json_mode=True, timeout=120, trace=trace, session=session, span_name="llm:deep_diagnosis_fix")
         if resp2:
             try:
                 per_q.update(_sanitize_pq(_json.loads(resp2["content"]).get("per_question"), expect))

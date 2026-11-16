@@ -1,12 +1,17 @@
-"""岗位对标 API。"""
-from fastapi import APIRouter, Depends
+"""岗位对标 API: 种子标准 / JD 导入与对标版本生成。"""
+import datetime as dt
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_workspace
 from app.db import get_session
-from app.models import JobStandard, SkillState, Workspace
+from app.models import JdSource, JobStandard, Skill, SkillState, Workspace
+from app.services.benchmark_jd import build_targets, parse_jd
 from app.services.competency import recompute_skill_states
+from app.services.tracing import add_span, emit_event, finish_trace, start_trace
 
 router = APIRouter()
 
@@ -25,9 +30,10 @@ async def benchmark(
     session: AsyncSession = Depends(get_session),
 ):
     states = await recompute_skill_states(session, ws.id)
+    # 优先使用最新的 JD 对标版本(非种子); 没有才回落种子假设
     standard = (
         await session.execute(
-            select(JobStandard).where(JobStandard.is_seed.is_(True)).order_by(JobStandard.id.desc())
+            select(JobStandard).order_by(JobStandard.is_seed.asc(), JobStandard.id.desc()).limit(1)
         )
     ).scalar_one_or_none()
 
@@ -55,7 +61,145 @@ async def benchmark(
             "version": standard.version,
             "jd_sample_count": standard.jd_sample_count,
             "is_seed": standard.is_seed,
-            "note": "种子假设 · 非统计结论" if standard.is_seed else "",
+            "note": "种子假设 · 非统计结论" if standard.is_seed else f"基于 {standard.jd_sample_count} 份 JD 提炼 · 可回退种子",
         },
         "rows": rows,
+    }
+
+
+# ---------------- JD 导入与对标版本 ----------------
+
+class JdIn(BaseModel):
+    text: str = Field(min_length=30, max_length=20000)
+    title: str | None = None
+    company: str | None = None
+    role: str | None = None
+    level: str | None = None
+    apply: bool = True  # 是否生成并启用对标版本
+
+
+@router.post("/benchmark/jd")
+async def import_jd(
+    body: JdIn,
+    ws: Workspace = Depends(get_workspace),
+    session: AsyncSession = Depends(get_session),
+):
+    text = body.text.strip()
+    if len(text) < 30:
+        raise HTTPException(status_code=422, detail="JD 原文太短（至少 30 字）")
+
+    trace = await start_trace(session, ws.id, "benchmark_jd", "导入 JD 并生成对标版本", trigger="manual")
+    try:
+        skills = (
+            (await session.execute(select(Skill).order_by(Skill.id))).scalars().all()
+        )
+        parsed = parse_jd(text, [{"key": s.key, "name": s.name} for s in skills])
+
+        jd = JdSource(
+            workspace_id=ws.id,
+            title=body.title or (body.company or "未命名 JD"),
+            company=body.company,
+            role=body.role,
+            level=body.level,
+            source_type="paste",
+            raw_text=text,
+            parsed=parsed,
+            status="PARSED",
+        )
+        session.add(jd)
+        await session.flush()
+        add_span(session, trace, "解析 JD", duration_ms=0, detail={"skill_hits": parsed["skill_hits"], "requirements": len(parsed["requirements"])})
+
+        applied = {"changes": [], "version": None}
+        if body.apply:
+            base = (
+                await session.execute(
+                    select(JobStandard).order_by(JobStandard.is_seed.asc(), JobStandard.id.desc()).limit(1)
+                )
+            ).scalar_one_or_none()
+            if base is None:
+                raise HTTPException(status_code=409, detail="没有可用的基准标准（种子标准缺失）")
+            base_targets = [
+                {
+                    "skill_id": t.skill_id,
+                    "skill_key": t.skill.key,
+                    "skill_name": t.skill.name,
+                    "weight_pct": t.weight_pct,
+                    "target_level": t.target_level,
+                }
+                for t in base.targets
+            ]
+            new_targets, changes = build_targets(base_targets, parsed)
+            version = f"jd-{jd.id}"
+            exists = (
+                await session.execute(
+                    select(JobStandard).where(JobStandard.role == base.role, JobStandard.level == base.level, JobStandard.version == version)
+                )
+            ).scalar_one_or_none()
+            if exists is None:
+                std = JobStandard(
+                    role=body.role or base.role,
+                    level=body.level or base.level,
+                    version=version,
+                    jd_sample_count=base.jd_sample_count + 1,
+                    is_seed=False,
+                )
+                session.add(std)
+                await session.flush()
+                from app.models import JobStandardTarget
+
+                for t in new_targets:
+                    session.add(JobStandardTarget(standard_id=std.id, skill_id=t["skill_id"], weight_pct=t["weight_pct"], target_level=t["target_level"]))
+                await session.flush()
+                applied = {"changes": changes, "version": version, "standard_id": std.id}
+            else:
+                applied = {"changes": changes, "version": version, "standard_id": exists.id, "note": "该 JD 已生成过对标版本"}
+
+            jd.status = "APPLIED"
+
+        await session.commit()
+        add_span(session, trace, "生成对标版本", duration_ms=0, detail=applied)
+        await finish_trace(session, trace, "SUCCESS")
+        await emit_event(session, ws.id, "benchmark_updated", {"jd_id": jd.id, "version": applied.get("version"), "changes": applied.get("changes", [])}, ref_type="jd", ref_id=jd.id)
+        await session.commit()
+        return {
+            "id": jd.id,
+            "title": jd.title,
+            "status": jd.status,
+            "parsed": parsed,
+            "applied": applied,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        await session.rollback()
+        await finish_trace(session, trace, "FAILED", fail_reason=str(e)[:300])
+        await session.commit()
+        raise HTTPException(status_code=500, detail=f"JD 解析失败: {e}") from e
+
+
+@router.get("/benchmark/jds")
+async def list_jds(
+    ws: Workspace = Depends(get_workspace),
+    session: AsyncSession = Depends(get_session),
+):
+    rows = (
+        (await session.execute(
+            select(JdSource).where(JdSource.workspace_id == ws.id).order_by(JdSource.id.desc()).limit(20)
+        )).scalars().all()
+    )
+    return {
+        "items": [
+            {
+                "id": j.id,
+                "title": j.title,
+                "company": j.company,
+                "role": j.role,
+                "level": j.level,
+                "status": j.status,
+                "created_at": j.created_at.isoformat() if j.created_at else None,
+                "skill_hits": (j.parsed or {}).get("skill_hits", []),
+            }
+            for j in rows
+        ]
     }

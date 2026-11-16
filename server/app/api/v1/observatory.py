@@ -195,3 +195,47 @@ async def recent_events(
             for e in events
         ]
     }
+
+
+@router.get("/observatory/agents")
+async def agent_runs(
+    ws: Workspace = Depends(get_workspace),
+    session: AsyncSession = Depends(get_session),
+):
+    """Agent Run 聚合: LLM 调用 span(llm:*) 按模型分组的调用次数/延迟/token/估算成本。"""
+    rows = (
+        await session.execute(
+            select(TraceSpan, Trace.started_at)
+            .join(Trace, TraceSpan.trace_id == Trace.id)
+            .where(Trace.workspace_id == ws.id, TraceSpan.name.like("llm:%"))
+            .order_by(TraceSpan.id.desc())
+            .limit(500)
+        )
+    ).all()
+    spans = [(s, started) for s, started in rows]
+    groups: dict[str, dict] = {}
+    for s, started_at in spans:
+        d = s.detail or {}
+        model = d.get("model") or (s.name.split(":", 1)[1] if ":" in s.name else "unknown")
+        g = groups.setdefault(model, {"model": model, "provider": d.get("provider"), "calls": 0, "errors": 0, "total_ms": 0, "total_tokens": 0, "last_used": None})
+        g["calls"] += 1
+        if s.status == "ERROR":
+            g["errors"] += 1
+        g["total_ms"] += s.duration_ms or 0
+        g["total_tokens"] += d.get("total_tokens") or 0
+        if g["last_used"] is None and started_at is not None:
+            g["last_used"] = started_at.isoformat()
+    items = []
+    for g in groups.values():
+        calls = g.pop("calls")
+        total_ms = g.pop("total_ms")
+        tokens = g["total_tokens"]
+        items.append({
+            **g,
+            "calls": calls,
+            "avg_ms": round(total_ms / calls) if calls else 0,
+            "estimated_cost": round(tokens * 2e-6, 4),
+            "cost_note": "estimate ¥2/M tokens",
+        })
+    items.sort(key=lambda x: -x["calls"])
+    return {"items": items, "note": "统计口径: TraceSpan(llm:*) · 最近 500 条 · 成本为估算值"}

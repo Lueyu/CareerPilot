@@ -82,8 +82,13 @@ class AgentAdapter:
         return bool(cfg.get("provider") and cfg.get("api_key"))
 
     async def chat_with(self, cfg: dict[str, Any], system: str, user: str, json_mode: bool = False,
-                        timeout: float = 60.0) -> dict[str, Any] | None:
-        """用给定配置调用一次 chat; 失败返回 None(降级信号)。"""
+                        timeout: float = 60.0, trace: Any = None, session: Any = None,
+                        span_name: str | None = None) -> dict[str, Any] | None:
+        """用给定配置调用一次 chat; 失败返回 None(降级信号)。
+
+        trace+session 同时提供时, 记录 Agent Run span(provider/model/duration/tokens/cost/retry) 到观测台。
+        cost 按 ¥2/百万 token 估算(网关计价未知, 仅作量级参考, 记录在 detail 里注明 estimate)。
+        """
         if not (cfg.get("provider") and cfg.get("api_key") and cfg.get("base_url")):
             return None
         headers = {"Authorization": f"Bearer {cfg['api_key']}"}
@@ -94,6 +99,9 @@ class AgentAdapter:
         }
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
+        t0 = time.perf_counter()
+        retries = 0
+        result: dict[str, Any] | None = None
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(
@@ -103,15 +111,53 @@ class AgentAdapter:
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                return {"content": data["choices"][0]["message"]["content"]}
+                result = {"content": data["choices"][0]["message"]["content"]}
+                usage = data.get("usage") or {}
+                if usage:
+                    result["usage"] = {
+                        "prompt_tokens": usage.get("prompt_tokens"),
+                        "completion_tokens": usage.get("completion_tokens"),
+                        "total_tokens": usage.get("total_tokens"),
+                    }
+                return result
         except Exception:
             # 网络失败也降级到规则引擎, 不阻塞主流程(PRD 可靠性要求)
             return None
+        finally:
+            if trace is not None and session is not None:
+                try:
+                    from app.services.tracing import add_span
 
-    async def chat(self, system: str, user: str, json_mode: bool = False, timeout: float = 60.0) -> dict[str, Any] | None:
-        """返回 {"content": str} 或 None(降级信号)。配置动态解析(设置页在线修改即时生效)。"""
+                    duration_ms = int((time.perf_counter() - t0) * 1000)
+                    usage = (result or {}).get("usage") or {}
+                    total_tokens = usage.get("total_tokens") or 0
+                    detail = {
+                        "agent": True,
+                        "provider": cfg.get("provider"),
+                        "model": cfg.get("model") or "",
+                        "total_tokens": total_tokens,
+                        "prompt_tokens": usage.get("prompt_tokens"),
+                        "completion_tokens": usage.get("completion_tokens"),
+                        "retry": retries,
+                        "ok": result is not None,
+                        "cost_note": "estimate ¥2/M tokens",
+                    }
+                    cost = round(total_tokens * 2e-6, 6)
+                    add_span(session, trace, span_name or f"llm:{cfg.get('model') or 'unknown'}",
+                             duration_ms=duration_ms, cost_cny=cost, detail=detail,
+                             status="OK" if result is not None else "ERROR")
+                except Exception:  # span 记录失败不影响主流程
+                    pass
+
+    async def chat(self, system: str, user: str, json_mode: bool = False, timeout: float = 60.0,
+                   trace: Any = None, session: Any = None, span_name: str | None = None) -> dict[str, Any] | None:
+        """返回 {"content": str} 或 None(降级信号)。配置动态解析(设置页在线修改即时生效)。
+
+        trace+session 提供时记录 Agent Run span(provider/model/tokens/cost) 到观测台。
+        """
         cfg = await self._effective()
-        return await self.chat_with(cfg, system, user, json_mode=json_mode, timeout=timeout)
+        return await self.chat_with(cfg, system, user, json_mode=json_mode, timeout=timeout,
+                                    trace=trace, session=session, span_name=span_name)
 
 
 adapter = AgentAdapter()

@@ -180,3 +180,70 @@ async def complete_task(
     await emit_event(session, ws.id, "learning.task_done", {"task_id": task.id, "kind": task.kind}, "learning_task", task.id)
     await session.commit()
     return {"id": task.id, "status": task.status}
+
+
+# ---------------- 手动创建任务 / 安排复测 ----------------
+
+class TaskCreate(BaseModel):
+    title: str
+    skill_key: str | None = None
+    kind: str = "UNDERSTAND"  # UNDERSTAND | PRACTICE | RETEST
+    est_minutes: int = 30
+    due_in_days: int | None = None  # 安排复测: N 天后到期
+    retest_of_task_id: int | None = None
+
+
+@router.post("/learning/tasks")
+async def create_task(
+    body: TaskCreate,
+    ws: Workspace = Depends(get_workspace),
+    session: AsyncSession = Depends(get_session),
+):
+    from app.models import Skill
+
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="任务标题不能为空")
+    if body.kind not in ("UNDERSTAND", "PRACTICE", "RETEST"):
+        raise HTTPException(status_code=422, detail="kind 必须是 UNDERSTAND / PRACTICE / RETEST")
+    if body.kind == "RETEST" and body.retest_of_task_id is None:
+        raise HTTPException(status_code=422, detail="复测任务需要指定 retest_of_task_id（被复测的任务）")
+
+    skill_id: int | None = None
+    skill_name = ""
+    if body.skill_key:
+        sk = (await session.execute(select(Skill).where(Skill.key == body.skill_key))).scalar_one_or_none()
+        if sk is None:
+            raise HTTPException(status_code=404, detail=f"能力域 '{body.skill_key}' 不存在")
+        skill_id = sk.id
+        skill_name = sk.name
+
+    retest_of = None
+    retest_round = 0
+    if body.retest_of_task_id is not None:
+        base = await _own_task(session, ws, body.retest_of_task_id)
+        retest_of = base.id
+        retest_round = (base.retest_round or 0) + 1
+
+    due_date = None
+    if body.due_in_days is not None:
+        due_date = dt.date.today() + dt.timedelta(days=max(0, body.due_in_days))  # date 对象(asyncpg Date 列不接受 str)
+
+    task = LearningTask(
+        workspace_id=ws.id,
+        skill_id=skill_id,
+        title=title,
+        kind=body.kind,
+        why="手动创建" if body.kind != "RETEST" else f"复测: {skill_name or '该能力域'} 第 {retest_round} 轮",
+        est_minutes=max(5, min(240, body.est_minutes)),
+        acceptance="按任务说明完成并提交结果",
+        due_date=due_date,
+        retest_of=retest_of,
+        retest_round=retest_round,
+        status=LearningTask.STATUS_PENDING,
+    )
+    session.add(task)
+    await session.commit()
+    await emit_event(session, ws.id, "learning.task_created", {"task_id": task.id, "kind": task.kind, "manual": True}, "learning_task", task.id)
+    await session.commit()
+    return {"id": task.id, "title": task.title, "kind": task.kind, "due_date": task.due_date, "retest_round": task.retest_round, "status": task.status}

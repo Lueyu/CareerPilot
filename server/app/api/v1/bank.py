@@ -837,3 +837,117 @@ async def approve_import(
     await emit_event(session, ws.id, "import.approved", {"import_id": imp.id, "created": created}, "import", imp.id)
     await session.commit()
     return {"created": created, "import_id": imp.id, "status": imp.status}
+
+
+# ---------------- 题目编辑 / 合并重复 / 审核驳回 ----------------
+
+class QuestionUpdate(BaseModel):
+    title: str | None = None
+    topic: str | None = None
+    skill_key: str | None = None
+    difficulty: int | None = None
+    company: str | None = None
+    role: str | None = None
+    level: str | None = None
+    tags: list[str] | None = None
+
+
+async def _own_question(session: AsyncSession, ws: Workspace, short_code: str) -> Question:
+    q = (
+        await session.execute(
+            select(Question).where(Question.short_code == short_code)
+        )
+    ).scalar_one_or_none()
+    if q is None:
+        raise HTTPException(status_code=404, detail=f"题目 '{short_code}' 不存在")
+    if q.workspace_id is not None and q.workspace_id != ws.id:
+        raise HTTPException(status_code=403, detail="无权访问其他工作空间的私有题目")
+    return q
+
+
+@router.patch("/bank/questions/{short_code}")
+async def update_question(
+    short_code: str,
+    body: QuestionUpdate,
+    ws: Workspace = Depends(get_workspace),
+    session: AsyncSession = Depends(get_session),
+):
+    q = await _own_question(session, ws, short_code)
+    data = body.model_dump(exclude_unset=True)
+    if not data:
+        raise HTTPException(status_code=422, detail="没有需要更新的字段")
+    if "skill_key" in data:
+        sm = await _skill_map(session)
+        key = data.pop("skill_key")
+        if key and key not in sm:
+            raise HTTPException(status_code=404, detail=f"能力域 '{key}' 不存在")
+        q.skill_id = sm[key].id if key else None
+    if "difficulty" in data and data["difficulty"] is not None:
+        data["difficulty"] = max(1, min(5, int(data["difficulty"])))
+    for field, value in data.items():
+        setattr(q, field, value)
+    await session.commit()
+    return {"id": q.id, "short_code": q.short_code, "title": q.title, "topic": q.topic,
+            "skill_id": q.skill_id, "difficulty": q.difficulty, "company": q.company,
+            "role": q.role, "level": q.level, "tags": q.tags}
+
+
+class MergeReq(BaseModel):
+    target_short_code: str
+
+
+@router.post("/bank/questions/{short_code}/merge")
+async def merge_question(
+    short_code: str,
+    body: MergeReq,
+    ws: Workspace = Depends(get_workspace),
+    session: AsyncSession = Depends(get_session),
+):
+    """把 q 合并进 target: q 成为 target 的变体(canonical_question_id=target.id)。"""
+    q = await _own_question(session, ws, short_code)
+    if q.canonical_question_id is not None:
+        raise HTTPException(status_code=409, detail="该题已经是另一题的变体，不能重复合并")
+    target = await _own_question(session, ws, body.target_short_code)
+    if target.id == q.id:
+        raise HTTPException(status_code=422, detail="不能合并到自己")
+    if target.canonical_question_id == q.id:
+        raise HTTPException(status_code=422, detail="目标题是本题的变体，方向反了")
+    q.canonical_question_id = target.id
+    await session.commit()
+    return {"merged": q.short_code, "into": target.short_code, "canonical_question_id": target.id}
+
+
+@router.post("/bank/imports/{import_id}/items/{item_id}/reject")
+async def reject_import_item(
+    import_id: int,
+    item_id: int,
+    ws: Workspace = Depends(get_workspace),
+    session: AsyncSession = Depends(get_session),
+):
+    imp = (
+        await session.execute(
+            select(ImportSession).where(ImportSession.id == import_id, ImportSession.workspace_id == ws.id)
+        )
+    ).scalar_one_or_none()
+    if imp is None:
+        raise HTTPException(status_code=404, detail="导入会话不存在")
+    item = (
+        await session.execute(
+            select(ImportItem).where(ImportItem.id == item_id, ImportItem.session_id == imp.id)
+        )
+    ).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=404, detail="该题不属于此导入会话")
+    if item.status != ImportItem.STATUS_DRAFT:
+        raise HTTPException(status_code=409, detail=f"仅待审核(DRAFT)的题可以驳回，当前状态 {item.status}")
+    item.status = ImportItem.STATUS_REJECTED
+    await session.commit()
+    remaining = (
+        await session.execute(
+            select(func.count(ImportItem.id)).where(ImportItem.session_id == imp.id, ImportItem.status == ImportItem.STATUS_DRAFT)
+        )
+    ).scalar()
+    if remaining == 0:
+        imp.status = "APPROVED"
+        await session.commit()
+    return {"item_id": item.id, "status": item.status, "session_status": imp.status, "remaining_draft": remaining}
