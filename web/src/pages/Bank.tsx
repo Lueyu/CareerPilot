@@ -189,7 +189,7 @@ export default function Bank() {
     incoming.forEach((f) => {
       const ext = (f.name.split('.').pop() || '').toLowerCase();
       if (f.size > 12 * 1024 * 1024) { bad.push(`${f.name} 超过 12MB`); return; }
-      if (!['pdf', 'docx', 'md', 'markdown', 'txt', 'text'].includes(ext)) {
+      if (!['pdf', 'docx', 'md', 'markdown', 'txt', 'text', 'jpg', 'jpeg', 'png'].includes(ext)) {
         bad.push(`${f.name} 格式暂不支持`);
         return;
       }
