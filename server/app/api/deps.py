@@ -30,7 +30,7 @@ async def get_workspace(
     _auth: None = Depends(require_auth),
     x_workspace: str | None = Header(default=None),
 ) -> Workspace:
-    """解析当前工作空间: X-Workspace 头(slug) 或默认 demo 工作空间。"""
+    """解析当前工作空间: X-Workspace 头(slug) 或默认 personal; 缺失时绝不回退 Demo。"""
     slug = x_workspace or get_settings().default_workspace_slug
     ws = (
         await session.execute(select(Workspace).where(Workspace.slug == slug))

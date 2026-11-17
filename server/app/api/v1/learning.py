@@ -31,12 +31,16 @@ async def _own_task(session: AsyncSession, ws: Workspace, task_id: int) -> Learn
     return task
 
 
+def _today():
+    return dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).date()
+
+
 @router.get("/learning")
 async def learning_center(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    today = dt.date.today()
+    today = _today()
     tasks = (
         await session.execute(
             select(LearningTask)
@@ -48,8 +52,8 @@ async def learning_center(
         tasks = await plan_tasks_for_workspace(session, ws.id)
         await session.commit()
 
-    main_tasks = [t for t in tasks if t.retest_round == 0]
-    retests = [t for t in tasks if t.retest_round > 0]
+    main_tasks = [t for t in tasks if t.kind != "RETEST"]
+    retests = [t for t in tasks if t.kind == "RETEST"]
     done_total = (
         await session.execute(
             select(LearningTask).where(LearningTask.workspace_id == ws.id, LearningTask.status == "DONE")
@@ -71,6 +75,7 @@ async def learning_center(
             for t in retests
         ],
         "stats": {"done_total": len(done_total), "pending": len(tasks)},
+        "completed": [_task_out(t, with_content=False) for t in done_total],
     }
 
 
@@ -87,6 +92,12 @@ def _task_out(t: LearningTask, with_content: bool = True) -> dict:
         "due_date": t.due_date.isoformat() if t.due_date else None,
         "status": t.status,
         "retest_round": t.retest_round,
+        "retest_of": t.retest_of,
+        "source_exam_id": t.source_exam_id,
+        "source_exam_question_id": t.source_exam_question_id,
+        "source_evidence_id": t.source_evidence_id,
+        "source_criterion": t.source_criterion,
+        "gap_type": t.gap_type,
     }
     if with_content:
         out["content"] = t.content
@@ -115,11 +126,19 @@ async def start_task(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    task = await _own_task(session, ws, task_id)
-    if task.status == "PENDING":
-        task.status = "IN_PROGRESS"
-        await session.commit()
-    return {"id": task.id, "status": task.status}
+    from sqlalchemy import update
+
+    # PostgreSQL rechecks this predicate after waiting for a concurrent completion.
+    await session.execute(update(LearningTask).where(
+        LearningTask.id == task_id, LearningTask.workspace_id == ws.id,
+        LearningTask.status == "PENDING",
+    ).values(status="IN_PROGRESS").execution_options(synchronize_session=False))
+    status = await session.scalar(select(LearningTask.status).where(
+        LearningTask.id == task_id, LearningTask.workspace_id == ws.id))
+    if status is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    await session.commit()
+    return {"id": task_id, "status": status}
 
 
 @router.get("/learning/tasks/{task_id}/content")
@@ -161,25 +180,90 @@ async def task_help(
     return out
 
 
+class CompleteTaskIn(BaseModel):
+    artifact_text: str | None = None
+
+
 @router.post("/learning/tasks/{task_id}/complete")
 async def complete_task(
     task_id: int,
+    body: CompleteTaskIn | None = None,
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    """完成任务; 复测任务完成时写一条低置信证据(表示该域刚被复测, 待考试验证)。"""
-    task = (
-        await session.execute(
-            select(LearningTask).where(LearningTask.id == task_id, LearningTask.workspace_id == ws.id)
-        )
-    ).scalar_one_or_none()
-    if task is None:
-        raise HTTPException(status_code=404, detail="task not found")
-    task.status = "DONE"
-    task.completed_at = dt.datetime.now(dt.timezone.utc)
-    await emit_event(session, ws.id, "learning.task_done", {"task_id": task.id, "kind": task.kind}, "learning_task", task.id)
+    """Learning progress only. Only a scored exam may complete a retest."""
+    await session.execute(select(LearningTask.id).where(
+        LearningTask.id == task_id, LearningTask.workspace_id == ws.id).with_for_update())
+    task = await _own_task(session, ws, task_id)
+    if task.kind == "RETEST":
+        raise HTTPException(status_code=409, detail="复测必须提交新的答卷并完成评分，不能通过完成按钮通过。")
+    if task.status != "DONE":
+        task.status = "DONE"
+        task.completed_at = dt.datetime.now(dt.timezone.utc)
+        if body and body.artifact_text is not None:
+            task.content = {**(task.content or {}), "artifact_text": body.artifact_text[:20000], "artifact_verified": False}
+        from app.services.learning_loop import schedule_retests
+        await schedule_retests(session, task)
+        await emit_event(session, ws.id, "learning.task_done", {"task_id": task.id, "kind": task.kind, "mastery_updated": False}, "learning_task", task.id)
+    retests = (await session.execute(select(LearningTask).where(LearningTask.retest_of == task.id).order_by(LearningTask.due_date))).scalars().all()
     await session.commit()
-    return {"id": task.id, "status": task.status}
+    return {"id": task.id, "status": task.status, "mastery_updated": False,
+            "retests": [_task_out(t, with_content=False) for t in retests]}
+
+
+@router.post("/learning/tasks/{task_id}/retest")
+async def start_retest(task_id: int, ws: Workspace = Depends(get_workspace),
+                       session: AsyncSession = Depends(get_session)):
+    """Open a new-question exam; completion never supplies its result."""
+    from app.api.v1.exams import CreateExamReq, create_exam
+    from app.services.learning_loop import retest_fields
+
+    await session.execute(select(Workspace.id).where(Workspace.id == ws.id).with_for_update())
+    await session.execute(select(LearningTask.id).where(
+        LearningTask.id == task_id, LearningTask.workspace_id == ws.id).with_for_update())
+    task = await _own_task(session, ws, task_id)
+    if task.kind == "RETEST":
+        check = task
+        parent = await _own_task(session, ws, task.retest_of) if task.retest_of else None
+        if parent is None or parent.status != "DONE":
+            raise HTTPException(status_code=409, detail="请先完成对应学习任务。")
+        if task.due_date and task.due_date > _today():
+            raise HTTPException(status_code=409, detail="延迟复测尚未到期；可从学习任务进行即时检查。")
+        source_task = parent
+    else:
+        if task.status != "DONE":
+            raise HTTPException(status_code=409, detail="请先记录学习完成，再提交新的复测答案。")
+        source_task = task
+        check = (await session.execute(select(LearningTask).where(
+            LearningTask.workspace_id == ws.id, LearningTask.retest_of == task.id,
+            LearningTask.kind == "RETEST", LearningTask.retest_round == 0,
+        ))).scalar_one_or_none()
+        if check is None:
+            check = LearningTask(**retest_fields(task), title=f"即时检查：{task.title}",
+                retest_round=0, due_date=_today(),
+                content={"observation": (task.content or {}).get("observation", {}),
+                         "verification_mode": "immediate"})
+            session.add(check)
+            await session.flush()
+    from app.models.learning_feedback import LearningGoal
+    goal = await session.scalar(select(LearningGoal).where(LearningGoal.workspace_id == ws.id,
+        LearningGoal.source_task_id == source_task.id))
+    if goal:
+        from app.services.learning_feedback import assert_goal_sources
+        await assert_goal_sources(session, ws, goal)
+    if not check.skill_id:
+        raise HTTPException(status_code=409, detail="该任务没有明确关联的能力域，暂时不能自动复测。")
+    if check.status == "PENDING":
+        check.status = "IN_PROGRESS"
+    await session.flush()
+    from app.models import Exam
+    attempts = (await session.execute(select(Exam).where(
+        Exam.workspace_id == ws.id, Exam.retest_task_id == check.id).order_by(Exam.id.desc()))).scalars().all()
+    reusable = next((item for item in attempts if item.status not in ("ABORTED", "EXPIRED")), None)
+    key = reusable.idempotency_key if reusable else f"retest-{check.id}-{len(attempts) + 1}"
+    exam = await create_exam(CreateExamReq(kind="focused", question_count=1,
+        retest_task_id=check.id, idempotency_key=key), ws=ws, session=session)
+    return {"exam_id": exam["id"], "mode": (check.content or {}).get("verification_mode", "delayed")}
 
 
 # ---------------- 手动创建任务 / 安排复测 ----------------

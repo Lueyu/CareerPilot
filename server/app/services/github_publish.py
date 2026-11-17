@@ -1,8 +1,8 @@
 """GitHub 内容发布服务: 用 httpx 直接调 GitHub REST API(不依赖 PyGithub)。
 
 提供原子操作(建分支/写文件/开 PR/查构建/合并/读文件), 由 API 层编排
-成一次「发布运行」并落 Trace + 幂等 + 审计。支持 dry_run: 只读操作真实执行
-(拿真实 base_sha), 写操作返回 planned 结构而不触网络。
+成一次「发布运行」并落 Trace + 幂等 + 审计。本轮关闭所有远程写入。
+dry_run 完全在本地生成预览计划, 不声明已读取远程分支或文件。
 """
 from __future__ import annotations
 
@@ -77,6 +77,11 @@ class GitHubPublisher:
         }
 
     async def _request(self, method: str, path: str, json: dict | None = None) -> dict:
+        if method.upper() != "GET":
+            raise GitHubError(
+                "公开写入已关闭; 仅可保存本地草稿或生成 dry-run 预览",
+                status_code=403, detail="public_writes_disabled",
+            )
         if not self.token:
             raise GitHubError("未配置 GITHUB_TOKEN, 无法访问 GitHub API", detail="missing_token")
         url = f"{self.api_url}{path}"
@@ -95,7 +100,9 @@ class GitHubPublisher:
 
     # ---- 原子操作 ----
     async def get_base_sha(self, repo: str, branch: str) -> str:
-        """读 base 分支最新 commit sha(只读, dry_run 也真实执行)。"""
+        """读 base 分支; 本地预览使用明确的占位符, 不冒充真实 commit。"""
+        if self.dry_run:
+            return "local-preview"
         data = await self._request("GET", f"/repos/{repo}/branches/{branch}")
         return data["commit"]["sha"]
 
@@ -109,6 +116,8 @@ class GitHubPublisher:
 
     async def get_file(self, repo: str, path: str, ref: str) -> dict | None:
         """读某 ref 下文件(返回含 content(已解码)/sha 的 dict, 不存在返回 None)。"""
+        if self.dry_run:
+            return None  # 本地预览未读取远程文件, 不代表远程文件不存在。
         try:
             data = await self._request("GET", f"/repos/{repo}/contents/{path}?ref={ref}")
         except GitHubError as e:

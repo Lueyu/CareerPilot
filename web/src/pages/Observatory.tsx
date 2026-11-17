@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DemoBanner, PageHead, StatCard } from '../components/ui';
+import { PageHead, StatCard } from '../components/ui';
 import { api, ObservatoryData, TracesData } from '../api/client';
-import { DECISIONS, ENGINES, OBS_STATS, TRACES } from '../data/demo';
 
 const HEALTH_CLS: Record<string, string> = { HEALTHY: 'chip-green', IDLE: 'chip-slate', DEGRADED: 'chip-amber' };
 const HEALTH_NAME: Record<string, string> = { HEALTHY: '健康', IDLE: '空闲', DEGRADED: '降级' };
@@ -62,28 +61,25 @@ export default function Observatory() {
   };
 
   const fmtDur = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`);
-  const fmtCost = (c?: number | null) => (c != null ? `¥${c < 0.01 && c > 0 ? c.toFixed(3) : c.toFixed(2)}` : '—');
+  const fmtCost = (c?: number | null) => (c != null ? `¥${c < 0.01 && c > 0 ? c.toFixed(3) : c.toFixed(2)}` : '未知');
 
   // v3.1 M6: 通俗摘要(默认视图的人话版)
   const summary: { ic: string; text: string }[] = [];
   if (obs && !err) {
     summary.push({ ic: '🟢', text: `最近 30 天系统共执行 ${obs.stats.total_runs.toLocaleString()} 次，成功 ${obs.stats.success_rate.toFixed(1)}%，平均每次 ${fmtDur(obs.stats.avg_latency_ms)} 完成。` });
-    summary.push({ ic: '💰', text: `累计花费 ¥${obs.stats.cost_cny.toFixed(2)}（大模型 + 工具调用），平均每次约 ¥${(obs.stats.cost_cny / Math.max(1, obs.stats.total_runs)).toFixed(3)}。` });
+    summary.push({ ic: '💰', text: obs.stats.cost_cny==null ? '费用未知：部分运行未提供完整用量或计价，不能计算总费用与平均费用。' : `累计花费 ¥${obs.stats.cost_cny.toFixed(2)}（大模型 + 工具调用），平均每次约 ¥${(obs.stats.cost_cny / Math.max(1, obs.stats.total_runs)).toFixed(3)}。` });
     if (obs.stats.failures > 0) {
       const f = obs.recent_failures[0];
       summary.push({ ic: '⚠️', text: `有 ${obs.stats.failures} 次执行失败${f ? `，最近一次是「${f.title}」(${f.fail_reason || '原因未知'})，可以重试` : ''}。` });
     } else {
-      summary.push({ ic: '✅', text: '没有失败记录，一切正常。' });
+      summary.push({ ic: '✅', text: '当前范围没有失败记录。未运行的功能不据此判断正常。' });
     }
     const degraded = obs.engines.filter((e) => e.health === 'DEGRADED');
     summary.push({ ic: '⚙️', text: degraded.length
       ? `${degraded.length} 个引擎处于降级状态：${degraded.map((e) => e.name).join('、')}，功能可用但建议检查模型连接。`
-      : '5 个引擎全部健康：岗位情报、记忆、项目分析、能力评估、学习规划都在正常工作。' });
+      : obs.engines.length ? '当前返回的引擎记录没有标记降级，具体运行情况见下方。' : '尚无可用于判断引擎状态的运行记录。' });
   } else {
-    summary.push({ ic: '🟢', text: '最近 30 天系统共执行 1,284 次，成功 99.2%，平均每次 1.8s 完成。' });
-    summary.push({ ic: '💰', text: '累计花费 ¥42.50，平均每次约 ¥0.033。' });
-    summary.push({ ic: '⚠️', text: '有 9 次执行失败，最近一次是「面经导入」(外部文件解析超时)，可以重试。' });
-    summary.push({ ic: '⚙️', text: '4 个引擎健康，1 个引擎降级：学习规划（LLM 连接不稳定），功能可用但建议检查模型连接。' });
+    summary.push({ic:'ℹ️',text:loading?'正在读取真实运行记录…':err?'运行记录暂不可用，请刷新重试。':'暂无运行记录。'});
   }
 
   return (
@@ -95,12 +91,11 @@ export default function Observatory() {
         <button className="btn btn-outline" onClick={() => setTick((t) => t + 1)}>↻ 刷新</button>
         <button className="btn btn-primary" onClick={() => navigate('/evolution')}>查看实验</button>
       </PageHead>
-      <DemoBanner />
 
       {loading && <div className="demo-banner" style={{ marginBottom: 12 }}>正在从后端加载运行数据…</div>}
       {err && (
         <div className="demo-banner demo-banner-err" style={{ marginBottom: 12 }}>
-          后端不可用（{err}），以下为静态演示数据
+          无法读取当前运行数据（{err}）。请刷新重试。
         </div>
       )}
 
@@ -133,16 +128,11 @@ export default function Observatory() {
           <StatCard label="执行次数" value={obs.stats.total_runs.toLocaleString()} ic="⚡" foot="所有引擎累计" />
           <StatCard label="成功率" value={`${obs.stats.success_rate.toFixed(1)}%`} ic="✅" foot={err ? '' : '近 30 天'} />
           <StatCard label="平均延迟" value={fmtDur(obs.stats.avg_latency_ms)} ic="⏱" foot="端到端" />
-          <StatCard label="成本" value={`¥${obs.stats.cost_cny.toFixed(2)}`} ic="💰" foot="LLM + 工具调用" />
-          <StatCard label="失败" value={String(obs.stats.failures)} ic="⚠️" foot="可一键重放" />
+          <StatCard label="成本" value={fmtCost(obs.stats.cost_cny)} ic="💰" foot="LLM + 工具调用" />
+          <StatCard label="失败" value={String(obs.stats.failures)} ic="⚠️" foot="查看失败原因" />
         </div>
-      ) : (
-        <div className="grid-4" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0,1fr))', gap: 14, marginBottom: 18 }}>
-          {OBS_STATS.map((s) => (
-            <StatCard key={s.label} label={s.label} value={s.value} ic={s.ic} foot={s.foot} />
-          ))}
-        </div>
-      ))}
+      ) : null
+      )}
 
       <div className="grid-2-1">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -188,34 +178,7 @@ export default function Observatory() {
                 </div>
               ))
             ) : (
-              TRACES.map((t) => (
-                <div key={t.id} className="trace-item">
-                  <div className="list-row" style={{ borderBottom: 'none', cursor: 'pointer' }} onClick={() => setOpenTrace(openTrace === (t.id as any) ? null : (t.id as any))}>
-                    <div className="list-ic">{t.status === '成功' ? '✅' : '⚠️'}</div>
-                    <div className="list-main">
-                      <div className="list-title">{t.id} · {t.name}</div>
-                      <div className="list-sub">{t.time} · 成本 {t.cost} · {t.spans.length} 个 span</div>
-                    </div>
-                    <span className={`chip ${t.status === '成功' ? 'chip-green' : 'chip-red'}`}>{t.status}</span>
-                    <span style={{ color: 'var(--text-4)', fontSize: 12 }}>{openTrace === (t.id as any) ? '▴' : '▾'}</span>
-                  </div>
-                  {openTrace === (t.id as any) && (
-                    <div className="trace-spans">
-                      {t.spans.map((s: any, i: number) => (
-                        <div className="span-row" key={i}>
-                          <span className={`status-dot ${s.status === '成功' ? 'dot-green' : 'dot-red'}`} />
-                          <span className="span-name">{s.name}</span>
-                          <span className="span-bar">
-                            <span className="span-bar-fill" style={{ width: `${Math.min(100, parseFloat(s.dur) * 40)}%`, background: s.status === '成功' ? 'var(--primary)' : 'var(--red)' }} />
-                          </span>
-                          <span className="span-dur">{s.dur}</span>
-                          <span className="span-cost">{s.cost}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))
+              <p className="hint" style={{padding:18}}>{loading ? '正在读取…' : err ? '当前记录不可用' : '暂无运行记录'}</p>
             )}
           </div>
 
@@ -248,24 +211,7 @@ export default function Observatory() {
                 </div>
               ))
             ) : (
-              DECISIONS.map((d) => (
-                <div key={d.id} className="list-row" style={{ alignItems: 'flex-start', cursor: 'pointer' }} onClick={() => setOpenDecision(openDecision === (d.id as any) ? null : (d.id as any))}>
-                  <div className="list-ic">🧭</div>
-                  <div className="list-main">
-                    <div className="list-title">{d.id} · {d.title}</div>
-                    <div className="list-sub">{d.time} · 证据 {d.evidence.join(', ')}</div>
-                    {openDecision === (d.id as any) && (
-                      <div className="decision-body">
-                        <div className="decision-chosen">✓ 选择：{d.chosen}</div>
-                        {d.alternatives.map((a) => (
-                          <div className="decision-alt" key={a.text}>✗ 候选：{a.text} <span className="hint">— {a.why}</span></div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <span className={`chip ${d.status === '已执行' ? 'chip-green' : 'chip-slate'}`}>{d.status}</span>
-                </div>
-              ))
+              <p className="hint" style={{padding:18}}>{loading ? '正在读取…' : err ? '当前记录不可用' : '暂无决策记录'}</p>
             )}
           </div>
         </div>
@@ -275,7 +221,7 @@ export default function Observatory() {
           <div className="card">
             <div className="card-head">
               <span className="card-title">引擎检查</span>
-              <span className="card-sub">{obs && !err ? '健康状态由最近运行推断' : '示例'}</span>
+              <span className="card-sub">{obs && !err ? '健康状态由最近运行推断' : '暂无运行数据'}</span>
             </div>
             {obs && !err ? (
               obs.engines.map((e) => {
@@ -300,32 +246,14 @@ export default function Observatory() {
                 );
               })
             ) : (
-              ENGINES.map((e) => (
-                <div className="engine-card" key={e.key} style={{ border: 'none', padding: '10px 0', borderBottom: '1px solid var(--border-2)', borderRadius: 0 }}>
-                  <div className="engine-ic">
-                    {e.key === 'job' ? '🎯' : e.key === 'memory' ? '🧠' : e.key === 'project' ? '💼' : e.key === 'competency' ? '📊' : '🧩'}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span className="engine-name">{e.name}</span>
-                      <span className={`chip ${e.health === '健康' ? 'chip-green' : 'chip-amber'}`}>{e.health}</span>
-                    </div>
-                    <div className="engine-desc">{e.desc}</div>
-                    <div className="engine-stats">
-                      <span>运行 <b>{e.stats.runs}</b></span>
-                      <span>成功 <b>{e.stats.ok}</b></span>
-                      <span>最近 {e.last}</span>
-                    </div>
-                  </div>
-                </div>
-              ))
+              <p className="hint" style={{padding:18}}>{loading ? '正在读取…' : err ? '当前记录不可用' : '暂无可判断的引擎记录'}</p>
             )}
           </div>
 
           <div className="card">
             <div className="card-head">
-              <span className="card-title">证据源</span>
-              <span className="card-sub">最近写入</span>
+              <span className="card-title">最近失败</span>
+              <span className="card-sub">运行记录</span>
             </div>
             {obs && !err && obs.recent_failures.length > 0 ? (
               obs.recent_failures.map((f) => (
@@ -339,24 +267,7 @@ export default function Observatory() {
                 </div>
               ))
             ) : (
-              <>
-                <div className="list-row">
-                  <div className="list-ic">🧾</div>
-                  <div className="list-main">
-                    <div className="list-title">EV-041 · 诊断证据</div>
-                    <div className="list-sub">来源 TR-1042 · 面经导入</div>
-                  </div>
-                  <span className="chip chip-purple">诊断</span>
-                </div>
-                <div className="list-row">
-                  <div className="list-ic">📄</div>
-                  <div className="list-main">
-                    <div className="list-title">EV-039 · 面经证据</div>
-                    <div className="list-sub">来源 IM-103 · 字节跳动</div>
-                  </div>
-                  <span className="chip chip-blue">面经</span>
-                </div>
-              </>
+              <p className="hint" style={{padding:18}}>{loading?'正在读取…':err?'当前记录不可用':'暂无失败记录'}</p>
             )}
           </div>
         </div>

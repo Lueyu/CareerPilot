@@ -48,3 +48,4 @@ deploy/.ali-env
 portal/dist/
 vite-dev.log
 .archify/
+.tmp/node-compile-cache/

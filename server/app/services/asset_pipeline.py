@@ -1,6 +1,6 @@
 """Career Assets 更新流水线(确定性规则, 复用 public_content 发布管线)。
 
-流程: 检测项目变更 → 提取证据(项目扫描 findings) → 映射能力 → 对比现有展示
+流程: 检测项目变更 → 盘点项目扫描 findings → 描述覆盖 → 对比现有展示
       → 生成内容草稿(PublicContentDraft) → 风险分级 → 创建 AssetUpdateRun
 发布: approve(复用 public_content 的 approve/publish, 进程内调用) → 回滚(publications/rollback)。
 """
@@ -16,6 +16,7 @@ from app.models.skill import Skill
 from app.models.trace import Trace
 from app.models.workspace import Workspace
 from app.services.content_validation import run_all
+from app.services.project_analyzer import coverage_for_scan
 
 
 async def _next_code(session: AsyncSession, model, prefix: str) -> str:
@@ -37,10 +38,12 @@ async def _skills(session: AsyncSession) -> dict[str, str]:
     return {s.key: s.name for s in rows}
 
 
-def _render_markdown(project: Project, findings: list[dict], matrix: list[dict], skill_names: dict[str, str], stats: dict) -> str:
-    """生成"项目能力证据"页的 Markdown(门户可渲染)。"""
+def _render_markdown(project: Project, findings: list[dict], coverage: dict, skill_names: dict[str, str], stats: dict) -> str:
+    """Render source inventory without turning file counts into personal competence."""
+    if not isinstance(coverage, dict):
+        coverage = coverage_for_scan({"stats": stats})
     lines: list[str] = []
-    lines.append(f"# {project.name} · 项目能力证据")
+    lines.append(f"# {project.name} · 仓库扫描记录")
     lines.append("")
     desc = project.meta.get("description") if isinstance(project.meta, dict) else None
     if desc:
@@ -53,24 +56,29 @@ def _render_markdown(project: Project, findings: list[dict], matrix: list[dict],
         lines.append(f"- 主要语言: {' / '.join(map(str, stats['languages']))}")
     lines.append(f"- 最近扫描: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC（CareerPilot 自动分析）")
     lines.append("")
-    lines.append("## 能力矩阵")
+    lines.append("## 静态扫描覆盖")
     lines.append("")
-    lines.append("| 能力域 | 证据强度 | 发现数 |")
-    lines.append("|---|---|---|")
-    for m in matrix:
-        if m["findings"] > 0:
-            lines.append(f"| {skill_names.get(m['key'], m['key'])} | {m['level']} | {m['findings']} |")
+    lines.append("以下为路径及关键词盘点，不代表代码质量、实现正确性或个人能力。")
+    if coverage.get("history_unknown"):
+        lines.append("历史扫描未记录读取覆盖明细；原分数不再使用。")
+    else:
+        lines.append(f"抽样尝试读取 {coverage.get('files_sampled', 0)} 个文件，成功读取 {coverage.get('files_read', 0)} 个。")
+        lines.append("| 领域 | 路径匹配数 | 内容关键词匹配数 | README 声明数 |")
+        lines.append("|---|---|---|---|")
+        for row in coverage.get("domains", []):
+            if row["path_matches"] or row["readme_claims"]:
+                lines.append(f"| {skill_names.get(row['key'], row['key'])} | {row['path_matches']} | {row['content_matches']} | {row['readme_claims']} |")
     lines.append("")
     lines.append("## 关键发现")
     lines.append("")
     for f in findings:
-        icon = {"VERIFIED": "✅", "HIGH": "🔶", "UNVERIFIED_CLAIM": "⚠️"}.get(f["level"], "·")
-        lines.append(f"- {icon} **[{f['level']}] {f['title']}** — {f['detail']}")
+        label = {"VERIFIED": "内容关键词或元数据匹配", "HIGH": "路径匹配", "UNVERIFIED_CLAIM": "README 声明"}.get(f["level"], "扫描记录")
+        lines.append(f"- **[{label}] {f['title']}** — {f['detail']}")
         lines.append(f"  - 证据: `{f.get('file_path') or '-'}`")
     lines.append("")
     lines.append("---")
     lines.append("")
-    lines.append("*本页由 CareerPilot 从仓库只读分析自动生成；证据等级: VERIFIED=已读内容确认, HIGH=结构证据, UNVERIFIED_CLAIM=仅声明未验证。*")
+    lines.append("*本页由 CareerPilot 静态扫描生成；文本关键词可能来自注释，未验证实现是否正确，也不能据此判断个人贡献或掌握情况。*")
     return "\n".join(lines)
 
 
@@ -115,16 +123,16 @@ async def create_asset_update(
     ws: Workspace,
     project: Project,
     findings: list[dict],
-    matrix: list[dict],
+    coverage: dict,
     stats: dict,
     trace: Trace | None = None,
 ) -> AssetUpdateRun:
     """生成内容草稿+风险分级, 落一条 AssetUpdateRun(status=DRAFT_CREATED)。"""
     skill_names = await _skills(session)
     old_md = await _latest_run_markdown(session, ws.id, project.id)
-    markdown = _render_markdown(project, findings, matrix, skill_names, stats)
+    markdown = _render_markdown(project, findings, coverage, skill_names, stats)
     changed = _diff_changed(old_md, markdown)
-    title = f"{project.name} · 项目能力证据（自动生成）"
+    title = f"{project.name} · 仓库扫描记录（自动生成）"
     slug = f"projects/{project.repo or project.name.lower().replace(' ', '-')}"
 
     # 内置校验(隐私/事实/版权/Markdown lint); 自有仓库内容 license=OWNED
@@ -138,7 +146,7 @@ async def create_asset_update(
         slug=slug,
         description=f"由项目扫描自动生成: {project.owner}/{project.repo} · 风险 {risk_level}",
         markdown_body=markdown,
-        json_meta={"kind": "PROJECT_EVIDENCE", "project_id": project.id, "matrix": matrix, "stats": stats},
+        json_meta={"kind": "PROJECT_EVIDENCE", "project_id": project.id, "coverage": coverage, "stats": stats},
         privacy_scan_status="PASS" if check.status != "FAIL" else "FAIL",
         fact_check_status="PASS" if check.status == "PASS" else ("WARN" if check.status == "WARN" else "FAIL"),
         license_status="OWNED",
@@ -159,7 +167,7 @@ async def create_asset_update(
         risk_reason=risk_reason,
         draft_id=draft.id,
         trace_id=trace.id if trace else None,
-        stats={"changed": changed, "findings_count": len(findings), "matrix": matrix},
+        stats={"changed": changed, "findings_count": len(findings), "coverage": coverage},
     )
     session.add(run)
     await session.flush()

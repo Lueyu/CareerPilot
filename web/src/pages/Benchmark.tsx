@@ -1,14 +1,14 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DemoBanner, PageHead, SegBars, StatusChip, plainConfidence, plainLevel } from '../components/ui';
+import { DemoBanner, PageHead, SegBars, StatusChip, plainConfidence, plainLevel, OBSERVATION_COVERAGE_NOTE } from '../components/ui';
 import { useApi, BenchmarkData } from '../api/client';
-import { WS, DOMAINS } from '../data/demo';
+
 
 export default function Benchmark() {
   const navigate = useNavigate();
   const { data, loading, error } = useApi<BenchmarkData>('/benchmark');
 
-  const rows = data?.rows?.length
+  const rows = data?.rows
     ? data.rows.map((r: any) => ({
         skill_key: r.skill?.key ?? r.skill_key,
         skill: r.skill?.name ?? r.skill,
@@ -20,16 +20,12 @@ export default function Benchmark() {
         confidence: r.confidence,
         next_step: r.next_step,
       }))
-    : DOMAINS.map((d) => ({
-        skill_key: d.key, skill: d.name, weight_pct: d.weight, target_level: d.target,
-        current_level: d.current, status: d.status as string, evidence_coverage: d.evidence,
-        confidence: d.confidence, next_step: d.next,
-      }));
+    : [];
 
-  const role = data?.standard?.role || WS.role;
-  const level = data?.standard?.level || WS.level;
-  const jd = data?.standard?.jd_sample_count ?? WS.jdCount;
-  const version = data?.standard?.version ? `benchmark ${data.standard.version}` : WS.benchmark;
+  const role = data?.standard?.role || '待设置';
+  const level = data?.standard?.level || '待设置';
+  const jd = data?.standard?.jd_sample_count ?? '—';
+  const version = data?.standard?.version ? `benchmark ${data.standard.version}` : '—';
 
   const nBelow = rows.filter((r) => r.status === 'BELOW_TARGET' || r.status === 'NEEDS_VALIDATION' || r.status === 'UNKNOWN').length;
   const nMeets = rows.filter((r) => r.status === 'MEETS_TARGET').length;
@@ -37,7 +33,7 @@ export default function Benchmark() {
 
   // 加权差距
   const wSum = rows.reduce((s, r) => s + r.weight_pct, 0) || 1;
-  const gap = rows.reduce((s, r) => s + r.weight_pct * Math.max(0, r.target_level - (r.current_level ?? 0)), 0) / wSum;
+  const gap = !rows.length || rows.some(r => r.current_level == null) ? null : rows.reduce((s, r) => s + r.weight_pct * Math.max(0, r.target_level - (r.current_level ?? 0)), 0) / wSum;
 
   return (
     <div>
@@ -68,7 +64,7 @@ export default function Benchmark() {
             </div>
           </div>
           <div className="bench-gap">
-            <div className="big">{gap.toFixed(1)}<span>/5</span></div>
+            <div className="big">{gap == null ? '未知' : gap.toFixed(1)}<span>/5</span></div>
             <div className="note">加权能力差距</div>
           </div>
         </div>
@@ -81,13 +77,14 @@ export default function Benchmark() {
       </div>
 
       {loading && <div className="demo-banner" style={{ marginBottom: 12 }}>正在从后端加载实时数据…</div>}
-      {error && <div className="demo-banner demo-banner-err" style={{ marginBottom: 12 }}>后端不可用（{error}），以下为静态演示数据</div>}
+      {error && <div className="demo-banner demo-banner-err" style={{ marginBottom: 12 }}>后端不可用（{error}），无法读取当前空间数据</div>}
 
       <div className="card">
         <div className="card-head">
           <span className="card-title">能力域对标明细</span>
           <span className="card-sub">权重 × 差距 = 优先学习顺序</span>
         </div>
+        <p className="hint">{OBSERVATION_COVERAGE_NOTE}</p>
         <div className="table-wrap">
           <table className="tbl">
             <thead>
@@ -98,7 +95,7 @@ export default function Benchmark() {
                 <th>当前估计</th>
                 <th>状态</th>
                 <th>证据覆盖</th>
-                <th>置信度</th>
+                <th>观察覆盖说明</th>
                 <th>下一步</th>
               </tr>
             </thead>
@@ -115,7 +112,6 @@ export default function Benchmark() {
                   <td><StatusChip status={r.status} /></td>
                   <td className="num">{r.evidence_coverage} 条</td>
                   <td>
-                    <span className="num">{r.confidence != null ? r.confidence.toFixed(2) : '—'}</span>
                     <div className="plain-hint">{plainConfidence(r.confidence)}</div>
                   </td>
                   <td><span className="action-link" onClick={() => navigate('/learning')}>{r.next_step}</span></td>
@@ -131,8 +127,9 @@ export default function Benchmark() {
           <span className="card-title">差距加权排序</span>
           <span className="card-sub">优先投入：权重高 × 差距大</span>
         </div>
+        <p className="hint">未知能力项不参与差距数值排序；请先补充作答证据。</p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {[...rows]
+          {[...rows].filter(r => r.current_level != null)
             .map((r) => ({ ...r, priority: r.weight_pct * Math.max(0, r.target_level - (r.current_level ?? 0)) }))
             .sort((a, b) => b.priority - a.priority)
             .map((r) => (

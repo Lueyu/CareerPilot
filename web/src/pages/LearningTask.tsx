@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAppState } from '../components/AppState';
 import { DemoBanner, Modal, PageHead } from '../components/ui';
-import { api, LearningTaskView, TaskContentResp, TaskHelpResp } from '../api/client';
-import { TODAY_TASKS } from '../data/demo';
+import { api, useApi, LearningTaskView, TaskContentResp, TaskHelpResp } from '../api/client';
+import LearningPathPanel from '../components/LearningPathPanel';
+
 
 const TYPE_NAME: Record<string, string> = { UNDERSTAND: '理解', PRACTICE: '实践', RETEST: '复测' };
 
@@ -16,70 +17,34 @@ interface FiveStep {
   verify: string;
 }
 
-const FALLBACK_CONTENT: Record<string, FiveStep> = {
-  t1: {
-    analogy:
-      '把 Agent 想成一个厨师：对话上下文是厨房的白板，写满了就擦掉。显式状态是你的随身笔记本——菜做到第几步、盐放没放，都记在本子上，白板擦了也不怕。',
-    example:
-      '用户让你「查三个城市天气再推荐穿搭」。第 2 步时上下文被截断，只记得「推荐穿搭」——没有状态记录的 Agent 会漏查城市；有状态记录的 Agent 读笔记发现城市 3 还没查，补上再推荐。',
-    principles: ['显式状态 = 可恢复', 'observation 与 action 交替写入', '循环终止条件必须明确'],
-    practice: [
-      '阅读资料：ReAct 循环中 observation 的作用（5 分钟）',
-      '用你自己的话复述：为什么状态必须显式写入，而不是依赖对话上下文（5 分钟）',
-      '对照一个真实失败案例，指出状态丢失发生在哪一步（10 分钟）',
-    ],
-    verify: '自评：能复述状态丢失导致的失败链路，并在案例中标出关键步骤',
-  },
-  t2: {
-    analogy:
-      '工具重试就像给外卖小哥打电话占线：先等 2 秒再打，还占线等 4 秒，再占线等 8 秒——最多打 3 次，不行就换人（转人工）。幂等键好比取餐号：同一单不管问几次，都指向同一份餐，不会重复做。',
-    example:
-      '支付工具偶发超时：不带幂等键时，重试 3 次 = 用户被扣 3 次钱；带上幂等键 pay_20261116_001 后，第 2、3 次重试服务端识别「同一单」，直接返回首次结果。',
-    principles: [
-      '指数退避：base × 2^n，加上随机抖动',
-      '重试上限：默认 3 次，超过转人工',
-      '幂等键：同一请求重放返回同一结果',
-      '超时独立于重试：单次调用超时 5s，总预算 30s',
-    ],
-    practice: [
-      '在沙箱中准备一个会随机失败的工具（如 50% 概率返回 503）（10 分钟）',
-      '实现带指数退避的重试，加入最大重试次数（10 分钟）',
-      '实现幂等键，验证重复调用不会产生副作用（10 分钟）',
-      '记录重试日志：次数、退避时长、最终结果（10 分钟）',
-    ],
-    verify: '沙箱中 20 次调用全通过，日志完整；对验证器描述你的重试参数选择',
-  },
-  t3: {
-    analogy:
-      'Recall@k 像考试「划的重点覆盖了多少」——重点没划全，答得再漂亮也丢分；MRR 像「正确的答案排第几」——排第 1 是满分，排第 10 要打折。',
-    example:
-      '知识库有 100 条资料，问题相关的有 5 条。召回 top-10 里命中 4 条 → Recall@10 = 80%；命中那条排第 3 位 → MRR = 1/3 ≈ 0.33。',
-    principles: ['Recall@k 关注覆盖率', 'MRR 关注排序质量', '两者结合评估检索器'],
-    practice: [
-      '速答 5 道 Recall@k / MRR 概念题（5 分钟）',
-      '对照错题复习定义与计算（5 分钟）',
-    ],
-    verify: '正确率 ≥ 80%，错题已记录到记忆中心',
-  },
-};
-
 // 5 步标题与副标题
 const STEP_META = [
   { key: 'analogy', title: '类比讲清', sub: '先用人话把它讲明白', ic: '💡' },
   { key: 'example', title: '小例子', sub: '一个具体场景看它怎么工作', ic: '🧪' },
   { key: 'principles', title: '原理与术语', sub: '现在换成面试官要听的词', ic: '📖' },
-  { key: 'practice', title: '结合你的项目', sub: '动手做一遍才算学会', ic: '🛠️' },
-  { key: 'verify', title: '验证理解', sub: '过一遍自测，完成本任务', ic: '✅' },
+  { key: 'practice', title: '结合你的项目', sub: '通过练习记录你的理解', ic: '🛠️' },
+  { key: 'verify', title: '记录学习产物', sub: '学习完成后还需新题验证', ic: '✅' },
 ];
 
-// 每步帮助文案(demo)
+// 每步帮助来自当前任务的后端内容
 
 export default function LearningTask() {
+  const {id}=useParams();const [params]=useSearchParams();const navigate=useNavigate();
+  const {data:task,error,loading}=useApi<LearningTaskView>(id?`/learning/tasks/${id}`:null);
+  if(params.get('legacy')==='1' || task?.kind==='RETEST')return <LegacyLearningTask/>;
+  if(!task || String(task.id)!==id)return <div><PageHead title="学习路径"><button className="btn btn-outline" onClick={()=>navigate('/learning')}>返回学习计划</button></PageHead><div className="card" role={error?'alert':undefined}>{error?`无法读取任务：${error}`:loading?'正在读取任务…':'未指定学习任务。'}</div></div>;
+  return <div><PageHead title={task.title} sub="围绕一个具体目标完成练习、反馈、修订和验证"><button className="btn btn-outline" onClick={()=>navigate('/learning')}>返回学习计划</button></PageHead><LearningPathPanel key={task.id} task={task}/><details className="card"><summary>原任务来源与完整教学</summary><p>具体失分项：{task.source_criterion || '历史任务未记录'}</p>{task.content?.observation?.answer_excerpt && <blockquote>{task.content.observation.answer_excerpt}</blockquote>}{task.source_exam_id && <button className="btn btn-outline btn-sm" onClick={()=>navigate(`/exam/diagnosis/report?id=${task.source_exam_id}`)}>查看原答与失分证据</button>}<p className="hint">原五步教学和学习产物仍可访问；尚未缓存的教学内容会使用已配置的模型或规则生成。</p><button className="btn btn-outline" onClick={()=>navigate(`/learning/task/${task.id}?legacy=1`)}>打开原教学内容</button></details></div>;
+}
+
+function LegacyLearningTask() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { toast } = useAppState();
   const [task, setTask] = useState<LearningTaskView | null>(null);
-  const [notFound, setNotFound] = useState(false);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [artifact, setArtifact] = useState('');
   const [stepIdx, setStepIdx] = useState(0);
   const [helpKey, setHelpKey] = useState<string | null>(null);
   const [stepDone, setStepDone] = useState<boolean[]>([false, false, false, false, false]);
@@ -93,20 +58,22 @@ export default function LearningTask() {
 
   useEffect(() => {
     let alive = true;
+    setTask(null); setGen(null); setLoadErr(null); setStepDone([false, false, false, false, false]); setStepIdx(0); setArtifact('');
     api.get<LearningTaskView>(`/learning/tasks/${id}`)
-      .then((t) => { if (alive) setTask(t); })
-      .catch(() => { if (alive) setNotFound(true); });
+      .then((t) => { if (alive) { setTask(t); setArtifact(t.content?.artifact_text || ''); } })
+      .catch((e) => { if (alive) setLoadErr(String(e.message || e)); });
     return () => { alive = false; };
   }, [id]);
 
   // 教学内容: 已缓存(任务 detail 带 analogy)直接用; 否则调生成接口(LLM/规则)
   useEffect(() => {
     const c = task?.content;
-    if (c?.analogy && (c.source === 'llm' || c.source === 'rule')) {
+    if (c?.analogy && (c.source === 'llm' || c.source === 'rule') &&
+        (!task?.source_exam_question_id || c.source_context_version === 2)) {
       setGen(c);
       return;
     }
-    if (!task) return;
+    if (!task || task.kind === 'RETEST') return;
     let alive = true;
     setContentBusy(true);
     setContentErr(null);
@@ -120,7 +87,8 @@ export default function LearningTask() {
   const doHelp = async (mode: string) => {
     if (!task) return;
     // 缓存命中直接展示
-    const cached = task.content?.help_cache?.[mode] || gen?.help_cache?.[mode];
+    const validTaskCache = !task.source_exam_question_id || task.content?.source_context_version === 2;
+    const cached = gen?.help_cache?.[mode] || (validTaskCache ? task.content?.help_cache?.[mode] : undefined);
 
     if (cached?.text) {
       setHelpText(cached.text);
@@ -149,22 +117,15 @@ export default function LearningTask() {
     }
   };
 
-  // 后端任务优先; 失败降级 demo
-  const fbTask = TODAY_TASKS.find((t) => t.id === id) ?? TODAY_TASKS[0];
-  const title = task?.title ?? fbTask.title;
-  const kind = task?.kind ?? fbTask.type;
-  const minutes = task?.est_minutes ?? fbTask.minutes;
-  const domain = task?.skill_name ?? fbTask.domain;
-  const why = task?.why ?? fbTask.why;
-  const acceptance = task?.acceptance ?? fbTask.criteria;
-
-  const fb: FiveStep = FALLBACK_CONTENT[(fbTask.id as string)] ?? FALLBACK_CONTENT.t1;
+  const title = task?.title || '学习任务';
+  const kind = task?.kind || '';
+  const minutes = task?.est_minutes ?? '—';
+  const domain = task?.skill_name || task?.skill;
+  const why = task?.why;
+  const acceptance = task?.acceptance;
   const content: FiveStep = {
-    analogy: gen?.analogy || fb.analogy,
-    example: gen?.example || fb.example,
-    principles: gen?.principles?.length ? gen.principles : (task?.content?.principles?.length ? task.content.principles : fb.principles),
-    practice: gen?.steps?.length ? gen.steps : (task?.content?.steps?.length ? task.content.steps : fb.practice),
-    verify: gen?.verify || acceptance || fb.verify,
+    analogy: gen?.analogy || '暂无教学内容', example: gen?.example || '暂无例子',
+    principles: gen?.principles || [], practice: gen?.steps || [], verify: gen?.verify || acceptance || '记录学习产物，再进行新题验证。',
   };
   const genSource = gen?.source;
 
@@ -176,14 +137,24 @@ export default function LearningTask() {
   };
 
   const done = async () => {
-    if (task) {
-      try {
-        await api.post(`/learning/tasks/${task.id}/start`);
-        await api.post(`/learning/tasks/${task.id}/complete`);
-      } catch { /* 降级: 仍然提示 */ }
-    }
-    toast('🎉', `「${title}」已完成，证据已写入能力画像`);
-    navigate('/learning');
+    if (!task || busy) return;
+    setBusy(true); setActionErr(null);
+    try {
+      const result = await api.post<{ status: string }>(`/learning/tasks/${task.id}/complete`, { artifact_text: artifact });
+      setTask({ ...task, status: result.status });
+      toast('✓', '学习进度已保存；能力尚待新题验证，已从完成日安排 1/3/7 天复测。');
+    } catch (e: any) { setActionErr(`保存失败：${e.message || e}。学习产物已保留。`); }
+    finally { setBusy(false); }
+  };
+
+  const retest = async () => {
+    if (!task || busy) return;
+    setBusy(true); setActionErr(null);
+    try {
+      const result = await api.post<{ exam_id: number }>(`/learning/tasks/${task.id}/retest`);
+      navigate(`/exam/diagnosis?id=${result.exam_id}&return_task_id=${task.id}`);
+    } catch (e: any) { setActionErr(`无法开始验证：${e.message || e}`); }
+    finally { setBusy(false); }
   };
 
   const helpBtns: { key: string; label: string }[] = [
@@ -226,9 +197,9 @@ export default function LearningTask() {
       case 'verify':
         return (
           <>
-            <p className="learn-step-text">{content.verify}</p>
+            <p className="learn-step-text">{content.verify}</p><label>学习产物 / 我的理解<textarea className="textarea" value={artifact} onChange={e => setArtifact(e.target.value)} placeholder="用自己的话记录你补齐的失分项" /></label>
             <div className="hint" style={{ marginTop: 8 }}>
-              完成后将生成一条实践证据，并标记「待复测」状态（1/3/7 天）。
+              完成只记录学习进度，并从完成日起安排 1/3/7 天复测。即时新题验证不代表长期保持。
             </div>
           </>
         );
@@ -237,6 +208,8 @@ export default function LearningTask() {
     }
   };
 
+  if (!task || String(task.id) !== id) return <div><PageHead title="学习任务"><button className="btn btn-outline" onClick={() => navigate('/learning')}>返回学习计划</button></PageHead><div className="card" role={loadErr ? 'alert' : undefined}>{loadErr ? `无法读取任务：${loadErr}` : '正在读取任务…'}</div></div>;
+
   return (
     <div>
       <PageHead
@@ -244,8 +217,37 @@ export default function LearningTask() {
         sub={`${TYPE_NAME[kind] || kind}任务 · ${domain || ''} · 预计 ${minutes} 分钟`}
       >
         <button className="btn btn-outline" onClick={() => navigate('/learning')}>← 返回学习计划</button>
+        {task.kind!=='RETEST' && <button className="btn btn-outline" onClick={()=>navigate(`/learning/task/${task.id}`)}>回到学习路径</button>}
       </PageHead>
-      {notFound && <div className="demo-banner demo-banner-err">后端不可用或任务不存在，以下为演示内容</div>}
+      {actionErr && <div role="alert" className="demo-banner demo-banner-err">{actionErr}</div>}
+      {contentErr && <div role="alert" className="demo-banner demo-banner-err">教学内容读取失败：{contentErr}</div>}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-title">具体失分来源</div>
+        <p>评分项：{task.source_criterion || '历史任务未记录评分项'} · 缺口类型：{task.gap_type || '—'}</p>
+        <p className="hint">考试 #{task.source_exam_id || '—'} · 题目 #{task.source_exam_question_id || '—'} · 证据 #{task.source_evidence_id || '—'}</p>
+        {task.content?.observation && <div>
+          <p><b>原题：</b>{task.content.observation.question_title || '—'}</p>
+          <p><b>原答摘录：</b>{task.content.observation.answer_excerpt || '（未作答）'}</p>
+          <p><b>缺失评分项：</b>{task.content.observation.criterion_detail || task.content.observation.criterion || task.source_criterion}</p>
+          <p><b>具体原因：</b>{task.content.observation.reasoning || '请查看原始报告'}</p>
+          <p className="hint">{task.content.observation.scope_note || '本任务只针对本次作答中的具体缺口，不代表整个能力域。'}</p>
+        </div>}
+        {task.source_exam_id && <button className="btn btn-outline btn-sm" onClick={() => navigate(`/exam/diagnosis/report?id=${task.source_exam_id}`)}>查看原答与失分证据</button>}
+      </div>
+      {((task.kind === 'RETEST' && task.status !== 'DONE') || (task.kind !== 'RETEST' && task.status === 'DONE')) && <div className="card" style={{ marginBottom: 16 }}>
+        <p>{task.kind === 'RETEST' ? `计划复测日期：${task.due_date || '—'}。需到期后进行新作答。` : '学习进度已完成，可进行即时新题验证。该结果不代表 1/3/7 天保持。'}</p>
+        <button className="btn btn-primary" disabled={busy || (task.kind === 'RETEST' && !!task.due_date && new Date(task.due_date).getTime() > Date.now())} onClick={retest}>{busy ? '准备新题…' : task.kind === 'RETEST' ? '开始到期复测' : '即时新题验证'}</button>
+      </div>}
+      {task.content?.retest_result && <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-title">最近新题验证</div>
+        <p>结果：{task.content.retest_result.outcome || '已记录'} · 得分：{task.content.retest_result.score ?? '未完成评分'}</p>
+        <p>{`本题整体：${task.content.retest_result.passed === true ? '通过' : task.content.retest_result.passed === false ? '未通过' : '未评定'}`}</p>
+        <p>{`原评分项覆盖：${task.content.retest_result.source_criterion_covered === true ? '已覆盖' : task.content.retest_result.source_criterion_covered === false ? '未覆盖' : '未记录'}`}</p>
+        <p>{`原评分项结果：${task.content.retest_result.source_criterion_covered !== true || task.content.retest_result.source_criterion_passed == null ? '未验证' : task.content.retest_result.source_criterion_passed ? '通过' : '未通过'}`}</p>
+        <p>{`验证范围：${task.content.retest_result.assessment_scope || '未记录；不能据此认定原评分项已通过'}`}</p>
+        <p className="hint">{task.content.retest_result.scope_note || '仅反映本次作答表现，不代表长期保持。'}</p>
+        <button className="btn btn-outline" onClick={() => navigate(`/exam/diagnosis/report?id=${task.content?.retest_result?.exam_id}&return_task_id=${task.id}`)}>查看本次验证报告</button>
+      </div>}
       <DemoBanner />
 
       {why && (
@@ -257,7 +259,7 @@ export default function LearningTask() {
         </div>
       )}
 
-      <div className="grid grid-2">
+      {task.kind !== 'RETEST' && <div className="grid grid-2">
         {/* 左: 步骤导航 */}
         <div className="card learn-nav">
           <div className="card-head">
@@ -316,8 +318,8 @@ export default function LearningTask() {
                 这步懂了，下一步 →
               </button>
             ) : (
-              <button className="btn btn-primary btn-sm" disabled={!allPrevDone} onClick={done}>
-                ✓ 完成验证并结束任务
+              <button className="btn btn-primary btn-sm" disabled={!allPrevDone || busy || task.status === 'DONE' || !gen || !!contentErr} onClick={done}>
+                ✓ 保存学习进度
               </button>
             )}
           </div>
@@ -327,6 +329,7 @@ export default function LearningTask() {
         </div>
       </div>
 
+      }
       {helpKey && (
         <Modal
           title="学习帮助"

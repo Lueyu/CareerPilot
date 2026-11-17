@@ -1,135 +1,138 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { DemoBanner, Modal } from '../components/ui';
-import { api, ExamDetail } from '../api/client';
-import { QUIZ } from '../data/demo';
+import { api, ExamDetail, ScoringTaskAck } from '../api/client';
+import { loadOrCreateExam, clearExamCreation, submitExam } from '../lib/coreLoop';
+import {useExamDraft,clearSavedDraft} from '../lib/useExamDraft';
+import { useSpeechRecognition } from '../lib/speech';
 
-type Phase = 'loading' | 'quiz' | 'scoring' | 'error';
+type Phase = 'loading' | 'quiz' | 'scoring' | 'uncertain' | 'closed' | 'error';
 
 export default function Diagnosis() {
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const requestedId = params.get('id');
+  const returnTask=params.get('return_task_id');
+  const validReturnTask=returnTask && /^[1-9]\d*$/.test(returnTask) && Number.isSafeInteger(Number(returnTask))?returnTask:null;
+  const reportPath=(id:number)=>`/exam/diagnosis/report?id=${id}${validReturnTask?`&return_task_id=${validReturnTask}`:''}`;
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
   const [phase, setPhase] = useState<Phase>('loading');
   const [exam, setExam] = useState<ExamDetail | null>(null);
   const [createErr, setCreateErr] = useState<string | null>(null);
   const [idx, setIdx] = useState(0);
-  const [answers, setAnswers] = useState<(number | string)[]>([]);
+  const locked=useRef(false);
+  const draft=useExamDraft(exam,phase==='quiz' && !busy);
+  const answers=draft.entries.map(e=>e.value);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [abortOpen, setAbortOpen] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const [secs, setSecs] = useState(30 * 60);
-  const recTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 创建/恢复考试(真实后端) — 失败则降级为本地 demo 试卷
-  // 说明: React StrictMode 下 effect 双触发, 若直接 POST /exams 会建出两条考试;
-  // 改为「先恢复进行中的诊断考试, 没有才新建」。
+  const [secs, setSecs] = useState(30 * 60);
   useEffect(() => {
     let alive = true;
-    (async () => {
-      try {
-        const list = await api.get<{ history: any[] }>('/exams');
-        const active = (list.history || []).find((x: any) => x.kind === 'diagnosis' && x.status === 'ACTIVE');
-        if (active) {
-          const d = await api.get<ExamDetail>(`/exams/${active.id}`);
-          if (!alive) return;
-          setExam(d);
-          const elapsed = d.started_at ? (Date.now() - new Date(d.started_at).getTime()) / 1000 : 0;
-          setSecs(Math.max(60, Math.round((d.duration_minutes || 30) * 60 - elapsed)));
-          setAnswers(d.questions.map((q) => {
-            if (q.answer) return q.qtype === 'mcq' ? (q.answer.choice_index ?? -1) : (q.answer.text_answer ?? '');
-            return q.qtype === 'mcq' ? -1 : '';
-          }));
-          setPhase('quiz');
-          return;
-        }
-        const d = await api.post<ExamDetail>('/exams', { kind: 'diagnosis' });
-        if (!alive) return;
-        setExam(d);
-        setSecs((d.duration_minutes || 30) * 60);
-        setAnswers(d.questions.map((q) => (q.qtype === 'mcq' ? -1 : '')));
-        setPhase('quiz');
-      } catch (e: any) {
-        if (!alive) return;
-        setCreateErr(String(e.message || e));
-        setSecs(30 * 60);
-        setAnswers(QUIZ.map((q) => (q.type === 'text' ? '' : -1)));
-        setPhase('quiz');
+    setPhase('loading');
+    setCreateErr(null);
+    loadOrCreateExam(requestedId).then(d => {
+      if (!alive) return;
+      if (d.status !== 'ACTIVE') {
+        clearExamCreation();
+        if(['ABORTED','EXPIRED'].includes(d.status)){setExam(d);setPhase('closed');return;}
+        navigate(reportPath(d.id), { replace: true });
+        return;
       }
-    })();
+      if (!d.questions.length) throw new Error('本次考试没有可用题目');
+      setExam(d);
+      setIdx(0);
+      const elapsed = d.started_at ? (Date.now() - new Date(d.started_at).getTime()) / 1000 : 0;
+      setSecs(Math.max(0, Math.round(d.duration_minutes * 60 - elapsed)));
+      setPhase('quiz');
+      if (!requestedId) setParams({ id: String(d.id),...(validReturnTask?{return_task_id:validReturnTask}:{}) }, { replace: true });
+    }).catch(e => {
+      if (alive) { setCreateErr(String(e.message || e)); setPhase('error'); }
+    });
     return () => { alive = false; };
-  }, []);
+  }, [requestedId, retry]);
 
   // 计时
   useEffect(() => {
     if (phase !== 'quiz') return;
-    const t = setInterval(() => setSecs((s) => (s > 0 ? s - 1 : 0)), 1000);
+    const deadline=exam?.started_at?new Date(exam.started_at).getTime()+(exam.duration_minutes*60000):Date.now()+secs*1000;
+    const t = setInterval(() => setSecs(Math.max(0,Math.ceil((deadline-Date.now())/1000))), 1000);
     return () => clearInterval(t);
   }, [phase]);
 
-  const qs = exam?.questions ?? QUIZ.map((q, i) => ({
-    order_no: i + 1, short_code: `DEMO-${i + 1}`, title: q.stem,
-    qtype: q.type === 'text' ? 'open' : 'mcq', options: q.options ?? null,
-    difficulty: 3, skill: q.context, rubric_visible: false, answer: null,
-  }));
+  const qs = exam?.questions ?? [];
   const q = qs[idx];
-  const isText = q.qtype === 'open' || q.qtype === 'text' || (q as any).type === 'text';
-  const answered = isText ? String(answers[idx] ?? '').trim().length > 0 : (answers[idx] as number) >= 0;
-
-  // 切题时保存到后端
-  const saveAnswer = async (orderNo: number) => {
-    if (!exam) return;
-    const a = answers[orderNo - 1];
-    try {
-      if (isText) {
-        await api.post(`/exams/${exam.id}/answers`, { order_no: orderNo, text_answer: String(a ?? '') });
-      } else {
-        await api.post(`/exams/${exam.id}/answers`, { order_no: orderNo, choice_index: a });
-      }
-    } catch { /* 离线降级: 静默 */ }
-  };
-
+  const isText = q?.qtype !== 'mcq';
+  const answered = isText ? String(answers[idx] ?? '').trim().length > 0 : Number(answers[idx] ?? -1) >= 0;
   const mm = String(Math.floor(secs / 60)).padStart(2, '0');
   const ss = String(secs % 60).padStart(2, '0');
 
-  const toggleRecord = () => {
-    if (recording) {
-      setRecording(false);
-      return;
-    }
-    setRecording(true);
-    recTimer.current = setTimeout(() => {
-      setRecording(false);
-      setAnswers((a) => {
-        const next = [...a];
-        next[idx] = (next[idx] as string) + (next[idx] ? ' ' : '') + '（语音转写）我认为应该先写入 observation 再决定下一步，同时考虑退避与幂等。';
-        return next;
-      });
-    }, 2200);
-  };
+  const { supported: speechSupported, listening, interim, error: speechError, start: startSpeech, stop: stopSpeech } =
+    useSpeechRecognition((delta) => {
+      if(locked.current || phase!=='quiz')return;
+      const cur=String(draft.getEntries()[idx]?.value??'');draft.edit(idx,cur+delta);
+    });
+  // 切换题目时停止录音，避免识别结果串到下一题。
+  useEffect(() => { stopSpeech(); }, [idx, stopSpeech]);
+  useEffect(()=>{
+    const server=draft.serverExam;if(!server || server.id!==exam?.id || server.status==='ACTIVE')return;
+    locked.current=true;stopSpeech();
+    if(['EXPIRED','ABORTED'].includes(server.status)){setExam(server);setPhase('closed');}
+    else navigate(reportPath(server.id),{replace:true});
+  },[draft.serverExam,exam?.id,navigate,stopSpeech]);
 
-  useEffect(() => () => { if (recTimer.current) clearTimeout(recTimer.current); }, []);
+  const changeQuestion = async (nextIndex: number) => {
+    if (!exam || busy || locked.current || listening || interim) return;
+    locked.current=true;stopSpeech();
+    setBusy(true); setActionError(null);
+    try { await draft.flush(); if(draft.getEntries().some(e=>e.conflict))throw new Error('请先处理答案版本冲突');setIdx(nextIndex); }
+    catch (e: any) { setActionError(`保存失败：${e.message || e}。输入已保留，请重试保存。`); }
+    finally { locked.current=false;setBusy(false); }
+  };
 
   const doAbort = async () => {
-    setAbortOpen(false);
-    if (exam) {
-      try { await api.post(`/exams/${exam.id}/abort`); } catch { /* 尽力而为 */ }
-    }
-    navigate('/exam');
+    if (!exam || busy) return;
+    setAbortOpen(false); setBusy(true); setActionError(null);
+    try {
+      await api.post(`/exams/${exam.id}/abort`);
+      clearExamCreation(); clearSavedDraft(exam.id); navigate('/exam');
+    } catch (e: any) { setActionError(`放弃失败：${e.message || e}。考试仍保留。`); }
+    finally { setBusy(false); }
   };
 
-  const submit = async () => {
-    setConfirmOpen(false);
-    setPhase('scoring');
-    // 保存最后一题 + 提交
-    if (exam) {
-      try {
-        await saveAnswer(qs[idx].order_no);
-        await api.post(`/exams/${exam.id}/submit`);
-        setTimeout(() => navigate(`/exam/diagnosis/report?id=${exam.id}`), 2400);
-        return;
-      } catch { /* 降级到 demo 报告 */ }
-    }
-    setTimeout(() => navigate('/exam/diagnosis/report'), 2400);
+  const checkSubmission = async () => {
+    if(!exam)return;
+    setBusy(true);
+    try{
+      const current=await api.get<ExamDetail>(`/exams/${exam.id}`);
+      if(current.status==='ACTIVE'){draft.reconcile(current);locked.current=false;setPhase('quiz');}
+      else if(['ABORTED','EXPIRED'].includes(current.status)){setExam(current);setPhase('closed');}
+      else {clearExamCreation();clearSavedDraft(exam.id);navigate(reportPath(exam.id),{replace:true});}
+    }catch(e){setActionError(`暂时无法确认提交状态：${e instanceof Error?e.message:String(e)}。答卷保持只读，本地输入仍保留。`);setPhase('uncertain');}
+    finally{setBusy(false);}
   };
+  const submit = async () => {
+    if (!exam || busy || locked.current || listening || interim || draft.entries.some(e=>e.conflict)) return;
+    locked.current=true;stopSpeech();
+    setConfirmOpen(false); setBusy(true); setActionError(null); setPhase('scoring');
+    try {
+      await draft.waitForSave();
+      const finalEntries=draft.getEntries();
+      const task=await submitExam(exam,finalEntries.map(e=>e.value),api,finalEntries.map(e=>e.revision));
+      if(task.exam_id!==exam.id)throw new Error('提交响应缺少本场考试标识，需核对服务器状态');
+      clearExamCreation(); clearSavedDraft(exam.id);
+      navigate(reportPath(exam.id));
+    } catch (e: any) {
+      setActionError(`本次考试 #${exam.id} 提交尚未确认：${e.message || e}。输入已保留，正在核对是否已冻结。`);
+      setPhase('uncertain');await checkSubmission();
+    } finally { setBusy(false); }
+  };
+
+  if (phase === 'error') return <div className="card"><h2>无法加载本次考试</h2><p role="alert">{createErr}</p><button className="btn btn-primary" onClick={() => setRetry(x => x + 1)}>重试</button><button className="btn btn-outline" onClick={() => navigate('/exam')}>返回考试中心</button></div>;
+  if(phase==='uncertain')return <div className="card"><h2>正在核对本次提交状态</h2><p role="alert">{actionError}</p><p>确认服务器状态前保持答卷只读，避免修改已经冻结的答案。</p><button className="btn btn-primary" disabled={busy} onClick={checkSubmission}>重新核对本次状态</button></div>;
+  if(phase==='closed')return <div className="card"><h2>{exam?.status==='EXPIRED'?'本次考试已超时':'本次考试已放弃'}</h2><p>已保存的作答保留，本次没有有效成绩。当前不能继续修改或提交。</p><button className="btn btn-outline" onClick={()=>navigate('/exam')}>返回考试中心</button></div>;
 
   if (phase === 'loading') {
     return (
@@ -162,7 +165,7 @@ export default function Diagnosis() {
         <div className="quiz-top">
           <div>
             <div className="page-title" style={{ fontSize: 22 }}>独立诊断</div>
-            <div className="page-sub">正在评分答卷…</div>
+            <div className="page-sub">正在保存并冻结本次答卷…</div>
           </div>
         </div>
         <DemoBanner />
@@ -173,20 +176,22 @@ export default function Diagnosis() {
               <circle className="ring-spin" cx="55" cy="55" r="46" fill="none" stroke="var(--primary)" strokeWidth="8" strokeLinecap="round"
                 strokeDasharray="289" strokeDashoffset="80" transform="rotate(-90 55 55)" />
             </svg>
-            <div className="ring-label">评分中</div>
+            <div className="ring-label">提交中</div>
           </div>
-          <h3 style={{ fontSize: 18, fontWeight: 650, marginTop: 18 }}>评分引擎正在对照 rubric 评分…</h3>
-          <p className="hint" style={{ textAlign: 'center' }}>每题引用对应证据，评分完成后将生成诊断报告</p>
+          <h3 style={{ fontSize: 18, fontWeight: 650, marginTop: 18 }}>等待服务器确认保存与冻结</h3>
+          <p className="hint" style={{ textAlign: 'center' }}>确认后会进入本次后台评分状态页；这里还不代表评分已完成。</p>
           <div className="steps" style={{ maxWidth: 520, margin: '22px auto 0' }}>
-            <div className="step done"><span className="step-ic">✓</span>提交答卷</div>
-            <div className="step done"><span className="step-ic">✓</span>冻结转录</div>
-            <div className="step now"><span className="step-ic">…</span>对照 rubric 评分</div>
+            <div className="step now"><span className="step-ic">…</span>保存与提交</div>
+            <div className="step"><span className="step-ic">·</span>冻结文本答卷</div>
+            <div className="step"><span className="step-ic">·</span>后台评分</div>
             <div className="step"><span className="step-ic">·</span>生成报告</div>
           </div>
         </div>
       </div>
     );
   }
+
+  if (!q || !exam) return null;
 
   return (
     <div>
@@ -196,7 +201,7 @@ export default function Diagnosis() {
           <div className="page-sub">
             题 {idx + 1}/{qs.length} · {q.skill || q.title.slice(0, 24)}
             {exam && <span className="chip chip-green" style={{ marginLeft: 8 }}>真实选题</span>}
-            {!exam && createErr && <span className="chip chip-amber" style={{ marginLeft: 8 }}>后端不可用 · 演示试卷</span>}
+
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -210,6 +215,10 @@ export default function Diagnosis() {
       </div>
       <DemoBanner />
 
+      {actionError && <div role="alert" className="demo-banner demo-banner-err">{actionError}<button className="btn btn-outline btn-sm" onClick={() => navigate(reportPath(exam.id))}>查看本次状态</button></div>}
+      <div role="status" className="hint">{draft.saving?'正在保存到服务器…':draft.entries.some(e=>e.dirty)?'有尚未保存到服务器的编辑，浏览器草稿已保留。':'已保存到服务器。关闭页面后可从考试中心继续。'}</div>
+      {draft.saveError && <div role="alert" className="demo-banner demo-banner-err">{draft.saveError}<button className="btn btn-outline btn-sm" disabled={busy || draft.saving} onClick={()=>void draft.flush().catch(()=>{})}>重试保存</button></div>}
+      {draft.entries.map((entry,i)=>entry.conflict && <div role="alert" className="demo-banner" key={i}>第 {i+1} 题服务器已有不同版本，本地编辑未被覆盖。<p>服务器答案：{String(entry.serverValue??'未作答')}</p><button className="btn btn-outline btn-sm" onClick={()=>draft.resolveConflict(i,false)}>使用服务器答案</button><button className="btn btn-outline btn-sm" onClick={()=>draft.resolveConflict(i,true)}>按最新版本保存我的编辑</button></div>)}
       <div className="quiz-card">
         <div className="quiz-q-head">
           <span className="chip chip-purple">第 {idx + 1} 题</span>
@@ -224,15 +233,32 @@ export default function Diagnosis() {
             <textarea
               className="textarea"
               style={{ minHeight: 150, marginTop: 16 }}
-              placeholder="输入你的回答…（支持语音输入）"
+              placeholder="输入你的回答，或点击下方麦克风语音输入…"
               value={String(answers[idx] ?? '')}
-              onChange={(e) => setAnswers((a) => { const n = [...a]; n[idx] = e.target.value; return n; })}
+              disabled={busy}
+              aria-label={`第 ${idx+1} 题回答`}
+              onChange={(e) => draft.edit(idx,e.target.value)}
             />
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
-              <button className={`btn ${recording ? 'btn-danger' : 'btn-outline'}`} onClick={toggleRecord}>
-                {recording ? <span className="rec-pulse" /> : '🎙️'} {recording ? '录音中…点击停止' : '语音输入'}
-              </button>
-              {recording && <span className="hint">正在聆听并转写，请口述你的回答</span>}
+              {speechSupported ? (
+                <button
+                  className={listening ? 'btn btn-danger' : 'btn btn-outline'}
+                  disabled={busy}
+                  onClick={() => (listening ? stopSpeech() : startSpeech())}
+                  title={listening ? '点击停止语音识别' : '点击开始语音输入（中文，Chrome / Edge 可用）'}
+                >
+                  {listening ? '⏹ 停止录音' : '🎙️ 语音输入'}
+                </button>
+              ) : (
+                <button className="btn btn-outline" disabled title="当前浏览器不支持语音识别（需 Chrome / Edge）">🎙️ 语音输入不可用</button>
+              )}
+              {listening ? (
+                <span className="hint">{interim ? `识别中：${interim}` : '正在聆听，请对着麦克风说话…'}</span>
+              ) : speechError ? (
+                <span className="hint" role="alert">{speechError}</span>
+              ) : (
+                <span className="hint">点击麦克风语音输入，识别结果自动追加到回答框（中文）。</span>
+              )}
             </div>
           </div>
         ) : (
@@ -241,7 +267,9 @@ export default function Diagnosis() {
               <div
                 className={`opt ${answers[idx] === i ? 'sel' : ''}`}
                 key={op}
-                onClick={() => setAnswers((a) => { const n = [...a]; n[idx] = i; return n; })}
+                role="radio" aria-checked={answers[idx]===i} aria-disabled={busy} tabIndex={busy?-1:0}
+                onClick={() => {if(!busy)draft.edit(idx,i);}}
+                onKeyDown={e=>{if(!busy && ['Enter',' '].includes(e.key)){e.preventDefault();draft.edit(idx,i);}}}
               >
                 <span className="opt-radio">{answers[idx] === i ? '●' : '○'}</span>
                 <span>{op}</span>
@@ -251,16 +279,16 @@ export default function Diagnosis() {
         )}
 
         <div className="quiz-nav">
-          <button className="btn btn-outline" disabled={idx === 0} onClick={() => { saveAnswer(qs[idx].order_no); setIdx(idx - 1); }}>← 上一题</button>
+          <button className="btn btn-outline" disabled={idx === 0 || busy || listening || !!interim} onClick={() => changeQuestion(idx - 1)}>← 上一题</button>
           <div style={{ display: 'flex', gap: 8 }}>
             {qs.map((_, i) => (
               <span key={i} className={`dot-q ${i === idx ? 'now' : answers[i] !== undefined && (typeof answers[i] === 'number' ? answers[i] >= 0 : (answers[i] as string).length > 0) ? 'done' : ''}`} />
             ))}
           </div>
           {idx < qs.length - 1 ? (
-            <button className="btn btn-primary" disabled={!answered} onClick={() => { saveAnswer(qs[idx].order_no); setIdx(idx + 1); }}>下一题 →</button>
+            <button className="btn btn-primary" disabled={!answered || busy || listening || !!interim} onClick={() => changeQuestion(idx + 1)}>下一题 →</button>
           ) : (
-            <button className="btn btn-primary" disabled={!answered} onClick={() => setConfirmOpen(true)}>提交答卷</button>
+            <button className="btn btn-primary" disabled={!answered || busy || listening || !!interim || draft.entries.some(e=>e.conflict)} onClick={() => setConfirmOpen(true)}>提交答卷</button>
           )}
         </div>
       </div>
@@ -276,7 +304,7 @@ export default function Diagnosis() {
           <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.7 }}>
             放弃后本场考试标记为「已放弃」，已作答内容不会计入能力证据，也不会生成报告。
           </p>
-          <p className="hint" style={{ marginTop: 6 }}>提示：只是想跳出可以先交卷，报告会照常生成。</p>
+          <p className="hint" style={{ marginTop: 6 }}>关闭页面后可从考试中心继续，未成功保存的输入保留在本浏览器会话。</p>
         </Modal>
       )}
       {confirmOpen && (
@@ -284,12 +312,12 @@ export default function Diagnosis() {
           footer={
             <>
               <button className="btn btn-outline" onClick={() => setConfirmOpen(false)}>再检查一下</button>
-              <button className="btn btn-primary" onClick={submit}>确认提交</button>
+              <button className="btn btn-primary" disabled={busy || listening || !!interim || draft.entries.some(e=>e.conflict)} onClick={submit}>确认提交</button>
             </>
           }>
           <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.7 }}>
-            共 <b>{qs.length}</b> 题已完成，提交后将进入评分流程。
-            答卷会作为证据写入你的能力画像，并同步生成今日学习任务。
+            共 <b>{qs.length}</b> 题，本次编辑会一并保存并冻结；版本冲突会阻止提交并保留输入。
+            冻结后不能修改原答，后台评分全部完成后才会形成有效成绩、表现证据和对应学习任务。
           </p>
           <div className="steps" style={{ marginTop: 16 }}>
             {qs.map((_, i) => (

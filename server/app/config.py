@@ -21,8 +21,8 @@ class Settings(BaseSettings):
 
     # 认证(MVP: API token 简单校验; 生产换 JWT/OAuth)
     api_token: str = "cp-dev-token"
-    # MVP 默认工作空间 slug(单用户演示; 多租户结构已就位)
-    default_workspace_slug: str = "demo"
+    # 正式个人空间; Demo 仅由显式 X-Workspace: demo 访问。
+    default_workspace_slug: str = "personal"
 
     # LLM 适配(空 = 规则引擎降级模式, 不依赖外部 LLM)
     llm_provider: str = ""          # deepseek | glm | ""(rule)
@@ -36,10 +36,21 @@ class Settings(BaseSettings):
     # 公开内容发布(GitHub 内容仓库, 独立于本地私人数据系统)
     github_api_url: str = "https://api.github.com"
     github_token: str = ""                          # 环境变量 GITHUB_TOKEN(gh auth token)
+    gitcode_token: str = ""                         # 环境变量 GITCODE_TOKEN(gitcode 个人访问令牌)
     portal_target_repo: str = "Lueyu/agent-interview"   # 内容仓库 owner/repo
     portal_base_branch: str = "master"              # 发布目标默认分支
     portal_content_dir: str = "portal/content"      # 仓库内内容目录
-    portal_auto_merge: bool = True                  # 允许低风险内容自动 merge PR
+    portal_auto_merge: bool = False
+
+    @property
+    def public_writes_enabled(self) -> bool:
+        """本轮固定本地模式。环境变量、DB 规则和旧 token 均不能开启公开写入。"""
+        return False
+
+    @property
+    def evolution_activation_enabled(self) -> bool:
+        """保留候选/历史版本, 但不启用或消费自适应策略。"""
+        return False
 
     @property
     def sync_database_url(self) -> str:

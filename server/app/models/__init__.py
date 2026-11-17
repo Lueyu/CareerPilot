@@ -4,9 +4,14 @@ from app.models.workspace import User, Workspace, WorkspaceMember  # noqa: F401
 from app.models.app_setting import AppSetting  # noqa: F401
 from app.models.skill import Skill, JobStandard, JobStandardTarget, SkillState  # noqa: F401
 from app.models.question import Question, ImportSession, ImportItem  # noqa: F401
+from app.models.question_generation import QuestionGeneration  # noqa: F401
+from app.models.project_analysis import ProjectAnalysis, AnalysisStep, WorkerHeartbeat  # noqa: F401
 from app.models.evidence import Evidence  # noqa: F401
 from app.models.exam import Exam, ExamQuestion, ExamAnswer  # noqa: F401
+from app.models.assessment import AnswerRevision, ScoringRun, ScoringStep  # noqa: F401
 from app.models.learning import LearningTask  # noqa: F401
+from app.models.learning_feedback import LearningGoal, LearningActivity, LearningSubmission  # noqa: F401
+from app.models.learning_project import LearningProjectSnapshot  # noqa: F401
 from app.models.memory import MemoryItem  # noqa: F401
 from app.models.trace import Trace, TraceSpan, DecisionRecord, Event  # noqa: F401
 from app.models.public_content import (  # noqa: F401
@@ -36,6 +41,6 @@ __all__ = [
     "Trace", "TraceSpan", "DecisionRecord", "Event",
     "PublicContentSource", "PublicContentDraft", "ContentPublication",
     "ContentPublicationRule", "ContentReleaseAudit",
-    "Project", "ProjectScan", "ProjectFinding", "CareerAsset", "AssetUpdateRun",
+    "Project", "ProjectScan", "ProjectFinding", "ProjectAnalysis", "CareerAsset", "AssetUpdateRun",
     "EvolutionCandidate", "EvolutionRun", "CompetencySnapshot", "JdSource",
 ]

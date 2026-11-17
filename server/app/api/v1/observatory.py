@@ -13,6 +13,7 @@ router = APIRouter()
 
 # 引擎注册表(健康状态由最近 trace 推断)
 ENGINES = [
+    {"key": "project_autopilot", "name": "Project Autopilot", "desc": "项目自动分析与可恢复阶段", "trace_kind": "project_autopilot"},
     {"key": "job_intelligence", "name": "Job Intelligence", "desc": "JD 解析与岗位画像", "trace_kind": "benchmark"},
     {"key": "memory_engine", "name": "Memory Engine", "desc": "记忆提取与生命周期", "trace_kind": "bank_import"},
     {"key": "project_analyzer", "name": "Project Analyzer", "desc": "项目证据扫描", "trace_kind": "project_scan"},
@@ -43,7 +44,7 @@ async def observatory(
             "total_runs": total,
             "success_rate": round(100 * success / total, 1) if total else 100.0,
             "avg_latency_ms": avg_latency,
-            "cost_cny": cost,
+            "cost_cny": None if any(t.kind=='project_autopilot' for t in traces) else cost,
             "failures": len(failed),
         },
         "engines": await _engines(session, ws, traces),
@@ -104,7 +105,7 @@ async def list_traces(
                 "title": t.title,
                 "status": t.status,
                 "duration_ms": t.duration_ms,
-                "cost_cny": t.cost_cny,
+                "cost_cny": None if t.kind=='project_autopilot' else t.cost_cny,
                 "fail_reason": t.fail_reason,
                 "started_at": t.started_at.isoformat() if t.started_at else None,
                 "finished_at": t.finished_at.isoformat() if t.finished_at else None,
@@ -133,7 +134,7 @@ async def trace_detail(
         "title": t.title,
         "status": t.status,
         "duration_ms": t.duration_ms,
-        "cost_cny": t.cost_cny,
+        "cost_cny": None if t.kind=='project_autopilot' else t.cost_cny,
         "fail_reason": t.fail_reason,
         "started_at": t.started_at.isoformat() if t.started_at else None,
         "finished_at": t.finished_at.isoformat() if t.finished_at else None,
@@ -143,7 +144,7 @@ async def trace_detail(
                 "name": s.name,
                 "status": s.status,
                 "duration_ms": s.duration_ms,
-                "cost_cny": s.cost_cny,
+                "cost_cny": None if t.kind=='project_autopilot' else s.cost_cny,
                 "detail": s.detail,
             }
             for s in sorted(t.spans, key=lambda x: x.id)

@@ -67,7 +67,7 @@ export default function Topbar() {
         <div style={{ position: 'relative' }}>
           <button className="icon-btn" onClick={() => setNotifOpen(true)}>
             🔔
-            <span className="icon-badge">2</span>
+
           </button>
         </div>
       </div>

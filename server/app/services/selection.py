@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import re
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,8 +24,17 @@ INFO_GAIN_ORDER = {
 }
 
 
+def covers_criterion(question, title: str | None) -> bool:
+    normalize = lambda value: re.sub(r"^(?:要点|评分项)\s*[:：]\s*", "", str(value or "").strip()).casefold()
+    return bool(title) and any(normalize(p.get("title") if isinstance(p, dict) else p) == normalize(title)
+                               for p in ((question.rubric or {}).get("criteria") or (question.rubric or {}).get("points", [])))
+
+
 async def select_questions_for_exam(
-    session: AsyncSession, workspace_id: int, exam: Exam, count: int = 3
+    session: AsyncSession, workspace_id: int, exam: Exam, count: int = 3,
+    *, skill_key: str | None = None, exclude_question_ids: list[int] | None = None,
+    criterion_title: str | None = None,
+    exclude_exposed: bool = False,
 ) -> tuple[list[Question], str]:
     """为独立诊断选 N 道题, 返回 (题目列表, 选择理由)。"""
     states = (
@@ -54,6 +64,41 @@ async def select_questions_for_exam(
             .order_by(Question.id)
         )
     ).scalars().all()
+
+    # Variants are the same independent question. Scope and exclusions apply
+    # before picking, including when an excluded ID is itself a variant.
+    by_id = {q.id: q for q in pool}
+    def canonical_id(q):
+        seen = set()
+        while q.canonical_question_id and q.id not in seen:
+            seen.add(q.id)
+            parent = by_id.get(q.canonical_question_id)
+            if parent is None:
+                return q.canonical_question_id
+            q = parent
+        return q.id
+    excluded = set(exclude_question_ids or [])
+    if exclude_exposed:
+        from app.services.learning_exposure import exposed_families
+        excluded |= await exposed_families(session, workspace_id)
+    excluded |= {canonical_id(by_id[qid]) for qid in list(excluded) if qid in by_id}
+    unique_pool = []
+    seen_canonical = set()
+    for q in pool:
+        if (q.generation_meta or {}).get('assessment_use') == 'PRACTICE_ONLY':
+            continue
+        if (q.rubric or {}).get('review_required'):
+            continue
+        canonical = canonical_id(q)
+        if skill_key and (not q.skill or q.skill.key != skill_key):
+            continue
+        if q.id in excluded or canonical in excluded or canonical in seen_canonical:
+            continue
+        seen_canonical.add(canonical)
+        unique_pool.append(q)
+    pool = unique_pool
+    if criterion_title:
+        pool.sort(key=lambda q: not covers_criterion(q, criterion_title))
 
     # 按能力域分桶
     by_skill: dict[int | None, list[Question]] = {}

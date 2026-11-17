@@ -41,6 +41,14 @@ class Project(Base):
     meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # description/languages/size 等
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    generation: Mapped[int] = mapped_column(Integer, default=0)
+    latest_valid_analysis_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_seen_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    pending_update: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     scans = relationship("ProjectScan", back_populates="project", cascade="all, delete-orphan", order_by="ProjectScan.id.desc()")
     findings = relationship("ProjectFinding", back_populates="project", cascade="all, delete-orphan")
 
