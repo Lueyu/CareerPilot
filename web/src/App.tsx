@@ -22,6 +22,7 @@ import Memory from './pages/Memory';
 import Observatory from './pages/Observatory';
 import Evolution from './pages/Evolution';
 import Settings from './pages/Settings';
+import QuestionWorkshop from './pages/QuestionWorkshop';
 
 function Layout() {
   return (
@@ -55,6 +56,7 @@ export default function App() {
         <Route path="/profile/:domain" element={<ProfileDetail />} />
         <Route path="/exam" element={<ExamTabs />} />
         <Route path="/bank" element={<ExamTabs />} />
+        <Route path="/bank/workshop" element={<QuestionWorkshop />} />
         <Route path="/exam/diagnosis" element={<Diagnosis />} />
         <Route path="/exam/diagnosis/report" element={<DiagnosisReport />} />
         <Route path="/learning" element={<Learning />} />

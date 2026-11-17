@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAppState } from '../components/AppState';
 import { DemoBanner, Modal, PageHead } from '../components/ui';
-import { api, ApiError } from '../api/client';
+import { api, ApiError, downloadWorkspaceExport } from '../api/client';
 import type { AuditItem, PublicationRule, SettingsOverview } from '../api/client';
+import {useSearchParams} from 'react-router-dom';
+import {AutopilotSettingsForm} from '../components/ProjectAutopilot';
 
 const TABS = [
   { key: 'account', name: '账号', ic: '👤' },
@@ -30,7 +32,8 @@ const ACTION_META: Record<string, { label: string; cls: string }> = {
 
 export default function Settings() {
   const { toast } = useAppState();
-  const [tab, setTab] = useState<TabKey>('workspace');
+  const [searchParams]=useSearchParams();
+  const [tab, setTab] = useState<TabKey>(()=>searchParams.get('tab')==='rules'?'rules':'workspace');
   const [ov, setOv] = useState<SettingsOverview | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,7 +89,7 @@ export default function Settings() {
               {tab === 'workspace' && <WorkspaceTab ov={ov} reload={load} toast={toast} />}
               {tab === 'models' && <ModelsTab toast={toast} />}
               {tab === 'data' && <DataTab ov={ov} toast={toast} />}
-              {tab === 'rules' && <RulesTab />}
+              {tab === 'rules' && <><AutopilotSettingsForm/><RulesTab /></>}
             </>
           )}
         </div>
@@ -359,7 +362,7 @@ function ModelsTab({ toast }: { toast: (ic: string, msg: string) => void }) {
           <>
             <p className="hint" style={{ margin: '4px 0 12px' }}>
               当前生效：{llm.provider || '—'} · {llm.model || '—'} · 密钥 {llm.api_key_hint || '未设置'} {srcChip(llm.source)}
-              <br />修改后立即生效，无需重启后端；密钥只存本地（DB/env），接口不回显。LLM 失败时自动降级规则引擎。
+              <br />修改后立即生效，无需重启后端；密钥只存本地（DB/env），接口不回显。开放题评分失败会明确报错，可检查连接后重试。
             </p>
             <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div className="field">
@@ -398,7 +401,7 @@ function ModelsTab({ toast }: { toast: (ic: string, msg: string) => void }) {
       <div className="card">
         <div className="card-head">
           <span className="card-title">GitHub 发布</span>
-          {gh && <span className={`chip ${gh.active ? 'chip-green' : 'chip-slate'}`}>{gh.active ? '已连接' : '未配置'}</span>}
+          {gh && <span className={`chip ${gh.active ? 'chip-green' : 'chip-slate'}`}>{'公共写入已关闭'}</span>}
         </div>
         {gh && (
           <>
@@ -422,7 +425,6 @@ function ModelsTab({ toast }: { toast: (ic: string, msg: string) => void }) {
       <div className="card">
         <div className="card-head"><span className="card-title">尚未接入</span></div>
         {[
-          ['🎙️', '语音转写（STT）', '考试语音输入暂为界面占位'],
           ['⚡', '编程 Agent', '项目扫描当前用仓库元数据，不含 AI 审查'],
           ['🔎', '搜索', '岗位智能（Job Intelligence）暂未接入搜索源'],
           ['🧩', 'MCP 适配器', '暂无 MCP 工具接入'],
@@ -447,16 +449,12 @@ function DataTab({ ov, toast }: { ov: SettingsOverview; toast: (ic: string, msg:
   const [confirm, setConfirm] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const BASE = 'http://127.0.0.1:8000/api/v1';
+
 
   const doExport = async () => {
     setExporting(true);
     try {
-      const res = await fetch(`${BASE}/settings/export`, {
-        headers: { 'X-Api-Token': 'cp-dev-token', 'X-Workspace': 'demo' },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
+      const blob = await downloadWorkspaceExport();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = `careerpilot-export-${ov.workspace.slug}-${new Date().toISOString().slice(0, 10).split('-').join('')}.json`;
@@ -568,7 +566,7 @@ function RulesTab() {
     setBusy(true);
     try {
       const next = !autoMergeOn;
-      const saved = await api.put<PublicationRule>('/public-content/rules', { key: 'auto_merge', value: { note: '低风险内容自动合并 PR' }, is_enabled: next });
+      const saved = await api.put<PublicationRule>('/public-content/rules', { key: 'auto_merge', value: { note: '公共内容写入已禁用' }, is_enabled: next });
       setRules((rs) => {
         const base = rs || [];
         const idx = base.findIndex((r) => r.key === 'auto_merge');
@@ -588,19 +586,18 @@ function RulesTab() {
         <div className="card-head"><span className="card-title">发布权限</span></div>
         <div className="list-row">
           <div className="list-main">
-            <div className="list-title">低风险内容自动合并 PR</div>
-            <div className="list-sub">校验全过（PASS）且非 dry-run 时，发布后直接 squash 合并；关闭则一律保留 PR 等人工合并</div>
+            <div className="list-title">公共内容写入已禁用</div>
+            <div className="list-sub">当前仅保留本地草稿与预览；不会创建或合并 PR。</div>
           </div>
           <button
-            className={`switch ${autoMergeOn ? 'on' : ''}`}
-            aria-label="低风险自动合并"
-            disabled={busy || rules === null}
-            onClick={() => void toggleAutoMerge()}
+            className="switch"
+            aria-label="公共发布已禁用"
+            disabled
             style={{ cursor: busy ? 'wait' : 'pointer' }}
           />
         </div>
         <p className="hint" style={{ marginTop: 8 }}>
-          未配置规则时默认跟随 server/.env 的 PORTAL_AUTO_MERGE；此处开关会覆盖默认值。
+          本轮核心闭环修复期间，后端统一阻止公共写入。
         </p>
       </div>
 

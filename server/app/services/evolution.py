@@ -51,7 +51,7 @@ async def collect_signals(session: AsyncSession, workspace_id: int) -> dict[str,
         await session.execute(
             select(Exam)
             .where(Exam.workspace_id == workspace_id)
-            .where(Exam.status == Exam.STATUS_COMPLETED)
+            .where(Exam.status == Exam.STATUS_COMPLETED, Exam.kind != 'practice')
             .order_by(Exam.id)
         )
     ).scalars().all()
@@ -192,7 +192,7 @@ async def _exam_history_metrics(session: AsyncSession, workspace_id: int) -> dic
     exams = (
         await session.execute(
             select(Exam).where(
-                Exam.workspace_id == workspace_id, Exam.status == Exam.STATUS_COMPLETED
+                Exam.workspace_id == workspace_id, Exam.status == Exam.STATUS_COMPLETED, Exam.kind != 'practice'
             )
         )
     ).scalars().all()
@@ -237,6 +237,8 @@ async def _project_selection_metrics(
     ).scalars().all()
     by_skill: dict[int | None, list[Question]] = {}
     for q in pool:
+        if (q.generation_meta or {}).get('assessment_use') == 'PRACTICE_ONLY' or (q.generation_meta or {}).get('review_required'):
+            continue
         by_skill.setdefault(q.skill_id, []).append(q)
 
     bias = int(cfg.get("difficulty_bias") or 0)  # +1=更基础(索引后移), -1=更进阶
@@ -263,6 +265,9 @@ async def evaluate_candidate(
     session: AsyncSession, workspace_id: int, cand: EvolutionCandidate
 ) -> EvolutionRun:
     """对候选做确定性评估, 写 EvolutionRun; 样本不足 → INSUFFICIENT_EVIDENCE。"""
+    if cand.kind == 'teaching' and (cand.body or {}).get('policy_version') == 'learning-feedback-v1':
+        from app.services.learning_memory import evaluate_teaching_candidate
+        return await evaluate_teaching_candidate(session, workspace_id, cand)
     hist = await _exam_history_metrics(session, workspace_id)
     sample_size = hist["sample_size"]
     body = cand.body or {}
@@ -331,13 +336,7 @@ async def evaluate_candidate(
 
 # ---------------------------------------------------------------- 状态流转
 async def approve_candidate(session: AsyncSession, workspace_id: int, cand: EvolutionCandidate) -> None:
-    cand.status = STATUS_ACTIVE
-    cand.approved_at = func.now()
-    await session.flush()
-    await emit_event(
-        session, workspace_id, "evolution.approved",
-        payload={"short_code": cand.short_code}, ref_type="evolution_candidate", ref_id=cand.id,
-    )
+    raise PermissionError("evolution_activation_disabled: 本轮仅保留候选与评估记录")
 
 
 async def reject_candidate(session: AsyncSession, workspace_id: int, cand: EvolutionCandidate) -> None:
@@ -361,15 +360,5 @@ async def rollback_candidate(session: AsyncSession, workspace_id: int, cand: Evo
 async def get_active_candidate(
     session: AsyncSession, workspace_id: int, kind: str
 ) -> EvolutionCandidate | None:
-    """selection.py 等消费方读取的「当前生效策略」。"""
-    return (
-        await session.execute(
-            select(EvolutionCandidate)
-            .where(
-                EvolutionCandidate.workspace_id == workspace_id,
-                EvolutionCandidate.kind == kind,
-                EvolutionCandidate.status == STATUS_ACTIVE,
-            )
-            .order_by(EvolutionCandidate.approved_at.desc(), EvolutionCandidate.id.desc())
-        )
-    ).scalars().first()
+    """本轮不消费策略, 包括数据库中历史 ACTIVE 版本; 原记录保持完整。"""
+    return None

@@ -70,6 +70,7 @@ async def list_bank(
     base = select(Question).where(
         (Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id),
         Question.canonical_question_id.is_(None),  # 变体不单独列出
+        Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY'),
     )
     if company:
         base = base.where(Question.company.ilike(f"%{company}%"))
@@ -92,6 +93,7 @@ async def list_bank(
         await session.execute(
             select(Question.company, func.count(Question.id))
             .where((Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id))
+            .where(Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY'))
             .group_by(Question.company)
             .order_by(func.count(Question.id).desc())
             .limit(10)
@@ -101,6 +103,7 @@ async def list_bank(
         await session.execute(
             select(Question.topic, func.count(Question.id))
             .where((Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id))
+            .where(Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY'))
             .group_by(Question.topic)
         )
     ).all()
@@ -144,11 +147,16 @@ async def bank_detail(
             .where(
                 Question.short_code == short_code,
                 (Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id),
+                Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY'),
             )
         )
     ).scalar_one_or_none()
     if question is None:
         raise HTTPException(status_code=404, detail="question not found")
+    from app.services.learning_exposure import record_reference_exposure
+    if question.answer_html or question.rubric:
+        await record_reference_exposure(session, ws, question, source='bank_detail')
+        await session.commit()
     return {
         "id": question.id,
         "short_code": question.short_code,
@@ -167,7 +175,9 @@ async def bank_detail(
         "source_type": question.source_type,
         "tags": question.tags or [],
         "keywords": question.keywords or [],
-        "variants": [v.short_code for v in question.variants],
+        "generation_meta": question.generation_meta,
+        "variants": [v.short_code for v in question.variants if v.workspace_id in (None, ws.id)
+                     and (v.generation_meta or {}).get('assessment_use') != 'PRACTICE_ONLY'],
     }
 
 
@@ -267,7 +277,7 @@ async def _start_import_session(
         short_code=f"IM-{100 + n_sessions + 1}",
         workspace_id=ws.id,
         filename=filename,
-        paste_text=(paste_text or "")[:10000] or None,
+        paste_text=(paste_text or "") or None,
         status="UPLOADED",
         meta={**meta, "progress": {"step": 0, "total": 5, "note": "已接收，排队解析中"}},
     )
@@ -342,6 +352,8 @@ async def _process_import(
             if file_meta:
                 detail = "; ".join(f"{m['name']}: {m['error']}" for m in file_meta if m["error"]) or detail
             raise RuntimeError(detail)
+        imported = (await session.execute(select(ImportSession).where(ImportSession.id == import_id))).scalar_one()
+        imported.meta = {**(imported.meta or {}), "extracted_source_text": source_text}
         await advance(1, f"已解析 {len(file_meta) or '文本'} · {len(source_text)} 字符")
         add_span(session, trace, "parse", parse_ms if raw_items else 5, detail={"chars": len(source_text), "files": len(file_meta)})
 
@@ -357,7 +369,8 @@ async def _process_import(
         all_questions = (
             await session.execute(
                 select(Question.id, Question.title).where(
-                    (Question.workspace_id.is_(None)) | (Question.workspace_id == workspace_id)
+                    (Question.workspace_id.is_(None)) | (Question.workspace_id == workspace_id),
+                    Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY')
                 )
             )
         ).all()
@@ -665,6 +678,9 @@ def _item_view(it: ImportItem) -> dict:
         "has_answer": bool((it.draft_answer or "").strip()),
         "answer_source": rubric.get("source"),
         "is_duplicate_of": it.is_duplicate_of,
+        "generation_meta": it.generation_meta,
+        "question_id": it.question_id,
+        "merged_into": it.merged_into,
         "status": it.status,
     }
 
@@ -687,6 +703,9 @@ async def regenerate_item_answer(
     ).scalar_one_or_none()
     if item is None:
         raise HTTPException(status_code=404, detail="import item not found")
+
+    if item.generation_meta:
+        raise HTTPException(409, "请在补题工作台编辑或新建批次，普通重新生成会丢失项目资料关联")
 
     if not force and (item.draft_answer or "").strip():
         return _item_view(item)
@@ -722,7 +741,12 @@ async def generate_question_answer(
     if question is None:
         raise HTTPException(status_code=404, detail="question not found")
 
+    if question.generation_meta and force:
+        raise HTTPException(409, "此题来自项目补题工作台，请创建新批次以保留资料与来源")
     if (question.answer_html or "").strip() and not force:
+        from app.services.learning_exposure import record_reference_exposure
+        await record_reference_exposure(session, ws, question, source='bank_answer')
+        await session.commit()
         return {
             "short_code": question.short_code,
             "answer_html": question.answer_html,
@@ -730,12 +754,17 @@ async def generate_question_answer(
             "generated": False,
         }
 
+    if question.workspace_id is None:
+        raise HTTPException(403, "共享题库只读；请在补题工作台创建个人版本")
+
     skill_key = question.skill.key if question.skill else _guess_skill(question.title)
     skill_name = question.skill.name if question.skill else skill_key
     answer_html, rubric, source = await generate_answer(question.title, skill_key, skill_name, question.qtype)
     question.answer_html = answer_html
     if not question.rubric or force:
         question.rubric = {**rubric, "source": source}
+    from app.services.learning_exposure import record_reference_exposure
+    await record_reference_exposure(session, ws, question, source='bank_answer_generated')
     await session.commit()
     return {
         "short_code": question.short_code,
@@ -762,7 +791,11 @@ async def approve_import(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    """审核通过 → 生成 Question(私有) + 可选证据 → 入题库。重复项标记 MERGED 保留。"""
+    """审核学习材料入私有题库；不生成能力证据。"""
+    existing = (await session.execute(select(ImportSession).where(ImportSession.id == import_id, ImportSession.workspace_id == ws.id))).scalar_one_or_none()
+    if existing and (existing.meta or {}).get("generation_task_id"):
+        from app.services.question_review import approve_generated
+        return await approve_generated(session, ws, import_id, req.item_ids, req.edits)
     t0 = time.perf_counter()
     trace = await start_trace(
         session, ws.id, "bank_import", "导入面经: 审核入库",
@@ -870,6 +903,8 @@ async def _own_question(session: AsyncSession, ws: Workspace, short_code: str) -
     ).scalar_one_or_none()
     if q is None:
         raise HTTPException(status_code=404, detail=f"题目 '{short_code}' 不存在")
+    if q.workspace_id is None:
+        raise HTTPException(403, "共享题库只读；请创建个人版本再编辑")
     if q.workspace_id is not None and q.workspace_id != ws.id:
         raise HTTPException(status_code=403, detail="无权访问其他工作空间的私有题目")
     return q
@@ -886,6 +921,10 @@ async def update_question(
     data = body.model_dump(exclude_unset=True)
     if not data:
         raise HTTPException(status_code=422, detail="没有需要更新的字段")
+    from copy import deepcopy
+    from app.services.assessment_versions import digest
+    from datetime import datetime, timezone
+    before={k:deepcopy(getattr(q,k)) for k in ('title','qtype','topic','skill_id','difficulty','role','level','options','rubric','answer_html')}
     if "skill_key" in data:
         sm = await _skill_map(session)
         key = data.pop("skill_key")
@@ -896,10 +935,17 @@ async def update_question(
         data["difficulty"] = max(1, min(5, int(data["difficulty"])))
     for field, value in data.items():
         setattr(q, field, value)
+    changed=[k for k in ('title','topic','skill_id','difficulty','role','level') if before[k]!=getattr(q,k)]
+    if changed:
+        previous={**before,'version':digest(before),'superseded_at':datetime.now(timezone.utc).isoformat(),'changed_fields':changed}
+        meta=q.generation_meta or {}
+        q.generation_meta={**meta,'question_versions':[*meta.get('question_versions',[]),previous]}
+        q.rubric={**(q.rubric or {}),'review_required':True,'review_reason':'题意、层级或能力映射已变更，需要重新生成或复核评分标准'}
     await session.commit()
     return {"id": q.id, "short_code": q.short_code, "title": q.title, "topic": q.topic,
             "skill_id": q.skill_id, "difficulty": q.difficulty, "company": q.company,
-            "role": q.role, "level": q.level, "tags": q.tags}
+            "role": q.role, "level": q.level, "tags": q.tags,
+            "rubric_review_required":bool((q.rubric or {}).get('review_required'))}
 
 
 class MergeReq(BaseModel):
@@ -934,6 +980,8 @@ async def reject_import_item(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
+    from app.api.v1.question_generation import workspace_lock
+    await workspace_lock(session, ws.id)
     imp = (
         await session.execute(
             select(ImportSession).where(ImportSession.id == import_id, ImportSession.workspace_id == ws.id)
@@ -943,7 +991,7 @@ async def reject_import_item(
         raise HTTPException(status_code=404, detail="导入会话不存在")
     item = (
         await session.execute(
-            select(ImportItem).where(ImportItem.id == item_id, ImportItem.session_id == imp.id)
+            select(ImportItem).where(ImportItem.id == item_id, ImportItem.session_id == imp.id).with_for_update().execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if item is None:

@@ -4,6 +4,9 @@ import { useAppState } from '../components/AppState';
 import { DemoBanner, DiffLabel, Modal, PageHead, Stars } from '../components/ui';
 import { api, BankData, ImportReview, QuestionDetail } from '../api/client';
 import { trackImport } from '../lib/importTracker';
+import BankQuestionEditor from '../components/BankQuestionEditor';
+import {beginQuestionPractice} from '../lib/questionWorkshop';
+import {bankSourcePresentation} from '../lib/bankSource';
 import bank from '../data/bank.json';
 
 interface BankQ {
@@ -42,6 +45,7 @@ function transformAnswer(html: string): string {
 /** 后端题目行 -> 前端展示行(静态 bank.json 提供答案 html) */
 interface Row {
   id: string;
+  numericQuestionId?: number;
   title: string;
   company: string;
   topic: string;
@@ -65,6 +69,20 @@ export default function Bank() {
   };
   const [editQ, setEditQ] = useState<Row | null>(null);
   const [mergeQ, setMergeQ] = useState<Row | null>(null);
+  const [practiceBusy,setPracticeBusy] = useState<string|null>(null);
+  const practiceAttempts = useRef(new Map<string,string>());
+  const startPractice = async (row:Row) => {
+    setPracticeBusy(row.id);
+    try {
+      const questionId=row.numericQuestionId ?? (await api.get<QuestionDetail>(`/bank/${encodeURIComponent(row.id)}`)).id;
+      const key=practiceAttempts.current.get(row.id) || crypto.randomUUID();
+      practiceAttempts.current.set(row.id,key);
+      const exam=await beginQuestionPractice(questionId,key,api);
+      practiceAttempts.current.delete(row.id);
+      navigate(`/exam/diagnosis?id=${exam.id}`);
+    } catch(e:any) {toast('⚠️',`无法开始练习：${e.message || e}`);}
+    finally {setPracticeBusy(null);}
+  };
   const [importOpen, setImportOpen] = useState(window.location.search.includes('import=1'));
   const location = useLocation();
 
@@ -101,6 +119,8 @@ export default function Bank() {
 
   // 题目详情(真实答案)
   const [detailHtml, setDetailHtml] = useState<string | null>(null);
+  const [detailLoading,setDetailLoading]=useState(false);
+  const detailRequest=useRef(0);
   const [detailBusy, setDetailBusy] = useState(false);
   const [detailErr, setDetailErr] = useState<string | null>(null);
 
@@ -124,8 +144,9 @@ export default function Bank() {
     const diffMap = new Map(QUESTIONS.map((b) => [b.id, b.difficulty]));
     return apiData.items.map((it) => ({
       id: it.short_code,
+      numericQuestionId:it.id,
       title: it.title,
-      company: it.company || '公开题库',
+      company: bankSourcePresentation(it).company,
       topic: it.topic,
       difficulty: it.difficulty ?? diffMap.get(it.short_code) ?? 3,
       tags: it.tags?.length ? it.tags : tagMap.get(it.short_code) ?? [],
@@ -157,11 +178,12 @@ export default function Bank() {
   }, [reload]);
 
   const pendingRows = useMemo(() => {
-    const list: { importId: number; shortCode: string; itemId: number; rowId: string; title: string; topic: string; confidence: string; dup: boolean; busy: boolean }[] = [];
+    const list: { importId: number; shortCode: string; itemId: number; rowId: string; title: string; topic: string; confidence: string; dup: boolean; busy: boolean; generationTaskId?:number }[] = [];
     (pendingImports ?? []).forEach((imp) => {
       imp.items.forEach((it) => {
         list.push({
           importId: imp.id,
+          generationTaskId: imp.meta?.generation_task_id || it.generation_meta?.task_id,
           shortCode: imp.short_code,
           itemId: it.id,
           rowId: `${imp.short_code}-${it.id}`,
@@ -190,6 +212,10 @@ export default function Bank() {
   };
 
   const openReviewFor = (imp: ImportReview) => {
+    if (imp.meta?.generation_task_id) {
+      navigate(`/bank/workshop?task=${imp.meta.generation_task_id}`);
+      return;
+    }
     setReview(imp);
     setOpenAns({});
     setStage('review');
@@ -313,31 +339,32 @@ export default function Bank() {
 
   /** 打开题目详情: 拉真实答案(私有题无静态 html) */
   const openDetail = async (r: Row) => {
-    setDetail(r);
-    setDetailHtml(r.html ?? null);
-    setDetailErr(null);
+    const request=++detailRequest.current;
+    setDetail(r);setDetailHtml(null);setDetailErr(null);setDetailLoading(true);
     try {
       const d = await api.get<QuestionDetail>(`/bank/${encodeURIComponent(r.id)}`);
-      if (d.answer_html) setDetailHtml(d.answer_html);
-    } catch {
-      /* 后端不可用时保留静态 html */
-    }
+      if(request===detailRequest.current)setDetailHtml(d.answer_html || r.html || null);
+    } catch(e) {
+      if(request===detailRequest.current)setDetailErr(`参考读取失败：${e instanceof Error?e.message:String(e)}。辅助记录未确认，暂不展示参考内容。`);
+    } finally {if(request===detailRequest.current)setDetailLoading(false);}
   };
 
   /** 为题库题补生成答案 */
   const genAnswer = async () => {
     if (!detail) return;
+    const request=detailRequest.current;
     setDetailBusy(true);
     setDetailErr(null);
     try {
       const r = await api.post<{ answer_html: string; generated: boolean; source: string }>(
         `/bank/questions/${encodeURIComponent(detail.id)}/answer?force=false`,
       );
+      if(request!==detailRequest.current)return;
       setDetailHtml(r.answer_html);
       toast('✨', r.generated ? '已生成详细解答' : '该题已有答案');
       setReload((x) => x + 1);
     } catch (e: any) {
-      setDetailErr(String(e.message || e));
+      if(request===detailRequest.current)setDetailErr(String(e.message || e));
     } finally {
       setDetailBusy(false);
     }
@@ -375,6 +402,7 @@ export default function Bank() {
         sub={`共 ${totalAll} 题 · ${apiData?.total ?? rows.length} 道题库题 + ${pendingRows.length} 道待审核${apiErr ? ' · 后端不可用(静态)' : ''}`}
       >
         <button className="btn btn-outline" onClick={() => navigate('/exam')}>用面经组卷</button>
+        <button className="btn btn-outline" onClick={() => navigate('/bank/workshop')}>项目面经与智能补题</button>
         <button className="btn btn-primary" onClick={() => { setImportOpen(true); setStage('upload'); setPasteText(''); setFiles([]); setCompany(''); setLevel(''); setImportErr(null); setDragOver(false); setReview(null); setApproveResult(null); }}>📥 导入面经</button>
       </PageHead>
       <DemoBanner text={apiErr ? 'DEMO · 后端不可用，当前为静态题库演示。' : 'DEMO · 导入、审核与合并为示例流程；公开题库为本地静态数据。'} />
@@ -448,8 +476,8 @@ export default function Bank() {
                     </div>
                   </div>
                   <div className="q-actions">
-                    <button className="btn btn-primary btn-sm" disabled={p.busy} onClick={() => approveOne(p.importId, p.itemId, p.rowId)}>
-                      {p.busy ? '入库中…' : '通过'}
+                    <button className="btn btn-primary btn-sm" disabled={p.busy} onClick={() => p.generationTaskId ? navigate(`/bank/workshop?task=${p.generationTaskId}`) : approveOne(p.importId, p.itemId, p.rowId)}>
+                      {p.busy ? '入库中…' : p.generationTaskId ? '前往工作台审核' : '通过'}
                     </button>
                     <button className="btn btn-outline btn-sm" onClick={() => {
                       const imp = (pendingImports ?? []).find((x) => x.id === p.importId);
@@ -472,13 +500,14 @@ export default function Bank() {
                     <span>{r.company}</span>
                     <span className="chip chip-slate">{TOPIC_NAME[r.topic] ?? r.topic}</span>
                     <span style={{ fontSize: 12 }}><Stars n={r.difficulty} /></span>
-                    {r.source_type === 'USER_PRIVATE' && <span className="chip chip-purple">私有</span>}
+                    {bankSourcePresentation(r).isPrivate && <span className="chip chip-purple">私有</span>}
+                    <span className="chip chip-slate">{bankSourcePresentation(r).label}</span>
                     {r.tags?.slice(0, 2).map((t) => <span key={t} className="chip chip-slate">#{t}</span>)}
                   </div>
                 </div>
                 <div className="q-actions">
-                  <button className="btn btn-outline btn-sm" onClick={() => setEditQ(r)}>编辑</button>
-                  <button className="btn btn-outline btn-sm" onClick={() => { toast('🧪', '已加入「面经考试」试卷'); navigate('/exam'); }}>加入考试</button>
+                  <button className="btn btn-outline btn-sm" disabled={!bankSourcePresentation(r).editable} title={bankSourcePresentation(r).editable?'编辑个人题目信息':'共享题库只读，可导入面经后整理为个人题目'} onClick={() => setEditQ(r)}>{bankSourcePresentation(r).editable?'编辑':'共享题只读'}</button>
+                  <button className="btn btn-outline btn-sm" disabled={practiceBusy!==null} onClick={() => startPractice(r)}>{practiceBusy===r.id?'准备考试…':'开始练习'}</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => setMergeQ(r)}>合并重复</button>
                 </div>
               </div>
@@ -489,11 +518,11 @@ export default function Bank() {
 
       {/* —— 题目详情(全屏最大化) —— */}
       {detail && (
-        <Modal title={`${detail.id} · 题目详情`} size="xl" onClose={() => setDetail(null)}
+        <Modal title={`${detail.id} · 题目详情`} size="xl" onClose={() => {++detailRequest.current;setDetail(null);}}
           footer={
             <>
-              <button className="btn btn-outline" onClick={() => { setDetail(null); setEditQ(detail); }}>编辑</button>
-              <button className="btn btn-primary" onClick={() => { toast('🧪', '已加入「面经考试」试卷'); setDetail(null); }}>加入考试</button>
+              <button className="btn btn-outline" disabled={!bankSourcePresentation(detail).editable} title={bankSourcePresentation(detail).editable?'编辑个人题目信息':'共享题库只读，可导入面经后整理为个人题目'} onClick={() => { setDetail(null); setEditQ(detail); }}>{bankSourcePresentation(detail).editable?'编辑':'共享题只读'}</button>
+              <button className="btn btn-primary" disabled={practiceBusy!==null} onClick={() => startPractice(detail)}>{practiceBusy?'准备考试…':'开始练这题'}</button>
             </>
           }>
           <div className="q-meta" style={{ marginBottom: 14 }}>
@@ -502,8 +531,10 @@ export default function Bank() {
             <Stars n={detail.difficulty} />
           </div>
           <h3 style={{ fontSize: 17, fontWeight: 650, marginBottom: 14 }}>{detail.title}</h3>
+          <p className="hint">{bankSourcePresentation(detail).isPrivate ? `个人题库 · ${bankSourcePresentation(detail).label}`:'共享题库只读；需要结合项目改写时，可在面经工作台导入并审核为个人题目。'}</p>
           {detailErr && <div className="demo-banner demo-banner-err" style={{ marginBottom: 10 }}>{detailErr}</div>}
-          {detailHtml ? (
+          <p className="hint">查看参考后，该题族不再用于未辅助独立复测；仍可用于带辅助的学习和练习。</p>
+          {detailLoading?<p role="status">正在记录辅助条件并读取参考…</p>:detailErr?<button className="btn btn-outline" onClick={()=>openDetail(detail)}>重新读取参考</button>:detailHtml ? (
             <>
               {detailHtml.includes('<details') && (
                 <div className="qa-tools">
@@ -542,60 +573,7 @@ export default function Bank() {
         </div>
       )}
 
-      {/* —— 编辑草稿 —— */}
-      {editQ && (
-        <Modal title="编辑题目草稿" size="lg" onClose={() => setEditQ(null)}
-          footer={
-            <>
-              <button className="btn btn-outline" onClick={() => setEditQ(null)}>取消</button>
-              <button className="btn btn-primary" onClick={() => { toast('✅', '草稿已保存'); setEditQ(null); setReload((x) => x + 1); }}>保存</button>
-            </>
-          }>
-          <div className="field">
-            <label>题目 <span className="req">*</span></label>
-            <input className="inp" defaultValue={editQ.title} />
-          </div>
-          <div className="form-row">
-            <div className="field">
-              <label>题型</label>
-              <select className="select" defaultValue="text"><option>单选</option><option>文本</option><option>代码</option></select>
-            </div>
-            <div className="field">
-              <label>难度</label>
-              <select className="select" defaultValue={String(editQ.difficulty)}>
-                {[1, 2, 3, 4, 5].map((d) => <option key={d} value={d}>{"★".repeat(d)}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="form-row">
-            <div className="field">
-              <label>公司</label>
-              <input className="inp" defaultValue={editQ.company} />
-            </div>
-            <div className="field">
-              <label>职级</label>
-              <input className="inp" defaultValue="中级" />
-            </div>
-          </div>
-          <div className="form-row">
-            <div className="field">
-              <label>日期</label>
-              <input className="inp" defaultValue="2026-11-14" />
-            </div>
-            <div className="field">
-              <label>技能映射</label>
-              <select className="select" defaultValue={editQ.topic}>
-                {TOPICS.map((t) => <option key={t.code} value={t.code}>{t.name}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="field">
-            <label>答案要点与 Rubric</label>
-            <textarea className="textarea" style={{ minHeight: 110 }} defaultValue={`区分「请求超时」与「操作失败」；使用稳定的幂等键、持久化结果与原子写入；限制重试次数并验证并发场景。\n\n评分：幂等机制 40% / 失败分类 30% / 验证方法 30%`} />
-          </div>
-          <div className="hint">来源：{editQ.source_type === 'USER_PRIVATE' ? '私有导入' : '公开题库'} · 私有资料不会自动进入公共题库</div>
-        </Modal>
-      )}
+      {editQ && <BankQuestionEditor question={editQ} topics={TOPICS} onClose={() => setEditQ(null)} onSaved={() => { toast('✅', '题目信息已保存'); setEditQ(null); setReload(x => x + 1); }} />}
 
       {/* —— 合并重复 —— */}
       {mergeQ && (
@@ -642,11 +620,13 @@ export default function Bank() {
             stage === 'upload' ? (
               <>
                 <button className="btn btn-outline" onClick={() => setImportOpen(false)}>取消</button>
+                <button className="btn btn-outline" disabled={!pasteText.trim() || files.length>0} onClick={() => navigate('/bank/workshop', {state:{sourceText:pasteText}})}>结合项目整理文本</button>
                 <button className="btn btn-primary" onClick={startImport}>开始解析</button>
               </>
             ) : stage === 'review' ? (
               <>
                 <button className="btn btn-outline" onClick={() => setImportOpen(false)}>稍后处理</button>
+                {review && <button className="btn btn-outline" onClick={() => navigate(`/bank/workshop?source_import=${review.id}`)}>结合我的项目优化</button>}
                 <button className="btn btn-primary" onClick={approveAll} disabled={approveBusy}>
                   {approveBusy ? '正在写入…' : review ? '全部通过' : '全部通过（演示）'}
                 </button>

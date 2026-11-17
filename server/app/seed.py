@@ -5,14 +5,15 @@
 幂等: 已存在的数据跳过。
 内容:
 1. 8 个能力域 Skill + JobStandard v1.1(种子权重/目标等级 P6, PRD 表)
-2. demo 工作空间(求职作战室) + owner 用户
+2. personal 工作空间 + 独立 owner, 无示例证据或任务
 3. 161 道公开题(从 ../web/src/data/bank.json 迁移, topic→skill 映射)
-4. 示例证据 / 记忆 / trace(全部显式标记 DEMO)
-5. 跑一遍 Competency Engine + Learning Planner, 让工作空间开箱即有画像与任务
+4. 仅 --demo: 示例证据 / 记忆 / trace(全部显式标记 DEMO)
+5. 仅 --demo: 为 demo 跑 Competency Engine + Learning Planner; 默认不修改 demo
 """
 from __future__ import annotations
 
 import asyncio
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -28,6 +29,7 @@ from app.models import (
 from app.services.competency import recompute_skill_states
 from app.services.planner import plan_tasks_for_workspace
 from app.services.tracing import add_span, finish_trace, start_trace
+from app.services.workspaces import ensure_personal_workspace
 
 BANK_PATH = Path(__file__).resolve().parents[2] / "web" / "src" / "data" / "bank.json"
 
@@ -75,20 +77,25 @@ DEMO_MEMORIES = [
 ]
 
 
-async def seed() -> None:
+async def seed(*, include_demo: bool = False) -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
     async with SessionLocal() as session:
+        personal = await ensure_personal_workspace(session)
+        print(f"[seed] personal workspace ready: {personal.slug} (no sample evidence/tasks)")
         # ---------- 1) 能力域 + 岗位标准 ----------
         skills: dict[str, Skill] = {s.key: s for s in (await session.execute(select(Skill))).scalars().all()}
-        if not skills:
-            for key, name, desc, _w, _t in SKILLS:
+        created_skills = 0
+        for key, name, desc, _w, _t in SKILLS:
+            if key not in skills:
                 s = Skill(key=key, name=name, description=desc, dimensions=["理论理解", "工程实践", "问题诊断", "表达沟通", "AI协作"])
                 session.add(s)
                 skills[key] = s
-            await session.flush()
-            print(f"[seed] skills: {len(SKILLS)} created")
+                created_skills += 1
+        await session.flush()
+        if created_skills:
+            print(f"[seed] skills: {created_skills} created")
 
         standard = (
             await session.execute(select(JobStandard).where(JobStandard.is_seed.is_(True)))
@@ -113,32 +120,33 @@ async def seed() -> None:
             await session.flush()
             print("[seed] JobStandard v1.1 (seed) created with 8 targets")
 
-        # ---------- 2) demo 工作空间 ----------
-        ws = (
-            await session.execute(select(Workspace).where(Workspace.slug == "demo"))
-        ).scalar_one_or_none()
-        if ws is None:
-            ws = Workspace(slug="demo", name="求职作战室", is_demo=True)
-            session.add(ws)
-            await session.flush()
-            print("[seed] workspace 'demo' (求职作战室) created")
-        user = (
-            await session.execute(select(User).where(User.email == "demo@careerpilot.icu"))
-        ).scalar_one_or_none()
-        if user is None:
-            user = User(email="demo@careerpilot.icu", display_name="Lueyu")
-            session.add(user)
-            await session.flush()
-        exists_member = (
-            await session.execute(
-                select(func.count()).select_from(WorkspaceMember).where(
-                    WorkspaceMember.workspace_id == ws.id, WorkspaceMember.user_id == user.id
+        if include_demo:
+            # ---------- 2) demo 工作空间 ----------
+            ws = (
+                await session.execute(select(Workspace).where(Workspace.slug == "demo"))
+            ).scalar_one_or_none()
+            if ws is None:
+                ws = Workspace(slug="demo", name="求职作战室", is_demo=True)
+                session.add(ws)
+                await session.flush()
+                print("[seed] workspace 'demo' (求职作战室) created")
+            user = (
+                await session.execute(select(User).where(User.email == "demo@careerpilot.icu"))
+            ).scalar_one_or_none()
+            if user is None:
+                user = User(email="demo@careerpilot.icu", display_name="Lueyu")
+                session.add(user)
+                await session.flush()
+            exists_member = (
+                await session.execute(
+                    select(func.count()).select_from(WorkspaceMember).where(
+                        WorkspaceMember.workspace_id == ws.id, WorkspaceMember.user_id == user.id
+                    )
                 )
-            )
-        ).scalar()
-        if not exists_member:
-            session.add(WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="owner"))
-        await session.flush()
+            ).scalar()
+            if not exists_member:
+                session.add(WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="owner"))
+            await session.flush()
 
         # ---------- 3) 161 道公开题 ----------
         n_q = (await session.execute(select(func.count(Question.id)))).scalar() or 0
@@ -175,6 +183,11 @@ async def seed() -> None:
             print(f"[seed] questions: {len(bank['questions'])} imported from bank.json")
         else:
             print(f"[seed] questions: skip ({n_q} already exist)")
+
+        if not include_demo:
+            await session.commit()
+            print("[seed] done (personal + shared bank; demo untouched).")
+            return
 
         # ---------- 4) DEMO 证据 / 记忆 / trace ----------
         n_ev = (
@@ -253,4 +266,6 @@ async def seed() -> None:
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    asyncio.run(seed())
+    parser = argparse.ArgumentParser(description="Initialize shared bank and clean personal workspace")
+    parser.add_argument("--demo", action="store_true", help="Explicitly create/update demo sample data")
+    asyncio.run(seed(include_demo=parser.parse_args().demo))

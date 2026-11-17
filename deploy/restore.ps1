@@ -1,28 +1,41 @@
-# CareerPilot 数据恢复脚本(Windows PowerShell)
-# 用法: .\deploy\restore.ps1 .\backups\careerpilot-XXXXXXXX-XXXXXX.sql
-# 警告: 恢复会覆盖目标库中的现有数据, 操作前请确认目标库与备份时间点!
-
-param([Parameter(Mandatory=$true)][string]$BackupFile)
-
-$ErrorActionPreference = "Stop"
-if (-not (Test-Path $BackupFile)) { throw "备份文件不存在: $BackupFile" }
-
-$host_ = if ($env:PGHOST) { $env:PGHOST } else { "localhost" }
-$port  = if ($env:PGPORT) { $env:PGPORT } else { "5432" }
-$user  = if ($env:PGUSER) { $env:PGUSER } else { "careerpilot" }
-$db    = if ($env:PGDATABASE) { $env:PGDATABASE } else { "careerpilot" }
-
-Write-Host ">> 恢复 $BackupFile -> $db@$host_`:$port"
-Write-Host ">> 此操作会覆盖现有数据! 5 秒内按 Ctrl+C 取消..."
-Start-Sleep -Seconds 5
-
-$inDocker = docker ps --format "{{.Names}}" 2>$null | Select-String -Quiet "^careerpilot-db$"
-if ($inDocker) {
-    Get-Content $BackupFile -Raw | docker exec -i careerpilot-db psql -U $user -d $db -q
-} else {
-    $env:PGPASSWORD = if ($env:PGPASSWORD) { $env:PGPASSWORD } else { "careerpilot_dev" }
-    psql -h $host_ -p $port -U $user -d $db -q -f $BackupFile
+# Restore exclusively to a NEW isolated test database. Never clean/overwrite a DB.
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)][string]$BackupFile,
+    [Parameter(Mandatory = $true)][string]$TargetDatabase,
+    [string]$HostName = $(if ($env:PGHOST) { $env:PGHOST } else { '127.0.0.1' }),
+    [int]$Port = $(if ($env:PGPORT) { [int]$env:PGPORT } else { 5432 }),
+    [string]$Username = $(if ($env:PGUSER) { $env:PGUSER } else { 'careerpilot' }),
+    [string]$PgBin = ''
+)
+$ErrorActionPreference = 'Stop'
+if ($TargetDatabase -notmatch '^[a-z][a-z0-9_]{0,57}_test$') {
+    throw 'Restore target must be a NEW isolated database ending in _test; the personal database is forbidden'
 }
-
-if ($LASTEXITCODE -ne 0) { throw "恢复失败(exit $LASTEXITCODE)" }
-Write-Host ">> 恢复完成"
+$archivePath = (Resolve-Path -LiteralPath $BackupFile).Path
+if (Test-Path -LiteralPath "$archivePath.sha256") {
+    $expected = (Get-Content -LiteralPath "$archivePath.sha256" -Raw).Trim()
+    if ((Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash -ne $expected) { throw 'Backup SHA256 mismatch' }
+}
+. (Join-Path $PSScriptRoot 'postgres-tools.ps1')
+$restoreTool = Resolve-PgTool 'pg_restore' $PgBin
+$psqlTool = Resolve-PgTool 'psql' $PgBin
+$archiveListing = & $restoreTool --list $archivePath
+if ($LASTEXITCODE -ne 0 -or -not $archiveListing) { throw 'Invalid custom-format archive; target database was not created' }
+$savedPassword = $env:PGPASSWORD
+try {
+    if (-not $env:PGPASSWORD) { $env:PGPASSWORD = 'careerpilot_dev' }
+    $connectionArgs = @("--host=$HostName", "--port=$Port", "--username=$Username", '--no-password', '--set=ON_ERROR_STOP=1')
+    $exists = & $psqlTool @connectionArgs --dbname=postgres -Atc "SELECT count(*) FROM pg_database WHERE datname = '$TargetDatabase'"
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot check restore target; nothing restored' }
+    if (($exists -join '').Trim() -ne '0') { throw "Restore refuses existing database '$TargetDatabase'; choose a NEW _test name" }
+    & $psqlTool @connectionArgs --dbname=postgres -c "CREATE DATABASE $TargetDatabase"
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create isolated restore target' }
+    & $restoreTool --host=$HostName --port=$Port --username=$Username --no-password --dbname=$TargetDatabase --single-transaction --exit-on-error --no-owner --no-privileges $archivePath
+    if ($LASTEXITCODE -ne 0) { throw "Restore failed atomically (exit $LASTEXITCODE); '$TargetDatabase' retained for inspection, original database untouched" }
+    & $psqlTool @connectionArgs --dbname=$TargetDatabase -Atc 'SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname = ''public'''
+    if ($LASTEXITCODE -ne 0) { throw 'Restore completed but verification query failed' }
+    Write-Host "Restore verified in NEW database: $TargetDatabase (original database untouched)"
+} finally {
+    $env:PGPASSWORD = $savedPassword
+}

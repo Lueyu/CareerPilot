@@ -1,6 +1,6 @@
 """考试中心 API: 状态机 CREATED→ACTIVE→SUBMITTED→TRANSCRIPT_CONFIRMED→FROZEN→SCORING→COMPLETED。
 
-提交后同步走: 誊写确认→冻结→评分→出报告→写证据→重算能力→生成学习任务(全链路 trace 落盘)。
+提交原子保存并冻结后返回任务；独立 Worker 逐题评分并持久化，最后原子发布报告、证据、画像和学习任务。
 """
 from __future__ import annotations
 
@@ -9,24 +9,27 @@ import html as _html
 import json as _json
 import re as _re
 import time
+from copy import deepcopy
+from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import (
-    Evidence, Exam, ExamAnswer, ExamQuestion, SkillState, Workspace,
+    Evidence, Exam, ExamAnswer, ExamQuestion, LearningTask, Question, Skill, SkillState, Workspace,
 )
 from app.services.competency import recompute_skill_states
 from app.services.followup import suggest_followups
 from app.services.llm import adapter as llm_adapter
 from app.services.llm_judge import judge_open_answer
-from app.services.planner import plan_tasks_for_workspace
+from app.services.planner import plan_tasks_for_exam
+from app.services.learning_loop import complete_retest_for_exam
 from app.services.scorer import build_feedback, score_question
-from app.services.selection import select_questions_for_exam
+from app.services.selection import covers_criterion, select_questions_for_exam
 from app.services.tracing import add_span, emit_event, finish_trace, start_trace
 
 router = APIRouter()
@@ -34,15 +37,26 @@ router = APIRouter()
 
 class CreateExamReq(BaseModel):
     kind: str = Exam.KIND_DIAGNOSIS
-    question_count: int = 3
-    duration_minutes: int = 30
+    question_count: int = Field(default=3, ge=1, le=20)
+    duration_minutes: int = Field(default=30, ge=1, le=240)
+    skill_key: str | None = None
+    exclude_question_ids: list[int] = Field(default_factory=list)
+    retest_task_id: int | None = None
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=120)
+    question_ids: list[int] = Field(default_factory=list, max_length=20)
+    project_generation_id: int | None = None
 
 
 class SaveAnswerReq(BaseModel):
     order_no: int
-    choice_index: int | None = None
-    text_answer: str | None = None
-    transcript: str | None = None
+    choice_index: int | None = Field(default=None,strict=True,ge=0)
+    text_answer: str | None = Field(default=None,max_length=30000)
+    transcript: str | None = Field(default=None,max_length=30000)
+    expected_revision: int | None = Field(default=None,ge=0)
+
+
+class SubmitExamReq(BaseModel):
+    answers: list[SaveAnswerReq] = Field(default_factory=list,max_length=20)
 
 
 EXAM_KINDS = {
@@ -60,7 +74,7 @@ async def list_exams(
 ):
     history = (
         await session.execute(
-            select(Exam).where(Exam.workspace_id == ws.id).order_by(Exam.id.desc()).limit(20)
+            select(Exam).where(Exam.workspace_id == ws.id, Exam.kind != 'practice').order_by(Exam.id.desc()).limit(20)
         )
     ).scalars().all()
     counts = {
@@ -102,6 +116,66 @@ async def create_exam(
 ):
     if req.kind not in EXAM_KINDS:
         raise HTTPException(status_code=400, detail=f"unknown exam kind '{req.kind}'")
+    if req.question_ids and (req.retest_task_id or req.kind != Exam.KIND_BANK):
+        raise HTTPException(422, "指定题目仅用于面经练习，延迟复测必须使用系统新题选择")
+    if req.project_generation_id is not None and (not req.question_ids or req.kind != Exam.KIND_BANK or req.retest_task_id):
+        raise HTTPException(422, '项目批次考核需要选择该批次已审核题目')
+    # Serialize retries and concurrent creates in the workspace transaction.
+    await session.execute(select(Workspace.id).where(Workspace.id == ws.id).with_for_update())
+    if req.idempotency_key:
+        existing = (await session.execute(select(Exam).where(
+            Exam.workspace_id == ws.id, Exam.idempotency_key == req.idempotency_key,
+        ))).scalar_one_or_none()
+        if existing:
+            await session.commit()
+            return await _exam_detail(session, ws, existing.id)
+    skill_key = req.skill_key
+    excluded = list(req.exclude_question_ids)
+    task = None
+    if req.retest_task_id:
+        task = (await session.execute(select(LearningTask).where(
+            LearningTask.id == req.retest_task_id, LearningTask.workspace_id == ws.id,
+        ))).scalar_one_or_none()
+        if task is None:
+            raise HTTPException(status_code=404, detail="retest task not found")
+        if not task.skill_id:
+            raise HTTPException(status_code=409, detail="retest task has no assessed skill")
+        if task.kind != "RETEST":
+            raise HTTPException(status_code=409, detail="retest_task_id must reference a retest task")
+        if task.status == "DONE":
+            raise HTTPException(status_code=409, detail="this retest is already scored; open its existing report")
+        if task.kind == "RETEST" and task.due_date and task.due_date > dt.date.today():
+            raise HTTPException(status_code=409, detail="scheduled retest is not due")
+        skill = await session.get(Skill, task.skill_id)
+        if skill_key and skill_key != skill.key:
+            raise HTTPException(status_code=400, detail="retest must assess the source skill")
+        skill_key = skill.key
+        attempted = (await session.execute(select(ExamQuestion.question_id).join(Exam).where(Exam.workspace_id == ws.id))).scalars().all()
+        excluded.extend(attempted)
+    selected = None
+    if req.question_ids:
+        rows = (await session.scalars(select(Question).where(Question.id.in_(req.question_ids), (Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id)))).all()
+        by_id = {q.id: q for q in rows}
+        if set(by_id) != set(req.question_ids):
+            raise HTTPException(404, "指定题目不存在或不属于当前工作空间")
+        selected, seen = [], set()
+        for qid in req.question_ids:
+            q = by_id[qid]
+            if (q.generation_meta or {}).get('assessment_use') == 'PRACTICE_ONLY':
+                raise HTTPException(409, '学习练习题已曝光，不能作为正式独立考题')
+            if q.qtype not in ("open", "mcq") or (skill_key and (not q.skill or q.skill.key != skill_key)):
+                raise HTTPException(422, "指定题目不符合本次练习的技能或题型")
+            root, visited = q, set()
+            while root.canonical_question_id and root.id not in visited:
+                visited.add(root.id)
+                root = await session.get(Question, root.canonical_question_id)
+                if not root or root.workspace_id not in (None, ws.id):
+                    raise HTTPException(409, "题目来源关系不可用")
+            if qid in excluded or root.id in excluded:
+                raise HTTPException(422, "指定题目已被本次练习排除")
+            if root.id not in seen:
+                selected.append(q)
+                seen.add(root.id)
     meta = EXAM_KINDS[req.kind]
 
     exam = Exam(
@@ -111,6 +185,8 @@ async def create_exam(
         status=Exam.STATUS_ACTIVE,
         duration_minutes=req.duration_minutes or meta["default_minutes"],
         started_at=dt.datetime.now(dt.timezone.utc),
+        retest_task_id=req.retest_task_id,
+        idempotency_key=req.idempotency_key,
     )
     session.add(exam)
     await session.flush()
@@ -118,13 +194,53 @@ async def create_exam(
     # 选题 + trace
     t0 = time.perf_counter()
     trace = await start_trace(session, ws.id, "exam_creation", f"创建考试: {meta['title']}", short_code=f"TR-E{exam.id}")
-    questions, reason = await select_questions_for_exam(session, ws.id, exam, req.question_count)
+    if selected is not None:
+        questions, reason = selected, "用户选择已入库题目进行真实作答练习；同源变体只计一道独立题，阅读答案不构成能力证明。"
+    else:
+        questions, reason = await select_questions_for_exam(session, ws.id, exam, req.question_count,
+                                                          skill_key=skill_key, exclude_question_ids=excluded,
+                                                          criterion_title=task.source_criterion if task else None,
+                                                          exclude_exposed=bool(task))
+    if not questions:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="当前能力域没有可用的新题，请先补充题库后再验证")
+    from app.services.project_assessment import freeze_assessment
+    exam.project_assessment = await freeze_assessment(session, ws.id, questions, req.project_generation_id)
+    if task:
+        covered = any(covers_criterion(q, task.source_criterion) for q in questions)
+        scope = ("本次同能力域新题的评分项包含原失分项；结果仅验证这次作答。" if covered
+                 else "本次仅是同能力域新题检查，未直接覆盖原失分评分项，不能据此声称原评分项已通过。")
+        task.content = {**(task.content or {}), "source_criterion_covered": covered, "assessment_scope": scope}
+        reason += " " + scope
     add_span(session, trace, "select_questions", int((time.perf_counter() - t0) * 1000), detail={"count": len(questions), "reason": reason})
     await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000))
 
     exam.selection_reason = reason
+    from app.services.assessment_versions import question_snapshot
+    from app.models import JobStandard, JobStandardTarget
+    standard_role = 'AI Agent 应用开发工程师'
+    standard=await session.scalar(select(JobStandard).where(
+        JobStandard.role == standard_role, JobStandard.is_seed.is_(True))
+        .order_by(JobStandard.id.desc()).limit(1))
+    if standard:
+        targets=(await session.scalars(select(JobStandardTarget).where(
+            JobStandardTarget.standard_id == standard.id).order_by(JobStandardTarget.skill_id, JobStandardTarget.id))).all()
+        standard_snapshot={
+            'id':standard.id,'role':standard.role,'level':standard.level,'version':str(standard.version),
+            'status':'CONFIGURED' if targets else 'INCOMPLETE',
+            'is_seed':standard.is_seed,'calibration_status':'SEED_ASSUMPTION',
+            'scope_note':'冻结的岗位目标是种子假设，尚未人工校准，不能据此证明达到招聘要求。',
+            'targets':[{'skill_id':target.skill_id,'skill_key':target.skill.key,
+                'skill_name':target.skill.name,'target_level':target.target_level,
+                'weight_pct':target.weight_pct} for target in targets],
+        }
+    else:
+        standard_snapshot={'id':None,'role':standard_role,'level':None,'version':None,
+            'status':'NOT_CONFIGURED','calibration_status':'UNCALIBRATED','targets':[],
+            'scope_note':'未配置岗位目标标准；本次评分仅记录作答表现，不能判断是否达到岗位要求。'}
     for i, q in enumerate(questions, start=1):
-        session.add(ExamQuestion(exam_id=exam.id, question_id=q.id, order_no=i))
+        session.add(ExamQuestion(exam_id=exam.id, question_id=q.id, order_no=i,
+            creation_snapshot=question_snapshot(q,standard_snapshot)))
     await emit_event(session, ws.id, "exam.created", {"exam_id": exam.id, "kind": req.kind}, "exam", exam.id)
     await session.commit()
 
@@ -147,24 +263,20 @@ async def save_answer(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    exam = await _get_own_exam(session, ws, exam_id)
+    exam = await _get_own_exam(session, ws, exam_id, lock=True)
     if exam.status != Exam.STATUS_ACTIVE:
         raise HTTPException(status_code=409, detail=f"exam status is {exam.status}, cannot save answers")
     eq = next((q for q in exam.questions if q.order_no == req.order_no), None)
     if eq is None:
         raise HTTPException(status_code=404, detail="question not found in exam")
 
-    answer = eq.answer
-    if answer is None:
-        answer = ExamAnswer(exam_question_id=eq.id, max_points=(eq.question.rubric or {}).get("max_points", 5.0))
-        session.add(answer)
-        await session.flush()
-        eq.answer = answer
-    answer.choice_index = req.choice_index
-    answer.text_answer = req.text_answer
-    answer.transcript = req.transcript
+    if _maybe_expire(exam):
+        await session.commit()
+        raise HTTPException(409,'考试已超时，已保存的答案保留')
+    from app.services.assessment_versions import save_revision
+    answer=await save_revision(session,eq,req)
     await session.commit()
-    return {"ok": True, "saved_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+    return {"ok": True,"revision":answer.revision,"saved_at":dt.datetime.now(dt.timezone.utc).isoformat()}
 
 
 
@@ -178,16 +290,43 @@ def _maybe_expire(exam: Exam) -> bool:
     return False
 
 
+def _assessment_question(eq: ExamQuestion):
+    """Frozen assessment material, with a legacy fallback for old records."""
+    q, snap = eq.question, eq.frozen_snapshot or getattr(eq,'creation_snapshot',None) or {}
+    skill = q.skill
+    return SimpleNamespace(
+        id=snap.get("question_id", q.id),
+        short_code=snap.get("short_code", q.short_code),
+        canonical_question_id=snap.get("canonical_question_id", q.canonical_question_id or q.id),
+        title=snap.get("title", q.title), qtype=snap.get("qtype", q.qtype),
+        options=snap.get("options", q.options), rubric=deepcopy(snap.get("rubric", q.rubric) or {}),
+        answer_html=snap.get("answer_html", q.answer_html),
+        skill_id=snap.get("skill_id", q.skill_id),
+        skill=SimpleNamespace(key=snap.get("skill_key", skill.key if skill else "general"),
+                              name=snap.get("skill_name", skill.name if skill else "综合")),
+        difficulty=snap.get("difficulty", q.difficulty),
+    )
+
+
+def _submitted_answer(eq: ExamQuestion) -> dict:
+    a = eq.answer
+    return (eq.frozen_snapshot or {}).get("submitted_answer") or {
+        "choice_index": a.choice_index if a else None,
+        "text_answer": a.text_answer if a else None,
+        "transcript": a.transcript if a else None,
+    }
+
+
 async def _score_questions(session: AsyncSession, trace, exam: Exam) -> list[int]:
-    """评分全部题目。MCQ/空作答/未配置 LLM → 确定性规则(rule-v1);
-    开放题且 LLM 可用 → LLM Judge(judge-v1), 失败 → SCORING_FAILED(points 保持 NULL, 不给假分)。
-    返回评分失败的题号列表。"""
+    """Score frozen input. Nonblank open answers require a working model."""
+    await llm_adapter._effective()  # DB settings must be loaded before active check.
     failed: list[int] = []
     gained = 0.0
     total = 0.0
     for eq in exam.questions:
-        q = eq.question
+        q = _assessment_question(eq)
         answer = eq.answer
+        submitted = _submitted_answer(eq)
         max_p = (q.rubric or {}).get("max_points", 5.0)
         total += max_p
         if answer is None:
@@ -195,16 +334,18 @@ async def _score_questions(session: AsyncSession, trace, exam: Exam) -> list[int
             session.add(answer)
             await session.flush()
             eq.answer = answer
+        answer.max_points = max_p
 
-        if q.qtype == "open" and llm_adapter.active and (answer.text_answer or "").strip():
+        if q.qtype == "open" and (submitted.get("text_answer") or "").strip():
             tq = time.perf_counter()
             jr = await judge_open_answer(
                 llm_adapter,
                 title=q.title,
                 skill_name=q.skill.name if q.skill else None,
-                rubric=q.rubric or {},
-                text=answer.text_answer,
-            )
+                rubric={**(q.rubric or {}), "answer_html": q.answer_html},
+                text=submitted.get("text_answer"),
+                trace=trace, session=session, span_name=f"llm:judge_q{eq.order_no}",
+            ) if llm_adapter.active else None
             qms = int((time.perf_counter() - tq) * 1000)
             if jr is not None:
                 answer.points = jr["points"]
@@ -229,8 +370,8 @@ async def _score_questions(session: AsyncSession, trace, exam: Exam) -> list[int
             add_span(session, trace, f"judge_q{eq.order_no}", qms, status="ERROR", detail={"reason": "judge_failed"})
             continue
 
-        # 规则路径: MCQ 恒走; 开放题在未配置 LLM 或空白作答时走(诚实标注 rule-v1)
-        result = score_question(q, choice_index=answer.choice_index, text=answer.text_answer)
+        # Rules are valid only for MCQ or a literally empty answer.
+        result = score_question(q, choice_index=submitted.get("choice_index"), text=submitted.get("text_answer"))
         answer.points = result["points"]
         answer.verdict = result["verdict"]
         answer.judge_version = "rule-v1"
@@ -255,7 +396,7 @@ async def _score_questions(session: AsyncSession, trace, exam: Exam) -> list[int
 async def _failed_summary(exam: Exam, failed: list[int]) -> dict:
     return {
         "verdicts": [
-            {"order_no": eq.order_no, "title": eq.question.title[:40], "verdict": eq.answer.verdict if eq.answer else "WRONG"}
+            {"order_no": eq.order_no, "title": _assessment_question(eq).title[:40], "verdict": eq.answer.verdict if eq.answer else "SCORING_FAILED"}
             for eq in exam.questions
         ],
         "score": None,
@@ -269,106 +410,135 @@ async def _finalize_exam(session: AsyncSession, ws: Workspace, exam: Exam, trace
     exam.completed_at = dt.datetime.now(dt.timezone.utc)
     exam.summary = {
         "verdicts": [
-            {"order_no": eq.order_no, "title": eq.question.title[:40], "verdict": eq.answer.verdict if eq.answer else "WRONG"}
+            {"order_no": eq.order_no, "title": _assessment_question(eq).title[:40], "verdict": eq.answer.verdict if eq.answer else "WRONG"}
             for eq in exam.questions
         ],
         "score": exam.score,
         "judges": {
             "judge_v1": sum(1 for eq in exam.questions if eq.answer and eq.answer.judge_version == "judge-v1"),
             "rule_v1": sum(1 for eq in exam.questions if eq.answer and eq.answer.judge_version == "rule-v1"),
+            "judge_v2": sum(1 for eq in exam.questions if eq.answer and eq.answer.judge_version == "judge-v2"),
+            "rule_v2": sum(1 for eq in exam.questions if eq.answer and eq.answer.judge_version == "rule-v2"),
         },
     }
 
     # 6) 写证据(完成后才有资格作为能力证据)
-    ev_counter = 0
+    evidence_t0 = time.perf_counter()
+    observations = []
     for eq in exam.questions:
+        q = _assessment_question(eq)
         answer = eq.answer
+        submitted = _submitted_answer(eq)
+        fb = (answer.feedback if answer else None) or {}
+        normalize = lambda values: [str(p.get("title", "") if isinstance(p, dict) else p) for p in values]
+        missed = normalize(fb.get("missed_points") or [])
+        hits = normalize(fb.get("hit_points") or [])
+        criteria = [{"criterion_id": str(i), "title": title,
+                     "status": "missing" if title in missed else ("hit" if title in hits else "unassessed")}
+                    for i, title in enumerate(normalize((q.rubric or {}).get("points") or []), 1)]
+        if fb.get('criterion_scores'):
+            names={c['criterion_id']:c['title'] for c in (q.rubric or {}).get('criteria',[])}
+            criteria=[{**row,'title':names.get(row['criterion_id'],row.get('title',row['criterion_id'])),
+                'status':'hit' if row['score']>=3 else 'missing'} for row in fb['criterion_scores']]
+        meta = {
+            "assessed": True, "exam_id": exam.id, "exam_question_id": eq.id,
+            "question_id": q.id, "canonical_question_id": q.canonical_question_id,
+            "score": answer.points, "max_points": answer.max_points, "judge_version": answer.judge_version,
+            "qtype": q.qtype, "blank_answer": not bool((submitted.get("text_answer") or "").strip()),
+            "criteria": criteria, "missed_criteria": missed,
+            "answer_excerpt": (submitted.get("text_answer") or (f"选项 {submitted['choice_index']}" if submitted.get("choice_index") is not None else "未作答"))[:1000],
+            "reasoning": fb.get("judge_reasoning") or fb.get("advice"),
+            "answer_revision_id":(eq.frozen_snapshot or {}).get('answer_revision_id'),
+            "question_version":(eq.frozen_snapshot or {}).get('question_version'),
+            "rubric_version":(q.rubric or {}).get('rubric_version','legacy-unversioned'),
+            "scoring_run_id":getattr(exam,'active_scoring_run_id',None),
+            "calibration_status":fb.get('calibration_status','LEGACY_UNCALIBRATED'),
+            "validation_status":fb.get('validation_status','LEGACY_NOT_REVALIDATED'),
+            "critical_errors":fb.get('critical_errors',[]),
+            "assessment_mode":(eq.frozen_snapshot or {}).get('assessment_mode','OFFICIAL'),
+            "independent":((eq.frozen_snapshot or {}).get('independence') or {}).get('eligible_for_independent_verification'),
+            "assistance":(eq.frozen_snapshot or {}).get('assistance') or {},
+        }
         verdict = answer.verdict if answer else "WRONG"
         support = {"CORRECT": 0.6, "PARTIAL": 0.15, "WRONG": -0.4}.get(verdict, 0.0)
         grade = "VERIFIED" if verdict == "CORRECT" else ("MEDIUM" if verdict == "PARTIAL" else "LOW")
-        ev_counter += 1
+        if answer.judge_version in ('judge-v2', 'rule-v2') and fb.get('validation_status') == 'VALID' \
+                and fb.get('calibration_status') not in ('CALIBRATED', 'HUMAN_CALIBRATED'):
+            # Structural validation and a high answer score do not establish
+            # calibrated reliability. Retain the scored observation for the
+            # independent-question coverage heuristic without a trust label.
+            grade, support = 'OBSERVED_UNCALIBRATED', 0.0
+            meta['evidence_interpretation'] = '本次作答观察；评分尚未校准，不表示能力已验证或招聘判断可靠。'
         ev = Evidence(
             short_code=f"EV-X{exam.id}-{eq.order_no}",
             workspace_id=ws.id,
-            skill_id=eq.question.skill_id,
+            skill_id=q.skill_id,
             kind="EXAM_ANSWER",
-            title=f"{exam.title} Q{eq.order_no}: {eq.question.title[:60]}",
+            title=f"{exam.title} Q{eq.order_no}: {q.title[:60]}",
             detail=f"判定 {verdict}, 得分 {answer.points if answer else 0}",
             grade=grade,
             support=support,
             source_ref=f"exam:{exam.id}#q{eq.order_no}",
             occurred_at=exam.completed_at,
+            meta=meta,
         )
         session.add(ev)
+        observations.append({**meta, "evidence_ref": ev.short_code, "order_no": eq.order_no,
+                             "skill_key": q.skill.key, "skill_name": q.skill.name})
         if answer is not None:
             answer.evidence_refs = [ev.short_code]
-    add_span(session, trace, "write_evidence", 12, detail={"evidence": len(exam.questions)})
+    await session.flush()  # SessionLocal disables autoflush; queries must see this evidence.
+    add_span(session, trace, "write_evidence", int((time.perf_counter() - evidence_t0) * 1000), detail={"evidence": len(exam.questions)})
 
     # 7) 重算能力 + 生成学习任务
-    states = await recompute_skill_states(session, ws.id)
-    tasks = await plan_tasks_for_workspace(session, ws.id)
-    add_span(session, trace, "recompute_and_plan", 15, detail={"tasks": len(tasks)})
+    plan_t0 = time.perf_counter()
+    await recompute_skill_states(session, ws.id)
+    tasks = await plan_tasks_for_exam(session, ws.id, exam)
+    await complete_retest_for_exam(session, exam)
+    exam.summary = {**exam.summary, "observations": observations,
+                    "learning_tasks": [{"id": task.id, "title": task.title, "source_criterion": task.source_criterion,
+                                        "source_exam_question_id":task.source_exam_question_id,
+                                        "criterion_id":(task.content or {}).get('observation',{}).get('criterion_id')}
+                                       for task in tasks]}
+    add_span(session, trace, "recompute_and_plan", int((time.perf_counter() - plan_t0) * 1000), detail={"tasks": len(tasks)})
 
-    cost = round(0.02 * len(exam.questions), 3)
-    await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000), cost)
+    await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000))
     await emit_event(session, ws.id, "exam.completed", {"exam_id": exam.id, "score": exam.score}, "exam", exam.id)
 
 
-@router.post("/exams/{exam_id}/submit")
+@router.post("/exams/{exam_id}/submit", status_code=202)
 async def submit_exam(
-    exam_id: int,
-    ws: Workspace = Depends(get_workspace),
-    session: AsyncSession = Depends(get_session),
+    exam_id: int, ws: Workspace = Depends(get_workspace),
+    session: AsyncSession = Depends(get_session), req: SubmitExamReq | None = None,
 ):
-    """提交 → 誊写确认 → 冻结 → 评分 → 报告 → 证据 → 重算能力 → 学习任务。"""
-    exam = await _get_own_exam(session, ws, exam_id)
+    """Atomically save the last edits and freeze; independent Worker grades later."""
+    from app.services import assessment_jobs as jobs
+    from app.services.assessment_versions import save_revision
+    exam=await _get_own_exam(session,ws,exam_id,lock=True)
+    if exam.status=='COMPLETED':
+        await session.commit()
+        return await _exam_report(session,ws,exam.id)
+    if exam.active_scoring_run_id:
+        from app.models import ScoringRun
+        run=await session.get(ScoringRun,exam.active_scoring_run_id)
+        await session.commit()
+        return jobs.ack(run)
     if _maybe_expire(exam):
         await session.commit()
-        raise HTTPException(status_code=409, detail="考试已超时（EXPIRED），作答已保留；请重新开始一场考试")
-    if exam.status not in (Exam.STATUS_ACTIVE, Exam.STATUS_SUBMITTED):
-        raise HTTPException(status_code=409, detail=f"exam status is {exam.status}, cannot submit")
-
-    t0 = time.perf_counter()
-    trace = await start_trace(session, ws.id, "diagnosis_scoring", f"评分: {exam.title}", short_code=f"TR-S{exam.id}")
-
-    # 1) SUBMITTED: 答卷只读
-    exam.status = Exam.STATUS_SUBMITTED
-    exam.submitted_at = dt.datetime.now(dt.timezone.utc)
-    add_span(session, trace, "submit", 5, detail={"status": "SUBMITTED"})
-
-    # 2) TRANSCRIPT_CONFIRMED
-    exam.status = Exam.STATUS_TRANSCRIPT_CONFIRMED
-    add_span(session, trace, "transcript_confirm", 8, detail={"status": "TRANSCRIPT_CONFIRMED"})
-
-    # 3) FROZEN: 题目+rubric+参考答案快照
-    exam.status = Exam.STATUS_FROZEN
-    for eq in exam.questions:
-        if eq.frozen_snapshot is None:
-            q = eq.question
-            eq.frozen_snapshot = {
-                "title": q.title, "qtype": q.qtype, "options": q.options,
-                "rubric": q.rubric, "skill_key": q.skill.key if q.skill else None,
-                "answer_html": q.answer_html,
-            }
-    add_span(session, trace, "freeze", 6, detail={"status": "FROZEN", "snapshots": len(exam.questions)})
-
-    # 4) SCORING: MCQ 规则; 开放题 LLM Judge(失败→SCORING_FAILED, 不给假分)
-    exam.status = Exam.STATUS_SCORING
-    add_span(session, trace, "scoring", 10, detail={"status": "SCORING"})
+        raise HTTPException(409,'考试已超时，已保存答案保留')
+    if exam.status not in ('ACTIVE','SUBMITTED','SCORING_FAILED'):
+        raise HTTPException(409,'当前考试已冻结，不能重新提交答案')
+    if req and req.answers:
+        if exam.status!='ACTIVE':raise HTTPException(409,'已冻结的答案不能改写')
+        by_order={eq.order_no:eq for eq in exam.questions}
+        if len({a.order_no for a in req.answers})!=len(req.answers):
+            raise HTTPException(422,'提交批次包含重复题号')
+        for item in req.answers:
+            if item.order_no not in by_order:raise HTTPException(404,'题号不属于本场考试')
+            await save_revision(session,by_order[item.order_no],item)
+    run=await jobs.enqueue(session,ws,exam)
     await session.commit()
-
-    failed = await _score_questions(session, trace, exam)
-    if failed:
-        exam.status = Exam.STATUS_SCORING_FAILED
-        exam.summary = await _failed_summary(exam, failed)
-        await finish_trace(session, trace, "FAILED", int((time.perf_counter() - t0) * 1000), fail_reason=f"LLM judge failed: Q{','.join(map(str, failed))}")
-        await emit_event(session, ws.id, "exam.scoring_failed", {"exam_id": exam.id, "questions": failed}, "exam", exam.id)
-        await session.commit()
-        raise HTTPException(status_code=502, detail=f"AI 评分失败（题目 {failed}），未生成分数；可在报告页点「重新评分」重试")
-
-    await _finalize_exam(session, ws, exam, trace, t0)
-    await session.commit()
-    return await _exam_report(session, ws, exam.id)
+    return jobs.ack(run)
 
 
 @router.post("/exams/{exam_id}/abort")
@@ -378,7 +548,12 @@ async def abort_exam(
     session: AsyncSession = Depends(get_session),
 ):
     """放弃考试: CREATED/ACTIVE/SUBMITTED → ABORTED(不可恢复)。"""
-    exam = await _get_own_exam(session, ws, exam_id)
+    exam = await _get_own_exam(session, ws, exam_id, lock=True)
+    if exam.active_scoring_run_id and exam.status in ('SCORING','SCORING_RETRY_WAIT','SCORING_FAILED','NEEDS_REVIEW'):
+        from app.services.assessment_jobs import cancel
+        await cancel(session,ws,exam)
+        await session.commit()
+        return {'id':exam.id,'status':exam.status}
     if exam.status not in (Exam.STATUS_CREATED, Exam.STATUS_ACTIVE, Exam.STATUS_SUBMITTED):
         raise HTTPException(status_code=409, detail=f"exam status is {exam.status}, cannot abort")
     exam.status = Exam.STATUS_ABORTED
@@ -391,33 +566,22 @@ async def abort_exam(
     return {"id": exam.id, "status": Exam.STATUS_ABORTED}
 
 
-@router.post("/exams/{exam_id}/rescore")
+@router.post("/exams/{exam_id}/rescore", status_code=202)
 async def rescore_exam(
-    exam_id: int,
-    ws: Workspace = Depends(get_workspace),
-    session: AsyncSession = Depends(get_session),
+    exam_id: int, ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session),
 ):
-    """SCORING_FAILED 后安全重试: 只在显式失败态可用; 重新评分→全部成功才收尾。"""
-    exam = await _get_own_exam(session, ws, exam_id)
-    if exam.status != Exam.STATUS_SCORING_FAILED:
-        raise HTTPException(status_code=409, detail=f"exam status is {exam.status}, only SCORING_FAILED can rescore")
-    t0 = time.perf_counter()
-    trace = await start_trace(session, ws.id, "diagnosis_rescore", f"重新评分: {exam.title}", trigger="manual", trigger_ref=f"exam:{exam.id}")
-    exam.status = Exam.STATUS_SCORING
-    add_span(session, trace, "rescore_restart", 5, detail={"status": "SCORING"})
-
-    failed = await _score_questions(session, trace, exam)
-    if failed:
-        exam.status = Exam.STATUS_SCORING_FAILED
-        exam.summary = await _failed_summary(exam, failed)
-        await finish_trace(session, trace, "FAILED", int((time.perf_counter() - t0) * 1000), fail_reason=f"LLM judge failed: Q{','.join(map(str, failed))}")
-        await emit_event(session, ws.id, "exam.scoring_failed", {"exam_id": exam.id, "questions": failed}, "exam", exam.id)
+    """Retry only failed frozen inputs; completed historical grades are immutable."""
+    from app.services import assessment_jobs as jobs
+    exam=await _get_own_exam(session,ws,exam_id,lock=True)
+    if exam.status=='COMPLETED':
         await session.commit()
-        raise HTTPException(status_code=502, detail=f"AI 评分再次失败（题目 {failed}）；请检查「设置与工作空间 → 模型」的 LLM 连接后重试")
-
-    await _finalize_exam(session, ws, exam, trace, t0)
+        return await _exam_report(session,ws,exam.id)
+    if exam.status not in ('SCORING_FAILED','NEEDS_REVIEW','SCORING','SCORING_RETRY_WAIT'):
+        raise HTTPException(409,'当前状态没有可恢复的评分任务')
+    try:run=await jobs.resume(session,ws,exam)
+    except ValueError as exc:raise HTTPException(409,str(exc)) from None
     await session.commit()
-    return await _exam_report(session, ws, exam.id)
+    return jobs.ack(run)
 
 
 @router.get("/exams/{exam_id}/report")
@@ -429,11 +593,14 @@ async def exam_report(
     return await _exam_report(session, ws, exam_id)
 
 
-async def _get_own_exam(session: AsyncSession, ws: Workspace, exam_id: int) -> Exam:
+async def _get_own_exam(session: AsyncSession, ws: Workspace, exam_id: int, *, lock: bool = False) -> Exam:
+    if lock:
+        await session.execute(select(Workspace.id).where(Workspace.id == ws.id).with_for_update())
+    query = select(Exam).where(Exam.id == exam_id, Exam.workspace_id == ws.id)
+    if lock:
+        query = query.with_for_update(of=Exam).execution_options(populate_existing=True)
     exam = (
-        await session.execute(
-            select(Exam).where(Exam.id == exam_id, Exam.workspace_id == ws.id)
-        )
+        await session.execute(query)
     ).scalar_one_or_none()
     if exam is None:
         raise HTTPException(status_code=404, detail="exam not found")
@@ -441,7 +608,9 @@ async def _get_own_exam(session: AsyncSession, ws: Workspace, exam_id: int) -> E
 
 
 async def _exam_detail(session: AsyncSession, ws: Workspace, exam_id: int) -> dict:
-    exam = await _get_own_exam(session, ws, exam_id)
+    # Expiration mutates state: serialize with submit, then refresh any stale
+    # ACTIVE identity-map value before deciding whether the exam is overdue.
+    exam = await _get_own_exam(session, ws, exam_id, lock=True)
     if _maybe_expire(exam):
         await session.commit()  # 懒惰置为 EXPIRED, 让考试中心如实显示
     return {
@@ -455,24 +624,26 @@ async def _exam_detail(session: AsyncSession, ws: Workspace, exam_id: int) -> di
         "questions": [
             {
                 "order_no": eq.order_no,
-                "short_code": eq.question.short_code,
-                "title": eq.question.title,
-                "qtype": eq.question.qtype,
-                "options": eq.question.options,
-                "difficulty": eq.question.difficulty,
-                "skill": eq.question.skill.name if eq.question.skill else None,
+                "short_code": q.short_code,
+                "title": q.title,
+                "qtype": q.qtype,
+                "options": q.options,
+                "difficulty": q.difficulty,
+                "skill": q.skill.name if q.skill else None,
                 "rubric_visible": False,  # 答题中不暴露 rubric
                 "answer": (
                     {
                         "choice_index": eq.answer.choice_index,
                         "text_answer": eq.answer.text_answer,
                         "transcript": eq.answer.transcript,
+                        "revision":eq.answer.revision,
                     }
                     if eq.answer
                     else None
                 ),
             }
             for eq in exam.questions
+            for q in [_assessment_question(eq)]
         ],
     }
 
@@ -489,7 +660,7 @@ def _skill_breakdown(eqs: list[ExamQuestion]) -> list[dict]:
     """按能力域聚合本次考试各题得分, 薄弱的排前面。"""
     groups: dict[str, dict] = {}
     for eq in eqs:
-        q = eq.question
+        q = _assessment_question(eq)
         key = q.skill.key if q.skill else "general"
         name = q.skill.name if q.skill else "综合"
         a = eq.answer
@@ -497,44 +668,49 @@ def _skill_breakdown(eqs: list[ExamQuestion]) -> list[dict]:
         mp = (q.rubric or {}).get("max_points", 5.0)
         g = groups.setdefault(key, {
             "skill_key": key, "skill_name": name, "q_count": 0,
-            "earned": 0.0, "max": 0.0,
+            "earned": 0.0, "max": 0.0, "scoring_complete": True,
             "verdicts": {"CORRECT": 0, "PARTIAL": 0, "WRONG": 0},
             "order_nos": [],
         })
         g["q_count"] += 1
         g["earned"] += pts
+        if a is None or a.points is None:
+            g["scoring_complete"] = False
         g["max"] += mp
         if a is not None and a.verdict in g["verdicts"]:
             g["verdicts"][a.verdict] += 1
         g["order_nos"].append(eq.order_no)
     out = []
     for g in groups.values():
-        g["earned"] = round(g["earned"], 1)
+        g["earned"] = round(g["earned"], 1) if g["scoring_complete"] else None
         g["max"] = round(g["max"], 1)
-        g["ratio"] = round(g["earned"] / g["max"], 2) if g["max"] else 0.0
+        g["ratio"] = (round(g["earned"] / g["max"], 2) if g["max"] else 0.0) if g["scoring_complete"] else None
         out.append(g)
-    out.sort(key=lambda x: x["ratio"])
+    out.sort(key=lambda x: x["ratio"] if x["ratio"] is not None else -1)
     return out
 
 
 def _overall_diagnosis(breakdown: list[dict], exam: Exam, states_map: dict[str, SkillState]) -> dict:
     """确定性诊断结论(无 LLM 也成立): 覆盖域/强项/薄弱/优先行动。"""
-    strong = [g for g in breakdown if g["ratio"] >= 0.8]
-    mid = [g for g in breakdown if 0.6 <= g["ratio"] < 0.8]
-    weak = [g for g in breakdown if g["ratio"] < 0.6]
-    weakest = weak[0] if weak else (mid[0] if mid else (breakdown[0] if breakdown else None))
+    assessed = [g for g in breakdown if g["ratio"] is not None]
+    strong = [g for g in assessed if g["ratio"] >= 0.8]
+    mid = [g for g in assessed if 0.6 <= g["ratio"] < 0.8]
+    weak = [g for g in assessed if g["ratio"] < 0.6]
+    weakest = weak[0] if weak else (mid[0] if mid else (assessed[0] if assessed else None))
 
     parts: list[str] = []
     if breakdown:
         parts.append(f"本次诊断覆盖了 {len(breakdown)} 个能力域：{'、'.join(g['skill_name'] for g in breakdown)}。")
     if strong:
-        parts.append(f"{'、'.join(g['skill_name'] for g in strong)} 表现扎实，可以保持。")
+        parts.append(f"本次题目中，{'、'.join(g['skill_name'] for g in strong)} 得分率较高。")
     if mid:
-        parts.append(f"{'、'.join(g['skill_name'] for g in mid)} 达到基本线但还不稳，建议查漏。")
+        parts.append(f"本次题目中，{'、'.join(g['skill_name'] for g in mid)} 仍有缺失评分项。")
     if weak:
-        parts.append(f"{'、'.join(g['skill_name'] for g in weak)} 明显薄弱，是当前和目标之间最主要的差距。")
+        parts.append(f"本次题目中，{'、'.join(g['skill_name'] for g in weak)} 得分率较低，需针对缺失评分项练习。")
     else:
-        parts.append("本次没有明显薄弱项，可以进入下一个能力域的诊断。")
+        parts.append("这些结果仅描述本次作答；整体能力需要多道独立题目的有效证据。")
+    if any(not states_map.get(g["skill_key"]) or states_map[g["skill_key"]].estimated_level is None for g in breakdown):
+        parts.append("独立证据不足的能力域仍为 UNKNOWN，不把单题分数视为整个能力域水平。")
 
     priority: dict | None = None
     if weakest is not None:
@@ -548,9 +724,11 @@ def _overall_diagnosis(breakdown: list[dict], exam: Exam, states_map: dict[str, 
             "current_level": cur,
             "status": status,
             "advice": (
-                f"优先补「{weakest['skill_name']}」：本次得分率 {int(weakest['ratio'] * 100)}%，"
-                + (f"当前估计 {cur:.1f}/5（{status}）。" if cur is not None else "尚无能力估计，先通过学习与实践积累证据。")
-                + " 今日学习任务已按这个差距重新生成。"
+                (f"优先补「{weakest['skill_name']}」：" if weakest['ratio'] < 1 else
+                 f"继续验证「{weakest['skill_name']}」：本次没有记录缺失评分项。")
+                + f"本次得分率 {int(weakest['ratio'] * 100)}%，"
+                + (f"当前启发式估计 {cur:.1f}/5（{status}）。" if cur is not None else "整体能力仍未知；当前观察已记录，需更多独立题目验证。")
+                + (" 已关联本次缺失评分项的学习任务。" if (exam.summary or {}).get("learning_tasks") else "")
             ),
         }
 
@@ -626,6 +804,7 @@ async def exam_report_deep(
     states_map = await _states_map(session, ws, breakdown)
     deterministic = _overall_diagnosis(breakdown, exam, states_map)
 
+    await llm_adapter._effective()
     if not llm_adapter.active:
         await finish_trace(session, trace, "FAILED", int((time.perf_counter() - t0) * 1000), fail_reason="llm not configured")
         await session.commit()
@@ -641,18 +820,19 @@ async def exam_report_deep(
     lines.append("")
     q_material: dict[int, str] = {}
     for eq in exam.questions:
-        q = eq.question
+        q = _assessment_question(eq)
         a = eq.answer
         fb = (a.feedback if a else None) or {}
         hits = "、".join((p.get("title", p) if isinstance(p, dict) else str(p)) for p in (fb.get("hit_points") or [])) or "无"
         misses = "、".join((p.get("title", p) if isinstance(p, dict) else str(p)) for p in (fb.get("missed_points") or [])) or "无"
-        yours = a.text_answer or (f"选择题，选了 {a.choice_index}" if a and a.choice_index is not None else "未作答")
+        submitted = _submitted_answer(eq)
+        yours = submitted.get("text_answer") or (f"选择题，选了 {submitted['choice_index']}" if submitted.get("choice_index") is not None else "未作答")
         block = "\n".join([
             f"【Q{eq.order_no}】（{q.skill.name if q.skill else '综合'} · {q.qtype} · {a.points if a else 0}/{(q.rubric or {}).get('max_points', 5)} 分 · {a.verdict if a else 'WRONG'}）",
             f"题目：{q.title}",
             f"考生作答：{_strip_html(yours, 500)}",
             f"命中要点：{hits}；缺失要点：{misses}",
-            f"参考答案（摘要）：{_strip_html((eq.frozen_snapshot or {}).get('answer_html') or q.answer_html, 800)}",
+            f"参考答案（摘要）：{_strip_html(q.answer_html, 800)}",
         ])
         q_material[eq.order_no] = block
         lines.append(block)
@@ -711,9 +891,19 @@ async def exam_report_deep(
 
 async def _exam_report(session: AsyncSession, ws: Workspace, exam_id: int) -> dict:
     exam = await _get_own_exam(session, ws, exam_id)
-    if exam.status not in (Exam.STATUS_COMPLETED, Exam.STATUS_SCORING_FAILED):
+    if exam.status=='COMPLETED' and getattr(exam,'active_scoring_run_id',None):
+        from app.models import ScoringRun
+        stored=await session.get(ScoringRun,exam.active_scoring_run_id)
+        if stored and stored.workspace_id==ws.id and stored.status=='COMPLETED' and stored.report:
+            result=deepcopy(stored.report)
+            deep=(exam.summary or {}).get('diagnosis_deep')
+            if deep:result.update(diagnosis_deep=deep,has_deep=True)
+            return result
+    if exam.status not in (Exam.STATUS_COMPLETED, Exam.STATUS_SCORING_FAILED,'SCORING','SCORING_RETRY_WAIT','NEEDS_REVIEW','FROZEN'):
         raise HTTPException(status_code=409, detail="exam not completed yet")
-    degraded = exam.status == Exam.STATUS_SCORING_FAILED  # 降级报告: 展示失败题目+重评入口, 不给假分
+    degraded = exam.status != Exam.STATUS_COMPLETED
+    from app.services.assessment_jobs import view as scoring_view
+    scoring_task=await scoring_view(session,exam.active_scoring_run_id)
     breakdown = _skill_breakdown(exam.questions)
     states_map = await _states_map(session, ws, breakdown)
     summary = exam.summary or {}
@@ -723,31 +913,35 @@ async def _exam_report(session: AsyncSession, ws: Workspace, exam_id: int) -> di
         "title": exam.title,
         "kind": exam.kind,
         "status": exam.status,
-        "scoring_failed": summary.get("scoring_failed") if degraded else None,
-        "score": exam.score,
+        "scoring_failed": ([q['order_no'] for q in scoring_task['questions'] if q['status'] in ('FAILED','RETRY_WAIT')] if scoring_task else summary.get("scoring_failed")) if degraded else None,
+        "scoring_task":scoring_task,
+        "score": None if degraded else exam.score,
         "total_points": exam.total_points,
-        "gained_points": exam.gained_points,
+        "gained_points": None if degraded else exam.gained_points,
         "selection_reason": exam.selection_reason,
         "summary": summary,
+        "learning_tasks": summary.get("learning_tasks", []),
+        "observations": summary.get("observations", []),
         "skill_breakdown": breakdown,
         "overall": None if degraded else _overall_diagnosis(breakdown, exam, states_map),
-        "diagnosis_deep": deep,
-        "has_deep": bool(deep),
+        "diagnosis_deep": None if degraded else deep,
+        "has_deep": bool(deep) and not degraded,
         "completed_at": exam.completed_at.isoformat() if exam.completed_at else None,
         "questions": [
             {
                 "order_no": eq.order_no,
-                "short_code": eq.question.short_code,
-                "title": eq.question.title,
-                "qtype": eq.question.qtype,
-                "options": eq.question.options,
-                "skill": eq.question.skill.name if eq.question.skill else None,
-                "reference_answer": (eq.frozen_snapshot or {}).get("answer_html") or eq.question.answer_html,
+                "exam_question_id":eq.id,
+                "short_code": q.short_code,
+                "title": q.title,
+                "qtype": q.qtype,
+                "options": q.options,
+                "skill": q.skill.name if q.skill else None,
+                "reference_answer": q.answer_html,
                 "frozen": eq.frozen_snapshot,
                 "answer": (
                     {
-                        "choice_index": eq.answer.choice_index,
-                        "text_answer": eq.answer.text_answer,
+                        "choice_index": _submitted_answer(eq).get("choice_index"),
+                        "text_answer": _submitted_answer(eq).get("text_answer"),
                         "points": eq.answer.points,
                         "max_points": eq.answer.max_points,
                         "verdict": eq.answer.verdict,
@@ -760,5 +954,6 @@ async def _exam_report(session: AsyncSession, ws: Workspace, exam_id: int) -> di
                 ),
             }
             for eq in exam.questions
+            for q in [_assessment_question(eq)]
         ],
     }

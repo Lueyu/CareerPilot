@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAppState } from './AppState';
+import { useApi, SettingsOverview, getWorkspace } from '../api/client';
 
 // —— v3.1 信息架构: 一级导航 5 项(合并页), 高级功能收进次级区 ——
 
@@ -20,6 +21,7 @@ const ADVANCED: { ic: string; label: string; to: string; match: (p: string) => b
 
 export default function Sidebar() {
   const { setWsOpen } = useAppState();
+  const { data } = useApi<SettingsOverview>('/settings/overview');
   const navigate = useNavigate();
   const { pathname } = useLocation();
 
@@ -38,8 +40,8 @@ export default function Sidebar() {
       <div className="ws-card" onClick={() => setWsOpen(true)}>
         <div className="ws-avatar">🧭</div>
         <div className="ws-info">
-          <div className="ws-label">个人工作空间</div>
-          <div className="ws-name">求职作战室</div>
+          <div className="ws-label">{data?.workspace.is_demo ? '演示工作空间' : '个人工作空间'}</div>
+          <div className="ws-name">{data?.workspace.name || getWorkspace()}</div>
         </div>
         <span className="ws-caret">▾</span>
       </div>

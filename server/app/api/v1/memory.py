@@ -5,7 +5,7 @@ import datetime as dt
 import re
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,12 +14,22 @@ from app.db import get_session
 from app.models import MemoryItem, Workspace
 from app.services.llm import AgentAdapter
 from app.services.tracing import emit_event
+from app.services.project_memory import lock_project_memories
+from app.services.project_candidates import eligible
 
 router = APIRouter()
 
 
 class CorrectReq(BaseModel):
-    content: str
+    content: str = Field(min_length=1, max_length=20000)
+    expected_revision: int | None = None
+
+    @field_validator('content')
+    @classmethod
+    def nonblank(cls, value):
+        if not value.strip():
+            raise ValueError('记忆内容不能为空')
+        return value.strip()
 
 
 class ImportDialogReq(BaseModel):
@@ -48,6 +58,12 @@ async def list_memory(
                 "source_ref": m.source_ref,
                 "extract_confidence": m.extract_confidence,
                 "status": m.status,
+                "revision": m.revision,
+                "freshness": m.freshness,
+                "eligible_for_personalization": eligible(m),
+                "ineligible_reason": None if eligible(m) else ('来源已变化，需要复核' if m.freshness!='CURRENT' else '尚未确认或已被替代'),
+                "meta": m.meta,
+                "superseded_by": m.superseded_by,
                 "created_at": m.created_at.isoformat(),
                 "confirmed_at": m.confirmed_at.isoformat() if m.confirmed_at else None,
             }
@@ -62,13 +78,18 @@ async def confirm_memory(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
+    await lock_project_memories(session, ws.id)
     m = (
         await session.execute(
-            select(MemoryItem).where(MemoryItem.id == item_id, MemoryItem.workspace_id == ws.id)
+            select(MemoryItem).where(MemoryItem.id == item_id, MemoryItem.workspace_id == ws.id).with_for_update().execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if m is None:
         raise HTTPException(status_code=404, detail="memory not found")
+    if m.mtype in ('ProjectUnderstanding','ProjectIssue','LearningObservation','LearningPreference'):
+        raise HTTPException(409, '项目和学习候选请使用带版本检查的候选审核入口')
+    if m.status not in ('CANDIDATE', 'ACTIVE'):
+        raise HTTPException(409, '已替代或删除的记忆不可重新激活')
     m.status = "ACTIVE"
     m.confirmed_at = dt.datetime.now(dt.timezone.utc)
     await session.commit()
@@ -83,28 +104,42 @@ async def correct_memory(
     session: AsyncSession = Depends(get_session),
 ):
     """纠正: 旧条目 SUPERSEDED, 新条目 ACTIVE。"""
+    await lock_project_memories(session, ws.id)
+    from app.services.learning_memory import LEARNING_TYPES, invalidate_memory_dependents
+    memory_type = await session.scalar(select(MemoryItem.mtype).where(MemoryItem.id == item_id, MemoryItem.workspace_id == ws.id))
+    if memory_type in LEARNING_TYPES:
+        await session.execute(select(Workspace.id).where(Workspace.id == ws.id).with_for_update())
     m = (
         await session.execute(
-            select(MemoryItem).where(MemoryItem.id == item_id, MemoryItem.workspace_id == ws.id)
+            select(MemoryItem).where(MemoryItem.id == item_id, MemoryItem.workspace_id == ws.id).with_for_update().execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if m is None:
         raise HTTPException(status_code=404, detail="memory not found")
+    if m.status != 'ACTIVE':
+        raise HTTPException(409, '只能纠正当前生效的记忆，请重新读取最新版本')
+    if m.mtype in LEARNING_TYPES and req.expected_revision != m.revision:
+        raise HTTPException(409, '学习记忆版本已变化，请重新查看后纠正')
     new = MemoryItem(
         workspace_id=ws.id,
         mtype=m.mtype,
         content=req.content.strip(),
         source="USER",
-        source_ref=m.short_code,
+        source_ref=f'memory:{m.id}',
+        meta=dict(m.meta or {}),
         extract_confidence=1.0,
         status="ACTIVE",
+        freshness=m.freshness,
         confirmed_at=dt.datetime.now(dt.timezone.utc),
         superseded_by=None,
     )
     session.add(new)
     await session.flush()
     m.status = "SUPERSEDED"
+    m.revision += 1
     m.superseded_by = new.id
+    if m.mtype in LEARNING_TYPES:
+        await invalidate_memory_dependents(session, ws.id, m.id, '用户纠正了所引用的学习记忆')
     await session.commit()
     return {"id": new.id, "superseded": m.id, "status": new.status}
 
@@ -115,14 +150,22 @@ async def delete_memory(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
+    await lock_project_memories(session, ws.id)
+    from app.services.learning_memory import LEARNING_TYPES, invalidate_memory_dependents
+    memory_type = await session.scalar(select(MemoryItem.mtype).where(MemoryItem.id == item_id, MemoryItem.workspace_id == ws.id))
+    if memory_type in LEARNING_TYPES:
+        await session.execute(select(Workspace.id).where(Workspace.id == ws.id).with_for_update())
     m = (
         await session.execute(
-            select(MemoryItem).where(MemoryItem.id == item_id, MemoryItem.workspace_id == ws.id)
+            select(MemoryItem).where(MemoryItem.id == item_id, MemoryItem.workspace_id == ws.id).with_for_update().execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if m is None:
         raise HTTPException(status_code=404, detail="memory not found")
     m.status = "DISMISSED"
+    m.revision += 1
+    if m.mtype in LEARNING_TYPES:
+        await invalidate_memory_dependents(session, ws.id, m.id, '用户撤回了所引用的学习记忆')
     await session.commit()
     return {"id": m.id, "status": m.status}
 

@@ -2,7 +2,7 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { DemoBanner, PageHead, SegBars, StatusChip, StatCard, plainLevel } from '../components/ui';
 import { api, useApi, DashboardData } from '../api/client';
-import { WS, STATS, DOMAINS, TODAY_TASKS, TIMELINE, PENDING_REVIEWS } from '../data/demo';
+
 
 const TYPE_CLS: Record<string, string> = { UNDERSTAND: 'chip-blue', PRACTICE: 'chip-purple', RETEST: 'chip-amber' };
 const TYPE_NAME: Record<string, string> = { UNDERSTAND: '理解', PRACTICE: '实践', RETEST: '复测' };
@@ -11,46 +11,24 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { data, loading, error } = useApi<DashboardData>('/dashboard');
 
-  // ---- 数据源: API 优先, 失败/未加载时降级到 demo 静态数据 ----
-  const domains = data?.domains?.length ? data.domains : DOMAINS.map((d) => ({
-    key: d.key, name: d.name, weight_pct: d.weight, level: d.current, target_level: d.target,
-    status: d.status, confidence: d.confidence, evidence_coverage: d.evidence,
-  }));
+  const domains = data?.domains ?? [];
   const stats = data?.stats;
-  const statCards = stats
-    ? [
-        { label: '证据覆盖', value: String(stats.evidence_total), delta: '+3', dir: 'up' as const, foot: '近 7 天新增', ic: '🗂' },
-        { label: '待验证能力', value: String(stats.pending_skills), foot: '需要更多证据', ic: '⚠️' },
-        { label: '今日任务', value: String(stats.today_tasks), foot: '由差距驱动生成', ic: '📌' },
-        { label: '待审核面经', value: String(stats.pending_imports), foot: '导入后等待确认', ic: '📥' },
-      ]
-    : STATS.map((s) => ({ label: s.label, value: s.value, delta: s.delta, dir: 'up' as const, foot: s.foot, ic: s.ic }));
-
-  const todayTasks = data?.today_tasks?.length
-    ? data.today_tasks.map((t) => ({
-        id: t.id, title: t.title, kind: t.kind, minutes: t.est_minutes,
-        domain: t.skill_name || '',
-      }))
-    : TODAY_TASKS.map((t) => ({ id: t.id, title: t.title, kind: t.type, minutes: t.minutes, domain: t.domain }));
-
-  const pendingImports = data?.pending_imports?.length
-    ? data.pending_imports.map((p) => ({ id: p.short_code, title: `面经导入 ${p.short_code}`, items: p.items ?? 0, time: (p.created_at || '').slice(0, 10) }))
-    : PENDING_REVIEWS.map((p) => ({ id: p.id, title: p.title, items: p.items, time: p.time }));
-
-  const timeline = data?.recent_activity?.length
-    ? data.recent_activity.map((a) => ({
-        date: (a.completed_at || '').slice(5, 10) || '今天',
-        text: `<b>${a.title}</b> 完成${a.score != null ? ` · 得分 ${Math.round(a.score)}` : ''}`,
-      }))
-    : TIMELINE;
-
-  const gap = data?.gap != null ? data.gap.toFixed(1) : String(WS.gap);
-  const wsName = data?.workspace?.name || WS.name;
-  const role = data?.workspace?.target_role || WS.role;
-  const level = data?.workspace?.target_level || WS.level;
-  const jdCount = data?.benchmark?.jd_sample_count ?? WS.jdCount;
-  const benchVersion = data?.benchmark?.version ?? WS.benchmark;
-  const evidenceTotal = stats?.evidence_total ?? WS.evidence;
+  const statCards = [
+    { label: '证据覆盖', value: stats?.evidence_total ?? '—', delta: '', ic: '🗂' },
+    { label: '待验证能力', value: stats?.pending_skills ?? '—', delta: '', ic: '⚠️' },
+    { label: '今日任务', value: stats?.today_tasks ?? '—', delta: '', ic: '📌' },
+    { label: '待审核面经', value: stats?.pending_imports ?? '—', delta: '', ic: '📥' },
+  ];
+  const todayTasks = (data?.today_tasks ?? []).map(t => ({ id: t.id, title: t.title, kind: t.kind, minutes: t.est_minutes, domain: t.skill_name || '' }));
+  const pendingImports = (data?.pending_imports ?? []).map(p => ({ id: p.short_code, title: `面经导入 ${p.short_code}`, items: p.items ?? 0, time: (p.created_at || '').slice(0, 10) }));
+  const timeline = (data?.recent_activity ?? []).map(a => ({ date: (a.completed_at || '').slice(0, 10), text: `${a.title} · ${a.status || ''}${a.score != null ? ` · 得分 ${Math.round(a.score)}` : ''}` }));
+  const gap = data?.gap == null ? '未知' : data.gap.toFixed(1);
+  const wsName = data?.workspace.name ?? '当前工作空间';
+  const role = data?.workspace.target_role || '待设置';
+  const level = data?.workspace.target_level || '待设置';
+  const jdCount = data?.benchmark?.jd_sample_count ?? '—';
+  const benchVersion = data?.benchmark?.version ?? '—';
+  const evidenceTotal = stats?.evidence_total ?? '—';
 
   // ---- v3.1 M2: 最重要缺口(权重 × 差距) ----
   const gaps = domains
@@ -60,7 +38,7 @@ export default function Dashboard() {
   const topGap = gaps[0];
   const plainStatus = topGap
     ? `你在「${topGap.name}」上离目标最远——先补这里收益最大。`
-    : '所有已评估能力都达到目标线，做一次诊断确认真实水平。';
+    : '尚无可排序的能力差距；未知状态需要独立作答证据，不能据此判断已达标。';
   const primaryCta = todayTasks.length
     ? { label: '开始今天的学习', to: '/learning' }
     : { label: '开始能力诊断', to: '/exam/diagnosis' };
@@ -81,7 +59,7 @@ export default function Dashboard() {
       <DemoBanner />
 
       {loading && <div className="demo-banner" style={{ marginBottom: 12 }}>正在从后端加载实时数据…</div>}
-      {error && <div className="demo-banner demo-banner-err" style={{ marginBottom: 12 }}>后端不可用（{error}），以下为静态演示数据</div>}
+      {error && <div className="demo-banner demo-banner-err" style={{ marginBottom: 12 }}>后端不可用（{error}），无法读取当前空间数据，请稍后重试</div>}
 
       {/* 深色 hero 卡: 目标 + 一句通俗状态 + 差距 */}
       <div className="hero-card" style={{ marginBottom: 16 }}>
@@ -100,7 +78,7 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="hero-body">
-          <SegBars items={domains.map((d: any) => ({ name: d.name, current: d.level ?? 0, weight: d.weight_pct }))} />
+          <SegBars items={domains.map((d: any) => ({ name: d.name, current: d.level, weight: d.weight_pct }))} />
         </div>
         <div className="hero-foot">
           <span className="note">评估详情：{jdCount} 份 JD · 种子假设 · benchmark {benchVersion}</span>
@@ -118,7 +96,7 @@ export default function Dashboard() {
             <div className="card-head">
               <span className="card-title">
                 <span className="chip chip-red" style={{ marginRight: 8 }}>最重要缺口</span>
-                {topGap ? topGap.name : '无重大缺口'}
+                {topGap ? topGap.name : '暂无法判断整体缺口'}
               </span>
             </div>
             {topGap ? (
@@ -135,7 +113,7 @@ export default function Dashboard() {
                 </div>
               </>
             ) : (
-              <div className="gap-focus-plain">没有低于目标线的能力项。保持节奏，用诊断定期复核。</div>
+              <div className="gap-focus-plain">能力估计可能仍为未知。已有作答中的具体失分项可在报告和学习任务中查看。</div>
             )}
           </div>
 
@@ -191,7 +169,7 @@ export default function Dashboard() {
             {timeline[0] ? (
               <div className="tl-item" style={{ padding: '4px 4px 0' }}>
                 <div className="tl-date">{timeline[0].date}</div>
-                <div className="tl-text" dangerouslySetInnerHTML={{ __html: timeline[0].text }} />
+                <div className="tl-text">{timeline[0].text}</div>
               </div>
             ) : (
               <div className="list-row">

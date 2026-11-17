@@ -26,11 +26,10 @@ async def profile(
     # 整体估计: 证据加权平均(展示用), 找证据最多的域做焦点
     focus = max(states, key=lambda s: s.evidence_coverage, default=None)
     total_ev = sum(s.evidence_coverage for s in states)
-    overall = (
-        round(sum((s.estimated_level or 0) * s.evidence_coverage for s in states) / max(1, total_ev), 1)
-        if total_ev
-        else None
-    )
+    estimated = [s for s in states if s.estimated_level is not None]
+    estimated_coverage = sum(s.evidence_coverage for s in estimated)
+    overall = (round(sum(s.estimated_level * s.evidence_coverage for s in estimated) / estimated_coverage, 1)
+               if estimated_coverage else None)
     overall_conf = round(sum(s.confidence for s in states) / max(1, len(states)), 2)
 
     return {
@@ -55,6 +54,9 @@ async def profile(
                 "title": e.title,
                 "kind": e.kind,
                 "grade": e.grade,
+                "detail": e.detail,
+                "source_ref": e.source_ref,
+                "observation": e.meta if isinstance(e.meta, dict) else None,
                 "skill": e.skill.name if e.skill else None,
                 "created_at": e.created_at.isoformat(),
             }
@@ -99,6 +101,8 @@ async def skill_detail(
                 "kind": e.kind,
                 "grade": e.grade,
                 "detail": e.detail,
+                "source_ref": e.source_ref,
+                "observation": e.meta if isinstance(e.meta, dict) else None,
                 "created_at": e.created_at.isoformat(),
             }
             for e in evidence

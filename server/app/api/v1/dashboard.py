@@ -55,7 +55,7 @@ async def dashboard(
     recent_exams = (
         await session.execute(
             select(Exam)
-            .where(Exam.workspace_id == ws.id, Exam.status == Exam.STATUS_COMPLETED)
+            .where(Exam.workspace_id == ws.id, Exam.status == Exam.STATUS_COMPLETED, Exam.kind != 'practice')
             .order_by(Exam.completed_at.desc())
             .limit(3)
         )
@@ -65,7 +65,8 @@ async def dashboard(
     target_map = {s.skill_id: s for s in states}
     standard = (
         await session.execute(
-            select(JobStandard).where(JobStandard.is_seed.is_(True)).order_by(JobStandard.id.desc())
+            select(JobStandard).where(JobStandard.is_seed.is_(True),
+                JobStandard.role == 'AI Agent 应用开发工程师').order_by(JobStandard.id.desc()).limit(1)
         )
     ).scalar_one_or_none()
     if standard:

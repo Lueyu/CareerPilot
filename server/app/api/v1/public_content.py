@@ -352,6 +352,8 @@ async def publish_draft(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
+    if dry_run is not True:
+        raise HTTPException(403, "public_writes_disabled: 仅允许本地 dry-run 预览")
     d = await _get_draft(session, ws, draft_id)
     if d.status != DRAFT_STATUS_APPROVED:
         raise HTTPException(status_code=409, detail=f"状态 {d.status} 不可发布(需 APPROVED)")
@@ -543,70 +545,7 @@ async def rollback_publication(
     session: AsyncSession = Depends(get_session),
 ):
     """回滚: 恢复到上一个已发布版本, 建回滚分支 + PR(不自动合并)。"""
-    p = (
-        await session.execute(
-            select(ContentPublication).where(ContentPublication.id == pub_id, ContentPublication.workspace_id == ws.id)
-        )
-    ).scalar_one_or_none()
-    if p is None:
-        raise HTTPException(status_code=404, detail=f"publication {pub_id} not found")
-    if p.status != "PUBLISHED":
-        raise HTTPException(status_code=409, detail=f"仅 PUBLISHED 状态可回滚, 当前 {p.status}")
-    # 上一个已发布版本
-    prev = (
-        await session.execute(
-            select(ContentPublication)
-            .where(
-                ContentPublication.workspace_id == ws.id,
-                ContentPublication.draft_id == p.draft_id,
-                ContentPublication.status == "PUBLISHED",
-                ContentPublication.id < p.id,
-            )
-            .order_by(ContentPublication.id.desc())
-            .limit(1)
-        )
-    ).scalars().first()
-    if prev is None:
-        raise HTTPException(status_code=409, detail="没有可回滚的上一个已发布版本")
-
-    draft = await _get_draft(session, ws, p.draft_id)
-    settings = get_settings()
-    repo = p.target_repo
-    base_branch = p.base_branch or settings.portal_base_branch
-    content_dir = settings.portal_content_dir.rstrip("/")
-    path = draft.target_path or f"{content_dir}/{draft.slug}.md"
-
-    publisher = await make_publisher_rt()
-    t0 = time.perf_counter()
-    trace = await start_trace(session, ws.id, "public_content_rollback", f"回滚公开内容: {draft.title}", short_code=f"TR-R{int(t0)}")
-    try:
-        base_sha = await publisher.get_base_sha(repo, base_branch)
-        branch = f"revert/{draft.slug[:40]}-{p.short_code.lower()}"
-        await publisher.create_branch(repo, branch, base_sha)
-        # 恢复目标: 上一个版本快照(若无快照则读上一版 commit 的文件内容)
-        restore = prev.markdown_snapshot
-        if restore is None:
-            file_data = await publisher.get_file(repo, path, prev.commit_sha or base_branch)
-            restore = file_data["content"] if file_data else None
-        existing = await publisher.get_file(repo, path, base_branch)
-        await publisher.write_file(
-            repo, path, restore or "", branch,
-            f"revert(publish): {draft.title} → {prev.short_code}", sha=(existing["sha"] if existing else None),
-        )
-        pr = await publisher.create_pr(repo, branch, base_branch, f"revert: {draft.title}", f"回滚到 {prev.short_code} 版本")
-        p.status = DRAFT_STATUS_ROLLED_BACK
-        p.rollback_commit_sha = pr.get("head", {}).get("sha")
-        p.rollback_to_publication_id = prev.id
-        draft.status = DRAFT_STATUS_ROLLED_BACK
-        await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000), 0.0)
-        await emit_event(session, ws.id, "public_content.rolled_back", {"publication": p.short_code, "to": prev.short_code}, "publication", p.id)
-        await _audit(session, ws, "ROLLBACK", draft_id=p.draft_id, publication_id=p.id, detail={"from": p.short_code, "to": prev.short_code, "pr": pr.get("number")})
-        await session.commit()
-        return _pub_view(p)
-    except GitHubError as e:
-        await finish_trace(session, trace, "FAILED", int((time.perf_counter() - t0) * 1000), 0.0, fail_reason=str(e))
-        await session.commit()
-        raise HTTPException(status_code=502, detail=f"回滚失败: {e}")
+    raise HTTPException(403, "public_writes_disabled: 本轮关闭远程回滚")
 
 
 # --------------------------------------------------------------------------

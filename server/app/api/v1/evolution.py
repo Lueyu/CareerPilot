@@ -140,13 +140,7 @@ async def approve(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    c = await _get_candidate(session, ws, cid)
-    if c.status not in (evo.STATUS_PROPOSED, evo.STATUS_EVALUATED, "TESTING"):
-        raise HTTPException(409, f"候选状态 {c.status} 不能批准")
-    await evo.approve_candidate(session, ws.id, c)
-    await session.commit()
-    await session.refresh(c)  # func.now() 列需异步刷新, 否则视图访问触发 MissingGreenlet
-    return _cand_view(c, await _latest_run(session, c.id))
+    raise HTTPException(403, "evolution_activation_disabled: 本轮仅保留候选与评估记录")
 
 
 @router.post("/candidates/{cid}/reject")

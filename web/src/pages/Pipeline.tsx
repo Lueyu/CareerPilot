@@ -160,27 +160,7 @@ export default function Pipeline() {
             </div>
           )}
 
-          <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-            <div>
-              <div className="card-title" style={{ margin: 0 }}>发布操作</div>
-              <p className="hint" style={{ margin: '4px 0 0' }}>
-                低风险可自动发布 · 高风险强制人工审核（不可跳过）· dry-run 只出计划不写 GitHub
-              </p>
-            </div>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                <input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} /> dry-run
-              </label>
-              {latest.draft?.status === 'DRAFT' && (
-                <button className="btn btn-primary" disabled={busy} onClick={() => approve(latest, latest.risk_level === 'LOW')}>
-                  {latest.risk_level === 'LOW' ? '批准并发布' : '批准草稿'}
-                </button>
-              )}
-              {latest.status === 'PUBLISHED' && (
-                <button className="btn btn-danger" onClick={() => setRollbackOpen(latest)}>↩ 回滚发布</button>
-              )}
-            </div>
-          </div>
+          <div className="card"><div className="card-title">公共发布已关闭</div><p className="hint">仅保留本地草稿和预览，不会创建、合并或回滚公共仓库内容。</p></div>
         </>
       )}
 

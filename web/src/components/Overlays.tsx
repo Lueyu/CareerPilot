@@ -2,7 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState } from './AppState';
 import { Modal } from './ui';
-import { NOTIFICATIONS, QUICK_ACTIONS, WORKSPACES } from '../data/demo';
+import { api, useApi, getWorkspace, selectWorkspace, ProfileData, LearningData } from '../api/client';
+const QUICK_ACTIONS = [
+  { ic: '📥', label: '导入面经', desc: '解析并整理面试题', to: '/bank?import=1' },
+  { ic: '🎯', label: '开始独立诊断', desc: '提交真实作答', to: '/exam/diagnosis' },
+  { ic: '📚', label: '查看学习任务', desc: '补齐具体失分项', to: '/learning' },
+];
 
 // —— ⌘K 全局搜索 ——
 export function CommandPalette() {
@@ -10,6 +15,8 @@ export function CommandPalette() {
   const [q, setQ] = useState('');
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
+  const profile = useApi<ProfileData>(cmdOpen ? '/profile' : null);
+  const learning = useApi<LearningData>(cmdOpen ? '/learning' : null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -29,29 +36,15 @@ export function CommandPalette() {
 
   const groups = useMemo(() => {
     const all = [
-      { g: '技能', items: [
-        { ic: '🧠', name: 'Agent Evaluation', meta: '2.7/5 · 低于目标', to: '/profile/eval' },
-        { ic: '🔧', name: '工具调用 / MCP', meta: '3.5/5 · 低于目标', to: '/profile/tools' },
-        { ic: '🧩', name: 'RAG / 上下文工程', meta: '3.6/5 · 达到目标', to: '/profile/rag' },
-      ]},
-      { g: '证据', items: [
-        { ic: '🧾', name: 'EV-041 工具重试策略 3/5', meta: '诊断 · 11-15', to: '/profile/eval' },
-        { ic: '🧾', name: 'EV-036 对抗评估循环', meta: '项目 · VERIFIED', to: '/assets/project/squabble' },
-      ]},
-      { g: '任务', items: [
-        { ic: '📌', name: '让工具安全地重试', meta: '实践 · 40 分钟', to: '/learning/task/t2' },
-        { ic: '📌', name: 'RAG 检索评估指标速测', meta: '复测 · 10 分钟', to: '/learning/task/t3' },
-      ]},
-      { g: '面经', items: [
-        { ic: '📄', name: '字节跳动 · Agent 研发工程师', meta: '待审核 · IM-103', to: '/bank' },
-      ]},
+      { g: '技能', items: (profile.data?.domains ?? []).map(d => ({ ic: '🧠', name: d.name, meta: d.level == null ? '未知' : `${d.level}/5`, to: `/profile/${d.key}` })) },
+      { g: '任务', items: (learning.data?.today ?? []).map(t => ({ ic: '📌', name: t.title, meta: t.status, to: `/learning/task/${t.id}` })) },
     ];
     const kw = q.trim().toLowerCase();
     if (!kw) return all;
     return all
       .map((g) => ({ ...g, items: g.items.filter((it) => (it.name + it.meta).toLowerCase().includes(kw)) }))
       .filter((g) => g.items.length > 0);
-  }, [q]);
+  }, [q, profile.data, learning.data]);
 
   if (!cmdOpen) return null;
   return (
@@ -67,7 +60,7 @@ export function CommandPalette() {
           />
           <span className="kbd">ESC</span>
         </div>
-        <div className="cmdk-groups">
+        <div className="cmdk-groups">{(profile.loading || learning.loading) && <p className="hint">正在读取当前空间…</p>}{(profile.error || learning.error) && <p role="alert">搜索读取失败：{profile.error || learning.error}</p>}
           {groups.length === 0 && <div className="empty" style={{ padding: 20 }}><b>无匹配结果</b></div>}
           {groups.map((g) => (
             <div key={g.g}>
@@ -116,15 +109,7 @@ export function NotificationsPanel() {
           <span className="kbd" style={{ cursor: 'pointer' }} onClick={() => setNotifOpen(false)}>关闭 ✕</span>
         </div>
         <div className="pop-body">
-          {NOTIFICATIONS.map((n) => (
-            <div className="pop-item" key={n.title} onClick={() => go('/observatory')}>
-              <span className="pop-item-ic">{n.ic}</span>
-              <div className="pop-item-main">
-                <div className="pop-item-title">{n.title}</div>
-                <div className="pop-item-sub">{n.sub} · {n.time}</div>
-              </div>
-            </div>
-          ))}
+          <p className="hint">暂无可读取的通知。请在考试记录和学习计划中查看实际进展。</p>
         </div>
       </div>
     </div>
@@ -168,40 +153,29 @@ export function QuickActionsPanel() {
 }
 
 // —— 工作空间切换 ——
+type Workspace = { id: number; name: string; slug: string; is_demo: boolean };
 export function WorkspaceSwitcher() {
-  const { wsOpen, setWsOpen, toast } = useAppState();
+  const { wsOpen, setWsOpen } = useAppState();
+  const { data, loading, error } = useApi<{ workspaces: Workspace[] }>(wsOpen ? '/settings/workspaces' : null);
+  const [createErr, setCreateErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const select = (workspace: Workspace) => {
+    selectWorkspace(workspace.slug);
+    window.location.assign('/');
+  };
+  const personal = async () => {
+    setBusy(true); setCreateErr(null);
+    try { const result = await api.post<{ workspace: Workspace }>('/settings/workspaces/personal'); select(result.workspace); }
+    catch (e: any) { setCreateErr(String(e.message || e)); setBusy(false); }
+  };
   if (!wsOpen) return null;
-  return (
-    <div className="modal-mask" onClick={() => setWsOpen(false)}>
-      <div className="modal modal-sm" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <div className="modal-title">切换工作空间</div>
-          <button className="modal-x" onClick={() => setWsOpen(false)}>✕</button>
-        </div>
-        <div className="modal-body" style={{ paddingTop: 10 }}>
-          {WORKSPACES.map((w) => (
-            <div
-              className="pop-item"
-              key={w.name}
-              onClick={() => toast('✅', `已切换到「${w.name}」`)}
-              style={{ border: w.active ? '1px solid var(--primary-200)' : '1px solid transparent', background: w.active ? 'var(--primary-50)' : 'transparent', marginBottom: 6 }}
-            >
-              <span className="ws-avatar" style={{ background: 'var(--primary-50)' }}>🧭</span>
-              <div className="pop-item-main">
-                <div className="pop-item-title">{w.name}</div>
-                <div className="pop-item-sub">{w.kind}</div>
-              </div>
-              {w.active && <span className="chip chip-purple">当前</span>}
-            </div>
-          ))}
-          <div className="pop-item" onClick={() => toast('➕', '新建工作空间（Demo 未接入后端）')} style={{ color: 'var(--primary)' }}>
-            <span className="pop-item-ic">＋</span>
-            <div className="pop-item-main">
-              <div className="pop-item-title">新建工作空间</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return <Modal title="切换工作空间" onClose={() => setWsOpen(false)} size="sm">
+    {loading && <p>正在读取真实工作空间…</p>}
+    {(error || createErr) && <p role="alert">{error || createErr}</p>}
+    {(data?.workspaces ?? []).map(w => <button className="pop-item" key={w.id} onClick={() => select(w)} style={{ width: '100%', textAlign: 'left' }}>
+      <span className="ws-avatar">🧭</span><span className="pop-item-main"><span className="pop-item-title">{w.name}</span><span className="pop-item-sub">{w.is_demo ? '演示空间' : '真实个人空间'} · {w.slug}</span></span>
+      {w.slug === getWorkspace() && <span className="chip chip-purple">当前</span>}
+    </button>)}
+    <button className="btn btn-outline" disabled={busy} onClick={personal}>{busy ? '准备个人空间…' : '进入或创建真实个人空间'}</button>
+  </Modal>;
 }

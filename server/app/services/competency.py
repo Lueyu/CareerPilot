@@ -1,31 +1,75 @@
-"""Competency Engine(规则引擎版, LLM 可替换)。
+"""Estimate only from independent assessed questions; retain UNKNOWN below three.
 
-从证据计算 SkillState:
-- estimated_level = clamp(0, 5, 基线 + Σ 证据支撑)
-- confidence = min(1, 0.2 + 0.08 × 高等级证据数 + 0.04 × 其余证据数)
-- status 按 (estimated_level vs target) + 证据覆盖判定:
-    * level is None -> UNKNOWN
-    * 证据覆盖 < 2 且 confidence < 0.4 -> NEEDS_VALIDATION
-    * level + 0.25 <= target -> BELOW_TARGET
-    * level - 0.25 > target -> ABOVE_TARGET
-    * 否则 -> MEETS_TARGET
+The estimate is a conservative, uncalibrated heuristic. Repeated attempts update
+latest performance, while claims and materials remain visible without mastery credit.
 """
 from __future__ import annotations
+
+import math
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Evidence, JobStandard, JobStandardTarget, Skill, SkillState
 
-GRADE_WEIGHT = {
-    "VERIFIED": 1.0,
-    "HIGH": 0.8,
-    "MEDIUM": 0.5,
-    "LOW": 0.3,
-    "UNVERIFIED_CLAIM": 0.15,
-}
+MIN_INDEPENDENT_OBSERVATIONS = 3
 
-BASELINE = 2.5  # 无证据时的中性基线
+
+def assessed_observations(evidences: list[Evidence], *, include_assisted: bool = False) -> list[Evidence]:
+    """Keep the latest assessed attempt per canonical question.
+
+    Old claims/imports/projects remain inspectable evidence, but do not establish
+    mastery. The threshold and confidence below are conservative heuristics,
+    not a calibrated psychometric model. Learning may inspect valid assisted
+    observations with include_assisted=True; competency always uses the default.
+    """
+    valid: list[Evidence] = []
+    parents: dict[int, int] = {}
+
+    def root(question_id: int) -> int:
+        parents.setdefault(question_id, question_id)
+        while parents[question_id] != question_id:
+            parents[question_id] = parents[parents[question_id]]
+            question_id = parents[question_id]
+        return question_id
+
+    for ev in evidences:
+        m = ev.meta if isinstance(ev.meta, dict) else {}
+        if ev.kind != "EXAM_ANSWER" or not m.get("assessed"):
+            continue
+        if m.get('assessment_mode') == 'PRACTICE':
+            continue
+        assistance = m.get('assistance') or {}
+        if not include_assisted and (m.get('independent') is False or any(assistance.get(k)
+                for k in ('hint_used', 'reference_viewed', 'feedback_seen', 'ai_declared', 'prior_attempt'))):
+            continue
+        if not all(m.get(k) for k in ("question_id", "canonical_question_id", "exam_id", "exam_question_id")):
+            continue
+        if m.get("judge_version") not in ("judge-v1", "rule-v1", "judge-v2", "rule-v2"):
+            continue
+        if m.get("judge_version") in ("judge-v2", "rule-v2") and m.get("validation_status") != "VALID":
+            continue
+        if m.get("judge_version") in ("rule-v1", "rule-v2") and m.get("qtype") != "mcq" and not m.get("blank_answer"):
+            continue
+        try:
+            score, maximum = float(m["score"]), float(m["max_points"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not math.isfinite(score) or not math.isfinite(maximum) or maximum <= 0 or not 0 <= score <= maximum:
+            continue
+        valid.append(ev)
+        # Canonical IDs can change after bank merges. Historical links are
+        # equivalences, so connect both IDs before selecting independent groups.
+        parents[root(m["question_id"])] = root(m["canonical_question_id"])
+
+    latest: dict[int, Evidence] = {}
+    rank = lambda e: ((e.occurred_at or e.created_at).timestamp(), e.id or 0)
+    for ev in valid:
+        key = root(ev.meta["question_id"])
+        previous = latest.get(key)
+        if previous is None or rank(ev) > rank(previous):
+            latest[key] = ev
+    return list(latest.values())
 
 
 async def recompute_skill_states(session: AsyncSession, workspace_id: int) -> list[SkillState]:
@@ -36,6 +80,7 @@ async def recompute_skill_states(session: AsyncSession, workspace_id: int) -> li
             select(JobStandard)
             .where(JobStandard.role == "AI Agent 应用开发工程师", JobStandard.is_seed.is_(True))
             .order_by(JobStandard.id.desc())
+            .limit(1)
         )
     ).scalar_one_or_none()
 
@@ -67,24 +112,24 @@ async def recompute_skill_states(session: AsyncSession, workspace_id: int) -> li
 
     result: list[SkillState] = []
     for skill in skills:
-        evs = by_skill.get(skill.id, [])
+        evs = assessed_observations(by_skill.get(skill.id, []))
         state = states.get(skill.id)
         if state is None:
-            state = SkillState(workspace_id=workspace_id, skill_id=skill.id)
+            # New states have no loaded relationship even though skill_id is set.
+            # Retain the already-loaded Skill for async API serialization.
+            state = SkillState(workspace_id=workspace_id, skill_id=skill.id, skill=skill)
             session.add(state)
 
-        if not evs:
+        if len(evs) < MIN_INDEPENDENT_OBSERVATIONS:
             state.estimated_level = None
-            state.confidence = 0.0
-            state.evidence_coverage = 0
+            state.confidence = round(0.15 * len(evs), 2)
+            state.evidence_coverage = len(evs)
             state.status = SkillState.STATUS_UNKNOWN
             state.dimension_scores = None
-            state.last_assessed_at = None
+            state.last_assessed_at = max((e.occurred_at or e.created_at for e in evs), default=None)
         else:
-            level = BASELINE + sum(e.support * GRADE_WEIGHT.get(e.grade, 0.5) for e in evs)
-            level = max(0.0, min(5.0, round(level, 2)))
-            high = sum(1 for e in evs if e.grade in ("VERIFIED", "HIGH"))
-            conf = min(1.0, 0.2 + 0.08 * high + 0.04 * (len(evs) - high))
+            level = round(5 * sum(float(e.meta["score"]) / float(e.meta["max_points"]) for e in evs) / len(evs), 2)
+            conf = min(0.7, 0.15 * len(evs))
             target = targets.get(skill.id, 3.0)
             state.estimated_level = level
             state.confidence = round(conf, 2)
@@ -97,25 +142,10 @@ async def recompute_skill_states(session: AsyncSession, workspace_id: int) -> li
                 state.status = SkillState.STATUS_ABOVE_TARGET
             else:
                 state.status = SkillState.STATUS_MEETS_TARGET
-            state.dimension_scores = _dimension_scores(level, evs)
-            state.last_assessed_at = max(e.created_at for e in evs)
-        state.model_version = "rule-v1"
+            state.dimension_scores = None
+            state.last_assessed_at = max(e.occurred_at or e.created_at for e in evs)
+        state.model_version = "observation-v2-heuristic"
         result.append(state)
 
     await session.flush()
     return result
-
-
-def _dimension_scores(level: float, evs: list[Evidence]) -> dict[str, float]:
-    """维度分解: 理论理解/工程实践/问题诊断/表达沟通/AI协作(规则近似)。"""
-    kinds = {e.kind for e in evs}
-    prac = 1 if any(k in ("PROJECT_COMMIT", "PRACTICE_TASK") for k in kinds) else 0
-    diag = 1 if any(k == "EXAM_ANSWER" for k in kinds) else 0
-    ai = 1 if any(k == "MEMORY_NOTE" for k in kinds) else 0
-    return {
-        "理论理解": round(max(0.0, min(5.0, level)), 2),
-        "工程实践": round(max(0.0, min(5.0, level - 0.5 + prac * 0.6)), 2),
-        "问题诊断": round(max(0.0, min(5.0, level - 0.3 + diag * 0.4)), 2),
-        "表达沟通": round(max(0.0, min(5.0, level - 0.4)), 2),
-        "AI协作": round(max(0.0, min(5.0, level - 0.6 + ai * 0.5)), 2),
-    }

@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_workspace
+from app.api.deps import get_workspace, require_auth
 from app.config import get_settings
 from app.db import get_session
 from app.models import (
@@ -51,12 +51,37 @@ from app.models import (
 )
 from app.services.github_publish import get_github_token, set_github_token_cache
 from app.services.llm import adapter, get_llm_config, set_llm_config_cache
+from app.services.workspaces import ensure_personal_workspace
 
 router = APIRouter()
 
 
 def _iso(dt: datetime | None) -> str | None:
     return dt.isoformat() if dt else None
+
+
+def _workspace_view(ws: Workspace) -> dict:
+    return {
+        "id": ws.id, "name": ws.name, "slug": ws.slug,
+        "target_role": ws.target_role, "target_level": ws.target_level,
+        "is_demo": ws.is_demo, "created_at": _iso(ws.created_at),
+    }
+
+
+@router.get("/settings/workspaces", dependencies=[Depends(require_auth)])
+async def list_workspaces(session: AsyncSession = Depends(get_session)):
+    rows = (await session.execute(select(Workspace).order_by(Workspace.is_demo, Workspace.id))).scalars().all()
+    return {"workspaces": [_workspace_view(ws) for ws in rows], "default_slug": get_settings().default_workspace_slug}
+
+
+@router.post("/settings/workspaces/personal", dependencies=[Depends(require_auth)])
+async def create_personal_workspace(session: AsyncSession = Depends(get_session)):
+    try:
+        ws = await ensure_personal_workspace(session)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    await session.commit()
+    return {"workspace": _workspace_view(ws)}
 
 
 # --------------------------------------------------------------------------
@@ -128,11 +153,12 @@ async def settings_overview(
             },
             # GitHub 发布: token 已配置即视为已连接
             "github_publish": {
-                "active": bool(cfg.github_token),
+                "active": False,
+                "writes_enabled": cfg.public_writes_enabled,
                 "target_repo": cfg.portal_target_repo,
                 "base_branch": cfg.portal_base_branch,
                 "content_dir": cfg.portal_content_dir,
-                "auto_merge_default": cfg.portal_auto_merge,
+                "auto_merge_default": False,
             },
         },
     }
@@ -451,7 +477,7 @@ async def _github_payload() -> dict:
     token = await get_github_token()
     cfg = get_settings()
     if not token:
-        return {"active": False, "token_hint": None, "source": "none"}
+        return {"active": False, "token_hint": None, "source": "none", "writes_enabled": False}
     # 判断来源: DB 行存在 → db
     from app.db import SessionLocal
 
@@ -459,6 +485,7 @@ async def _github_payload() -> dict:
         row = (await s.execute(select(AppSetting).where(AppSetting.key == "github"))).scalar_one_or_none()
     return {
         "active": True,
+        "writes_enabled": False,
         "token_hint": _hint(token),
         "source": "db" if row else "env",
         "target_repo": cfg.portal_target_repo,

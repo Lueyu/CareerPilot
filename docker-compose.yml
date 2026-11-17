@@ -22,7 +22,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://careerpilot:careerpilot_dev@postgres:5432/careerpilot
       API_TOKEN: ${API_TOKEN:-cp-dev-token}
-      DEFAULT_WORKSPACE_SLUG: ${DEFAULT_WORKSPACE_SLUG:-demo}
+      DEFAULT_WORKSPACE_SLUG: ${DEFAULT_WORKSPACE_SLUG:-personal}
       # LLM(可选; 不配置则走确定性规则引擎, 功能不缺失只降级)
       LLM_PROVIDER: ${LLM_PROVIDER:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
@@ -33,7 +33,7 @@ services:
       PORTAL_TARGET_REPO: ${PORTAL_TARGET_REPO:-Lueyu/agent-interview}
       PORTAL_BASE_BRANCH: ${PORTAL_BASE_BRANCH:-master}
       PORTAL_CONTENT_DIR: ${PORTAL_CONTENT_DIR:-portal/content}
-      PORTAL_AUTO_MERGE: ${PORTAL_AUTO_MERGE:-true}
+      PORTAL_AUTO_MERGE: ${PORTAL_AUTO_MERGE:-false}
     ports:
       - "${API_HOST_PORT:-8000}:8000"  # 本机 8000 被占用时可用 API_HOST_PORT 改口
     depends_on:

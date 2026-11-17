@@ -127,7 +127,7 @@ export default function Evolution() {
         </div>
         <div className="obs-summary-line">
           <span className="obs-summary-ic">🧪</span>
-          <span>系统每次想改一个策略（比如「考试怎么选题」），都先基于你的真实学习/考试数据生成候选，和现有策略对比指标：评估通过且没有别的指标变差，才会被批准启用；出问题可以一键回滚。</span>
+          <span>策略自动激活已禁用。候选和事件仍可查看与评估，本地核心流程不会通过候选批准改变策略。</span>
         </div>
         <div className="obs-summary-line">
           <span className="obs-summary-ic">ℹ️</span>
@@ -251,7 +251,7 @@ export default function Evolution() {
                   )}
                   {c.status === 'EVALUATED' && (
                     <>
-                      <button className="btn btn-primary" disabled={busy} onClick={() => act(c, 'approve')}>✓ 批准</button>
+                      <button className="btn btn-primary" disabled title="策略激活已关闭">策略激活已禁用</button>
                       <button className="btn btn-outline" disabled={busy} onClick={() => { setConfirmCand(c); setConfirmMode('reject'); }}>拒绝</button>
                     </>
                   )}

@@ -10,6 +10,7 @@ from app.api.deps import get_workspace
 from app.api.v1.public_content import _next_code, publish_draft
 from app.db import get_session
 from app.models.project import AssetUpdateRun, CareerAsset, Project, ProjectFinding, ProjectScan
+from app.services.project_analyzer import coverage_for_scan
 from app.models.public_content import ContentPublication, PublicContentDraft
 from app.models.trace import Trace
 from app.models.workspace import Workspace
@@ -203,7 +204,7 @@ async def run_update_pipeline(
     run = await create_asset_update(
         session, ws, p,
         [{"domain": f.domain, "level": f.level, "title": f.title, "detail": f.detail, "file_path": f.file_path} for f in findings],
-        stats.get("matrix", []),
+        coverage_for_scan(stats),
         stats.get("stats", {}),
         trace=trace,
     )
@@ -224,6 +225,8 @@ async def approve_update(
     session: AsyncSession = Depends(get_session),
 ):
     """审批资产更新: 校验草稿 → APPROVED → (低风险+auto_merge)自动发布(复用 public_content.publish_draft)。"""
+    if auto_merge is not False and dry_run is not True:
+        raise HTTPException(403, "public_writes_disabled: 可显式 auto_merge=false 保存本地审批")
     r = await _get_run(session, ws, run_id)
     if not r.draft_id:
         raise HTTPException(status_code=409, detail="该运行无内容草稿")
@@ -272,11 +275,4 @@ async def rollback_update(
     session: AsyncSession = Depends(get_session),
 ):
     """回滚资产发布: 复用 public_content.rollback_publication(进程内)。"""
-    r = await _get_run(session, ws, run_id)
-    if not r.publication_id:
-        raise HTTPException(status_code=409, detail="该运行没有发布记录, 无可回滚对象")
-    from app.api.v1.public_content import rollback_publication
-    view = await rollback_publication(r.publication_id, ws=ws, session=session)
-    r.status = "ROLLED_BACK"
-    await session.commit()
-    return {"run": r.short_code, "status": r.status, "publication_view": view}
+    raise HTTPException(403, "public_writes_disabled: 本轮关闭远程回滚")

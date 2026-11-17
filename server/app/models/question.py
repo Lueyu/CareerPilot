@@ -41,6 +41,7 @@ class Question(Base):
     source_type: Mapped[str] = mapped_column(String(32), default=SOURCE_PUBLIC)
     tags: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     keywords: Mapped[str | None] = mapped_column(JSONB, nullable=True)
+    generation_meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # canonical_question_id 非空 => 本题是某题的变体(重复问法)
     canonical_question_id: Mapped[int | None] = mapped_column(ForeignKey("questions.id"), nullable=True)
     is_demo: Mapped[bool] = mapped_column(default=False)
@@ -98,6 +99,7 @@ class ImportItem(Base):
     suggested_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
     draft_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     draft_rubric: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    generation_meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     is_duplicate_of: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 疑似重复的 question.id
     status: Mapped[str] = mapped_column(String(24), default=STATUS_DRAFT)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

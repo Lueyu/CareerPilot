@@ -1,5 +1,6 @@
 import React, { ReactNode } from 'react';
 import { STATUS_META, DomainSkill } from '../data/demo';
+import { getWorkspace } from '../api/client';
 
 // —— 状态徽章 ——
 export function StatusChip({ status, label }: { status: string; label?: string }) {
@@ -35,10 +36,11 @@ export function PageHead({
 
 // —— DEMO 横幅 ——
 export function DemoBanner({ text }: { text?: string }) {
+  if (getWorkspace() !== 'demo') return null;
   return (
     <div className="demo-banner">
       <span className="demo-tag">DEMO</span>
-      <span>{text ?? '个人工作空间 · 全部为示例数据，非真实能力评估或行业统计。'}</span>
+      <span>{text ?? '演示工作空间 · 与个人空间隔离，记录仅用于演示。'}</span>
     </div>
   );
 }
@@ -111,7 +113,7 @@ export function StatCard({
 export function SegBars({
   items,
 }: {
-  items: { name: string; current: number; weight: number; color?: string }[];
+  items: { name: string; current: number | null; weight: number; color?: string }[];
 }) {
   return (
     <div className="seg-bars">
@@ -122,12 +124,12 @@ export function SegBars({
             <div
               className="seg-fill"
               style={{
-                width: `${(it.current / 5) * 100}%`,
+                width: `${((it.current ?? 0) / 5) * 100}%`,
                 background: it.color ?? 'var(--accent-grad)',
               }}
             />
           </div>
-          <span className="seg-val">{it.current.toFixed(1)}</span>
+          <span className="seg-val">{it.current == null ? '未知' : it.current.toFixed(1)}</span>
         </div>
       ))}
     </div>
@@ -178,13 +180,12 @@ export function plainLevel(level: number | null | undefined): string {
   return '精通：能定义标准、带人踩坑';
 }
 
-// —— v3.1 M3: 置信度 → 一句话解释 ——
+// API confidence is an observation-count heuristic, not calibrated accuracy.
+export const OBSERVATION_COVERAGE_NOTE = '观察覆盖按独立观察数量作启发式提示，不代表评分准确率，也不是结论可靠性的概率。';
 export function plainConfidence(c: number | null | undefined): string {
-  if (c == null) return '暂无置信度';
-  if (c >= 0.75) return '评估比较可靠';
-  if (c >= 0.5) return '评估有一定把握，还可以补证据';
-  if (c >= 0.3) return '证据偏少，这个结论待验证';
-  return '证据不足，仅供参考';
+  if (c == null || !Number.isFinite(c)) return '观察覆盖未知';
+  if (c >= 0.5) return '已有更多独立观察';
+  return '观察覆盖较少';
 }
 
 // —— v3.1 M2: 页面 Tab 头(合并页容器用) ——

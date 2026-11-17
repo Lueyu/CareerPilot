@@ -1,8 +1,8 @@
-"""Project Analyzer — 文件模式 → 能力域 的确定性映射规则引擎。
+"""Static repository inventory; pattern matches are not competency or quality scores.
 
 不用大 prompt: 全部是可解释的路径/内容规则, 每条发现都带证据(文件路径或 README 引用)。
 证据等级:
-- VERIFIED        : 读到了代码/配置内容, 且内容确认该能力(如 retry 代码确实有退避重试)
+- VERIFIED        : 抽样文本命中关键词；未验证实现正确性
 - HIGH            : 结构证据(文件/目录名清晰指向该能力, 未读内容)
 - UNVERIFIED_CLAIM: 仅 README 声明, 无对应文件
 """
@@ -12,7 +12,7 @@ import re
 # domain 取值 = skills 表的 8 个 key: agent/tools/memory/rag/eval/backend/reliability/deploy
 PATH_RULES: list[tuple[str, re.Pattern, str, str]] = [
     ("agent", re.compile(r"(^|/)(agents?|agent_core|planner|orchestrat\w*)/", re.I), "Agent 编排代码",
-     "存在 agent/规划/编排目录, 说明具备多步任务编排结构。"),
+     "路径包含 agent/规划/编排名称；尚未验证其实现。"),
     ("agent", re.compile(r"(^|/)[^/]*agent[^/]*\.(py|ts|js|tsx)$", re.I), "Agent 模块文件",
      "文件名含 agent, 候选的 agent 实现入口。"),
     ("tools", re.compile(r"(^|/)(tools?|mcp[^/]*|adapters?|connectors?)/", re.I), "工具/MCP 适配层",
@@ -22,13 +22,13 @@ PATH_RULES: list[tuple[str, re.Pattern, str, str]] = [
     ("rag", re.compile(r"(^|/)(rag|retriev\w*|embed\w*|vector_store|indexing)/", re.I), "RAG/检索链路",
      "存在检索/向量/嵌入相关目录。"),
     ("eval", re.compile(r"(^|/)(evals?|evaluation|benchmarks?|rubrics?|judge)/", re.I), "评测资产目录",
-     "存在评测/基准目录, 是 Agent Evaluation 的直接证据。"),
+     "路径包含评测/基准名称；尚未验证评测内容与效果。"),
     ("eval", re.compile(r"(^|/)[^/]*eval[^/]*\.py$", re.I), "评测脚本",
      "文件名含 eval 的 Python 脚本。"),
     ("backend", re.compile(r"(^|/)(server|api|backend|app)/", re.I), "后端服务目录",
-     "存在服务端代码目录, 承担 API/业务逻辑。"),
+     "路径包含服务端目录名称；尚未验证业务链路。"),
     ("backend", re.compile(r"(^|/)(models?|schema[s]?|migrations?)/", re.I), "数据模型/迁移",
-     "存在 ORM 模型或迁移目录, 说明有持久化设计。"),
+     "路径包含模型或迁移目录名称；尚未验证持久化设计。"),
     ("reliability", re.compile(r"(^|/)[^/]*(retry|backoff|guard|rate_?limit|circuit|fallback)[^/]*\.(py|ts|js)$", re.I), "可靠性组件",
      "存在重试/限流/降级命名模块。"),
     ("reliability", re.compile(r"(^|/)tests?/", re.I), "测试目录",
@@ -39,7 +39,7 @@ PATH_RULES: list[tuple[str, re.Pattern, str, str]] = [
      "存在 Dockerfile/compose/Makefile 等部署入口。"),
 ]
 
-# 内容确认规则: 路径命中后再读文件内容, 内容匹配则升为 VERIFIED
+# Compatibility label VERIFIED means only a text-pattern match, not correctness.
 CONTENT_CONFIRM: dict[str, list[str]] = {
     "agent": [r"plan|step|react|tool_call|reasoning|loop|max_iter", r"agent"],
     "tools": [r"tool|schema|function_call|mcp"],
@@ -64,17 +64,42 @@ README_CLAIMS: list[tuple[str, re.Pattern, str]] = [
 _MAX_READ_FILES = 8      # 内容确认最多读的文件数(控制 API 用量)
 _MAX_READ_BYTES = 12_000  # 每文件最多读的字符数
 _IGNORE = re.compile(r"(^|/)(node_modules|\.git|dist|build|\.next|__pycache__|vendor|\.venv)/")
+_DOMAINS = ("agent", "tools", "memory", "rag", "eval", "backend", "reliability", "deploy")
+_LIMITATIONS = [
+    "此处仅盘点路径与抽样文本关键词，不评估代码质量、实现正确性或个人能力。",
+    "最多抽样读取 8 个文件，每个文件仅检查前 12000 个字符；未匹配不代表功能缺失。",
+    "每个路径按首个匹配规则归类；领域计数不代表完整模块覆盖。",
+]
+
+
+def coverage_for_scan(scan_stats: dict | None) -> dict:
+    """Never translate legacy scores into fabricated historical inspection counts."""
+    saved = scan_stats or {}
+    if isinstance(saved.get("coverage"), dict):
+        return saved["coverage"]
+    stats = saved.get("stats") or {}
+    return {
+        "domains": [], "files_total": stats.get("files"),
+        "files_sampled": None, "files_read": None, "files_failed": None,
+        "files_truncated": None, "tree_truncated": stats.get("truncated"),
+        "history_unknown": True,
+        "limitations": [*_LIMITATIONS, "历史扫描未记录读取覆盖明细；原能力分数不再展示，请重新扫描获取覆盖信息。"],
+    }
 
 
 async def analyze_snapshot(snapshot: dict, file_reader=None) -> dict:
     """对 collect_repo_snapshot 的产物做确定性分析。
 
     file_reader: async (path) -> str | None, 用于内容确认(调用方注入 fetch_file_text 节流包装); None 则只做结构分析。
-    返回 {findings: [...], matrix: [...], stats: {...}}。
+    返回 {findings: [...], coverage: {...}, stats: {...}}。
     """
     tree = [it for it in snapshot.get("tree", []) if it.get("type") == "blob" and not _IGNORE.search(it["path"])]
     readme = snapshot.get("readme") or ""
     findings: list[dict] = []
+    path_matches = {domain: 0 for domain in _DOMAINS}
+    content_matches = {domain: 0 for domain in _DOMAINS}
+    readme_claims = {domain: 0 for domain in _DOMAINS}
+    sampled = read = failed = truncated = 0
 
     # ---- 1) 路径规则(结构证据 HIGH) ----
     to_confirm: list[tuple[str, str, dict]] = []  # (domain, path, finding)
@@ -87,7 +112,10 @@ async def analyze_snapshot(snapshot: dict, file_reader=None) -> dict:
                     "detail": detail, "file_path": p,
                 }
                 findings.append(f)
-                to_confirm.append((domain, p, f))
+                path_matches[domain] += 1
+                # GitCode's shallow inventory includes directory aliases as blobs.
+                if not p.endswith("/"):
+                    to_confirm.append((domain, p, f))
                 break  # 一个文件只产一条发现(取第一条匹配规则)
 
     # ---- 2) 内容确认(抽样读文件 → VERIFIED) ----
@@ -108,16 +136,21 @@ async def analyze_snapshot(snapshot: dict, file_reader=None) -> dict:
                 picked.append((domain, p, f))
                 seen_files.add(p)
         for domain, p, f in picked:
+            sampled += 1
             try:
                 text = await file_reader(p)
             except Exception:  # noqa: BLE001
                 text = None
             if not text:
+                failed += 1
                 continue
+            read += 1
+            truncated += int(len(text) > _MAX_READ_BYTES)
             text = text[:_MAX_READ_BYTES]
             if any(re.search(rx, text, re.I) for rx in CONTENT_CONFIRM.get(domain, [])):
                 f["level"] = "VERIFIED"
-                f["detail"] = f"{f['detail']}（已读文件内容确认）"
+                content_matches[domain] += 1
+                f["detail"] = f"{f['detail']}（抽样文本命中关键词，未验证实现正确性）"
 
     # ---- 3) README 声明(无文件证据 → UNVERIFIED_CLAIM) ----
     for domain, rx, title in README_CLAIMS:
@@ -126,6 +159,7 @@ async def analyze_snapshot(snapshot: dict, file_reader=None) -> dict:
             continue
         has_file = any(f["domain"] == domain and f["level"] in ("VERIFIED", "HIGH") for f in findings)
         if not has_file:
+            readme_claims[domain] += 1
             start = max(0, m.start() - 30)
             quote = (readme or "")[start : m.end() + 30].replace("\n", " ").strip()
             findings.append({
@@ -142,25 +176,21 @@ async def analyze_snapshot(snapshot: dict, file_reader=None) -> dict:
         findings.insert(0, {
             "domain": "backend", "level": "VERIFIED",
             "title": f"主要语言: {' / '.join(k for k, _ in top)}",
-            "detail": "语言分布(字节): " + ", ".join(f"{k} {v * 100 // total}%" for k, v in top) + "。",
+            "detail": "仓库 API 提供的语言分布: " + ", ".join(f"{k} {v * 100 // total}%" for k, v in top) + "。此元数据不代表源码已读取或个人掌握。",
             "file_path": "(languages API)",
         })
 
-    # ---- 5) 能力矩阵(确定性计分) ----
-    domains = ["agent", "tools", "memory", "rag", "eval", "backend", "reliability", "deploy"]
-    matrix = []
-    for d in domains:
-        fs = [f for f in findings if f["domain"] == d]
-        score = 0.0
-        for f in fs:
-            score += {"VERIFIED": 1.0, "HIGH": 0.6, "UNVERIFIED_CLAIM": 0.25}.get(f["level"], 0)
-        level = round(min(5.0, max(score, 0.5 if fs else 0.0)), 1)
-        matrix.append({"key": d, "level": level, "findings": len(fs)})
-
     stats = {
-        "files": len(tree),
+        "files": sum(not it["path"].endswith("/") for it in tree),
         "commits": snapshot.get("commit_count"),
         "languages": list(langs.keys())[:5],
         "truncated": any(it.get("path") == "__TRUNCATED__" for it in snapshot.get("tree", [])),
     }
-    return {"findings": findings, "matrix": matrix, "stats": stats}
+    coverage = {
+        "domains": [{"key": d, "path_matches": path_matches[d], "content_matches": content_matches[d], "readme_claims": readme_claims[d]} for d in _DOMAINS],
+        "files_total": stats["files"], "files_sampled": sampled, "files_read": read,
+        "files_failed": failed, "files_truncated": truncated,
+        "tree_truncated": stats["truncated"], "history_unknown": False,
+        "limitations": list(_LIMITATIONS),
+    }
+    return {"findings": findings, "coverage": coverage, "stats": stats}

@@ -31,6 +31,11 @@ class LearningTask(Base):
     # 为什么学: 关联差距/证据的因果说明
     why: Mapped[str | None] = mapped_column(Text, nullable=True)
     why_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)   # 引用的证据/差距 ID
+    source_exam_id: Mapped[int | None] = mapped_column(ForeignKey("exams.id", ondelete="SET NULL"), nullable=True)
+    source_exam_question_id: Mapped[int | None] = mapped_column(ForeignKey("exam_questions.id", ondelete="SET NULL"), nullable=True)
+    source_evidence_id: Mapped[int | None] = mapped_column(ForeignKey("evidence.id", ondelete="SET NULL"), nullable=True)
+    source_criterion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    gap_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # 任务内容: steps / principles / verify / acceptance
     content: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     est_minutes: Mapped[int] = mapped_column(Integer, default=25)
