@@ -4,10 +4,11 @@ This snapshot includes the personal learning and assessment loop, question works
 project intelligence, persistent Project Autopilot Worker, source-backed memory
 review, streaming diagnostics and bounded checkpoint recovery.
 
-The latest complete backend regression before source-split recovery passed 638
-tests. Source-split, queue, budget, compatibility and API integration checks passed
-100 tests; these sets overlap. The full updated suite is recorded separately when
-finished. Frontend tests previously passed 152 cases and the build passed.
+The updated full backend suite passed 678 tests in 435.56 seconds in an isolated
+fresh database. Source-split, queue, budget, compatibility and API integration
+checks passed 100 tests; these sets overlap. Frontend tests previously passed
+152 cases and the build passed. These are mechanism/fixture checks, not proof
+that the unfinished real-model project report has passed acceptance.
 
 The long real-model project acceptance run remains unfinished and was stopped at
 the user's request to deploy this snapshot. A complete real-model project report
