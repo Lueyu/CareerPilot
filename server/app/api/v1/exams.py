@@ -9,12 +9,15 @@ import html as _html
 import json as _json
 import re as _re
 import time
+from collections import Counter
+from collections.abc import Sequence
 from copy import deepcopy
 from types import SimpleNamespace
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_workspace
@@ -66,6 +69,7 @@ EXAM_KINDS = {
     Exam.KIND_BANK: {"title": "面经考试", "desc": "用面经题库组卷实战演练", "default_minutes": 45},
     Exam.KIND_PROJECT: {"title": "项目面试", "desc": "围绕项目经历的深挖式问答", "default_minutes": 40},
 }
+EXAM_HISTORY_PAGE_SIZE = 20
 
 
 @router.get("/exams")
@@ -75,13 +79,43 @@ async def list_exams(
 ):
     history = (
         await session.execute(
-            select(Exam).where(Exam.workspace_id == ws.id, Exam.kind != 'practice').order_by(Exam.id.desc()).limit(20)
+            _exam_history_query(ws).limit(EXAM_HISTORY_PAGE_SIZE)
         )
     ).scalars().all()
-    counts = {
-        kind: sum(1 for e in history if e.kind == kind)
-        for kind in EXAM_KINDS
+    return _exam_list_data(history, Counter(exam.kind for exam in history))
+
+
+@router.get("/exams/history")
+async def list_exam_history(
+    before_id: Annotated[int | None, Query(ge=1, le=2_147_483_647)] = None,
+    ws: Workspace = Depends(get_workspace),
+    session: AsyncSession = Depends(get_session),
+):
+    query = _exam_history_query(ws)
+    if before_id is not None:
+        query = query.where(Exam.id < before_id)
+    rows = (await session.scalars(query.limit(EXAM_HISTORY_PAGE_SIZE + 1))).all()
+    page = rows[:EXAM_HISTORY_PAGE_SIZE]
+    count_rows = await session.execute(
+        select(Exam.kind, func.count()).where(*_exam_history_scope(ws)).group_by(Exam.kind)
+    )
+    counts = {kind: count for kind, count in count_rows}
+    return {
+        **_exam_list_data(page, counts),
+        "total_count": sum(counts.values()),
+        "next_cursor": page[-1].id if len(rows) > EXAM_HISTORY_PAGE_SIZE else None,
     }
+
+
+def _exam_history_scope(ws: Workspace):
+    return Exam.workspace_id == ws.id, Exam.kind != "practice"
+
+
+def _exam_history_query(ws: Workspace):
+    return select(Exam).where(*_exam_history_scope(ws)).order_by(Exam.id.desc())
+
+
+def _exam_list_data(history: Sequence[Exam], counts: dict[str, int]) -> dict:
     return {
         "kinds": [
             {
@@ -89,7 +123,7 @@ async def list_exams(
                 "title": meta["title"],
                 "desc": meta["desc"],
                 "default_minutes": meta["default_minutes"],
-                "history_count": counts[kind],
+                "history_count": counts.get(kind, 0),
             }
             for kind, meta in EXAM_KINDS.items()
         ],

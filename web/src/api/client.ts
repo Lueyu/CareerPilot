@@ -216,6 +216,11 @@ export interface ExamsData {
   }[];
 }
 
+export interface ExamHistoryPage extends ExamsData {
+  total_count: number;
+  next_cursor: number | null;
+}
+
 export interface LearningData {
   today: LearningTaskView[];
   completed?: LearningTaskView[];
