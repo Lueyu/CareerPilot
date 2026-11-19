@@ -303,7 +303,7 @@ async def test_budget_checks_prevent_model_calls_and_unknown_usage_stays_unknown
 
 @pytest.mark.asyncio
 async def test_large_manifest_does_not_reappear_in_each_module_request(monkeypatch):
-    api, _ = await fixture_pipeline(monkeypatch, 1)
+    api, calls = await fixture_pipeline(monkeypatch, 1)
     ctx, rt = context(), runtime(api)
     artifacts, _ = await drive(api, ctx, rt)
     spec = next(s for s in api.plan_steps(ctx, artifacts) if s['stage'] == 'analyze_module')
@@ -311,6 +311,10 @@ async def test_large_manifest_does_not_reappear_in_each_module_request(monkeypat
     bigger['manifest']['entries'].extend({'path': f'directory_{i}/module_longname_{i}.py', 'included': True, 'blob_oid': f'{i:040x}', 'type': 'blob'} for i in range(3000))
     out = await api.execute_stage('analyze_module', {'context': ctx, 'payload': spec['payload'], 'artifacts': bigger}, rt)
     assert out['request_meta']['input_chars'] <= rt.input_chars
+    full, partial = (call for call in calls if call['task'] == 'analyze_module')
+    assert full['available_paths'] == ['src/f0.py'] and full['path_catalog_partial'] is False
+    assert partial['path_catalog_partial'] is True and len(partial['available_paths']) < 3001
+    assert full['path_catalog_note'] != partial['path_catalog_note']
 
 
 @pytest.mark.asyncio
@@ -332,6 +336,67 @@ async def test_followup_read_does_not_change_existing_source_step_dependencies(m
     assert result['report']['coverage_status'] == 'COMPLETE'
     caller = next(m for m in result['report']['snapshot']['modules'] if m['paths'] == ['src/f0.py'])
     assert 'src/f1.py' in caller['dependencies'], 'Actually read followups must invalidate source-dependent cache even if model omits an edge'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('unsafe', ['../other.py', '/root/file.py', 'src\\file.py', 'src/invalid\x00.py'])
+async def test_module_unsafe_optional_paths_still_fail(monkeypatch, unsafe):
+    api, _ = await fixture_pipeline(monkeypatch, 1)
+    previous = api.AgentAdapter.chat_with
+
+    async def chat(self, cfg, system, user, **kwargs):
+        result = await previous(self, cfg, system, user, **kwargs)
+        if json.loads(user)['task'] == 'analyze_module':
+            value = json.loads(result['content'])
+            value['read_requests'] = [{'path': unsafe, 'reason': 'Check untrusted path'}]
+            result['content'] = json.dumps(value)
+        return result
+
+    monkeypatch.setattr(api.AgentAdapter, 'chat_with', chat)
+    with pytest.raises(api.StageError) as error:
+        await drive(api, context(), runtime(api))
+    assert error.value.category == 'INVALID_CITATION'
+
+
+@pytest.mark.asyncio
+async def test_unmatched_optional_paths_keep_cited_claims_and_disable_reuse(monkeypatch):
+    api, _ = await fixture_pipeline(monkeypatch, 1)
+    previous = api.AgentAdapter.chat_with
+    original_manifest = api.sources.fetch_manifest_page
+
+    async def manifest(*args, **kwargs):
+        page = await original_manifest(*args, **kwargs)
+        page['entries'].append({'path': 'src/excluded.py', 'included': False, 'category': 'excluded',
+                                'type': 'blob', 'mode': '100644', 'blob_oid': 'f' * 40,
+                                'size': 10, 'reason': 'Excluded fixture'})
+        return page
+
+    async def chat(self, cfg, system, user, **kwargs):
+        result = await previous(self, cfg, system, user, **kwargs)
+        if json.loads(user)['task'] == 'analyze_module':
+            value = json.loads(result['content'])
+            value['read_requests'] = [{'path': 'src/missing.py', 'reason': 'Check optional implementation'}]
+            value['dependencies'] = [{'path': 'src/excluded.py', 'reason': 'Consider excluded dependency'}]
+            result['content'] = json.dumps(value)
+        return result
+
+    monkeypatch.setattr(api.sources, 'fetch_manifest_page', manifest)
+    monkeypatch.setattr(api.AgentAdapter, 'chat_with', chat)
+    artifacts, _ = await drive(api, context(), runtime(api))
+    output = artifacts['report']
+    module = output['snapshot']['modules'][0]
+    assert output['coverage_status'] == 'COMPLETE'
+    assert module['claims'][0]['citations'][0]['path'] == 'src/f0.py'
+    assert module['dependency_scope_complete'] is False
+    assert module['dependencies'] == []
+    assert len(module['unknowns']) == 2
+    assert set(module['unknowns']) <= set(output['report']['unknowns'])
+    assert {source['path'] for source in module['sources']} == {'src/f0.py'}
+
+    ctx = {**context(), 'mode': 'incremental', 'baseline': {'snapshot': output['snapshot'], 'artifacts': artifacts}}
+    incremental_manifest = {**artifacts['manifest'], 'diff': {'complete': True, 'requires_full': False, 'changes': []}}
+    assert api._reusable_module(ctx, incremental_manifest, module) is None
+    assert api._impact_input(ctx, incremental_manifest) is None
 
 
 @pytest.mark.asyncio
@@ -557,3 +622,21 @@ async def test_visible_source_normalization_is_disclosed_to_model_and_report(mon
     assert module_request['sources'][0]['normalizations'][0]['codepoint'] == 'U+0000'
     assert any('转义' in note for note in result['report']['report']['unknowns'])
     assert any('转义' in p['text'] for s in result['report']['report']['sections'] if s['id'] == 'limitations' for p in s['paragraphs'])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(('task', 'expected'), [('plan_modules', 'flash'), ('analyze_module', 'strong')])
+async def test_project_stage_uses_coach_auto_tier_and_traces_dispatched_model(monkeypatch, task, expected):
+    api = engine()
+    rt = runtime(api)
+    assert rt.max_source_bytes is None
+    base = dict(rt.llm_config)
+    rt.llm_config['auto_profiles'] = {tier: {**base, 'model': tier + '-fixture'} for tier in ('flash', 'strong')}
+    calls = []
+    async def chat(self, config, *args, **kwargs):
+        calls.append(config['model'])
+        return {'content': '{"candidates":[]}'}
+    monkeypatch.setattr(api.AgentAdapter, 'chat_with', chat)
+    _, _, meta = await api._ask(task, {}, api.CandidateResponse, rt)
+    assert calls == [expected + '-fixture']
+    assert (meta['routing_mode'], meta['tier'], meta['model']) == ('auto', expected, calls[0])

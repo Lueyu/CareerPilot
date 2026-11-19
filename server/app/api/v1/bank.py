@@ -6,20 +6,24 @@ import datetime as dt
 import json
 import re
 import time
-from typing import Any
+from typing import Annotated, Any
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
-from app.models import ImportItem, ImportSession, Question, Skill, Trace, Workspace
+from app.models import Exam, ImportItem, ImportSession, Project, Question, Skill, Trace, Workspace
 from app.services.answer_gen import generate_answer
+from app.services import bank_review_actions as review_actions
+from app.services.interview_rewrite import rewrite_interview_questions
 from app.services.llm import AgentAdapter
-from app.services.text_extract import extract_many
+from app.services.project_context import PROFILE_LABELS, project_profile
+from app.services.text_extract import MAX_FILE_BYTES, MAX_TEXT_CHARS, extract_many
 from app.services.tracing import add_span, emit_event, finish_trace, start_trace
 
 router = APIRouter()
@@ -61,8 +65,11 @@ async def list_bank(
     topic: str | None = None,
     skill: str | None = None,
     q: str | None = None,
-    limit: int = 60,
-    offset: int = 0,
+    companies: Annotated[list[str] | None, Query()] = None,
+    topics: Annotated[list[str] | None, Query()] = None,
+    sources: Annotated[list[str] | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=5000)] = 60,
+    offset: Annotated[int, Query(ge=0)] = 0,
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
@@ -72,41 +79,43 @@ async def list_bank(
         Question.canonical_question_id.is_(None),  # 变体不单独列出
         Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY'),
     )
-    if company:
-        base = base.where(Question.company.ilike(f"%{company}%"))
-    if topic:
-        base = base.where(Question.topic == topic)
+    company_filter = (Question.company.in_(companies) if companies else
+                      Question.company.icontains(company, autoescape=True) if company else True)
+    topic_filter = Question.topic.in_(topics or [topic]) if topics or topic else True
+    source_filter = Question.source_type.in_(sources) if sources else True
     if skill:
         sm = await _skill_map(session)
         sk = sm.get(skill)
         if sk:
             base = base.where(Question.skill_id == sk.id)
     if q:
-        base = base.where(Question.title.ilike(f"%{q}%"))
-    total = (await session.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+        base = base.where(Question.title.icontains(q.strip(), autoescape=True))
+    filtered = base.where(company_filter, topic_filter, source_filter)
+    total = (await session.execute(select(func.count()).select_from(filtered.subquery()))).scalar() or 0
     rows = (
-        await session.execute(base.order_by(Question.id).offset(offset).limit(limit))
+        await session.execute(filtered.order_by(Question.id).offset(offset).limit(limit))
     ).scalars().all()
 
     # 公司聚合(左侧过滤栏)
     companies = (
         await session.execute(
             select(Question.company, func.count(Question.id))
-            .where((Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id))
-            .where(Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY'))
+            .where(base.where(topic_filter, source_filter).whereclause)
             .group_by(Question.company)
-            .order_by(func.count(Question.id).desc())
-            .limit(10)
+            .order_by(func.count(Question.id).desc(), Question.company)
         )
     ).all()
     topics = (
         await session.execute(
             select(Question.topic, func.count(Question.id))
-            .where((Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id))
-            .where(Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY'))
+            .where(base.where(company_filter, source_filter).whereclause)
             .group_by(Question.topic)
+            .order_by(Question.topic)
         )
     ).all()
+    source_counts = (await session.execute(select(Question.source_type, func.count(Question.id))
+        .where(base.where(company_filter, topic_filter).whereclause).group_by(Question.source_type)
+        .order_by(Question.source_type))).all()
 
     return {
         "total": total,
@@ -130,8 +139,20 @@ async def list_bank(
         "facets": {
             "companies": [{"name": c, "count": n} for c, n in companies if c],
             "topics": [{"name": t, "count": n} for t, n in topics if t],
+            "sources": [{"name": source, "count": count} for source, count in source_counts],
         },
     }
+
+
+@router.get("/bank/interview-sets")
+async def list_interview_sets(
+    ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session),
+):
+    imports = (await session.scalars(select(ImportSession).where(
+        ImportSession.workspace_id == ws.id,
+        ImportSession.meta['interview_sets'].as_string().is_not(None),
+    ).order_by(ImportSession.id.desc()))).all()
+    return {"items": [entry for imported in imports for entry in reversed((imported.meta or {}).get('interview_sets', []))]}
 
 
 @router.get("/bank/{short_code}")
@@ -228,10 +249,12 @@ async def start_import_upload(
     每个文件独立解析: 成功的进入流水线, 失败的把原因回给前端展示, 不影响其他文件。
     """
     raw_items: list[tuple[str, bytes]] = []
+    if len(files) > 12 or len(pasted_text) > MAX_TEXT_CHARS:
+        raise HTTPException(413, "每次最多上传 12 个文件，粘贴文本最多 60,000 字符")
     for f in files:
         if not f or not f.filename:
             continue
-        raw_items.append((f.filename, await f.read()))
+        raw_items.append((f.filename, await f.read(MAX_FILE_BYTES + 1)))
 
     if not raw_items and not (pasted_text or "").strip():
         raise HTTPException(status_code=400, detail="没有可解析的内容: 请选择文件或粘贴文本")
@@ -272,9 +295,8 @@ async def _start_import_session(
     raw_items: list[tuple[str, bytes]],
 ) -> dict:
     """建 ImportSession(status=UPLOADED) → 提交 → 后台跑流水线 → 立即返回。"""
-    n_sessions = (await session.execute(select(func.count(ImportSession.id)))).scalar() or 0
     imp = ImportSession(
-        short_code=f"IM-{100 + n_sessions + 1}",
+        short_code=f"IM-{uuid4().hex[:24]}",
         workspace_id=ws.id,
         filename=filename,
         paste_text=(paste_text or "") or None,
@@ -342,24 +364,43 @@ async def _process_import(
             parse_ms = int((time.perf_counter() - t_stage) * 1000)
             file_meta = [x.as_meta() for x in extracted.files]
             ok_names = [f.name for f in extracted.ok_files]
-            text_parts = [t for t in [paste_text.strip(), extracted.text] if t]
+            text_parts = [("粘贴文本", paste_text.strip()), *((f.name, f.text) for f in extracted.ok_files)]
         else:
             file_meta, ok_names = [], []
-            text_parts = [t for t in [paste_text.strip()] if t]
-        source_text = "\n\n".join(text_parts).strip()
+            text_parts = [("粘贴文本", paste_text.strip())]
+        source_text = "\n\n".join(text for _, text in text_parts)[:MAX_TEXT_CHARS].strip()
+        imported = await session.get(ImportSession, import_id)
+        imported.meta = {**(imported.meta or {}), "files": file_meta, "extracted_source_text": source_text}
+        await advance(1, f"已解析 {len(file_meta) or '文本'} · {len(source_text)} 字符")
         if not source_text:
             detail = "没有可解析的内容"
             if file_meta:
                 detail = "; ".join(f"{m['name']}: {m['error']}" for m in file_meta if m["error"]) or detail
             raise RuntimeError(detail)
-        imported = (await session.execute(select(ImportSession).where(ImportSession.id == import_id))).scalar_one()
-        imported.meta = {**(imported.meta or {}), "extracted_source_text": source_text}
-        await advance(1, f"已解析 {len(file_meta) or '文本'} · {len(source_text)} 字符")
         add_span(session, trace, "parse", parse_ms if raw_items else 5, detail={"chars": len(source_text), "files": len(file_meta)})
 
         # 阶段 1: 提取题目(规则/LLM)
         t_stage = time.perf_counter()
-        candidates = await _extract_questions(source_text)
+        candidates = []
+        by_title = {}
+        remaining_chars = MAX_TEXT_CHARS
+        for name, text in text_parts:
+            if not text.strip() or remaining_chars <= 0:
+                continue
+            for candidate in await _extract_questions(text[: min(8000, remaining_chars)]):
+                key = re.sub(r"\W+", "", candidate["title"]).casefold()
+                if key in by_title:
+                    names = by_title[key]["source_files"]
+                    if name not in names:
+                        names.append(name)
+                else:
+                    candidate["source_files"] = [name]
+                    by_title[key] = candidate
+                    candidates.append(candidate)
+            remaining_chars -= min(len(text), 8000)
+        candidates = candidates[:20]
+        if not candidates:
+            raise RuntimeError("已读取文字，但没有识别到面试题；请检查截图是否清楚，或粘贴原题。")
         extract_ms = int((time.perf_counter() - t_stage) * 1000)
         await advance(2, f"提取到 {len(candidates)} 道候选题")
         add_span(session, trace, "extract", extract_ms, detail={"candidates": len(candidates)})
@@ -397,7 +438,7 @@ async def _process_import(
             if not (c.get("draft_answer") or "").strip() and not dup_map[i]
         ]
         t_stage = time.perf_counter()
-        filled = await _fill_answers(session, need_answer, sm)
+        filled = await _fill_answers(session, need_answer, sm, workspace_id=workspace_id)
         answer_ms = int((time.perf_counter() - t_stage) * 1000)
         add_span(session, trace, "answer", answer_ms, detail={"generated": filled})
 
@@ -410,6 +451,7 @@ async def _process_import(
                 suggested_skill_key=c["skill_key"],
                 draft_answer=c.get("draft_answer", ""),
                 draft_rubric=c.get("rubric"),
+                generation_meta={"source_files": c["source_files"], "extraction_method": c["extraction_method"]},
                 is_duplicate_of=dup_map[i],
                 status="DRAFT",
             )
@@ -479,19 +521,28 @@ async def import_status(
     return await _import_review(session, ws, import_id)
 
 
-async def _fill_answers(session: AsyncSession, candidates: list[dict], sm: dict[str, Skill]) -> int:
+async def _fill_answers(session: AsyncSession, candidates: list[dict], sm: dict[str, Skill], *, workspace_id: int | None = None) -> int:
     """为没有答案的题目生成讲解, 直接写入 candidate 的 draft_answer / rubric。"""
     todo = candidates[:20]
     if not todo:
         return 0
+    hints_by_skill = {}
+    if workspace_id is not None:
+        from app.services.bank_review_memory import load_review_feedback
+
+        skill_keys = {candidate.get("skill_key") or "agent" for candidate in todo}
+        for hint in await load_review_feedback(session, workspace_id, skill_keys):
+            hints_by_skill.setdefault(hint["skill_key"], []).append(hint)
     sem = asyncio.Semaphore(8)
 
     async def work(c: dict) -> None:
         skill_key = c.get("skill_key") or "agent"
         skill = sm.get(skill_key)
         skill_name = skill.name if skill else skill_key
+        hints = hints_by_skill.get(skill_key)
+        options = {"review_feedback": hints} if hints else {}
         async with sem:
-            html, rubric, source = await generate_answer(c["title"], skill_key, skill_name, "open")
+            html, rubric, source = await generate_answer(c["title"], skill_key, skill_name, "open", **options)
         c["draft_answer"] = html
         c["rubric"] = {**rubric, "source": source}
         c["answer_source"] = source
@@ -584,7 +635,7 @@ async def _extract_questions(text: str) -> list[dict]:
             if out and out.get("content"):
                 parsed = _parse_llm_questions(out["content"])
                 if parsed:
-                    return parsed
+                    return [{**item, "extraction_method": "model"} for item in parsed]
         except Exception:
             pass
 
@@ -597,6 +648,7 @@ async def _extract_questions(text: str) -> list[dict]:
                 "skill_key": _guess_skill(p["title"]),
                 "confidence": 0.7,
                 "draft_answer": p["answer"],
+                "extraction_method": "rules",
             }
             for p in pairs[:20]
         ]
@@ -617,6 +669,7 @@ async def _extract_questions(text: str) -> list[dict]:
                     "skill_key": _guess_skill(ln),
                     "confidence": 0.55 if ln.endswith(("?", "？")) else 0.4,
                     "draft_answer": "",
+                    "extraction_method": "rules",
                 }
             )
     return results[:20]
@@ -668,6 +721,7 @@ async def _import_review(session: AsyncSession, ws: Workspace, import_id: int) -
 
 def _item_view(it: ImportItem) -> dict:
     rubric = it.draft_rubric if isinstance(it.draft_rubric, dict) else {}
+    origin_meta = {key: value for key, value in (it.generation_meta or {}).items() if key != "bank_review"}
     return {
         "id": it.id,
         "title": it.title,
@@ -675,14 +729,173 @@ def _item_view(it: ImportItem) -> dict:
         "suggested_skill_key": it.suggested_skill_key,
         "draft_answer": it.draft_answer,
         "draft_rubric": it.draft_rubric,
-        "has_answer": bool((it.draft_answer or "").strip()),
+        "has_answer": bool(review_actions.visible_answer(it.draft_answer)),
+        "has_reviewable_answer": review_actions.has_reviewable_answer(it),
         "answer_source": rubric.get("source"),
         "is_duplicate_of": it.is_duplicate_of,
-        "generation_meta": it.generation_meta,
+        "generation_meta": origin_meta if it.generation_meta is not None else None,
         "question_id": it.question_id,
         "merged_into": it.merged_into,
         "status": it.status,
+        **review_actions.review_view(it),
     }
+
+
+class InterviewSetRequest(BaseModel):
+    project_id: int
+    item_ids: list[int] = Field(min_length=1, max_length=20)
+    title: str = Field(min_length=1, max_length=120)
+    request_id: str = Field(min_length=1, max_length=60)
+    edits: dict[int, str] = Field(default_factory=dict, max_length=20)
+
+
+class InterviewPaperRequest(BaseModel):
+    request_id: str = Field(min_length=1, max_length=60)
+    duration_minutes: int = Field(default=30, ge=1, le=240)
+
+
+async def _owned_import(session, ws, import_id, *, lock=False):
+    query = select(ImportSession).where(ImportSession.workspace_id == ws.id, ImportSession.id == import_id)
+    if lock:
+        query = query.with_for_update().execution_options(populate_existing=True)
+    imported = await session.scalar(query)
+    if imported is None:
+        raise HTTPException(404, "未找到导入记录")
+    return imported
+
+
+@router.post("/bank/imports/{import_id}/interview-sets", status_code=201)
+async def create_interview_set(
+    import_id: int, req: InterviewSetRequest,
+    ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session),
+):
+    from app.services.study_project_evidence import collect_project_evidence
+
+    imported = await _owned_import(session, ws, import_id)
+    title = req.title.strip()
+    item_ids = list(dict.fromkeys(req.item_ids))
+    edits = {item_id: value.strip() for item_id, value in req.edits.items()}
+    if any(item_id not in item_ids or not 6 <= len(text) <= 1000 for item_id, text in edits.items()):
+        raise HTTPException(422, "修订只能用于已选原题，长度须为 6–1000 字")
+    if not title:
+        raise HTTPException(422, "请输入套题名称")
+    if imported.status not in {"REVIEW", "APPROVED"} or (imported.meta or {}).get("generation_task_id"):
+        raise HTTPException(409, "导入题目尚不可用于改写")
+    prior = next((entry for entry in (imported.meta or {}).get('interview_sets', [])
+                  if entry['request_id'] == req.request_id), None)
+    if prior:
+        if (prior['title'], prior['project_id'], prior['item_ids'], prior.get('edits', {})) != (title, req.project_id, item_ids, {str(key): value for key, value in edits.items()}):
+            raise HTTPException(409, "此生成请求已用于另一套题目")
+        return prior
+    project = await session.scalar(select(Project).where(
+        Project.workspace_id == ws.id, Project.id == req.project_id, Project.archived_at.is_(None),
+    ))
+    if project is None:
+        raise HTTPException(404, "未找到可用项目")
+    project_version = (project.generation, project.last_seen_sha, project.latest_valid_analysis_id, project.meta)
+    by_id = {item.id: item for item in imported.items if item.status != ImportItem.STATUS_REJECTED}
+    if any(item_id not in by_id for item_id in item_ids):
+        raise HTTPException(422, "选择的原题不属于这个导入批次，或已被驳回")
+    skills = await _skill_map(session)
+    prepared = []
+    facts = {
+        f'P{project.id}-{key}': {'label': PROFILE_LABELS[key], 'provenance': 'user_statement', 'text': value[:600]}
+        for key, value in project_profile(project).items() if value
+    }
+    personal_refs = list(facts)
+    model_items = []
+    for item_id in item_ids:
+        item = by_id[item_id]
+        skill = skills.get(item.suggested_skill_key) or skills.get('agent')
+        if skill is None:
+            raise HTTPException(409, "工作空间未配置题目能力域")
+        original_title = edits.get(item_id, item.title)
+        records = await collect_project_evidence(session, ws.id, [skill.id], project.id, original_title)
+        evidence = next((record for record in records if record['provenance'] == 'repository_observation'
+                         and record.get('revision') and record.get('path')), None)
+        refs = list(personal_refs)
+        if evidence:
+            ref = f'R{item.id}'
+            facts[ref] = {**evidence, 'text': evidence['text'][:350]}
+            refs.append(ref)
+        model_items.append({'item_id': item.id, 'original_question': original_title[:500], 'allowed_fact_refs': refs})
+        prepared.append((item, skill, evidence, original_title))
+    rewrites, fallback_reason = await rewrite_interview_questions(project.name, model_items, facts)
+    imported = await _owned_import(session, ws, import_id, lock=True)
+    entries = (imported.meta or {}).get('interview_sets', [])
+    prior = next((entry for entry in entries if entry['request_id'] == req.request_id), None)
+    if prior:
+        if (prior['title'], prior['project_id'], prior['item_ids'], prior.get('edits', {})) != (title, req.project_id, item_ids, {str(key): value for key, value in edits.items()}):
+            raise HTTPException(409, "此生成请求已用于另一套题目")
+        return prior
+    current = (await session.execute(select(Project.generation, Project.last_seen_sha, Project.latest_valid_analysis_id, Project.meta).where(
+        Project.id == project.id, Project.workspace_id == ws.id, Project.archived_at.is_(None),
+    ))).one_or_none()
+    if current != project_version:
+        raise HTTPException(409, "项目证据版本已更新，请重新生成")
+    selected_items = (await session.scalars(select(ImportItem).where(
+        ImportItem.session_id == import_id, ImportItem.id.in_(item_ids),
+    ).order_by(ImportItem.id).with_for_update().execution_options(populate_existing=True))).all()
+    if len(selected_items) != len(item_ids) or any(item.status == ImportItem.STATUS_REJECTED for item in selected_items):
+        raise HTTPException(409, "原题审核状态已变化，请重新选择")
+    set_id = uuid4().hex
+    questions = []
+    skipped = []
+    for index, (item, skill, evidence, original_title) in enumerate(prepared, 1):
+        code = f"IS-{set_id[:23]}-{index}"
+        rewrite = rewrites.get(item.id)
+        responsibility_ref = f'P{project.id}-responsibilities'
+        refs = rewrite['fact_refs'] if rewrite else ([responsibility_ref] if responsibility_ref in facts else [])
+        if not rewrite and evidence:
+            refs.append(f'R{item.id}')
+        sources = [{'ref': ref, **facts[ref]} for ref in refs]
+        provenance = {"source_item_id": item.id, "original_title": original_title, "extracted_title": item.title,
+                      "source_files": (item.generation_meta or {}).get('source_files', []),
+                      "evidence": {key: value for key, value in evidence.items() if key != 'text'} if evidence and f'R{item.id}' in refs else None,
+                      "fact_refs": sources, "rewrite_method": "model" if rewrite else "conditional_rules",
+                      "rewrite_fallback_reason": None if rewrite else fallback_reason}
+        if rewrite:
+            prompt = rewrite['question']
+        else:
+            anchor = facts[responsibility_ref]['text'][:180] if responsibility_ref in refs else (evidence['label'] if evidence else '')
+            context = f'参考资料「{anchor}」，' if anchor else ''
+            prompt = (f"原面经题：{original_title}\n\n{context}假如「{project.name}」需要应对原问里的情形，"
+                      "你会如何设计和验证？请区分本人已做的工作、仓库中能查到的行为，以及你的假设。")
+            skipped.append({"source_item_id": item.id, "title": original_title, "reason": fallback_reason})
+        points = [{"title": name, "keywords": words} for name, words in (
+            ("定位可核查的实现并解释行为" if evidence else "区分假设与已有实现", [evidence['path'] if evidence else "假设", "实现"]),
+            ("结合面经题解释取舍并区分缺口", ["取舍", "缺口"]),
+            ("给出验证方法和预期结果", ["测试", "预期"]),
+        )]
+        question = Question(short_code=code, workspace_id=ws.id, title=prompt, qtype="open",
+                            topic=SKILL_TOPIC.get(skill.key, 'harness'), skill_id=skill.id, difficulty=3,
+                            source_type="GENERATED", is_demo=ws.is_demo, rubric={"points": points, "max_points": 5},
+                            generation_meta={"assessment_use": "PRACTICE_ONLY", "interview_set_id": set_id, **provenance})
+        session.add(question)
+        await session.flush()
+        questions.append({"id": question.id, "title": prompt, **provenance})
+    entry = {"id": set_id, "title": title, "request_id": req.request_id, "import_id": import_id,
+             "project_id": project.id, "project_name": project.name, "item_ids": item_ids,
+             "questions": questions, "skipped": skipped, "edits": {str(key): value for key, value in edits.items()}}
+    imported.meta = {**(imported.meta or {}), "interview_sets": [*entries, entry]}
+    await session.commit()
+    return entry
+
+
+@router.post("/bank/imports/{import_id}/interview-sets/{set_id}/paper")
+async def create_interview_paper(
+    import_id: int, set_id: str, req: InterviewPaperRequest,
+    ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session),
+):
+    from app.api.v1.exams import CreateExamReq, issue_exam
+
+    imported = await _owned_import(session, ws, import_id)
+    entry = next((item for item in (imported.meta or {}).get('interview_sets', []) if item['id'] == set_id), None)
+    if entry is None:
+        raise HTTPException(404, "未找到面试套题")
+    return await issue_exam(CreateExamReq(kind=Exam.KIND_BANK,
+        question_ids=[question['id'] for question in entry['questions']], duration_minutes=req.duration_minutes,
+        idempotency_key=f"IS:{set_id}:{req.request_id}"), ws, session, interview_set=entry)
 
 
 @router.post("/bank/imports/{import_id}/items/{item_id}/answer")
@@ -694,28 +907,29 @@ async def regenerate_item_answer(
     session: AsyncSession = Depends(get_session),
 ):
     """为某条导入草稿(重新)生成详细解答。已有答案且 force=false 时直接返回。"""
-    item = (
-        await session.execute(
-            select(ImportItem)
-            .join(ImportSession, ImportSession.id == ImportItem.session_id)
-            .where(ImportItem.id == item_id, ImportItem.session_id == import_id, ImportSession.workspace_id == ws.id)
-        )
-    ).scalar_one_or_none()
-    if item is None:
-        raise HTTPException(status_code=404, detail="import item not found")
-
-    if item.generation_meta:
+    imported, item = await review_actions.lock_review_item(session, ws, import_id, item_id)
+    if review_actions.generated_import(imported, item):
         raise HTTPException(409, "请在补题工作台编辑或新建批次，普通重新生成会丢失项目资料关联")
-
     if not force and (item.draft_answer or "").strip():
         return _item_view(item)
+    if item.status != ImportItem.STATUS_DRAFT:
+        raise HTTPException(409, "仅待审核草稿可以编辑")
+    review_actions.ensure_not_revising(item)
 
     sm = await _skill_map(session)
     skill_key = item.suggested_skill_key or "agent"
     skill = sm.get(skill_key)
-    answer_html, rubric, source = await generate_answer(item.title, skill_key, skill.name if skill else skill_key)
+    title, skill_name = item.title, skill.name if skill else skill_key
+    revision = review_actions.review_view(item)["review_revision"]
+    await session.commit()
+    answer_html, rubric, source = await generate_answer(title, skill_key, skill_name)
+    _, item = await review_actions.lock_review_item(session, ws, import_id, item_id)
+    if item.status != ImportItem.STATUS_DRAFT or review_actions.review_view(item)["review_revision"] != revision:
+        raise HTTPException(409, "草稿已更新，请重新打开后编辑")
+    review_actions.ensure_not_revising(item)
     item.draft_answer = answer_html
     item.draft_rubric = {**rubric, "source": source}
+    review_actions.bump_review_revision(item)
     await session.commit()
     return _item_view(item)
 
@@ -792,30 +1006,42 @@ async def approve_import(
     session: AsyncSession = Depends(get_session),
 ):
     """审核学习材料入私有题库；不生成能力证据。"""
-    existing = (await session.execute(select(ImportSession).where(ImportSession.id == import_id, ImportSession.workspace_id == ws.id))).scalar_one_or_none()
-    if existing and (existing.meta or {}).get("generation_task_id"):
+    from app.api.v1.question_generation import workspace_lock
+
+    await workspace_lock(session, ws.id)
+    imp = await _owned_import(session, ws, import_id, lock=True)
+    return await _approve_locked_import(session, ws, imp, req)
+
+
+@router.post("/bank/imports/{import_id}/items/{item_id}/review")
+async def review_import_item(
+    import_id: int,
+    item_id: int,
+    req: review_actions.ReviewRequest,
+    ws: Workspace = Depends(get_workspace),
+    session: AsyncSession = Depends(get_session),
+):
+    return await review_actions.review_import_item(session, ws, import_id, item_id, req)
+
+
+async def _approve_locked_import(session, ws, imp, req, *, commit=True, require_review_content=False, generated=False):
+    if generated or review_actions.generated_import(imp):
         from app.services.question_review import approve_generated
-        return await approve_generated(session, ws, import_id, req.item_ids, req.edits)
+
+        return await approve_generated(session, ws, imp.id, req.item_ids, req.edits, locked_import=imp,
+                                       commit=commit, require_review_content=require_review_content)
     t0 = time.perf_counter()
     trace = await start_trace(
         session, ws.id, "bank_import", "导入面经: 审核入库",
-        short_code=await _unique_trace_code(session, f"TR-A{import_id}"),
+        short_code=await _unique_trace_code(session, f"TR-A{imp.id}"),
     )
-    imp = (
-        await session.execute(
-            select(ImportSession).where(
-                ImportSession.id == import_id, ImportSession.workspace_id == ws.id
-            )
-        )
-    ).scalar_one_or_none()
-    if imp is None:
-        raise HTTPException(status_code=404, detail="import not found")
     if imp.status not in ("REVIEW", "APPROVED"):
         raise HTTPException(status_code=409, detail=f"import status is {imp.status}")
 
     items = (
         await session.execute(
             select(ImportItem).where(ImportItem.session_id == imp.id, ImportItem.status == "DRAFT")
+            .order_by(ImportItem.id).with_for_update().execution_options(populate_existing=True)
         )
     ).scalars().all()
     if req.item_ids is not None:
@@ -823,24 +1049,32 @@ async def approve_import(
 
     sm = await _skill_map(session)
     created = []
-    generated = 0
     for it in items:
+        review_actions.ensure_not_revising(it)
         edits = (req.edits or {}).get(it.id, {})
         title = edits.get("title", it.title)
         skill_key = edits.get("skill_key", it.suggested_skill_key)
-        skill = sm.get(skill_key or "", sm["agent"])
-        if it.is_duplicate_of:
+        skill = sm.get(skill_key or "") or sm.get("agent")
+        if skill is None:
+            raise HTTPException(409, "工作空间未配置题目能力域")
+        title_changed = title != it.title
+        if require_review_content:
+            it.is_duplicate_of = await _find_import_duplicate(session, ws.id, title, it.is_duplicate_of)
+        if it.is_duplicate_of and not title_changed:
             it.status = "MERGED"
+            it.merged_into = it.is_duplicate_of
+            if not require_review_content:
+                review_actions.bump_review_revision(it)
             continue
         answer_html = edits.get("answer_html", it.draft_answer or "")
         rubric = edits.get("rubric", it.draft_rubric)
         # 兜底: 审核时仍然没有答案的题, 现场补一份(LLM 优先, 否则规则模板)
-        if not str(answer_html or "").strip():
+        replace_draft = title_changed and not (str(edits.get("answer_html") or "").strip() and edits.get("rubric"))
+        if not require_review_content and (replace_draft or not str(answer_html or "").strip()):
             answer_html, auto_rubric, source = await generate_answer(
-                title, skill.key if skill else "agent", skill.name if skill else "agent"
+                title, skill.key if skill else "agent", skill.name if skill else "agent", edits.get("qtype", "open"),
             )
-            rubric = rubric or {**auto_rubric, "source": source}
-            generated += 1
+            rubric = {**auto_rubric, "source": source} if replace_draft or not rubric else rubric
         question = Question(
             short_code=edits.get("short_code", f"Q-U{imp.id}-{it.id}"),
             workspace_id=ws.id,
@@ -858,15 +1092,21 @@ async def approve_import(
             source_type="USER_PRIVATE",
             tags=edits.get("tags", []),
             is_demo=ws.is_demo,
+            generation_meta={"source_import_id": imp.id, "source_item_id": it.id,
+                             "source_files": (it.generation_meta or {}).get('source_files', []),
+                             "extracted_title": it.title},
         )
         session.add(question)
         await session.flush()
         it.status = "APPROVED"
         it.question_id = question.id
+        if not require_review_content:
+            review_actions.bump_review_revision(it)
         created.append(question.short_code)
     add_span(session, trace, "approve", 25, detail={"created": len(created), "merged": sum(1 for i in items if i.is_duplicate_of)})
 
     # 仅当该会话不再剩 DRAFT 项时才结束审核(单题通过保持 REVIEW, 其余题仍可继续审)
+    await session.flush()
     remaining = (
         await session.execute(
             select(func.count(ImportItem.id)).where(
@@ -876,10 +1116,22 @@ async def approve_import(
     ).scalar_one()
     if remaining == 0:
         imp.status = "APPROVED"
-    await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000), 0.02)
+    await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000), 0 if require_review_content else 0.02)
     await emit_event(session, ws.id, "import.approved", {"import_id": imp.id, "created": created}, "import", imp.id)
-    await session.commit()
+    if commit:
+        await session.commit()
     return {"created": created, "import_id": imp.id, "status": imp.status}
+
+
+async def _find_import_duplicate(session, workspace_id, title, suggested_id):
+    from app.api.v1.question_generation import normalized_title
+
+    rows = (await session.execute(select(Question.id, Question.title).where(
+        (Question.workspace_id.is_(None) | (Question.workspace_id == workspace_id)),
+        Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY'),
+    ).order_by(Question.id))).all()
+    matches = [question_id for question_id, existing_title in rows if normalized_title(existing_title) == normalized_title(title)]
+    return suggested_id if suggested_id in matches else next(iter(matches), None)
 
 
 # ---------------- 题目编辑 / 合并重复 / 审核驳回 ----------------
@@ -907,6 +1159,8 @@ async def _own_question(session: AsyncSession, ws: Workspace, short_code: str) -
         raise HTTPException(403, "共享题库只读；请创建个人版本再编辑")
     if q.workspace_id is not None and q.workspace_id != ws.id:
         raise HTTPException(status_code=403, detail="无权访问其他工作空间的私有题目")
+    if (q.generation_meta or {}).get("interview_set_id"):
+        raise HTTPException(status_code=409, detail="面经集题目随原帖与项目依据保存，不能从通用题库修改")
     return q
 
 
@@ -980,32 +1234,11 @@ async def reject_import_item(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    from app.api.v1.question_generation import workspace_lock
-    await workspace_lock(session, ws.id)
-    imp = (
-        await session.execute(
-            select(ImportSession).where(ImportSession.id == import_id, ImportSession.workspace_id == ws.id)
-        )
-    ).scalar_one_or_none()
-    if imp is None:
-        raise HTTPException(status_code=404, detail="导入会话不存在")
-    item = (
-        await session.execute(
-            select(ImportItem).where(ImportItem.id == item_id, ImportItem.session_id == imp.id).with_for_update().execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    if item is None:
-        raise HTTPException(status_code=404, detail="该题不属于此导入会话")
+    imp, item = await review_actions.lock_review_item(session, ws, import_id, item_id)
     if item.status != ImportItem.STATUS_DRAFT:
         raise HTTPException(status_code=409, detail=f"仅待审核(DRAFT)的题可以驳回，当前状态 {item.status}")
-    item.status = ImportItem.STATUS_REJECTED
+    review_actions.ensure_not_revising(item)
+    review_actions.bump_review_revision(item)
+    remaining = await review_actions.reject_locked_item(session, imp, item)
     await session.commit()
-    remaining = (
-        await session.execute(
-            select(func.count(ImportItem.id)).where(ImportItem.session_id == imp.id, ImportItem.status == ImportItem.STATUS_DRAFT)
-        )
-    ).scalar()
-    if remaining == 0:
-        imp.status = "APPROVED"
-        await session.commit()
     return {"item_id": item.id, "status": item.status, "session_status": imp.status, "remaining_draft": remaining}

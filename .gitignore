@@ -24,6 +24,7 @@ personal/
 web/.tmp/
 web/node_modules/
 web/dist/
+web/.env.development.local
 
 # Python 服务端(FastAPI): 依赖、缓存、日志、环境文件不入库
 server/.venv/
@@ -49,3 +50,15 @@ portal/dist/
 vite-dev.log
 .archify/
 .tmp/node-compile-cache/
+
+# Local Codex acceptance logs, task receipts and previews
+/.agent-runs/
+
+# Local task output, browser captures and exported packages
+/.audit/
+/.tmp/
+/.playwright-cli/
+/output/
+/exports/
+/debug.log
+pytest-of-*/

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React from 'react';
 import {act,create} from 'react-test-renderer';
-import {MemoryRouter,Routes,Route} from 'react-router-dom';
+import {MemoryRouter,Routes,Route,useLocation} from 'react-router-dom';
 import {AppStateProvider} from '../src/components/AppState.tsx';
 import Assets from '../src/pages/Assets.tsx';
 import ProjectReview from '../src/pages/ProjectReview.tsx';
@@ -36,13 +36,22 @@ test('repository import needs only URL and queues analysis without a browser sca
  }finally{await close(tree);}
 });
 
-test('project cards show persistent job and offline worker without legacy scan completion',async()=>{
- globalThis.fetch=fetcher();const tree=await mount(Assets);try{assert.match(text(tree),/已导入，等待分析/);assert.match(text(tree),/尚未启动本地后台服务/);assert.ok(button(tree,'查看项目报告'));assert.doesNotMatch(text(tree),/已扫描|路径 .*内容关键词|分析关注点/);}finally{await close(tree);}
+test('project cards link to the dossier and offer progress for the existing scan',async()=>{
+ globalThis.fetch=fetcher();
+ const tree=await mount(Assets);
+ try{
+  assert.ok(tree.root.findAllByType('a').some(n=>n.props.href==='/assets/project/7' && n.children.join('')===project.name));
+  assert.ok(button(tree,'查看项目档案'));
+  assert.ok(button(tree,'查看扫描进度'));
+  assert.doesNotMatch(text(tree),/已扫描|路径 .*内容关键词|分析关注点/);
+ }finally{await close(tree);}
+ const detail=await mount(ProjectReview,'/assets/project/7?tab=process','/assets/project/:id');
+ try{assert.match(text(detail),/尚未启动本地后台服务/);}finally{await close(detail);}
 });
 
 test('new partial failed task stays separate from the previous valid report',async()=>{
  globalThis.fetch=fetcher({run:{...queued,status:'BLOCKED',error:{code:'provider_timeout',message:'Provider timed out',recoverable:true},allowed_actions:['resume']},report:fullReport});
- const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');try{assert.match(text(tree),/Provider timed out/);assert.match(text(tree),/旧报告|历史成功报告/);assert.match(text(tree),/Earlier valid report/);assert.match(text(tree),/部分分析|部分结果/);assert.doesNotMatch(text(tree),/项目认知已保存到记忆中心|本次关注的问题/);}finally{await close(tree);}
+ const tree=await mount(ProjectReview,'/assets/project/7?tab=process','/assets/project/:id');try{assert.match(text(tree),/Provider timed out/);assert.match(text(tree),/旧报告|历史成功报告/);assert.match(text(tree),/Earlier valid report/);assert.match(text(tree),/部分分析|部分结果/);assert.doesNotMatch(text(tree),/项目认知已保存到记忆中心|本次关注的问题/);}finally{await close(tree);}
 });
 
 test('candidate review sends selected version and edited content; conflict retains the edit',async()=>{
@@ -71,7 +80,7 @@ test('first enable requires source acknowledgement and preserves explicit budget
   await act(async()=>tree.root.findByProps({'aria-label':'自动分析模型调用预算'}).props.onChange({target:{value:'12'}}));
   await act(async()=>{await button(tree,'确认并启用自动分析').props.onClick();await flush();});
   assert.equal(saved.acknowledge_source_transfer,true);assert.equal(saved.budget.max_model_calls,12);
-  assert.match(text(tree),/cannot save consent/);assert.ok(button(tree,'确认并启用自动分析'));assert.equal(tree.root.findByProps({'aria-label':'自动分析模型调用预算'}).props.value,12);
+  assert.match(text(tree),/cannot save consent/);assert.ok(button(tree,'确认并启用自动分析'));assert.equal(tree.root.findByProps({'aria-label':'自动分析模型调用预算'}).props.value,'12');
  }finally{await close(tree);}
 });
 
@@ -131,12 +140,18 @@ test('import can recover when the first settings read failed but opening its for
 test('report chapters expose the actual referenced claim and frozen source excerpt on demand',async()=>{
  const citation={path:'app.py',start_line:1,end_line:3};
  globalThis.fetch=fetcher({run:{...queued,id:11,status:'COMPLETED',coverage_status:'COMPLETE'},report:{...fullReport,source_excerpts:[{...citation,excerpt:'1: chapter_evidence()',excerpt_truncated:false}],report:{...fullReport.report,sections:[{key:'purpose',title:'项目用途',body:'Useful purpose',claim_ids:['C1']}],claims:[{id:'C1',title:'Actual claim',text:'Verified referenced observation',kind:'CODE_OBSERVED',citations:[citation]}]}}});
- const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');try{assert.match(text(tree),/Verified referenced observation/);assert.match(text(tree),/chapter_evidence/);}finally{await close(tree);}
+ const tree=await mount(ProjectReview,'/assets/project/7?tab=process','/assets/project/:id');try{
+  const link=tree.root.findAllByType('a').find(node=>node.props.href.endsWith('#report-claim-C1'));
+  assert.ok(link,'report section links to its referenced observation');
+  await act(async()=>{link.props.onClick({button:0,preventDefault(){}});await flush();});
+  assert.match(text(tree),/Verified referenced observation/);
+  assert.match(text(tree),/chapter_evidence/);
+ }finally{await close(tree);}
 });
 
 test('unknown remote freshness is explained as unknown rather than invented code changes',async()=>{
  globalThis.fetch=fetcher({report:{...fullReport,freshness:'UNKNOWN'}});
- const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');try{assert.match(text(tree),/新鲜度尚未确认/);assert.doesNotMatch(text(tree),/报告对应的代码已有变化/);}finally{await close(tree);}
+ const tree=await mount(ProjectReview,'/assets/project/7?tab=evidence','/assets/project/:id');try{assert.match(text(tree),/新鲜度尚未确认/);assert.doesNotMatch(text(tree),/报告对应的代码已有变化/);}finally{await close(tree);}
 });
 
 test('removed project links still open immutable reports without project mutations or candidate review',async()=>{
@@ -171,7 +186,7 @@ test('same report refreshes later candidates when the durable task completes and
   if(p.endsWith('/report')){reportReads++;return Response.json({project_id:7,latest_run:{...queued,id:11,status:completed?'COMPLETED':'RUNNING',coverage_status:'COMPLETE'},report:fullReport,worker:{online:true},allowed_actions:[]});}
   if(p.endsWith('/memory-candidates')){candidateReads++;return Response.json({items:completed?[candidate]:[]});}
  }});
- function Panel(){return React.createElement(ProjectAnalysisPanel,{projectId:7});}
+ function Panel(){return React.createElement(ProjectAnalysisPanel,{projectId:7,tab:'improvements'});}
  const tree=await mount(Panel);try{
   assert.doesNotMatch(text(tree),/Candidate knowledge from code/);
   completed=true;await act(async()=>{t.mock.timers.tick(5000);await flush();});
@@ -206,10 +221,10 @@ test('automatic report refresh is bounded and never overlaps an unfinished GET',
 });
 
 test('valid report survives candidate budget pause or failure with an explicit incomplete-memory label',async()=>{
- for(const status of ['PAUSED_BUDGET','FAILED_FINAL']){
-  globalThis.fetch=fetcher({run:{...queued,id:11,status,stage:'extract_candidates',coverage_status:'COMPLETE',error:{code:'BUDGET_EXHAUSTED',message:'Candidate stage incomplete',recoverable:status==='PAUSED_BUDGET'}},report:fullReport});
+ for(const status of ['PAUSED_BUDGET','BLOCKED','FAILED_FINAL']){
+  globalThis.fetch=fetcher({run:{...queued,id:fullReport.run_id,report_id:fullReport.run_id,status,stage:'extract_candidates',coverage_status:'COMPLETE',error:{code:'BUDGET_EXHAUSTED',message:'Candidate stage incomplete',recoverable:status==='PAUSED_BUDGET'}},report:fullReport});
   function Panel(){return React.createElement(ProjectAnalysisPanel,{projectId:7});}
-  const tree=await mount(Panel);try{assert.match(text(tree),/报告已完成，候选记忆尚未完成/);assert.match(text(tree),/Earlier valid report/);assert.match(text(tree),/Candidate stage incomplete/);}finally{await close(tree);}
+  const tree=await mount(Panel);try{assert.match(text(tree),/报告已生成，候选记忆尚未完成/);assert.match(text(tree),/Earlier valid report/);assert.match(text(tree),/Candidate stage incomplete/);}finally{await close(tree);}
  }
 });
 
@@ -228,5 +243,52 @@ test('history opens a valid complete report despite candidate failure and blocks
   assert.equal(button(tree,'#9').props.disabled,true,'PARTIAL must not masquerade as complete history');
   await act(async()=>{await button(tree,'#10').props.onClick();await flush();});
   assert.equal(historyOpened,true);assert.match(text(tree),/Complete report before candidate budget pause/);
+ }finally{await close(tree);}
+});
+
+test('single scan confirms source transfer, suppresses duplicate submissions and opens that project’s progress',async()=>{
+ const projects=[{...project,autopilot:{enabled:false,consent_required:true}}, {...project,id:8,name:'Other repository',autopilot:{enabled:false,consent_required:true}}];
+ const requests=[];
+ let finishScan;
+ globalThis.fetch=fetcher({projects,onRequest:(p,o)=>{
+  if(o.method==='POST'){
+   requests.push([p,JSON.parse(o.body)]);
+   return new Promise(resolve=>{finishScan=resolve;});
+  }
+ }});
+ let path;
+ function ScanScreen(){path=useLocation();return React.createElement(Assets);}
+ const tree=await mount(ScanScreen);
+ try{
+  const card=tree.root.findByProps({'aria-labelledby':'project-name-7'});
+  await act(async()=>card.findAllByType('button').find(n=>n.children.join('')==='AI 扫描').props.onClick());
+  assert.match(text(tree),/扫描「Real repository」/);
+  assert.match(text(tree),/只授权此次扫描/);
+  assert.equal(requests.length,0);
+  const confirm=button(tree,'确认并扫描此项目').props.onClick;
+  await act(async()=>{confirm();confirm();await flush();});
+  assert.equal(requests.length,1);
+  assert.equal(requests[0][0],'/api/v1/projects/7/ai-scan');
+  assert.equal(requests[0][1].acknowledge_source_transfer,true);
+  assert.ok(requests[0][1].request_key);
+  assert.ok(!('budget' in requests[0][1]));
+  await act(async()=>{finishScan(Response.json({run_id:21,status:'QUEUED'}));await flush();});
+  assert.equal(path.pathname+path.search,'/assets/project/7?tab=process');
+ }finally{await close(tree);}
+});
+
+test('default budgets stay empty and save without total scan quotas',async()=>{
+ const unlimited={max_model_calls:null,max_source_bytes:null};
+ let saved;
+ globalThis.fetch=fetcher({config:{...settings,budget:unlimited},onRequest:(_p,o)=>{
+  if(o.method==='PUT'){saved=JSON.parse(o.body);return Response.json({...settings,...saved});}
+ }});
+ const tree=await mount(AutopilotSettingsForm);
+ try{
+  const inputs=tree.root.findAllByProps({placeholder:'不限'});
+  assert.equal(inputs.length,2);
+  assert.deepEqual(inputs.map(input=>input.props.value),['','']);
+  await act(async()=>{button(tree,'保存自动分析设置').props.onClick();await flush();});
+  assert.deepEqual(saved.budget,unlimited);
  }finally{await close(tree);}
 });

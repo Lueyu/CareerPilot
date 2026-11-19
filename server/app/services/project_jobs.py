@@ -4,10 +4,11 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from sqlalchemy import select, text
-from app.models import Project, ProjectAnalysis, AnalysisStep
+from app.models import AppSetting, Project, ProjectAnalysis, AnalysisStep
 
 ACTIVE = ('QUEUED', 'RUNNING', 'RETRY_WAIT')
-OPEN = ACTIVE + ('PAUSED_USER', 'PAUSED_BUDGET', 'BLOCKED')
+OPEN = ACTIVE + ('PAUSED_USER', 'PAUSED_BUDGET', 'BLOCKED', 'WAITING_WORKER')
+HANDOFF_KEY = 'project_worker_handoff'
 MODEL_STAGES = {'plan_modules', 'analyze_module', 'cross_module', 'explain_section', 'extract_candidates','analyze_change_impact'}
 
 def utcnow():
@@ -29,11 +30,14 @@ class Claim:
     fencing_token: int
 
 async def enqueue(session, project, request_key, mode='full', target_sha=None, budget=None,
-                  model_config_fingerprint='', pipeline_version=None, prompt_bundle_version=None):
+                  model_config_fingerprint='', pipeline_version=None, prompt_bundle_version=None, reuse_open=False):
     if pipeline_version is None or prompt_bundle_version is None:
         from app.services.project_autopilot_engine import PIPELINE_VERSION,PROMPT_BUNDLE_VERSION
         pipeline_version=pipeline_version or PIPELINE_VERSION
         prompt_bundle_version=prompt_bundle_version or PROMPT_BUNDLE_VERSION
+    handoff = await session.scalar(select(AppSetting.value).where(
+        AppSetting.key == HANDOFF_KEY).with_for_update(read=True))
+    staging = bool(handoff and handoff.get('target_prompt') == prompt_bundle_version)
     await session.execute(text('SELECT pg_advisory_xact_lock(20261117, :id)'), {'id':project.id})
     previous = await session.scalar(select(ProjectAnalysis).where(
         ProjectAnalysis.workspace_id==project.workspace_id, ProjectAnalysis.request_key==request_key))
@@ -44,28 +48,43 @@ async def enqueue(session, project, request_key, mode='full', target_sha=None, b
     await session.refresh(project)
     if project.archived_at:
         raise ValueError('项目已移除')
+    open_statuses = ('WAITING_WORKER',) if staging else OPEN
     running = await session.scalar(select(ProjectAnalysis).where(ProjectAnalysis.project_id==project.id,
-        ProjectAnalysis.pipeline_version!='legacy', ProjectAnalysis.status.in_(OPEN)).order_by(ProjectAnalysis.id.desc()))
+        ProjectAnalysis.pipeline_version!='legacy', ProjectAnalysis.status.in_(open_statuses)).order_by(ProjectAnalysis.id.desc()))
+    if running and reuse_open and (running.prompt_bundle_version != prompt_bundle_version or
+            running.pipeline_version != pipeline_version or running.model_config_fingerprint != model_config_fingerprint):
+        # A user-requested scan can replace an incompatible checkpoint without deleting its history.
+        await control_run(session, running.id, project.workspace_id, 'cancel', commit=False)
+        running = None
     if running:
-        if mode=='full' and target_sha is None:
+        if staging:
+            return running
+        if mode=='full' and target_sha is None and not reuse_open:
             project.pending_update={'mode':'full','request_key':request_key}
         if target_sha and target_sha != running.target_sha:
             project.pending_update={**(project.pending_update or {}),'target_sha':target_sha,
                 'mode':'full' if (project.pending_update or {}).get('mode')=='full' else mode}
         return running
-    project.generation += 1
-    project.pending_update = None  # a newly accepted run consumes older coalesced intent
+    if not staging:
+        project.generation += 1
+        project.pending_update = None  # a newly accepted run consumes older coalesced intent
     run=ProjectAnalysis(project_id=project.id,workspace_id=project.workspace_id,request_key=request_key,
-        status='QUEUED',mode=mode,target_sha=target_sha,base_sha=project.last_seen_sha,generation=project.generation,
+        status='WAITING_WORKER' if staging else 'QUEUED',mode=mode,target_sha=target_sha,
+        base_sha=project.last_seen_sha,generation=project.generation,
         pipeline_version=pipeline_version,prompt_bundle_version=prompt_bundle_version,
         model_config_fingerprint=model_config_fingerprint,
-        budget=budget or {'max_model_calls':32,'max_source_bytes':8388608},usage={'model_calls':0})
+        budget=dict(budget or {}),usage={'model_calls':0})
     session.add(run)
     await session.flush()
     from app.services.tracing import start_trace
     trace=await start_trace(session,project.workspace_id,'project_autopilot',f'理解项目：{project.name}',
         trigger='system',trigger_ref=str(run.id))
     run.result_meta={'trace_id':trace.id,'cost_known':False}
+    from app.services.project_prompts import PROMPT_BUNDLE_VERSION
+    if prompt_bundle_version == PROMPT_BUNDLE_VERSION:
+        from app.config import get_settings
+        run.result_meta.update(transport_mode='sse-v1',
+            stage_timeout_seconds=get_settings().project_scan_stage_timeout_seconds)
     await ensure_steps(session,run,[{'key':'resolve','stage':'resolve','requires':[],'payload':{}}])
     return run
 
@@ -174,7 +193,8 @@ async def claim_step(session, owner, lease_seconds=45, now=None):
                 run.status='BLOCKED';run.error=step.error;run.updated_at=now
                 continue
         used=dict(run.usage or {})
-        if step.uses_model and used.get('model_calls',0)>=run.budget.get('max_model_calls',32):
+        call_limit = (run.budget or {}).get('max_model_calls')
+        if step.uses_model and call_limit is not None and used.get('model_calls',0)>=call_limit:
             run.status='PAUSED_BUDGET'; run.error='已达到本次分析调用预算；已完成阶段保留。'
             run.updated_at=now
             continue
@@ -283,12 +303,14 @@ async def fail_step(session,claim,category,message,retry_after=None,request_id=N
     await record_span(session,run,step,'ERROR')
     await session.commit();return True
 
-async def control_run(session,run_id,workspace_id,action):
+async def control_run(session,run_id,workspace_id,action, *, commit=True):
     await session.execute(text('SELECT pg_advisory_xact_lock(20261117, 0)'))
     run=await session.scalar(select(ProjectAnalysis).where(ProjectAnalysis.id==run_id,
         ProjectAnalysis.workspace_id==workspace_id).with_for_update().execution_options(populate_existing=True))
     if not run:raise LookupError('分析任务不存在')
     if action not in {'pause','resume','cancel'}:raise ValueError('未知操作')
+    if run.status == 'WAITING_WORKER' and action != 'cancel':
+        raise ValueError('已排队等待后台升级，可以取消')
     if run.status in ('COMPLETED','CANCELLED','FAILED_FINAL'):
         raise ValueError('任务已结束；如需重新分析请创建新任务')
     rows=(await session.scalars(select(AnalysisStep).where(AnalysisStep.run_id==run.id,
@@ -305,7 +327,10 @@ async def control_run(session,run_id,workspace_id,action):
     run.updated_at=utcnow()
     if action=='resume':run.error=None
     if action=='cancel':run.finished_at=utcnow()
-    await session.commit()
+    if commit:
+        await session.commit()
+    else:
+        await session.flush()
     return run
 
 async def split_failed_source_stage(session,run_id,workspace_id,step_id,source_groups):

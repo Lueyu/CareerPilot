@@ -128,30 +128,29 @@ test('manual project cards offer personal context instead of an impossible repos
   globalThis.fetch=async()=>Response.json({items:[{id:9,name:'工作项目',kind:'manual',owner:'',repo:'',repo_url:'',status:'NEVER',findings:{matrix:[]}}]});
   try{
     await act(async()=>{tree=TestRenderer.create(React.createElement(MemoryRouter,{future:{v7_startTransition:true,v7_relativeSplatPath:true}},React.createElement(AppStateProvider,null,React.createElement(Assets))));await flush();});
-    assert.match(JSON.stringify(tree.toJSON()),/手工项目/);
+    assert.match(JSON.stringify(tree.toJSON()),/手工经历/);
     assert.ok(button(tree,'编辑经历与准备面试'));
-    assert.equal(button(tree,'重新分析'),undefined);
+    assert.equal(button(tree,'AI 扫描'),undefined);
   }finally{if(tree)await act(async()=>tree.unmount());globalThis.fetch=savedFetch;}
 });
 
-test('switching task history clears the previous task approval notice',async()=>{
+test('pending workshop drafts open the bank reviewer for the exact item without writing',async()=>{
   const {default:Workshop}=await import('../src/pages/QuestionWorkshop.tsx');
-  const savedFetch=globalThis.fetch;let tree;
+  const savedFetch=globalThis.fetch;let tree;let route;
+  const writes=[];
+  function Observe(){route=useLocation();return null;}
   globalThis.fetch=async(url,options)=>{
     const path=new URL(url).pathname;
-    if(path.endsWith('/approve'))return Response.json({created:['Q-G17-51']});
+    if(options.method!=='GET')writes.push(path);
     if(path.endsWith('/17'))return Response.json({...task(),status:'REVIEW',import_session_id:23,review:{id:23,short_code:'IM-G17',status:'REVIEW',items:[{id:51,title:sample().title,status:'DRAFT',draft_answer:'<p>答案</p>',generation_meta:{item:sample(),source:'external'}}]}});
-    if(path.endsWith('/18'))return Response.json({...task(),id:18});
-    if(path.endsWith('/question-generation'))return Response.json({items:[task(),{...task(),id:18}]});
     return Response.json({items:[]});
   };
   try{
-    await act(async()=>{tree=TestRenderer.create(React.createElement(MemoryRouter,{initialEntries:['/bank/workshop?task=17'],future:{v7_startTransition:true,v7_relativeSplatPath:true}},React.createElement(Workshop)));await flush();});
-    await act(async()=>button(tree,'通过入私有库').props.onClick());
-    assert.match(JSON.stringify(tree.toJSON()),/Q-G17-51/);
-    const next=tree.root.findAllByType('a').find(node=>node.props.href==='/bank/workshop?task=18');
-    await act(async()=>{next.props.onClick({button:0,preventDefault(){}});await flush();});
-    assert.doesNotMatch(JSON.stringify(tree.toJSON()),/Q-G17-51/);
-    assert.equal(tree.root.findByProps({'aria-label':'完整 Prompt'}).props.value,task().prompt_text);
+    await act(async()=>{tree=TestRenderer.create(React.createElement(MemoryRouter,{initialEntries:['/bank/workshop?task=17'],future:{v7_startTransition:true,v7_relativeSplatPath:true}},React.createElement(React.Fragment,null,React.createElement(Observe),React.createElement(Workshop))));await flush();});
+    const reviewLink=tree.root.findAllByType('a').find(node=>node.props.children==='审核这道题');
+    await act(async()=>{reviewLink.props.onClick({button:0,preventDefault(){}});await flush();});
+    assert.equal(route.pathname,'/bank');
+    assert.equal(route.search,'?review=1&item=23-51');
+    assert.deepEqual(writes,[]);
   }finally{if(tree)await act(async()=>tree.unmount());globalThis.fetch=savedFetch;}
 });

@@ -122,6 +122,7 @@ async def execute_claim(claim,worker_id,factory,lease_seconds=45,heartbeat_secon
         if not await jobs.heartbeat(session,claim,lease_seconds):return
         run=await session.get(ScoringRun,claim.run_id)
         cfg,_,_=await runtime_config(session,claim.workspace_id,require_consent=False)
+        cfg = jobs.scoring_config(cfg, (run.meta or {}).get('scoring_route', 'default'))
         if run.model_fingerprint!=model_fingerprint(cfg) or run.judge_version!=JUDGE_VERSION:
             await jobs.fail_step(session,claim,AssessmentJudgeError('CONFIG_CHANGED','模型或评分器版本已改变，不能混合旧评分；请创建影子复核'))
             return

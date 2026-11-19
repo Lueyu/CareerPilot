@@ -41,9 +41,9 @@ export interface ProjectMemory {
   extract_confidence?: number|null; status: string; created_at: string; confirmed_at?: string|null;
   superseded_by?: number|null; revision?:number;
   freshness?: string; eligible_for_personalization?: boolean; ineligible_reason?: string|null;
-  meta?: {project_id?: number; analysis_id?: number; source_revision?: string; kind?: string; issue_id?: string; citations?: SourceCitation[];goal_id?:number;source_task_id?:number}|null;
+  meta?: {project_id?: number; analysis_id?: number; source_revision?: string; kind?: string; issue_id?: string; citations?: SourceCitation[];goal_id?:number;source_task_id?:number;completed_at?:string;submission_id?:number;scoring_run_id?:number;exam_id?:number;exam_kind?:string;daily_plan_date?:string;daily_plan_item_key?:string}|null;
 }
-export type AutopilotRunStatus='QUEUED'|'RUNNING'|'RETRY_WAIT'|'COMPLETED'|'PAUSED_USER'|'PAUSED_BUDGET'|'BLOCKED'|'CANCELLED'|'FAILED_FINAL';
+export type AutopilotRunStatus='WAITING_WORKER'|'QUEUED'|'RUNNING'|'RETRY_WAIT'|'COMPLETED'|'PAUSED_USER'|'PAUSED_BUDGET'|'BLOCKED'|'CANCELLED'|'FAILED_FINAL';
 export interface AutopilotRun {
   id:number; project_id:number; status:AutopilotRunStatus; stage?:string|null; coverage_status:string;
   completed_modules:number; total_modules:number; error?:{code:string;message:string;recoverable:boolean}|null;
@@ -69,7 +69,7 @@ export interface AutopilotSummary {
 }
 export interface AutopilotSettings {
   enabled:boolean;consent_version:string;consented_at:string|null;source_notice:string;provider_display_name:string;
-  budget:{max_model_calls:number;max_source_bytes:number};check_interval_hours:number;
+  budget:{max_model_calls?:number|null;max_source_bytes?:number|null};check_interval_hours:number;
 }
 export interface MemoryCandidate {
   id:number;revision:number;status:string;report_id:number;project_id:number;

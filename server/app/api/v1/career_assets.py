@@ -7,14 +7,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_workspace
-from app.api.v1.public_content import _next_code, publish_draft
+from app.api.v1.project_autopilot import freshness
+from app.api.v1.public_content import publish_draft
 from app.db import get_session
-from app.models.project import AssetUpdateRun, CareerAsset, Project, ProjectFinding, ProjectScan
-from app.services.project_analyzer import coverage_for_scan
+from app.models.project import AssetUpdateRun, CareerAsset, Project
+from app.models.project_analysis import ProjectAnalysis
 from app.models.public_content import ContentPublication, PublicContentDraft
-from app.models.trace import Trace
 from app.models.workspace import Workspace
-from app.services.asset_pipeline import create_asset_update
+from app.services.asset_pipeline import create_asset_update, repository_observations
 from app.services.github_repo import GitHubRepoError, fetch_file_text, get_github_token
 from app.services.tracing import add_span, emit_event, finish_trace, start_trace
 
@@ -164,56 +164,49 @@ async def run_update_pipeline(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    """跑一次资产更新流水线: 取项目最新扫描发现 → 生成草稿+风险分级 → AssetUpdateRun。
-
-    project_id 省略时取最近扫描成功的一个项目。
-    """
-    if project_id:
-        p = (
-            await session.execute(select(Project).where(Project.id == project_id, Project.workspace_id == ws.id))
-        ).scalar_one_or_none()
-        if not p:
+    """从已发布的 AI 报告生成职业资产草稿。"""
+    workspace_project = (Project.workspace_id == ws.id, Project.archived_at.is_(None))
+    if project_id is not None:
+        project = await session.scalar(select(Project.id).where(Project.id == project_id, *workspace_project))
+        if project is None:
             raise HTTPException(status_code=404, detail=f"project {project_id} not found")
-    else:
-        p = (
-            await session.execute(
-                select(Project)
-                .join(ProjectScan, ProjectScan.project_id == Project.id)
-                .where(Project.workspace_id == ws.id, ProjectScan.status == "SUCCESS")
-                .order_by(ProjectScan.id.desc())
-                .limit(1)
-            )
-        ).scalars().first()
-        if not p:
-            raise HTTPException(status_code=409, detail="没有已扫描的项目; 先导入仓库并执行扫描")
 
-    scan = (
-        await session.execute(
-            select(ProjectScan).where(ProjectScan.project_id == p.id, ProjectScan.status == "SUCCESS").order_by(ProjectScan.id.desc()).limit(1)
+    reports = (
+        select(Project, ProjectAnalysis)
+        .join(ProjectAnalysis, ProjectAnalysis.id == Project.latest_valid_analysis_id)
+        .where(
+            *workspace_project,
+            ProjectAnalysis.workspace_id == Project.workspace_id,
+            ProjectAnalysis.project_id == Project.id,
+            ProjectAnalysis.report_status == "VALID",
+            ProjectAnalysis.coverage_status == "COMPLETE",
+            ProjectAnalysis.report_published_at.is_not(None),
+            ProjectAnalysis.report.is_not(None),
         )
-    ).scalar_one_or_none()
-    findings = (
-        await session.execute(select(ProjectFinding).where(ProjectFinding.scan_id == scan.id).order_by(ProjectFinding.id))
-    ).scalars().all()
-    stats = scan.stats or {}
+        .order_by(ProjectAnalysis.report_published_at.desc(), ProjectAnalysis.id.desc())
+    )
+    if project_id is not None:
+        reports = reports.where(Project.id == project_id)
+
+    for project, report in await session.execute(reports):
+        observations = repository_observations(report)
+        if observations:
+            break
+    else:
+        raise HTTPException(status_code=409, detail="缺少包含代码引用的有效 AI 项目报告，请先完成 AI 分析")
 
     t0 = time.perf_counter()
-    trace = await start_trace(session, ws.id, "asset_update", f"更新职业资产: {p.name}", short_code=f"TR-AU{int(t0)}")
-    add_span(session, trace, "collect_findings", int((time.perf_counter() - t0) * 1000), detail={"findings": len(findings)})
-
+    trace = await start_trace(session, ws.id, "asset_update", f"更新职业资产: {project.name}")
+    add_span(session, trace, "collect_report_observations", 0, detail={"analysis_id": report.id, "observations": len(observations)})
     run = await create_asset_update(
-        session, ws, p,
-        [{"domain": f.domain, "level": f.level, "title": f.title, "detail": f.detail, "file_path": f.file_path} for f in findings],
-        coverage_for_scan(stats),
-        stats.get("stats", {}),
-        trace=trace,
+        session, ws, project, report, observations, freshness(project, report), trace=trace,
     )
     await finish_trace(session, trace, status="SUCCESS", duration_ms=int((time.perf_counter() - t0) * 1000))
     await emit_event(session, ws.id, "asset_update_created", payload={"run": run.id, "risk": run.risk_level}, ref_type="asset_update_run", ref_id=run.id)
     await session.commit()
 
     draft = (await session.execute(select(PublicContentDraft).where(PublicContentDraft.id == run.draft_id))).scalar_one_or_none()
-    return _run_view(run, draft, None, p)
+    return _run_view(run, draft, None, project)
 
 
 @router.post("/career-assets/updates/{run_id}/approve")
@@ -230,9 +223,17 @@ async def approve_update(
     r = await _get_run(session, ws, run_id)
     if not r.draft_id:
         raise HTTPException(status_code=409, detail="该运行无内容草稿")
-    d = (await session.execute(select(PublicContentDraft).where(PublicContentDraft.id == r.draft_id))).scalar_one_or_none()
+    d = await session.scalar(select(PublicContentDraft).where(
+        PublicContentDraft.id == r.draft_id, PublicContentDraft.workspace_id == ws.id,
+    ))
     if not d:
         raise HTTPException(status_code=404, detail="草稿不存在")
+    if not (r.stats or {}).get("analysis_id"):
+        raise HTTPException(status_code=409, detail="历史扫描生成的职业资产仅供查看，请根据 AI 项目报告生成新草稿")
+    if await session.scalar(
+        select(Project.id).where(Project.id == r.project_id, Project.workspace_id == ws.id, Project.archived_at.is_(None))
+    ) is None:
+        raise HTTPException(status_code=409, detail="已归档项目的职业资产仅供查看")
     if d.status not in ("DRAFT", "NEEDS_REVIEW", "APPROVED"):
         raise HTTPException(status_code=409, detail=f"草稿状态 {d.status} 不可审批")
     # 高风险必须人工审核: 不允许 auto_merge 跳过(即便参数为 true)

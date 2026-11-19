@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.services import project_autopilot_sources as sources
 from app.services.llm import AgentAdapter
+from app.services import study_routing
 from app.services.project_sources import redact_value
 from app.services.project_prompts import PROMPT_BUNDLE_VERSION, system_prompt
 from app.services import project_claim_registry as claim_registry
@@ -57,7 +58,7 @@ class RuntimeContext:
     credentials: dict = field(repr=False)
     request_timeout: float = 180
     input_chars: int = 40000
-    max_source_bytes: int = 2_000_000
+    max_source_bytes: int | None = None
     context_tokens: int | None = None
     output_reserve_tokens: int = 4000
     repair_diagnostic: str | None = None
@@ -78,12 +79,18 @@ class Ref(Strict):
 FactType = Literal['CODE_OBSERVED', 'INFERRED', 'DOC_CLAIM', 'UNASSESSED']
 
 
+class TechnologyUse(Strict):
+    name: str = Field(min_length=1, max_length=120)
+    limitations: str = Field(min_length=1, max_length=600)
+
+
 class Claim(Strict):
     id: str = Field(pattern=r'^[A-Za-z][A-Za-z0-9_-]{0,39}$')
     title: str = Field(min_length=1, max_length=200)
     text: str = Field(min_length=1, max_length=1800)
     kind: FactType
     citations: list[Ref] = Field(max_length=12)
+    technology: TechnologyUse | None = None
 
 
 class Issue(Strict):
@@ -460,6 +467,16 @@ async def _ask(task, payload, model, runtime):
             raise StageError('CONFIG_CHANGED', '阶段总时限配置无效；需显式流式模式且总时限不小于网络闲置时限，未发起请求')
         stage_timeout = total
     cfg = runtime.llm_config
+    route_meta = {}
+    if 'auto_profiles' in cfg:
+        action = 'project' if task in ('analyze_module', 'verify_cross_module', 'analyze_change_impact', 'explain_project_section') else 'organize'
+        tier, reason, _ = study_routing.decide('auto', action, '', [], payload.get('sources', []))
+        profiles = cfg['auto_profiles']
+        selected = tier if profiles.get(tier) else 'flash'
+        if tier != selected:
+            reason += '；深入档未配置，使用快速档'
+        cfg = profiles.get(selected) or {}
+        route_meta = {'routing_mode': 'auto', 'requested_tier': tier, 'tier': selected, 'routing_reason': reason}
     if not all(cfg.get(k) for k in ('provider', 'api_key', 'base_url', 'model')):
         raise StageError('NOT_CONFIGURED', '尚未配置可用的模型服务')
     value = {'task': task, **payload, 'output_schema': model.model_json_schema(), 'prompt_version': PROMPT_BUNDLE_VERSION}
@@ -476,7 +493,7 @@ async def _ask(task, payload, model, runtime):
         user = _json(value)
         system += '\n' + claim_registry.INSTRUCTIONS
     estimate = len((system + user).encode('utf-8'))
-    meta = {'task': task, 'input_chars': len(system) + len(user), 'input_bytes': estimate,
+    meta = {**route_meta, 'task': task, 'input_chars': len(system) + len(user), 'input_bytes': estimate,
             'input_tokens_estimate': estimate, 'token_estimate_method': 'conservative_utf8_bytes_not_actual_tokens',
             'prompt_version': PROMPT_BUNDLE_VERSION, 'model': cfg['model'], 'provider': cfg['provider'],
             'repair_requested': bool(runtime.repair_diagnostic), 'request_started': False,
@@ -575,6 +592,7 @@ def _normalize_fact_boundaries(artifact, source_records):
         if not all(categories.get(identity) == {'documentation'} for identity in identities):
             continue
         claim['kind'] = 'DOC_CLAIM'
+        claim.pop('technology', None)
         adjustment = {'claim_id': claim['id'], 'from': 'CODE_OBSERVED', 'to': 'DOC_CLAIM',
             'reason': 'all_citations_are_documentation',
             'sources': [{'source_id': source_id, 'source_version': version, 'path': path}
@@ -641,8 +659,27 @@ def _path_context(manifest, module, limit=4000):
             break
         selected.append(path)
         size += amount
-    return {'available_paths': selected, 'path_catalog_partial': len(selected) < len(all_paths),
-            'path_catalog_note': '目录节选用于定位，未列出的路径不代表不存在；补读路径仍会核对完整清单。'}
+    partial = len(selected) < len(all_paths)
+    note = ('此处仅提供部分可分析路径，未列出的文件可能存在。' if partial
+            else '此处列出固定版本中全部可分析路径，不含因策略排除的文件。')
+    return {'available_paths': selected, 'path_catalog_partial': partial, 'path_catalog_note': note}
+
+
+def _check_module_paths(value, manifest):
+    eligible = {entry['path'] for entry in manifest['entries'] if entry.get('included')}
+    for key, label in (('dependencies', '依赖'), ('read_requests', '补读请求')):
+        accepted = []
+        for item in value[key]:
+            path = item['path']
+            if sources.classify_path(path)[1] == 'unsafe_path' or any(ord(c) < 32 or ord(c) == 127 for c in path):
+                raise StageError('INVALID_CITATION', '模块依赖或补读请求包含无效的仓库相对路径')
+            if path in eligible:
+                accepted.append(item)
+        omitted = len(value[key]) - len(accepted)
+        if omitted:
+            value[key] = accepted
+            value['dependency_scope_complete'] = False
+            value['unknowns'].append(f'{omitted} 条{label}无法匹配固定版本的可分析文件，相关依赖范围仍待确认。')
 
 
 def _change_context(diff, claims):
@@ -859,12 +896,15 @@ async def execute_stage(stage: str, inputs: dict, runtime: RuntimeContext) -> di
             entry = next((e for e in artifacts['manifest']['entries'] if e['path'] == payload['path'] and e.get('included')), None)
             if not entry:
                 raise StageError('SOURCE_UNAVAILABLE', '读取路径没有列在本次授权清单中')
-            remaining = runtime.max_source_bytes - _downloaded_bytes(artifacts)
+            remaining = None if runtime.max_source_bytes is None else runtime.max_source_bytes - _downloaded_bytes(artifacts)
             declared = entry.get('size')
-            if remaining <= 0 or (type(declared) is int and declared > remaining):
+            if remaining is not None and (remaining <= 0 or (type(declared) is int and declared > remaining)):
                 raise StageError('BUDGET_EXHAUSTED', '本次分析的累计源码读取预算不足，已保存成功读取；提高预算后可继续')
-            source = await sources.read_source(project, artifacts['resolve'], entry, runtime.credentials, max_bytes=remaining)
-            if type(source.get('download_bytes')) is not int or not 0 <= source['download_bytes'] <= remaining:
+            read_limit = min(remaining, sources.MAX_RESPONSE_BYTES) if remaining is not None else sources.MAX_RESPONSE_BYTES
+            if type(declared) is int and declared > read_limit:
+                raise StageError('SOURCE_UNAVAILABLE', '单个文件超过安全读取范围，无法完整读取')
+            source = await sources.read_source(project, artifacts['resolve'], entry, runtime.credentials, max_bytes=read_limit)
+            if type(source.get('download_bytes')) is not int or not 0 <= source['download_bytes'] <= read_limit:
                 raise StageError('BUDGET_EXHAUSTED', '源码读取字节超出剩余预算或缺少实际计量，未继续发送模型')
             if source['source_revision'] != artifacts['resolve']['target_sha'] or source['path'] != entry['path'] or source.get('blob_oid') != entry.get('blob_oid'):
                 raise StageError('INVALID_CITATION', '读取到的源码身份与固定提交或清单不一致')
@@ -882,9 +922,7 @@ async def execute_stage(stage: str, inputs: dict, runtime: RuntimeContext) -> di
                 selected.append(item)
             value, usage, request_meta = await _ask('analyze_module', {'module': {k: payload['module'][k] for k in ('key', 'name', 'purpose')}, 'sources': selected,
                 **_path_context(artifacts['manifest'], payload['module'], min(4000, runtime.input_chars // 10))}, ModuleResponse, runtime)
-            paths = {e['path'] for e in artifacts['manifest']['entries'] if e.get('included')}
-            if any(r['path'] not in paths for r in value['dependencies'] + value['read_requests']):
-                raise StageError('INVALID_CITATION', '模块依赖或补读请求不属于实际仓库清单')
+            _check_module_paths(value, artifacts['manifest'])
             ids = [c['id'] for c in value['claims']]
             if len(ids) != len(set(ids)):
                 raise StageError('INVALID_SCHEMA', '模块结论编号重复')
@@ -892,6 +930,8 @@ async def execute_stage(stage: str, inputs: dict, runtime: RuntimeContext) -> di
             for claim in value['claims']:
                 if claim['kind'] != 'UNASSESSED' and not claim['citations']:
                     raise StageError('INVALID_CITATION', '有内容的项目观察必须引用实际读取来源')
+                if claim.get('technology') is None or claim['kind'] != 'CODE_OBSERVED':
+                    claim.pop('technology', None)
                 claim['citations'] = _validate_refs(claim['citations'], selected)
                 claim['id'] = prefix + ':' + claim['id']
             for index, issue in enumerate(value['issues']):
@@ -1057,6 +1097,7 @@ def _assemble_report(context, artifacts, payload):
                     for c in claims if c['citations'] and not ':issue' in c['id']]
     report = {'schema_version': SCHEMA_VERSION, 'summary': '\n'.join(p['text'] for p in sections[0]['paragraphs']) if sections else '',
               'architecture': architecture, 'issues': issues, 'unknowns': unknowns, 'sections': sections, 'claims': claims,
+              'technologies_assessed': True,
               'modules': [{k: v for k, v in m.items() if k != 'sources'} for m in modules], 'changes': manifest['diff'],
               'cross_module': [artifacts[k] for k in payload['cross_keys']], 'source_normalizations': normalized_sources,
               'quarantined_claims': quarantined}

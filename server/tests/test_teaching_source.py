@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import Exam, ExamQuestion, LearningTask, Question, Skill
+from app.models import Exam, ExamQuestion, LearningTask, Question, Skill, Workspace
 from app.services import teaching
 
 
@@ -82,9 +82,12 @@ async def test_teaching_and_help_use_only_frozen_source(db_session, test_workspa
 @pytest.mark.asyncio
 async def test_source_material_must_belong_to_task_workspace(db_session, test_workspace):
     task, skill = await source_task(db_session, test_workspace)
+    foreign_workspace = Workspace(slug=f"foreign-{uuid4().hex}", name="Foreign workspace")
+    db_session.add(foreign_workspace)
+    await db_session.flush()
     foreign_task = SimpleNamespace(**{name: getattr(task, name) for name in
-        ("source_exam_question_id", "skill_id", "title", "kind", "acceptance", "why")},
-        workspace_id=-1, content={})
+        ("id", "source_exam_question_id", "skill_id", "title", "kind", "acceptance", "why")},
+        workspace_id=foreign_workspace.id, content={})
     adapter = CapturingAdapter()
     await teaching.help_answer(db_session, adapter, task=foreign_task, skill_name=skill.name,
                                skill_key=skill.key, mode="simpler")
@@ -103,3 +106,30 @@ async def test_rule_teaching_keeps_source_context_and_does_not_claim_model_gener
     assert "ORIGINAL_USER_ANSWER" in content["example"]
     assert "FROZEN_STANDARD" in " ".join(content["principles"])
     assert "UNRELATED_" not in json.dumps(content)
+
+
+@pytest.mark.asyncio
+async def test_help_retries_legacy_rule_cache_after_failed_generation(db_session, test_workspace):
+    task, skill = await source_task(db_session, test_workspace)
+    task.content = {**task.content, "source_context_version": 2,
+                    "help_cache": {"unclear": {"text": "旧模板", "source": "rule"}}}
+    adapter = CapturingAdapter()
+    working_chat = adapter.chat
+
+    async def invalid_chat(*args, **kwargs):
+        await working_chat(*args, **kwargs)
+        return {"content": '{"text": []}'}
+
+    adapter.chat = invalid_chat
+    kwargs = dict(task=task, skill_name=skill.name, skill_key=skill.key, mode="unclear")
+    failed = await teaching.help_answer(db_session, adapter, **kwargs)
+    assert failed["source"] == "none" and failed["text"] is None and failed["error"]
+    assert len(adapter.prompts) == 1
+    assert task.content["help_cache"]["unclear"]["text"] == "旧模板"
+
+    adapter.chat = working_chat
+    result = await teaching.help_answer(db_session, adapter, **kwargs)
+    assert result == {"mode": "unclear", "text": "source explanation", "source": "llm"}
+    assert "FROZEN_STANDARD" in adapter.prompts[-1]
+    assert await teaching.help_answer(db_session, adapter, **kwargs) == result
+    assert len(adapter.prompts) == 2

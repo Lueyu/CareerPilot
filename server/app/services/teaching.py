@@ -3,7 +3,7 @@
 设计纪律(与项目原则一致):
 - LLM 只做语义任务(讲解/类比/例子), 结构由确定性代码约束(严格 JSON Schema + 字段校验)。
 - 有来源任务只用原题冻结的 answer_html/rubric；无来源任务才收集同能力域题库材料。
-- LLM 未配置或调用失败 → 规则路径: 从题库材料确定性抽取, 诚实标记 source=rule。
+- 五步教学可降级为规则内容；学习求助失败时返回可重试提示。
 - 内容缓存进 learning_tasks.content(生成一次, 二次读取瞬时), help 模式缓存进 content["help_cache"]。
 """
 from __future__ import annotations
@@ -12,6 +12,8 @@ import html as _html
 import json
 import re as _re
 import time
+
+from app.services.tracing import finish_trace, start_trace
 
 TEACH_SYSTEM = """你是面向 AI 工程师的职业教练, 给学员生成一份「能照着学会」的教学任务内容。
 
@@ -218,7 +220,6 @@ async def build_teaching_content(
             f"本次观察（原回答、评分项与具体理由）:\n{json.dumps(observation, ensure_ascii=False)}\n"
             f"参考资料(来自题库, 可能不完整):\n{material or '（该域暂无题库材料, 请用通用工程常识, 但不得编造具体数字）'}"
         )
-        from app.services.tracing import start_trace, finish_trace
         trace = await start_trace(session, task.workspace_id, "teaching", task.title,
                                   trigger_ref=f"learning_task:{task.id}")
         started = time.perf_counter()
@@ -268,58 +269,49 @@ async def help_answer(
     skill_key: str | None,
     mode: str,
 ) -> dict:
-    """学习求助: 7 种模式。返回 {mode, text, source}。失败走规则降级。"""
+    """生成并缓存针对当前任务的求助回答。"""
     desc = HELP_MODES.get(mode)
     if not desc:
         return {"mode": mode, "text": None, "source": "none", "error": f"未知求助类型: {mode}"}
 
     content = _task_content(task)
-    cache = content.get("help_cache") or {}
-    if isinstance(cache.get(mode), dict) and cache[mode].get("text"):
-        return {"mode": mode, "text": cache[mode]["text"], "source": cache[mode].get("source", "llm")}
+    cache = dict(content.get("help_cache") or {})
+    cached = cache.get(mode)
+    if isinstance(cached, dict) and cached.get("source") == "llm" and cached.get("text"):
+        return {"mode": mode, "text": cached["text"], "source": "llm"}
 
-    material = await _collect_task_material(session, task, skill_key, limit=2)
     if hasattr(adapter, "_effective"):
         await adapter._effective()
+    if not adapter.active:
+        return {"mode": mode, "text": None, "source": "none", "error": "学习助手尚未配置模型，请在设置中配置后重试。"}
+
+    material = await _collect_task_material(session, task, skill_key, limit=2)
     step_hint = ""
     steps = content.get("steps") or []
     if steps:
         step_hint = f"当前学习步骤: {steps[0]}"
 
-    text: str | None = None
-    source = "rule"
-    if adapter.active:
-        user = (
-            f"任务: {task.title}（能力域: {skill_name}）\n"
-            f"{step_hint}\n"
-            f"学员求助类型: {desc}\n"
-            f"本次具体失分观察: {json.dumps(content.get('observation') or {}, ensure_ascii=False)}\n"
-            f"参考资料:\n{material or '（无题库材料, 用通用工程常识回答, 不得编造数字）'}"
-        )
-        raw = await adapter.chat(HELP_SYSTEM, user, json_mode=True, timeout=60.0)
-        parsed = _parse_json_reply(raw)
-        if parsed and str(parsed.get("text") or "").strip():
-            text = str(parsed["text"]).strip()[:800]
-            source = "llm"
+    user = (
+        f"任务: {task.title}（能力域: {skill_name}）\n"
+        f"{step_hint}\n"
+        f"学员求助类型: {desc}\n"
+        f"本次具体失分观察: {json.dumps(content.get('observation') or {}, ensure_ascii=False)}\n"
+        f"参考资料:\n{material or '（无题库材料, 用通用工程常识回答, 不得编造数字）'}"
+    )
+    trace = await start_trace(session, task.workspace_id, "teaching", task.title,
+                              trigger_ref=f"learning_task:{task.id}:help:{mode}")
+    started = time.perf_counter()
+    raw = await adapter.chat(HELP_SYSTEM, user, json_mode=True, timeout=60.0,
+                             trace=trace, session=session, span_name="teaching_help")
+    parsed = _parse_json_reply(raw)
+    value = parsed.get("text") if parsed else None
+    text = value.strip()[:800] if isinstance(value, str) else ""
+    await finish_trace(session, trace, "SUCCESS" if text else "FAILED",
+                       int((time.perf_counter() - started) * 1000),
+                       fail_reason=None if text else "model_response_unavailable")
+    if not text:
+        return {"mode": mode, "text": None, "source": "none", "error": "AI 暂时未生成可用解答，请重试。"}
 
-    if text is None:
-        # 规则降级: 从材料摘录 + 诚实说明
-        excerpt = material.split("\n")[0][:160] if material else ""
-        fallbacks = {
-            "simpler": f"简单说：「{skill_name}」的核心就是——先给结论，再讲机制，最后说坑。{('参考资料要点：' + excerpt) if excerpt else ''}",
-            "analogy": f"换个类比：「{skill_name}」像一条带验收标准的流水线，评分要点就是每个环节的验收单。{('参考资料要点：' + excerpt) if excerpt else ''}",
-            "example": f"来个例子：面试被问到「{skill_name}」时，用结论→机制→坑的三段式回答。{(excerpt and '参考资料：' + excerpt) or ''}",
-            "project": "结合本项目：CareerPilot 的导入流水线(解析→提取→映射→去重→生成)就是「机制+验收标准」的实例，每一步失败都有明确状态(FAILED)与恢复手段。",
-            "code": "看代码思路：找出项目里对应这个知识点的模块，读它的输入/输出和错误处理分支，比读十篇文章更快。",
-            "diagram": "画图思路：把「{s}」拆成 输入→处理→验收 三个框，在框之间标上失败时的走向，就得到一张可讲 1 分钟的图。".format(s=skill_name),
-            "unclear": f"换个角度：先别想概念，想想「没有{skill_name}会发生什么」——任务会失败、没人知道为什么、无法复现。为了解决这些痛点，才有了这套机制。",
-        }
-        text = fallbacks.get(mode) or fallbacks["simpler"]
-
-    # 缓存进 content.help_cache
-    content = dict(content or {})
-    hc = dict(content.get("help_cache") or {})
-    hc[mode] = {"text": text, "source": source}
-    content["help_cache"] = hc
-    task.content = content
-    return {"mode": mode, "text": text, "source": source}
+    cache[mode] = {"text": text, "source": "llm"}
+    task.content = {**content, "help_cache": cache}
+    return {"mode": mode, "text": text, "source": "llm"}

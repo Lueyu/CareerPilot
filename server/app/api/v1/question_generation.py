@@ -16,8 +16,9 @@ from sqlalchemy.orm import lazyload
 
 from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
-from app.models import ImportItem, ImportSession, LearningTask, MemoryItem, Project, ProjectAnalysis, Question, QuestionGeneration, Skill, Workspace
+from app.models import ImportItem, ImportSession, LearningTask, Project, ProjectAnalysis, Question, QuestionGeneration, Skill, Workspace
 from app.services import question_generation as protocol
+from app.services.bank_review_memory import load_review_feedback
 from app.services.project_context import build_project_context
 from app.services.project_memory import issue_targets
 
@@ -45,6 +46,7 @@ class ResultIn(BaseModel):
 
 class ItemEdit(BaseModel):
     item: dict
+    revision: int | None = Field(default=None, ge=0)
 
 
 def normalized_title(value: str) -> str:
@@ -164,6 +166,7 @@ async def create_task(req: GenerationIn, ws: Workspace = Depends(get_workspace),
     source_questions.extend({"id": qid, "title": title, "canonical_question_id": canonical} for qid, title, canonical in known if qid not in source_ids)
     snapshot = {"kind": req.kind, "count": req.count, "skill_keys": keys, "skills": [{"key": s.key, "name": s.name} for s in skills if s.key in keys], "project_context": projects, "source_text": source_text, "source_questions": source_questions, "purpose": req.purpose}
     snapshot.update(source_analysis_id=req.source_analysis_id, source_issue_ids=req.source_issue_ids, project_issue_targets=targets)
+    snapshot["bank_review_feedback"] = await load_review_feedback(session, ws.id, keys)
     task = QuestionGeneration(workspace_id=ws.id, kind=req.kind, mode=req.mode, request_key=request_key, request_json=req.model_dump(exclude={"request_key"}), input_snapshot=snapshot, prompt_text="")
     session.add(task)
     await session.flush()
@@ -192,9 +195,11 @@ async def store_response(session, task, raw, result_meta=None):
     await session.flush()
     existing = (await session.scalars(select(Question).options(lazyload("*")).where((Question.workspace_id.is_(None)) | (Question.workspace_id == task.workspace_id), Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY')))).all()
     titles = {normalized_title(q.title): q.id for q in existing}
+    draft_snapshot = task.input_snapshot.copy()
+    draft_snapshot.pop("bank_review_feedback", None)
     for item, content in zip(items, rendered):
         group = hashlib.sha256(normalized_title(item["original_question"] or item["title"]).encode()).hexdigest()
-        meta = {"task_id": task.id, "source": task.mode, "item": item, "group_key": group, "input_snapshot": task.input_snapshot}
+        meta = {"task_id": task.id, "source": task.mode, "item": item, "group_key": group, "input_snapshot": draft_snapshot}
         session.add(ImportItem(session_id=imp.id, title=item["title"], suggested_skill_key=item["skill_key"], suggested_type="open", draft_answer=content["answer_html"], draft_rubric=content["rubric"], generation_meta=meta, is_duplicate_of=titles.get(normalized_title(item["title"])), status="DRAFT"))
     task.import_session_id = imp.id
     task.status, task.error = "REVIEW", None
@@ -249,6 +254,8 @@ async def run_task(task_id: int, ws: Workspace = Depends(get_workspace), session
 
 @router.patch("/{task_id}/items/{item_id}")
 async def edit_item(task_id: int, item_id: int, req: ItemEdit, ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session)):
+    from app.services.bank_review_actions import bump_review_revision, ensure_not_revising, review_view
+
     task = await owned_task(session, ws.id, task_id, lock=True)
     await workspace_lock(session, ws.id)
     item = await session.scalar(select(ImportItem).where(ImportItem.id == item_id, ImportItem.session_id == task.import_session_id).with_for_update())
@@ -256,6 +263,9 @@ async def edit_item(task_id: int, item_id: int, req: ItemEdit, ws: Workspace = D
         raise HTTPException(404, "草稿不存在")
     if item.status != "DRAFT":
         raise HTTPException(409, "仅待审核草稿可以编辑")
+    ensure_not_revising(item)
+    if req.revision is not None and req.revision != review_view(item)["review_revision"]:
+        raise HTTPException(409, "草稿已更新，请重新打开后编辑")
     old = (item.generation_meta or {}).get("item", {})
     if req.item.get("original_question") != old.get("original_question") or req.item.get("source_question_id") != old.get("source_question_id"):
         raise HTTPException(422, "原题与来源关系不可在编辑答案时更改")
@@ -270,6 +280,7 @@ async def edit_item(task_id: int, item_id: int, req: ItemEdit, ws: Workspace = D
     item.title, item.suggested_skill_key = validated["title"], validated["skill_key"]
     item.draft_answer, item.draft_rubric = content["answer_html"], content["rubric"]
     item.generation_meta = {**item.generation_meta, "item": validated, "user_edited": True}
+    bump_review_revision(item)
     # Editing title cannot retain a stale duplicate marker.
     rows = (await session.execute(select(Question.id, Question.title).where((Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id), Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY')))).all()
     item.is_duplicate_of = next((qid for qid, title in rows if normalized_title(title) == normalized_title(item.title)), None)

@@ -31,12 +31,15 @@ function reportEnvelope(success,latest=success) {
  const run=latest?{id:latest.id,project_id:7,status:({SUCCESS:'COMPLETED',FAILED:'FAILED_FINAL',READY:'QUEUED'})[latest.status]||latest.status,stage:latest.result_meta?.stage,coverage_status:latest.status==='SUCCESS'?'COMPLETE':'PARTIAL',completed_modules:0,total_modules:0,error:latest.error?{code:'fixture',message:latest.error,recoverable:true}:null,allowed_actions:[]}:null;
  return {project_id:7,latest_run:run,report:success?{...success,run_id:success.id,as_of:success.created_at,coverage_status:'COMPLETE',is_latest_valid:true,freshness:'CURRENT'}:null,partial_preview:null,worker:{online:true},allowed_actions:['check_updates','reanalyze']};
 }
+function dossier(projectId, summary) {
+ return {project_id:projectId,report:summary?{id:11,summary,source_revision:successful.source_revision,freshness:'CURRENT'}:null,technologies:[],bank_questions:[],suggested_questions:[],recommendations:[],limitations:[],source_excerpts:[]};
+}
 function repositoryFetch(runs){return async url=>{
  const u=new URL(url),p=u.pathname;
  if(p.endsWith('/report'))return Response.json(reportEnvelope(runs.find(r=>u.searchParams.has('analysis_id')?r.id===Number(u.searchParams.get('analysis_id')):r.status==='SUCCESS'),runs[0]));
  if(p.endsWith('/analyses'))return Response.json({items:runs});
  if(p.includes('/analyses/'))return Response.json(runs.find(r=>p.endsWith('/'+r.id)));
- if(p.endsWith('/findings'))return Response.json({items:[{id:2,domain:'backend',level:'VERIFIED',title:'Backend directory',detail:'Keyword matched',file_path:'app/query.py'}],matrix:[{key:'backend',level:5,findings:9}],stats:{files:9}});
+ if(p.endsWith('/dossier'))return Response.json(dossier(7,runs.find(r=>r.status==='SUCCESS')?.report.summary));
  if(p.endsWith('/memory-candidates'))return Response.json({items:[]});
  if(p.endsWith('/project-autopilot/settings'))return Response.json({enabled:true,budget:{max_model_calls:32,max_source_bytes:8388608},check_interval_hours:6});
  return Response.json({items:[project]});
@@ -44,7 +47,7 @@ function repositoryFetch(runs){return async url=>{
 
 test('project review separates latest analysis failure from explicitly labelled historical success',async()=>{
  globalThis.fetch=repositoryFetch([{id:12,project_id:7,status:'FAILED',error:'model unavailable'},successful]);
- const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
+ const tree=await mount(ProjectReview,'/assets/project/7?tab=process','/assets/project/:id');
  try{
   assert.match(text(tree),/model unavailable/);
   assert.match(text(tree),/历史成功报告/);
@@ -56,7 +59,7 @@ test('project review separates latest analysis failure from explicitly labelled 
 
 test('project issue selection carries exact analysis and issue to question workshop',async()=>{
  globalThis.fetch=repositoryFetch([successful]);
- const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
+ const tree=await mount(ProjectReview,'/assets/project/7?tab=improvements','/assets/project/:id');
  try{
   assert.match(text(tree),/app\/query.py/);
   assert.match(text(tree),/项目问题不代表个人能力短板/);
@@ -120,7 +123,7 @@ test('memory correction failure retains edited text and never reports local succ
 test('assets keep repository cards focused on project reports without ability scores',async()=>{
  globalThis.fetch=repositoryFetch([]);
  const tree=await mount(Assets);
- try{assert.doesNotMatch(text(tree),/能力矩阵/);assert.equal(tree.root.findAll(n=>n.props.className==='dim-fill').length,0);assert.ok(button(tree,'查看项目报告'));}
+ try{assert.doesNotMatch(text(tree),/能力矩阵/);assert.equal(tree.root.findAll(n=>n.props.className==='dim-fill').length,0);assert.ok(button(tree,'查看项目档案'));assert.equal(tree.root.findByProps({href:'/assets/project/7'}).children.join(''),project.name);}
  finally{await cleanup(tree);}
 });
 
@@ -157,7 +160,7 @@ test('unreviewed project batch cannot create an assessment',async()=>{
 test('project analysis observes the already queued task without a manual start request',async()=>{
  const get=repositoryFetch([{id:14,project_id:7,status:'READY'}]);let posts=0;
  globalThis.fetch=async(url,options)=>{if(options?.method==='POST')posts++;return get(url,options);};
- const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
+ const tree=await mount(ProjectReview,'/assets/project/7?tab=process','/assets/project/:id');
  try{assert.match(text(tree),/已导入，等待分析/);assert.equal(posts,0);assert.equal(tree.root.findAllByProps({'aria-label':'项目分析关注点'}).length,0);}
  finally{await cleanup(tree);}
 });
@@ -165,7 +168,7 @@ test('project analysis observes the already queued task without a manual start r
 test('project report loads linked generation and scored assessment from detail even when list has report',async()=>{
  const get=repositoryFetch([successful]);
  globalThis.fetch=async(url,options)=>new URL(url).pathname.endsWith('/report')?Response.json(reportEnvelope({...successful,generations:[{id:22,status:'COMPLETE',issue_ids:['I1'],question_ids:[37],assessments:[{id:72,status:'COMPLETED',score:60}]}]})):get(url,options);
- const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
+ const tree=await mount(ProjectReview,'/assets/project/7?tab=improvements','/assets/project/:id');
  try{assert.ok(tree.root.findAllByType('a').some(a=>a.props.href==='/exam/diagnosis/report?id=72'));}
  finally{await cleanup(tree);}
 });
@@ -173,7 +176,7 @@ test('project report loads linked generation and scored assessment from detail e
 test('dismissed issue is labelled and cannot be selected from an immutable historical report',async()=>{
  const get=repositoryFetch([successful]);
  globalThis.fetch=async(url,options)=>new URL(url).pathname.endsWith('/report')?Response.json(reportEnvelope({...successful,active_issue_ids:[]})):get(url,options);
- const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
+ const tree=await mount(ProjectReview,'/assets/project/7?tab=improvements','/assets/project/:id');
  try{assert.equal(tree.root.findByProps({'aria-label':'选择项目问题 I1'}).props.disabled,true);assert.match(text(tree),/对应记忆尚未确认/);}
  finally{await cleanup(tree);}
 });
@@ -181,7 +184,7 @@ test('dismissed issue is labelled and cannot be selected from an immutable histo
 test('corrected active issue memory is visible beside its immutable analysis observation',async()=>{
  const get=repositoryFetch([successful]);
  globalThis.fetch=async(url,options)=>new URL(url).pathname.endsWith('/report')?Response.json(reportEnvelope({...successful,active_issue_ids:['I1'],issue_memories:[{issue_id:'I1',memory_id:61,content:'Deadline is implemented by gateway; verify only local cancellation',user_corrected:true,source_revision:'abc123'}]})):get(url,options);
- const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
+ const tree=await mount(ProjectReview,'/assets/project/7?tab=improvements','/assets/project/:id');
  try{assert.match(text(tree),/当前记忆已纠正/);assert.match(text(tree),/Deadline is implemented by gateway/);assert.match(text(tree),/An external wait has no deadline/);}
  finally{await cleanup(tree);}
 });
@@ -205,8 +208,13 @@ test('source citations match the frozen source identity rather than a same-path 
 test('project report passes frozen excerpts to architecture and issue citations',async()=>{
  const get=repositoryFetch([successful]);
  globalThis.fetch=async(url,options)=>new URL(url).pathname.endsWith('/report')?Response.json(reportEnvelope({...successful,source_excerpts:[{path:'app/query.py',start_line:10,end_line:15,excerpt:'10: architecture_source_fixture',excerpt_truncated:false},{path:'app/query.py',start_line:12,end_line:14,excerpt:'12: issue_source_fixture',excerpt_truncated:false}]})):get(url,options);
- const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
- try{assert.match(text(tree),/architecture_source_fixture/);assert.match(text(tree),/issue_source_fixture/);}
+ const tree=await mount(ProjectReview,'/assets/project/7?tab=evidence','/assets/project/:id');
+ try{
+  assert.match(text(tree),/architecture_source_fixture/);
+  assert.doesNotMatch(text(tree),/issue_source_fixture/);
+  await act(async()=>{navigateRoute('/assets/project/7?tab=improvements');await flush();});
+  assert.match(text(tree),/issue_source_fixture/);
+ }
  finally{await cleanup(tree);}
 });
 
@@ -215,7 +223,7 @@ test('project issue labels use the exact linked claim kind instead of observed s
  const issues=kinds.map(([kind],i)=>({...report.issues[0],id:`I${i}`,title:`Issue ${kind}`,claim_id:`claim-${i}`,status:'observed'}));
  const claims=kinds.map(([kind],i)=>({id:`claim-${i}`,title:`Claim ${i}`,text:'Frozen observation',kind,citations:[]}));
  globalThis.fetch=repositoryFetch([{...successful,report:{...report,issues,claims}}]);
- const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
+ const tree=await mount(ProjectReview,'/assets/project/7?tab=improvements','/assets/project/:id');
  try{for(const [i,[,expected]] of kinds.entries()){
   const card=tree.root.findAllByType('article').find(n=>n.findAllByProps({'aria-label':`选择项目问题 I${i}`}).length);
   assert.equal(card.findAllByType('span').find(n=>n.props.className==='chip chip-slate').children.join(''),expected);
@@ -225,7 +233,7 @@ test('project issue labels use the exact linked claim kind instead of observed s
 test('unlinked and unknown project issue kinds do not become code observations',async()=>{
  const issues=[{...report.issues[0],id:'unlinked'}, {...report.issues[0],id:'missing',claim_id:'not-in-report'}, {...report.issues[0],id:'unknown',claim_id:'unknown-kind'}];
  globalThis.fetch=repositoryFetch([{...successful,report:{...report,issues,claims:[{id:'unknown-kind',kind:'FUTURE_KIND',title:'Unrecognized',text:'Observation',citations:[]}]}}]);
- const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
+ const tree=await mount(ProjectReview,'/assets/project/7?tab=improvements','/assets/project/:id');
  try{for(const issue of issues){
   const card=tree.root.findAllByType('article').find(n=>n.findAllByProps({'aria-label':`选择项目问题 ${issue.id}`}).length);
   assert.equal(card.findAllByType('span').find(n=>n.props.className==='chip chip-slate').children.join(''),'来源类型未确认');
@@ -236,35 +244,64 @@ test('architecture cards expose their saved fact type including uncertain legacy
  const kinds=[['DOC_CLAIM','文档声明'],['INFERRED','待验证推断'],['CODE_OBSERVED','代码观察'],[undefined,'来源类型未确认']];
  const architecture=kinds.map(([fact_type],i)=>({...report.architecture[0],title:`Architecture ${i}`,fact_type}));
  globalThis.fetch=repositoryFetch([{...successful,report:{...report,architecture}}]);
- const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
+ const tree=await mount(ProjectReview,'/assets/project/7?tab=evidence','/assets/project/:id');
  try{for(const [i,[,expected]] of kinds.entries()){
   const card=tree.root.findAllByType('article').find(n=>n.findAllByType('h4').some(h=>h.children.join('')===`Architecture ${i}`));
   assert.equal(card.findAllByType('span').find(n=>n.props.className==='chip chip-slate')?.children.join(''),expected);
  }}finally{await cleanup(tree);}
 });
 
-test('legacy structural findings are grouped inside a closed disclosure beneath AI analysis',async()=>{
+test('project dossier distinguishes evidenced technologies, bank questions and suggested followups',async()=>{
+ const requests=[];
+ const get=repositoryFetch([successful]);
+ const citation=report.architecture[0].citations[0];
+ globalThis.fetch=async url=>{
+  const p=new URL(url).pathname;
+  requests.push(p);
+  if(p.endsWith('/dossier'))return Response.json({...dossier(7,report.summary),
+   technologies:[{name:'SQLite',use:'Stores query results',citations:[citation]}],
+   bank_questions:[{id:37,short_code:'Q-37',title:'Explain the query plan'}],
+   suggested_questions:[{id:'I1:0',title:'How would you bound the wait?',citations:[citation]}],
+   recommendations:[{id:'I1',title:'Set a request deadline',detail:'Exercise the slow dependency',citations:[citation]}],
+  });
+  return get(url);
+ };
+ const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
+ try{
+  assert.equal(requests.filter(p=>p==='/api/v1/projects/7/dossier').length,1);
+  assert.match(text(tree),/Repository understanding/);
+  assert.match(text(tree),/SQLite/);
+  assert.match(text(tree),/app\/query.py/);
+  assert.match(text(tree),/已入题库.*Q-37.*Explain the query plan/);
+  const suggestions=tree.root.findAllByType('details').find(n=>n.findAllByType('summary').some(x=>x.children.join('').includes('AI 建议追问')));
+  assert.ok(suggestions);
+  assert.match(JSON.stringify(suggestions.findByType('h3').children),/How would you bound the wait/);
+  assert.match(text(tree),/Set a request deadline/);
+  for(const href of ['?tab=evidence','?tab=improvements','?tab=resume']) {
+   assert.ok(tree.root.findAllByProps({href:'/assets/project/7'+href}).length);
+  }
+ }finally{await cleanup(tree);}
+});
+
+test('legacy AI reports without explicit technology evidence leave the technology list empty',async()=>{
  globalThis.fetch=repositoryFetch([successful]);
  const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
  try{
-  const disclosure=tree.root.findAllByType('details').find(d=>d.findAllByType('summary').some(s=>s.children.join('').includes('结构扫描与历史文件盘点')));
-  assert.ok(disclosure,'structural findings should be collapsed as secondary context');
-  assert.notEqual(disclosure.props.open,true);
-  assert.match(disclosure.findAllByType('summary')[0].children.join(''),/（1项）/);
-  assert.ok(disclosure.findAll(n=>n.props.className==='list-row').length>0);
+  assert.match(text(tree),/这份报告未单列技术实践/);
+  assert.doesNotMatch(text(tree),/Request flow|Backend directory/);
  }finally{await cleanup(tree);}
 });
 
 test('running analysis explains current model reading stage in Chinese',async()=>{
  globalThis.fetch=repositoryFetch([{id:12,project_id:7,status:'RUNNING',result_meta:{stage:'read_followup'}}]);
- const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
+ const tree=await mount(ProjectReview,'/assets/project/7?tab=process','/assets/project/:id');
  try{assert.match(text(tree),/补读关联代码/);}
  finally{await cleanup(tree);}
 });
 
 test('failed analysis identifies its last stage without presenting historical success as current',async()=>{
  globalThis.fetch=repositoryFetch([{id:12,project_id:7,status:'FAILED',error:'model unavailable',result_meta:{stage:'final_report'}},successful]);
- const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
+ const tree=await mount(ProjectReview,'/assets/project/7?tab=process','/assets/project/:id');
  try{assert.match(text(tree),/停留阶段/);assert.match(text(tree),/形成架构与问题报告/);assert.match(text(tree),/历史成功报告/);}
  finally{await cleanup(tree);}
 });
@@ -310,16 +347,19 @@ test('recreating a superseded issue batch requires selecting a current report in
  }finally{await cleanup(tree);}
 });
 
-test('noncritical structural scan failure does not block the project AI analysis flow',async()=>{
- globalThis.fetch=async url=>{
-  const p=new URL(url).pathname;
-  if(p.endsWith('/findings'))return Response.json({detail:'legacy scan unavailable'},{status:503});
-  if(p.endsWith('/analyses'))return Response.json({items:[]});
-  return Response.json({items:[project]});
- };
+test('reading the dossier and AI report tabs never requests structural scan findings',async()=>{
+ const requests=[];
+ const get=repositoryFetch([successful]);
+ globalThis.fetch=async url=>{requests.push(new URL(url).pathname);return get(url);};
  const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
- try{assert.match(text(tree),/legacy scan unavailable/);assert.match(text(tree),/Source project/);assert.ok(button(tree,'刷新状态'));}
- finally{await cleanup(tree);}
+ try{
+  for(const tab of ['process','evidence','improvements']) {
+   await act(async()=>{navigateRoute('/assets/project/7?tab='+tab);await flush();});
+  }
+  assert.ok(requests.includes('/api/v1/projects/7/report'));
+  assert.ok(requests.includes('/api/v1/projects/7/dossier'));
+  assert.ok(!requests.some(p=>/\/(findings|scan)$/.test(p)));
+ }finally{await cleanup(tree);}
 });
 
 test('switching project and failing its load clears the previous project report and actions',async()=>{
@@ -328,7 +368,6 @@ test('switching project and failing its load clears the previous project report 
  globalThis.fetch=async(url,options)=>{
   const p=new URL(url).pathname;
   if(p.endsWith('/projects') && ++projectLoads>1)return Response.json({detail:'cannot load next project'},{status:503});
-  if(p.endsWith('/8/findings'))return Response.json({items:[],stats:{}});
   return previous(url,options);
  };
  const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
@@ -337,29 +376,51 @@ test('switching project and failing its load clears the previous project report 
   await act(async()=>{navigateRoute('/assets/project/8');await flush();});
   assert.match(text(tree),/cannot load next project/);
   assert.doesNotMatch(text(tree),/Source project|Repository understanding|Timeout boundary/);
-  assert.equal(button(tree,'重新深度分析并更新记忆'),undefined);
+  assert.equal(button(tree,'AI 扫描'),undefined);
  }finally{await cleanup(tree);}
 });
 
-test('late responses from the previous project cannot replace the current project',async()=>{
- let resolveProjects,resolveFindings;let projectsCalls=0;
+test('late dossier responses cannot replace the current project dossier',async()=>{
+ let resolvePrevious;
+ const other={...project,id:8,name:'Current second project'};
+ globalThis.fetch=async url=>{
+  const p=new URL(url).pathname;
+  if(p.endsWith('/projects'))return Response.json({items:[project,other]});
+  if(p.endsWith('/7/dossier'))return new Promise(resolve=>{resolvePrevious=resolve;});
+  if(p.endsWith('/8/dossier'))return Response.json(dossier(8,'Second project report'));
+  return Response.json({items:[]});
+ };
+ const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
+ try{
+  assert.match(text(tree),/正在读取项目档案/);
+  await act(async()=>{navigateRoute('/assets/project/8');await flush();});
+  assert.match(text(tree),/Current second project.*Second project report/);
+  await act(async()=>{resolvePrevious(Response.json(dossier(7,'Old project report')));await flush();});
+  assert.equal(tree.root.findByType('select').props.value,8);
+  assert.match(text(tree),/Second project report/);
+  assert.doesNotMatch(text(tree),/Old project report/);
+ }finally{await cleanup(tree);}
+});
+
+test('late project list responses cannot reset the selected project',async()=>{
+ let resolvePrevious;
+ let requests=0;
  const other={...project,id:8,name:'Current second project'};
  globalThis.fetch=async url=>{
   const p=new URL(url).pathname;
   if(p.endsWith('/projects')){
-   if(++projectsCalls===1)return new Promise(resolve=>{resolveProjects=resolve;});
-   return Response.json({items:[project,other]});
+   if(++requests===1)return new Promise(resolve=>{resolvePrevious=resolve;});
+   return Response.json({items:[other]});
   }
-  if(p.endsWith('/7/findings'))return new Promise(resolve=>{resolveFindings=resolve;});
-  if(p.endsWith('/8/findings'))return Response.json({items:[],stats:{}});
+  if(p.endsWith('/8/dossier'))return Response.json(dossier(8,'Second project report'));
   return Response.json({items:[]});
  };
  const tree=await mount(ProjectReview,'/assets/project/7','/assets/project/:id');
  try{
   await act(async()=>{navigateRoute('/assets/project/8');await flush();});
-  assert.match(text(tree),/Current second project/);
-  await act(async()=>{resolveProjects(Response.json({items:[project,other]}));resolveFindings(Response.json({items:[{id:2,level:'HIGH',title:'Old project finding'}],stats:{}}));await flush();});
-  assert.match(text(tree),/Current second project/);
-  assert.doesNotMatch(text(tree),/Source project|Old project finding/);
+  await act(async()=>{resolvePrevious(Response.json({items:[project]}));await flush();});
+  assert.equal(tree.root.findByType('select').props.value,8);
+  assert.match(text(tree),/Current second project.*Second project report/);
+  assert.doesNotMatch(text(tree),/Source project/);
  }finally{await cleanup(tree);}
 });

@@ -109,6 +109,7 @@ def test_personal_launcher_starts_independent_worker_and_records_truthful_state(
     worker = json.loads((root / 'server/worker.started.json').read_text())
     assert worker['cwd'] == str(root / 'server')
     assert worker['workspace'] == 'personal'
+    assert '--lease-seconds' not in worker['args']
     assert alive(worker['pid']) and alive(state['api_pid'])
     assert state['worker_health'] == 'process_alive'
     assert (root / 'personal/runtime/worker.out.log').exists()
@@ -156,9 +157,10 @@ def test_standalone_worker_reused_survives_api_failure_and_can_be_stopped(sandbo
     start = root / 'deploy/start-project-worker.ps1'
     stop = root / 'deploy/stop-project-worker.ps1'
     assert start.exists() and stop.exists(), 'Independent maintenance commands are required'
-    first = invoke(start, '-PythonPath', sys.executable, env=env)
+    first = invoke(start, '-PythonPath', sys.executable, '-LeaseSeconds', '90', env=env)
     assert first.returncode == 0, first.stderr
     initial = json.loads((root / 'server/worker.started.json').read_text())
+    assert initial['args'][initial['args'].index('--lease-seconds') + 1] == '90'
     env['FIXTURE_API_FAIL'] = '1'
     failed = launch(root, env)
     assert failed.returncode != 0

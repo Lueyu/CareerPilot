@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_workspace, require_auth
+from app.api.deps import get_workspace, require_auth, require_local_owner
 from app.config import get_settings
 from app.db import get_session
 from app.models import (
@@ -68,13 +68,19 @@ def _workspace_view(ws: Workspace) -> dict:
     }
 
 
-@router.get("/settings/workspaces", dependencies=[Depends(require_auth)])
-async def list_workspaces(session: AsyncSession = Depends(get_session)):
-    rows = (await session.execute(select(Workspace).order_by(Workspace.is_demo, Workspace.id))).scalars().all()
-    return {"workspaces": [_workspace_view(ws) for ws in rows], "default_slug": get_settings().default_workspace_slug}
+@router.get("/settings/workspaces")
+async def list_workspaces(session: AsyncSession = Depends(get_session), scope: str | None = Depends(require_auth)):
+    cfg = get_settings()
+    statement = select(Workspace).order_by(Workspace.is_demo, Workspace.id)
+    if isinstance(scope, str):
+        statement = statement.where(Workspace.slug == scope)
+    elif cfg.workspace_token_hashes:
+        statement = statement.where(Workspace.slug.not_in(list(cfg.workspace_token_hashes)))
+    rows = (await session.scalars(statement)).all()
+    return {"workspaces": [_workspace_view(ws) for ws in rows], "default_slug": scope if isinstance(scope, str) else cfg.default_workspace_slug}
 
 
-@router.post("/settings/workspaces/personal", dependencies=[Depends(require_auth)])
+@router.post("/settings/workspaces/personal", dependencies=[Depends(require_local_owner)])
 async def create_personal_workspace(session: AsyncSession = Depends(get_session)):
     try:
         ws = await ensure_personal_workspace(session)
@@ -411,12 +417,12 @@ async def _llm_payload() -> dict:
     }
 
 
-@router.get("/settings/llm")
+@router.get("/settings/llm", dependencies=[Depends(require_local_owner)])
 async def get_llm():
     return await _llm_payload()
 
 
-@router.put("/settings/llm")
+@router.put("/settings/llm", dependencies=[Depends(require_local_owner)])
 async def update_llm(
     body: LlmUpdate,
     session: AsyncSession = Depends(get_session),
@@ -441,7 +447,7 @@ async def update_llm(
     return await _llm_payload()
 
 
-@router.delete("/settings/llm")
+@router.delete("/settings/llm", dependencies=[Depends(require_local_owner)])
 async def reset_llm(session: AsyncSession = Depends(get_session)):
     """清除 DB 覆盖, 回落到 env 默认配置。"""
     await session.execute(delete(AppSetting).where(AppSetting.key == "llm"))
@@ -450,7 +456,7 @@ async def reset_llm(session: AsyncSession = Depends(get_session)):
     return {"reset": True}
 
 
-@router.post("/settings/llm/test")
+@router.post("/settings/llm/test", dependencies=[Depends(require_local_owner)])
 async def test_llm(body: LlmTest):
     """用「生效配置 + 请求覆盖」真实调用一次 chat, 验证连通性。"""
     cfgv = dict(await get_llm_config())
@@ -494,12 +500,12 @@ async def _github_payload() -> dict:
     }
 
 
-@router.get("/settings/github")
+@router.get("/settings/github", dependencies=[Depends(require_local_owner)])
 async def get_github():
     return await _github_payload()
 
 
-@router.put("/settings/github")
+@router.put("/settings/github", dependencies=[Depends(require_local_owner)])
 async def update_github(body: GithubUpdate, session: AsyncSession = Depends(get_session)):
     token = body.token.strip()
     if not token:
@@ -515,7 +521,7 @@ async def update_github(body: GithubUpdate, session: AsyncSession = Depends(get_
     return await _github_payload()
 
 
-@router.delete("/settings/github")
+@router.delete("/settings/github", dependencies=[Depends(require_local_owner)])
 async def reset_github(session: AsyncSession = Depends(get_session)):
     await session.execute(delete(AppSetting).where(AppSetting.key == "github"))
     await session.commit()

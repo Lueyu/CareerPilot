@@ -1,0 +1,9 @@
+.memory-page { min-width: 0; }
+.memory-panel { padding: 18px 24px; margin-bottom: 16px; overflow-wrap: anywhere; }
+.memory-panel h2 { margin: 4px 0 8px; font-size: 17px; white-space: pre-wrap; }
+.memory-panel p { margin: 5px 0; }
+.memory-panel .btn { margin-top: 6px; }
+.memory-pending { background: var(--primary-50); }
+.memory-pending article + article { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px; }
+.memory-sections { display: grid; gap: 16px; }
+.memory-panel .mem-actions { flex-wrap: wrap; }

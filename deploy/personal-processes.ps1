@@ -113,7 +113,9 @@ function Enter-CareerPilotWorkerLock {
 
 function Start-CareerPilotWorker {
     param([string]$ProjectDir, [string]$PythonPath, [double]$PollSeconds = 2,
-        [int]$LeaseSeconds = 45, [double]$HeartbeatSeconds = 10)
+        [Nullable[int]]$LeaseSeconds, [double]$HeartbeatSeconds = 10)
+    $shortestLease = if ($null -eq $LeaseSeconds) { 45 } else { $LeaseSeconds }
+    if ($HeartbeatSeconds -ge $shortestLease) { throw 'HeartbeatSeconds must be smaller than LeaseSeconds' }
     $runtimeDir = Join-Path $ProjectDir 'personal\runtime'
     New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
     $statePath = Join-Path $runtimeDir 'worker.json'
@@ -131,7 +133,8 @@ function Start-CareerPilotWorker {
         }
         $culture = [Globalization.CultureInfo]::InvariantCulture
         $arguments = @('-m', 'app.project_worker', '--poll-seconds', $PollSeconds.ToString($culture),
-            '--lease-seconds', $LeaseSeconds, '--heartbeat-seconds', $HeartbeatSeconds.ToString($culture))
+            '--heartbeat-seconds', $HeartbeatSeconds.ToString($culture))
+        if ($null -ne $LeaseSeconds) { $arguments += @('--lease-seconds', $LeaseSeconds) }
         $process = Start-Process -FilePath $PythonPath -ArgumentList $arguments -WorkingDirectory (Join-Path $ProjectDir 'server') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $runtimeDir 'worker.out.log') -RedirectStandardError (Join-Path $runtimeDir 'worker.err.log')
         $identity = New-CareerPilotProcessIdentity $process $ProjectDir 'app.project_worker'
         Start-Sleep -Milliseconds 750

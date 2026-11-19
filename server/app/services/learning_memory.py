@@ -223,22 +223,35 @@ async def on_verification_completed(session, exam, task):
         return
     goals = (await session.scalars(select(LearningGoal).where(LearningGoal.workspace_id == exam.workspace_id,
         LearningGoal.source_task_id == task.retest_of).with_for_update())).all()
-    independent = all((eq.frozen_snapshot or {}).get('independence', {}).get('eligible_for_independent_verification') is True
-                      for eq in exam.questions)
-    passed = result.get('source_criterion_passed') is True and independent
+    outcomes = {row['goal_id']: row for row in result.get('goal_outcomes', []) if row.get('goal_id') is not None}
     local_date = exam.completed_at.astimezone(timezone(timedelta(hours=8))).date()
     delayed = result.get('mode') == 'delayed' and task.due_date is not None and local_date >= task.due_date
     for goal in goals:
+        outcome = outcomes.get(goal.id)
+        if outcome is None:
+            continue  # Legacy aggregate results and goals created after issuance cannot verify a goal.
+        refs = goal.origin_refs or {}
+        if any(refs.get(ref) != outcome.get(field) for ref, field in (
+            ('exam_question_id', 'source_exam_question_id'), ('criterion_id', 'source_criterion_id'),
+            ('rubric_version', 'source_rubric_version'), ('evidence_id', 'source_evidence_id'),
+            ('answer_revision_id', 'source_answer_revision_id'),
+        )):
+            continue
+        independent = outcome['independent']
+        passed = outcome['status'] == 'PASSED' and independent is True
+        criterion_passed = {'PASSED': True, 'FAILED': False}.get(outcome['status'])
+        binding = outcome['binding']
+        bindings = [binding] if binding else []
         source_ref = f'learning-verification:{goal.id}:{exam.id}'
         if await session.scalar(select(MemoryItem.id).where(MemoryItem.workspace_id == goal.workspace_id,
             MemoryItem.source_ref == source_ref)):
             continue
-        current = goal.status not in ('NEEDS_REVIEW','WITHDRAWN') and goal.evidence_status not in ('NEEDS_REVIEW','WITHDRAWN','STALE','DISPUTED')
+        current = goal.status == 'ACTIVE' and goal.evidence_status not in ('NEEDS_REVIEW','WITHDRAWN','STALE','DISPUTED')
         state = dict(goal.verification)
         if current and passed:
             state['understanding'] = 'INDEPENDENT_CORRECT'
             state['retention' if delayed else 'transfer'] = 'PASSED'
-        elif current:
+        elif current and outcome['status'] == 'FAILED' and independent is True:
             state['retention' if delayed else 'transfer'] = 'PENDING'
         goal.verification = state
         summary = ('这次新题按本场冻结标准满足了原失分项，且没有登记的辅助或题族曝光。' if passed else
@@ -250,12 +263,12 @@ async def on_verification_completed(session, exam, task):
             freshness='CURRENT' if current else 'NEEDS_REVIEW',
             meta={'goal_id':goal.id,'source_task_id':goal.source_task_id,'exam_id':exam.id,
                 'scoring_run_id':exam.active_scoring_run_id,'retest_task_id':task.id,
-                'answer_revision_ids':[(eq.frozen_snapshot or {}).get('answer_revision_id') for eq in exam.questions],
-                'criterion_bindings':result.get('criterion_bindings', []),'independent_according_to_records':independent,
-                'criterion_passed':result.get('source_criterion_passed'),'verification_mode':'delayed' if delayed else 'immediate',
+                'answer_revision_ids':[binding['answer_revision_id']] if binding else [],
+                'criterion_bindings':bindings,'independent_according_to_records':independent,
+                'criterion_passed':criterion_passed,'verification_mode':'delayed' if delayed else 'immediate',
                 'skill_ids':deepcopy(goal.skill_ids),'origin_refs':deepcopy(goal.origin_refs),'policy_version':goal.policy_version}))
         goal.meta = {**(goal.meta or {}), 'latest_verification':{'exam_id':exam.id,'retest_task_id':task.id,
-            'criterion_bindings':result.get('criterion_bindings', []),'independence_recorded':independent},
+            'criterion_bindings':bindings,'independence_recorded':independent,'status':outcome['status']},
             'next_action':{'kind':'WAIT_DELAYED' if passed and not delayed else 'REVIEW_RESULT',
                 'message':'已保存新的作答表现，请核对候选阶段小结；延迟验证按实际到期完成记录。' if passed else
                           '本次尚不能确认原失分项独立通过；先查看这次具体反馈。'}}

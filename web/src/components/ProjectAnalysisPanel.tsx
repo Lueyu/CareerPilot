@@ -1,4 +1,5 @@
 import React,{useCallback,useEffect,useRef,useState} from 'react';
+import ProjectModelTrace from './ProjectModelTrace';
 import {Link,useLocation,useNavigate} from 'react-router-dom';
 import {api} from '../api/client';
 import {messageOf} from '../lib/questionWorkshop';
@@ -10,13 +11,15 @@ import {Modal} from './ui';
 export {default as SourceCitations} from './SourceCitations';
 
 const toolbar:React.CSSProperties={display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'};
-const ACTIVE_STATUSES=['QUEUED','RUNNING','RETRY_WAIT'];
+const ACTIVE_STATUSES=['WAITING_WORKER','QUEUED','RUNNING','RETRY_WAIT'];
 const MAX_POLL_READS=120;
 const FACT_LABELS:Record<string,string>={CODE_OBSERVED:'代码观察',INFERRED:'待验证推断',DOC_CLAIM:'文档声明',UNASSESSED:'尚未判断'};
 const factLabel=(kind?:string)=>kind && FACT_LABELS[kind] || '来源类型未确认';
 const hasCompleteReport=(run:ProjectAnalysisRun)=>run.report_status==='VALID' && run.coverage_status==='COMPLETE';
 const hasReadableHistory=(run:ProjectAnalysisRun)=>hasCompleteReport(run) || (run.status==='SUCCESS' && !!run.report && run.coverage_status!=='PARTIAL');
-export default function ProjectAnalysisPanel({projectId,manual=false,readOnly=false}: {projectId:number;manual?:boolean;readOnly?:boolean}) {
+export type ProjectReportTab = 'overview' | 'process' | 'evidence' | 'improvements' | 'resume';
+
+export default function ProjectAnalysisPanel({projectId,tab='process',manual=false,readOnly=false,onRun}: {projectId:number;tab?:ProjectReportTab;manual?:boolean;readOnly?:boolean;onRun?:(run:ProjectReportResponse['latest_run'])=>void}) {
   const navigate=useNavigate();const location=useLocation();
   const [data,setData]=useState<ProjectReportResponse|null>(null);const [loading,setLoading]=useState(true);const [error,setError]=useState('');
   const [history,setHistory]=useState<ProjectAnalysisRun[]>([]);const [historyOpen,setHistoryOpen]=useState(false);const [historyError,setHistoryError]=useState('');const [historyBusy,setHistoryBusy]=useState(false);
@@ -28,12 +31,12 @@ export default function ProjectAnalysisPanel({projectId,manual=false,readOnly=fa
     if(inFlight.current?.projectId===projectId)return inFlight.current.promise;
     const token=++request.current;setLoading(true);
     const promise:Promise<ProjectReportResponse|undefined>=api.get<ProjectReportResponse>('/projects/'+projectId+'/report')
-      .then(value=>{if(token===request.current){setData(value);setError('');}return value;})
+      .then(value=>{if(token===request.current){setData(value);onRun?.(value.latest_run);setError('');}return value;})
       .catch(e=>{if(token===request.current)setError(messageOf(e));return undefined;})
       .finally(()=>{if(token===request.current)setLoading(false);if(inFlight.current?.promise===promise)inFlight.current=null;});
     inFlight.current={projectId,promise};return promise;
-  },[projectId]);
-  useEffect(()=>{setData(null);setHistoricalReport(null);setSelected([]);setError('');setLoading(!manual);return()=>{request.current++;historyRequest.current++;};},[projectId,manual]);
+  },[projectId,onRun]);
+  useEffect(()=>{setData(null);setHistoricalReport(null);setSelected([]);setError('');setLoading(!manual);return()=>{request.current++;historyRequest.current++;inFlight.current=null;};},[projectId,manual]);
   useEffect(()=>{
     if(manual)return;
     let cancelled=false,reads=0,timer:ReturnType<typeof setTimeout>|undefined;
@@ -52,54 +55,121 @@ export default function ProjectAnalysisPanel({projectId,manual=false,readOnly=fa
   const showHistory=async(id:number)=>{const token=++historyRequest.current;setHistoryBusy(true);setHistoryError('');try{const result=await api.get<ProjectReportResponse>('/projects/'+projectId+'/report?analysis_id='+id);if(token===historyRequest.current){if(result.report && result.report.coverage_status!=='PARTIAL'){setHistoricalReport(result.report);setSelected([]);}else setHistoryError('这次任务没有可查看的完整报告。');}}catch(e){if(token===historyRequest.current)setHistoryError(messageOf(e));}finally{if(token===historyRequest.current)setHistoryBusy(false);}};
   const visible=historicalReport || data?.report;const latest=data?.latest_run;
   const locked=readOnly || !!data?.project?.archived_at;
-  const historical=!!visible && (visible.id!==latest?.id || !!historicalReport);
-  const canPrepare=!locked && !!visible && visible.is_latest_valid && visible.coverage_status!=='PARTIAL' && visible.freshness==='CURRENT';
+  const reportMatchesLatest=!!latest && !!data?.report && (data.report.run_id===latest.id || latest.report_id===data.report.id);
+  const historical=!!visible && (!!historicalReport || (!!latest && !reportMatchesLatest));
+  const canPrepare=!locked && !historicalReport && !!visible && visible.is_latest_valid && visible.coverage_status!=='PARTIAL' && visible.freshness==='CURRENT';
+  const firstClaim=visible?.report.claims?.find(claim=>claim.kind==='CODE_OBSERVED' && claim.citations.length);
+  const citedArchitecture=visible?.report.architecture.find(item=>item.citations.length && item.fact_type==='CODE_OBSERVED')
+    || visible?.report.architecture.find(item=>item.citations.length);
+  const firstLocation=(firstClaim || citedArchitecture)?.citations[0];
   const selectedActive=selected.filter(id=>visible?.active_issue_ids?.includes(id));
+  useEffect(()=>{
+    if(typeof document==='undefined')return;
+    if((tab==='evidence' && location.hash.startsWith('#report-claim-')) || (tab==='improvements' && location.hash==='#project-memory-candidates')) {
+      document.getElementById(location.hash.slice(1))?.scrollIntoView?.();
+    }
+  },[tab,location.hash,visible]);
   const remove=async()=>{setRemoveBusy(true);setRemoveError('');try{await api.del('/projects/'+projectId);navigate('/assets');}catch(e){setRemoveError(messageOf(e));}finally{setRemoveBusy(false);}};
-  if(manual)return <section className="card" style={{padding:20}}><h3>项目资料与面试准备</h3>{locked?<p>项目已移除，历史资料仅供只读查看。</p>:<><p>手工项目没有可读取的仓库。完善本人职责与技术取舍后，可在补题工作台准备项目追问。</p><Link to={'/bank/workshop?project='+projectId}>完善资料并准备面试 →</Link></>}</section>;
-  return <section aria-label="项目 AI 深度分析">
-    <div className="card" style={{padding:20,marginBottom:18}}>
-      <div style={{...toolbar,justifyContent:'space-between'}}><h2 style={{margin:0}}>项目报告</h2><button className="btn btn-outline btn-sm" disabled={loading} onClick={refresh}>刷新状态</button></div>
-      {locked && <p className="demo-banner">项目已移除，历史报告仅供只读查看。自动分析和记忆确认已停用，原有题目与答卷快照保留。</p>}
+  if(tab==='resume')return null;
+  if(manual)return <section className="project-report-card"><h2>项目资料与面试准备</h2>{locked?<p>项目已移除，历史资料仅供只读查看。</p>:<><p>手工项目没有可读取的仓库。你可以补充本人职责与技术取舍，或在补题工作台准备项目追问。</p><div className="project-report-actions"><Link className="btn btn-outline" to="?tab=resume">核对简历素材</Link><Link className="btn btn-outline" to={'/bank/workshop?project='+projectId}>准备项目追问</Link></div></>}</section>;
+  return <section className="project-report-stack" aria-label="项目 AI 深度分析">
+    {locked && <p className="demo-banner">项目已移除，历史报告仅供只读查看。自动分析和记忆确认已停用，原有题目与答卷快照保留。</p>}
+    {tab==='overview' && <>
+      <article className="project-report-card project-report-feature">
+        <p className="project-report-label">这次分析</p>
+        <h2>{visible?.report.summary || (loading ? '正在读取项目报告…' : '尚无完整分析报告')}</h2>
+        <p>从分析过程查看仓库版本、实际读取范围、当前任务与历史有效报告。</p>
+        <div className="project-report-actions"><Link className="btn btn-primary" to="?tab=process">查看分析过程</Link>{!visible && !locked && <Link className="btn btn-outline" to="/assets?settings=1#project-analysis-settings">调整自动扫描设置</Link>}</div>
+      </article>
+      <article className="project-report-card">
+        <p className="project-report-label">代码结论</p>
+        <h2>{firstClaim?.title || citedArchitecture?.title || (visible ? '核对报告的来源和限制' : '完整报告生成后可查看代码依据')}</h2>
+        {firstLocation && <p>证据入口　<code>{firstLocation.path}:{firstLocation.start_line}–{firstLocation.end_line}</code></p>}
+        <p>仓库代码可以说明项目实现，个人职责需要本人核实。</p>
+        <div className="project-report-actions"><Link className="btn btn-outline" to="?tab=evidence">展开代码依据</Link><Link className="btn btn-outline" to="?tab=improvements">查看补强建议</Link></div>
+      </article>
+      <article className="project-report-card">
+        <p className="project-report-label">面试准备</p><h2>讲清设计取舍，再确认自己的职责</h2>
+        <Link className="btn btn-outline" to="?tab=resume">核对简历素材</Link>
+      </article>
+      {latest && latest.status!=='COMPLETED' && <div className="project-report-card"><ProjectRunStatus run={latest} compact/></div>}
+      {data?.partial_preview && <p className="hint">本次任务有已保存的部分分析。<Link to="?tab=process">查看分析过程</Link></p>}
+    </>}
+    {tab==='process' && <>
+      <div className="project-report-steps">
+        <article><strong>读取源码</strong><p>锁定仓库版本，盘点文件树并按模块读实现。</p></article>
+        <article><strong>交叉核对</strong><p>核对跨模块调用与数据流，记录未读文件。</p></article>
+        <article><strong>报告与候选</strong><p>保存报告，另行整理需要本人确认的项目记忆。</p></article>
+      </div>
+      <div className="project-report-card">
+      <div style={{...toolbar,justifyContent:'space-between'}}><h2>本次任务{latest ? ` · #${latest.id}` : ''}</h2><button className="btn btn-outline btn-sm" disabled={loading} onClick={refresh}>刷新状态</button></div>
       <p className="hint">自动分析远端已提交的代码，不包含本机未推送改动。个人职责可稍后补充；仓库事实不代表本人贡献。</p>
       <p><strong>项目问题不代表个人能力短板。</strong> 个人掌握情况需要通过新的作答和评分确认。</p>
       {loading && <p role="status">正在读取后台任务与报告…</p>}
-      {error && <p role="alert">无法读取最新状态：{error}。下方保留的是此前读取的结果。</p>}
       {pollPaused && <p role="status" className="hint">自动刷新已暂停，后台任务不会因此停止。点击“刷新状态”可继续查看。</p>}
       {data && <ProjectRunStatus run={latest || null} worker={data.worker}/>}
-      {data?.report?.id===latest?.id && data?.report?.coverage_status==='COMPLETE' && latest?.status!=='COMPLETED' && <p role="status" className="hint">报告已完成，候选记忆尚未完成。可先阅读报告，候选阶段的进度或错误见上方任务状态；候选仍需你确认才会生效。</p>}
-      {!loading && !error && !latest && !visible && <p>尚无分析报告。启用自动分析并启动本地后台服务后，会处理已导入的项目。</p>}
+      {latest && reportMatchesLatest && data?.report?.coverage_status==='COMPLETE' && latest.status!=='COMPLETED' && <p role="status" className="hint">报告已完成，候选记忆尚未完成。可先阅读报告，候选阶段的进度或错误见上方任务状态；候选仍需你确认才会生效。</p>}
+      {!loading && !error && !latest && !visible && <><p>尚无 AI 扫描记录。点击页面顶部的「AI 扫描」即可开始。</p>{!locked && <Link className="btn btn-primary" to="/assets?settings=1#project-analysis-settings">调整自动扫描设置</Link>}</>}
       {data && (locked?<button className="btn btn-outline btn-sm" onClick={()=>void loadHistory()}>分析历史</button>:<ProjectActions projectId={projectId} run={latest || null} allowedActions={data.allowed_actions || []} onChanged={refresh} onHistory={()=>void loadHistory()} onRemove={()=>setRemoveOpen(true)}/>)}
-      {historyOpen && <div style={{marginTop:16}}><h3>分析历史</h3>{historyBusy && <p role="status">正在读取历史…</p>}{historyError && <p role="alert">{historyError}</p>}<div style={toolbar}>{history.map(run=><button key={run.id} className="btn btn-outline btn-sm" disabled={historyBusy || !hasReadableHistory(run)} onClick={()=>showHistory(run.id)}>#{run.id} · {hasCompleteReport(run)?'完整报告 · ':''}{RUN_LABELS[run.status] || ({SUCCESS:'已有旧版报告',FAILED:'未完成',READY:'待处理'} as Record<string,string>)[run.status] || run.status}</button>)}</div>{!historyBusy && !history.length && <p>暂无历史任务。</p>}{historicalReport && <button className="btn btn-ghost" onClick={()=>{setHistoricalReport(null);setSelected([]);}}>返回最近有效报告</button>}</div>}
-    </div>
+      {latest && <ProjectModelTrace key={latest.id} run={latest}/>}
+      {historyOpen && <div style={{marginTop:16}}><h3>分析历史</h3>{historyBusy && <p role="status">正在读取历史…</p>}{historyError && <p role="alert">{historyError}</p>}<div style={toolbar}>{history.map(run=><button key={run.id} className="btn btn-outline btn-sm" disabled={historyBusy || !hasReadableHistory(run)} onClick={()=>showHistory(run.id)}>#{run.id} · {hasCompleteReport(run)?'完整报告 · ':''}{RUN_LABELS[run.status] || ({SUCCESS:'已有旧版报告',FAILED:'未完成',READY:'待处理'} as Record<string,string>)[run.status] || run.status}</button>)}</div>{!historyBusy && !history.length && <p>暂无历史任务。</p>}</div>}
+      </div>
     {data?.partial_preview && latest?.coverage_status==='PARTIAL' && <details className="card" style={{padding:18,marginBottom:18}}><summary>已保存的部分分析 · 不代表完整项目结论</summary><p className="hint">未覆盖的模块还不能下结论。部分结果不会自动成为有效记忆。</p>{data.partial_preview.summary && <p>{data.partial_preview.summary}</p>}{data.partial_preview.modules?.map((m,i)=><article key={i}><h4>{m.title || m.name || '模块'}</h4><p>{m.summary}</p></article>)}</details>}
-    {visible?.report && <div className="card" style={{padding:20}}>
+    </>}
+    {error && <p role="alert" className="demo-banner demo-banner-err">无法读取最新状态：{error}{visible ? '。仍可查看此前读取的报告。' : '。'} <button className="btn btn-outline btn-sm" disabled={loading} onClick={refresh}>重试读取</button></p>}
+    {visible?.report && <div className={tab==='overview' ? 'project-report-version' : 'project-report-card'}>
       <h3>{historical?'旧报告（历史成功报告）':'最近有效报告'} · #{visible.id}</h3>
       {historical && <p className="hint">这是先前完成的报告，不是最新任务的结果。{!visible.is_latest_valid?'已有更新版本，此报告仅供回顾。':''}</p>}
+      {historicalReport && <button className="btn btn-ghost" onClick={()=>{setHistoricalReport(null);setSelected([]);}}>返回最近有效报告</button>}
       {visible.coverage_status==='PARTIAL' && <p role="alert">此报告仅覆盖部分模块，不能视为完整分析，暂不能用于项目补题。</p>}
       {visible.freshness!=='CURRENT' && <p role="alert">{visible.freshness==='UNKNOWN'?'报告新鲜度尚未确认，请先检查远端更新。':'报告对应的代码已有变化，需更新报告并重新确认受影响的记忆。'}当前不能直接用旧结论创建新题。</p>}
       <p className="hint">报告时间：{visible.as_of?new Date(visible.as_of).toLocaleString():'未记录'}。分析观察不会证明测试已经执行或个人已经掌握。</p>
-      <p style={{whiteSpace:'pre-wrap'}}>{visible.report.summary}</p>
-      {visible.report.sections?.map(s=><article key={s.key}><h3>{s.title}</h3><p style={{whiteSpace:'pre-wrap'}}>{s.body}</p>{!!s.claim_ids?.length && <details><summary>查看本节依据</summary>{visible.report.claims?.filter(c=>s.claim_ids.includes(c.id)).map(c=><div key={c.id}><h4>{c.title}</h4><span className="chip chip-slate">{({CODE_OBSERVED:'代码观察',INFERRED:'待验证推断',DOC_CLAIM:'文档声明',UNASSESSED:'尚未判断'} as Record<string,string>)[c.kind] || '待核对观察'}</span><p>{c.text}</p><SourceCitations citations={c.citations} sourceExcerpts={visible.source_excerpts}/></div>)}</details>}</article>)}
-      <h3>架构与关键链路</h3>
-      {visible.report.architecture.map((item,i)=><article key={i}><h4>{item.title}</h4><span className="chip chip-slate">{factLabel(item.fact_type)}</span><p style={{whiteSpace:'pre-wrap'}}>{item.detail}</p><SourceCitations citations={item.citations} sourceExcerpts={visible.source_excerpts}/></article>)}
+      {tab==='process' && <>
+        <p className="project-report-label">材料与限制</p><h2>读取的代码、测试、未覆盖的文件</h2>
+        <p className="project-report-prose">{visible.report.summary}</p>
+        <p>当前报告代码版本：<code>{visible.source_revision || '未记录'}</code></p>
+        {visible.coverage ? <><p>已读 {visible.coverage.files_read ?? '未知'} / {visible.coverage.eligible_files ?? '未知'} 个候选文件。{visible.coverage.tree_truncated && '文件树已截断。'}</p>{visible.coverage.limitations?.map((line,index)=><p key={index}>{line}</p>)}{(['unread_files','failed_files','truncated_files'] as const).map((key,index)=> {
+          const files = visible.coverage?.[key] || [];
+          return files.length > 0 && <details key={key}><summary>{['未读取','读取失败','内容截断'][index]}（{files.length}）</summary><ul>{files.map(path=><li key={path}><code>{path}</code></li>)}</ul></details>;
+        })}</> : <p>这份报告未记录候选文件与读取范围。</p>}
+        {visible.report.sections?.map(section=><article key={section.key}><h3>{section.title}</h3><p className="project-report-prose">{section.body}</p>{visible.report.claims?.filter(claim=>section.claim_ids?.includes(claim.id)).map(claim=><p key={claim.id}><Link to={`?tab=evidence#report-claim-${claim.id}`}>{claim.title}</Link></p>)}</article>)}
+        <div className="project-report-actions"><Link className="btn btn-outline" to="?tab=evidence">查看对应结论</Link><Link className="btn btn-outline" to="?tab=overview">返回项目</Link></div>
+      </>}
+      {tab==='evidence' && <>
+        <div className="project-report-steps">
+          <article><strong>代码位置</strong><p>{firstLocation ? <code>{firstLocation.path}:{firstLocation.start_line}–{firstLocation.end_line}</code> : '查看各条结论的文件路径与行号。'}</p></article>
+          <article><strong>代码观察</strong><p>{firstClaim?.title || '按结论标记核对可由源码支持的内容。'}</p></article>
+          <article><strong>仍需本人核实</strong><p>代码无法证明个人职责或验证过的结果。</p></article>
+        </div>
+        {visible.report.claims?.map(claim=><article key={claim.id} id={`report-claim-${claim.id}`} className="project-report-entry"><span className="chip chip-slate">{factLabel(claim.kind)}</span><h3>{claim.title}</h3><p className="project-report-prose">{claim.text}</p>{claim.citations.length ? <SourceCitations citations={claim.citations} sourceExcerpts={visible.source_excerpts}/> : <p className="hint">本条没有保存代码引用。</p>}</article>)}
+        {!!visible.report.architecture.length && <details open={!visible.report.claims?.length}><summary>架构与关键链路</summary>{visible.report.architecture.map((item,index)=><article key={index}><h4>{item.title}</h4><span className="chip chip-slate">{factLabel(item.fact_type)}</span><p className="project-report-prose">{item.detail}</p><SourceCitations citations={item.citations} sourceExcerpts={visible.source_excerpts}/></article>)}</details>}
+        {!visible.report.claims?.length && !visible.report.architecture.length && <p>此报告没有单列代码结论，可到改进建议核对具体问题的引用。</p>}
+        <div className="project-report-actions"><Link className="btn btn-outline" to="?tab=improvements">查看工程建议</Link><Link className="btn btn-outline" to="?tab=overview">回到报告</Link></div>
+      </>}
+      {tab==='improvements' && <>
       <h3>项目问题与待验证风险</h3>
+      <p><strong>项目问题不代表个人能力短板。</strong> 个人掌握情况需要通过新的作答和评分确认。</p>
       {!visible.report.issues.length && <p>在本次已读范围内没有输出具体问题；这不代表项目已经没有风险。</p>}
       {visible.report.issues.map(issue=><article key={issue.id} style={{borderTop:'1px solid var(--border)',padding:'14px 0'}}>
         <div style={toolbar}><label style={{display:'flex',gap:8,alignItems:'center'}}><input type="checkbox" aria-label={'选择项目问题 '+issue.id} checked={selected.includes(issue.id)} disabled={!canPrepare || !visible.active_issue_ids?.includes(issue.id)} onChange={e=>setSelected(old=>e.target.checked?[...old,issue.id]:old.filter(id=>id!==issue.id))}/><strong>{issue.title}</strong></label><span className="chip chip-slate">{factLabel(visible.report.claims?.find(claim=>claim.id===issue.claim_id)?.kind)}</span><span className="chip chip-amber">{{high:'高优先级',medium:'中优先级',low:'低优先级'}[issue.severity]}</span></div>
         {!visible.active_issue_ids?.includes(issue.id) && <p className="hint">对应记忆尚未确认、需要重新确认，或已停用。先核对下方候选记忆，当前不用于新任务。</p>}
         {visible.issue_memories?.filter(m=>m.issue_id===issue.id && m.user_corrected).map(m=><div key={m.memory_id} className="demo-banner"><b>当前记忆已纠正 · #{m.memory_id}</b><p style={{whiteSpace:'pre-wrap'}}>{m.content}</p><p className="hint">已确认且仍适用的记忆可供新任务引用；下方原报告保留历史。</p></div>)}
-        <p style={{whiteSpace:'pre-wrap'}}>{issue.detail}</p><p><b>影响：</b>{issue.impact}</p><p><b>改进建议：</b>{issue.recommendation}</p><SourceCitations citations={issue.citations} sourceExcerpts={visible.source_excerpts}/>
+        <div className="project-report-card project-report-feature"><p className="project-report-label">建议 · 实施情况待核对</p><h2>{issue.recommendation || '暂无具体改进步骤'}</h2><p className="project-report-prose">{issue.detail}</p><p><b>影响：</b>{issue.impact}</p><SourceCitations citations={issue.citations} sourceExcerpts={visible.source_excerpts}/></div>
+        {issue.claim_id && visible.report.claims?.some(claim=>claim.id===issue.claim_id) && <p><Link to={`?tab=evidence#report-claim-${issue.claim_id}`}>查看触发这条建议的观察</Link></p>}
         {!!issue.interview_questions.length && <details><summary>可以如何追问</summary><ul>{issue.interview_questions.map((q,i)=><li key={i}>{q}</li>)}</ul></details>}
       </article>)}
       {!!visible.report.issues.length && <><button className="btn btn-primary" disabled={!canPrepare || !selectedActive.length} onClick={()=>navigate(issueWorkshopPath(projectId,visible.id,selectedActive))}>根据所选问题准备考核</button><p className="hint">仅使用已确认、仍适用的项目认知生成可审核的题目。实际考核仍需独立作答与评分。</p></>}
-      {!!visible.report.unknowns.length && <details open><summary>尚未确认的部分与分析限制</summary><ul>{visible.report.unknowns.map((line,i)=><li key={i}>{line}</li>)}</ul></details>}
-      {visible.report.changes && <details><summary>相比上一版的变化</summary>{Array.isArray(visible.report.changes)?<ul>{visible.report.changes.map((c,i)=><li key={i}>{c}</li>)}</ul>:<p>{visible.report.changes}</p>}</details>}
-      <details style={{marginTop:14}}><summary>代码版本与读取范围</summary><p className="hint">代码版本：<code>{visible.source_revision || '未记录'}</code></p>{visible.coverage && <><p>已读 {visible.coverage.files_read ?? '未知'} / {visible.coverage.eligible_files ?? '未知'} 个候选文件。</p>{visible.coverage.limitations?.map((l,i)=><p key={i}>{l}</p>)}{visible.coverage.tree_truncated && <p>文件树已截断，覆盖不完整。</p>}{!!visible.coverage.unread_files?.length && <p>未读取：{visible.coverage.unread_files.join('、')}</p>}{!!visible.coverage.failed_files?.length && <p>读取失败：{visible.coverage.failed_files.join('、')}</p>}</>}</details>
+      <div className="project-report-actions"><Link className="btn btn-outline" to="?tab=resume">核对简历素材</Link><Link className="btn btn-outline" to="?tab=evidence">回看代码依据</Link></div>
       {!!visible.generations?.length && <div><h3>由本报告安排的练习与考核</h3>{visible.generations.map(batch=><div key={batch.id} style={{padding:'10px 0',borderTop:'1px solid var(--border)'}}><Link to={'/bank/workshop?task='+batch.id}>补题任务 #{batch.id}</Link><span className="hint"> · {batch.status} · {batch.question_ids.length} 道已入库题</span>{batch.assessments.map(exam=><p key={exam.id}><Link to={exam.status==='COMPLETED'?'/exam/diagnosis/report?id='+exam.id:'/exam/diagnosis?id='+exam.id}>考核 #{exam.id} · {exam.status==='COMPLETED'?'查看评分报告':'继续作答 / 查看状态'}</Link>{exam.status==='COMPLETED' && exam.score!=null && <span> · {exam.score} 分</span>}</p>)}</div>)}</div>}
+      </>}
+      {(tab==='process' || tab==='evidence') && !!visible.report.unknowns.length && <details><summary>尚未确认的部分与分析限制</summary><ul>{visible.report.unknowns.map((line,i)=><li key={i}>{line}</li>)}</ul></details>}
+      {tab==='process' && visible.report.changes && <details><summary>相比上一版的变化</summary>{Array.isArray(visible.report.changes)?<ul>{visible.report.changes.map((c,i)=><li key={i}>{c}</li>)}</ul>:<p>{visible.report.changes}</p>}</details>}
     </div>}
-    {!loading && !error && !visible && <p className="hint">尚无完整有效报告。后台进度与部分结果会独立保留。</p>}
-    {!locked && <ProjectMemoryCandidates projectId={projectId} refreshKey={`${data?.report?.id || 0}:${latest?.id || 0}:${latest?.status || ''}:${pollEpoch}`} onReviewed={refresh}/>}
+    {(tab==='evidence' || tab==='improvements') && !visible && !error && <div className="project-report-card">
+      <p role={loading ? 'status' : undefined}>{loading ? '正在读取项目报告…' : '尚无完整有效报告。后台进度与部分结果会独立保留。'}</p>
+      <div className="project-report-actions"><Link className="btn btn-outline" to="?tab=process">查看分析设置与运行记录</Link>{!locked && <Link className="btn btn-primary" to="/assets?settings=1#project-analysis-settings">调整自动扫描设置</Link>}</div>
+    </div>}
+    {!locked && tab==='improvements' && <ProjectMemoryCandidates projectId={projectId} refreshKey={`${data?.report?.id || 0}:${latest?.id || 0}:${latest?.status || ''}:${pollEpoch}`} onReviewed={refresh}/>}
     {removeOpen && <Modal title="移除项目" onClose={()=>{if(!removeBusy)setRemoveOpen(false);}} footer={<><button className="btn btn-outline" disabled={removeBusy} onClick={()=>setRemoveOpen(false)}>保留项目</button><button className="btn btn-primary" disabled={removeBusy} onClick={remove}>移除项目</button></>}><p>移出列表并停止自动分析，停用当前项目记忆。历史报告、确认记录与既有题目和答卷保留。</p>{removeError && <p role="alert">{removeError}</p>}</Modal>}
   </section>;
 }

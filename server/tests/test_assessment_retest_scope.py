@@ -54,24 +54,20 @@ async def test_auto_selection_skips_semantically_edited_unreviewed_question(db_s
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('frozen_title,shared_covered,feedback_version,expected_covered,expected_passed', [
-    ('Original criterion', False, 'rubric:frozen', True, True),
-    ('Other criterion', True, 'rubric:frozen', False, None),
-    ('Original criterion', True, 'rubric:other', True, None),
-])
-async def test_retest_outcome_uses_this_exam_frozen_rubric_and_matching_judgement(
-        db_session, test_workspace, frozen_title, shared_covered, feedback_version, expected_covered, expected_passed):
+@pytest.mark.parametrize('frozen_title', ['Original criterion', 'Other criterion'])
+async def test_unmapped_retest_ignores_stale_shared_coverage(
+        db_session, test_workspace, frozen_title):
     task = LearningTask(workspace_id=test_workspace.id, title='Fixture retest', kind='RETEST',
         status='PENDING', source_criterion='Original criterion',
-        content={'source_criterion_covered':shared_covered, 'assessment_scope':'Stale other-exam scope'})
+        content={'source_criterion_covered':True, 'assessment_scope':'Stale other-exam scope'})
     db_session.add(task)
     await db_session.flush()
     frozen = {'schema_version':2, 'rubric_version':'rubric:frozen',
         'criteria':[{'criterion_id':'c2', 'title':frozen_title}]}
     # Live question has already changed and is not evidence of this exam's scope.
-    eq = SimpleNamespace(frozen_snapshot={'rubric':deepcopy(frozen)},
+    eq = SimpleNamespace(creation_snapshot={'rubric':deepcopy(frozen)}, frozen_snapshot={'rubric':deepcopy(frozen)},
         question=SimpleNamespace(rubric={'points':[{'title':'Original criterion'}]}),
-        answer=SimpleNamespace(verdict='CORRECT', feedback={'rubric_version':feedback_version,
+        answer=SimpleNamespace(verdict='CORRECT', feedback={'rubric_version':'rubric:frozen',
             'validation_status':'VALID',
             'criterion_scores':[{'criterion_id':'c2', 'score':4, 'max_score':4}],
             'hit_points':['Original criterion'], 'missed_points':[]}))
@@ -79,6 +75,6 @@ async def test_retest_outcome_uses_this_exam_frozen_rubric_and_matching_judgemen
         status='COMPLETED', score=100, completed_at=datetime.now(timezone.utc), questions=[eq])
     await complete_retest_for_exam(db_session, exam)
     result = task.content['retest_result']
-    assert result['source_criterion_covered'] is expected_covered
-    assert result['source_criterion_passed'] is expected_passed
+    assert result['source_criterion_covered'] is False
+    assert result['source_criterion_passed'] is None
     assert result['assessment_scope'] != 'Stale other-exam scope'

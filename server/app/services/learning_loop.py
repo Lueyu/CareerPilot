@@ -2,6 +2,8 @@
 import datetime as dt
 from sqlalchemy import select
 from app.models import LearningTask
+from app.services.retest_targets import goal_outcomes
+from app.services.task_memory import record_task_completion
 from app.services.tracing import emit_event
 
 LOCAL_TZ = dt.timezone(dt.timedelta(hours=8))
@@ -46,50 +48,31 @@ async def complete_retest_for_exam(session, exam):
     task.status = "DONE"
     task.completed_at = exam.completed_at
     passed = bool(exam.questions) and all(eq.answer and eq.answer.verdict == "CORRECT" for eq in exam.questions)
-    from app.services.planner import _criterion_key
-    criterion = _criterion_key(task.source_criterion or "")
-    checks, bindings = [], []
-    for eq in exam.questions:
-        # Another paper may have been created for this same task. Neither its
-        # mutable task flags nor a later bank edit establishes this paper's scope.
-        rubric = (eq.frozen_snapshot or {}).get('rubric') or {}
-        matched = [c for c in (rubric.get('criteria') or rubric.get('points') or [])
-                   if criterion and _criterion_key(c) == criterion]
-        if not matched:
-            continue
-        feedback = (eq.answer.feedback if eq.answer else None) or {}
-        if rubric.get('schema_version') == 2:
-            ids = {c['criterion_id'] for c in matched}
-            rows = [r for r in feedback.get('criterion_scores', []) if r.get('criterion_id') in ids]
-            version = rubric.get('rubric_version')
-            valid = bool(version) and feedback.get('rubric_version') == version \
-                and feedback.get('validation_status') == 'VALID' \
-                and len(rows) == len(ids) and {r['criterion_id'] for r in rows} == ids
-            checks.append(all(r['score'] >= 3 for r in rows) if valid else None)
-            bindings.extend({'exam_question_id':getattr(eq, 'id', None),
-                'criterion_id':criterion_id, 'rubric_version':version} for criterion_id in sorted(ids))
-        else:
-            checks.append(criterion in {_criterion_key(p) for p in feedback.get('hit_points', [])}
-                and criterion not in {_criterion_key(p) for p in feedback.get('missed_points', [])})
-            bindings.append({'exam_question_id':getattr(eq, 'id', None),
-                'criterion_title':task.source_criterion, 'rubric_version':'legacy-unversioned'})
-    covered = bool(checks)
-    criterion_passed = any(checks) if covered and all(c is not None for c in checks) else None
-    scope = ('本场冻结题目包含原失分项同名评分项；按本场评分项和版本判断本次作答。' if covered else
-             '本场冻结题目未直接覆盖原失分评分项；不能据此声称原评分项已通过。')
-    outcome = ("原失分评分项在本次新题中满足要求" if criterion_passed is True else
-               "原失分评分项在本次新题中仍未满足要求" if criterion_passed is False else
-               "已覆盖原失分评分项，但缺少一致版本的有效评分依据，尚未验证" if covered else
-               "完成同域新题评分；原失分评分项尚未直接验证")
+    outcomes = goal_outcomes(exam, task)
+    primary = next(result for result in outcomes if result["primary"])
+    covered = primary["covered"]
+    status = primary["status"]
+    criterion_passed = {"PASSED": True, "FAILED": False}.get(status)
+    scope = ("按本场出卷时冻结的审核映射验证原失分项。" if covered
+             else "已完成同能力域练习，原失分项缺少本场冻结的审核映射。")
+    outcome = {
+        "PASSED": "原失分项本次独立作答通过",
+        "FAILED": "原失分项本次独立作答未通过",
+        "ASSISTED": "已记录辅助作答得分；原失分项的独立验证待完成",
+        "UNVERIFIED": "缺少一致版本的有效评分或独立性记录；原失分项待验证",
+        "UNMAPPED": "完成同能力域练习；原失分项待验证",
+    }[status]
     task.content = {**(task.content or {}), "retest_result": {
         "exam_id": exam.id, "score": exam.score, "passed": passed,
         "outcome": outcome, "source_criterion_covered": covered,
         "source_criterion_passed": criterion_passed,
-        "assessment_scope": scope, "criterion_bindings": bindings,
+        "assessment_scope": scope, "goal_outcomes": outcomes,
+        "criterion_bindings": [item["binding"] for item in outcomes if item["binding"]],
         "mode": (task.content or {}).get("verification_mode", "immediate"),
         "completed_at": exam.completed_at.isoformat(),
         "scope_note": "仅记录这次作答的表现，不代表已证明长期保持或整个能力域掌握。",
     }}
+    await record_task_completion(session, task)
     from app.services import learning_memory
     if hasattr(learning_memory, 'on_verification_completed'):
         await learning_memory.on_verification_completed(session, exam, task)

@@ -21,6 +21,8 @@ async def test_unchanged_probe_does_not_enqueue_or_call_model(db_session,test_wo
     run=await db_session.get(ProjectAnalysis,first['run_id']);run.status='COMPLETED';run.report_status='VALID';run.coverage_status='COMPLETE';run.source_revision='a'*40
     from app.services.project_autopilot_engine import SCHEMA_VERSION,SAFETY_POLICY_VERSION
     run.snapshot={'provenance':{'schema_version':SCHEMA_VERSION,'safety_policy_version':SAFETY_POLICY_VERSION}}
+    run.prompt_bundle_version = 'project-autopilot-prompts-v2'
+    run.model_config_fingerprint = 'old-routing-fingerprint'
     p.latest_valid_analysis_id=run.id;p.last_seen_sha='a'*40;await db_session.commit()
     second=await s.check_project(db_session,p.id,test_workspace.id)
     assert second['status']=='UNCHANGED'

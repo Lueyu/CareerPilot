@@ -41,9 +41,13 @@ async def check_project(session,project_id,workspace_id,now=None):
     pipeline,prompt=versions();fp=model_fingerprint(config)
     from app.services.project_autopilot_engine import SCHEMA_VERSION,SAFETY_POLICY_VERSION
     provenance=((baseline.snapshot or {}).get('provenance') or {}) if baseline else {}
+    # The card-layout release adds optional evidence fields and Auto routing.
+    # Updating the app alone should not launch a paid rescan of unchanged v2 reports.
+    prompt_upgrade = baseline and (baseline.prompt_bundle_version, prompt) == (
+        'project-autopilot-prompts-v2', 'project-autopilot-prompts-v3')
     unchanged=(baseline and baseline.workspace_id==workspace_id and baseline.source_revision==head['target_sha'] and
-        baseline.model_config_fingerprint==fp and baseline.pipeline_version==pipeline and
-        baseline.prompt_bundle_version==prompt and provenance.get('schema_version')==SCHEMA_VERSION and
+        (prompt_upgrade or (baseline.prompt_bundle_version==prompt and baseline.model_config_fingerprint==fp)) and
+        baseline.pipeline_version==pipeline and provenance.get('schema_version')==SCHEMA_VERSION and
         provenance.get('safety_policy_version')==SAFETY_POLICY_VERSION and not branch_changed)
     busy=await session.scalar(select(ProjectAnalysis).where(ProjectAnalysis.project_id==project.id,
         ProjectAnalysis.status.in_(OPEN),ProjectAnalysis.pipeline_version!='legacy').order_by(ProjectAnalysis.id.desc()))

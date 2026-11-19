@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_workspace
+from app.api.v1.daily_learning_plan import router as daily_plan_router
 from app.db import get_session
 from app.models import LearningTask, Workspace
 from app.services.llm import AgentAdapter
@@ -17,6 +18,7 @@ from app.services.teaching import HELP_MODES, build_teaching_content, help_answe
 from app.services.tracing import emit_event
 
 router = APIRouter()
+router.include_router(daily_plan_router)
 _llm = AgentAdapter()
 
 
@@ -203,7 +205,9 @@ async def complete_task(
         if body and body.artifact_text is not None:
             task.content = {**(task.content or {}), "artifact_text": body.artifact_text[:20000], "artifact_verified": False}
         from app.services.learning_loop import schedule_retests
+        from app.services.task_memory import record_task_completion
         await schedule_retests(session, task)
+        await record_task_completion(session, task)
         await emit_event(session, ws.id, "learning.task_done", {"task_id": task.id, "kind": task.kind, "mastery_updated": False}, "learning_task", task.id)
     retests = (await session.execute(select(LearningTask).where(LearningTask.retest_of == task.id).order_by(LearningTask.due_date))).scalars().all()
     await session.commit()
@@ -229,11 +233,9 @@ async def start_retest(task_id: int, ws: Workspace = Depends(get_workspace),
             raise HTTPException(status_code=409, detail="请先完成对应学习任务。")
         if task.due_date and task.due_date > _today():
             raise HTTPException(status_code=409, detail="延迟复测尚未到期；可从学习任务进行即时检查。")
-        source_task = parent
     else:
         if task.status != "DONE":
             raise HTTPException(status_code=409, detail="请先记录学习完成，再提交新的复测答案。")
-        source_task = task
         check = (await session.execute(select(LearningTask).where(
             LearningTask.workspace_id == ws.id, LearningTask.retest_of == task.id,
             LearningTask.kind == "RETEST", LearningTask.retest_round == 0,
@@ -245,12 +247,6 @@ async def start_retest(task_id: int, ws: Workspace = Depends(get_workspace),
                          "verification_mode": "immediate"})
             session.add(check)
             await session.flush()
-    from app.models.learning_feedback import LearningGoal
-    goal = await session.scalar(select(LearningGoal).where(LearningGoal.workspace_id == ws.id,
-        LearningGoal.source_task_id == source_task.id))
-    if goal:
-        from app.services.learning_feedback import assert_goal_sources
-        await assert_goal_sources(session, ws, goal)
     if not check.skill_id:
         raise HTTPException(status_code=409, detail="该任务没有明确关联的能力域，暂时不能自动复测。")
     if check.status == "PENDING":

@@ -1,9 +1,13 @@
 // CareerPilot API client — 后端 FastAPI (127.0.0.1:8000)
 // 认证: X-Api-Token; 工作空间: X-Workspace (默认 personal)
 
-const BASE = (import.meta as any).env?.VITE_API_BASE || 'http://127.0.0.1:8000/api/v1';
+const env = (import.meta as any).env;
+const localApi = env?.DEV && typeof window !== 'undefined' && env['VITE_DEV_API_' + window.location.port];
+const BASE = localApi || env?.VITE_API_BASE || 'http://127.0.0.1:8000/api/v1';
+export const workspaceLogin = (import.meta as any).env?.VITE_AUTH_MODE === 'workspace';
 const TOKEN = (import.meta as any).env?.VITE_API_TOKEN || 'cp-dev-token';
 export function getWorkspace(): string {
+  if (workspaceLogin) return sessionStorage.getItem('cp-login-workspace') || '';
   return globalThis.localStorage?.getItem('cp-workspace') || (import.meta as any).env?.VITE_WORKSPACE || 'personal';
 }
 
@@ -11,7 +15,7 @@ export function selectWorkspace(slug: string) {
   localStorage.setItem('cp-workspace', slug);
 }
 
-export const apiHeaders = () => ({ 'X-Api-Token': TOKEN, 'X-Workspace': getWorkspace() });
+export const apiHeaders = () => ({ 'X-Api-Token': workspaceLogin ? sessionStorage.getItem('cp-login-token') || '' : TOKEN, 'X-Workspace': getWorkspace() });
 
 export async function downloadWorkspaceExport(): Promise<Blob> {
   const res = await fetch(`${BASE}/settings/export`, { headers: apiHeaders() });
@@ -44,7 +48,7 @@ async function req<T = any>(method: string, path: string, body?: unknown): Promi
     } catch { /* ignore */ }
     throw new ApiError(res.status, detail);
   }
-  return res.json() as Promise<T>;
+  return res.status === 204 ? undefined as T : res.json() as Promise<T>;
 }
 
 /** multipart 上传(文件): 不设 Content-Type, 交给浏览器带 boundary。 */
@@ -138,6 +142,7 @@ export interface ExamQuestionView {
 export interface ExamDetail {
   id: number; title: string; kind: string; status: string; duration_minutes: number;
   selection_reason?: string | null; started_at?: string | null;
+  interview_set_id?: string | null;
   questions: ExamQuestionView[];
 }
 
@@ -217,6 +222,15 @@ export interface LearningData {
   stats?: { total?: number; done?: number; pending?: number };
 }
 
+export interface RetestGoalOutcome {
+  goal_id: number | null;
+  source_criterion: string;
+  status: 'UNMAPPED' | 'UNVERIFIED' | 'ASSISTED' | 'PASSED' | 'FAILED';
+  score: number | null;
+  independent: boolean | null;
+  covered: boolean;
+}
+
 export interface LearningTaskView {
   id: number; title: string; kind: string; why?: string | null; why_ref?: string | null;
   est_minutes: number; acceptance?: string | null; status: string;
@@ -232,8 +246,33 @@ export interface LearningTaskView {
       exam_id: number; score?: number | null; passed?: boolean | null; outcome?: string;
       mode?: string; scope_note?: string; assessment_scope?: string;
       source_criterion_covered?: boolean | null; source_criterion_passed?: boolean | null;
+      goal_outcomes?: RetestGoalOutcome[];
     };
   } | null;
+}
+
+export interface RetestMappingCriterion {
+  criterion_id: string;
+  title: string;
+  behavior_key: string | null;
+  behavior_version: number | null;
+  reviewed_at: string | null;
+}
+
+export interface RetestMappings {
+  question_id: number;
+  rubric_version: string;
+  reviewable: boolean;
+  criteria: RetestMappingCriterion[];
+  historical_mappings: RetestHistoricalMapping[];
+}
+
+export interface RetestHistoricalMapping {
+  criterion_id: string;
+  rubric_version: string;
+  behavior_key: string;
+  behavior_version: number;
+  reviewed_at: string | null;
 }
 
 export interface TaskContentResp {
@@ -296,7 +335,7 @@ export interface ImportReview {
     id: number; title: string; extract_confidence: number; suggested_skill_key: string;
     draft_answer?: string | null; draft_rubric?: any; is_duplicate_of?: number | null; status: string;
     has_answer?: boolean; answer_source?: string | null;
-    generation_meta?: {task_id?:number; item?:unknown; source?:string} | null;
+    generation_meta?: {task_id?:number; item?:unknown; source?:string; source_files?:string[]; extraction_method?:'model'|'rules'} | null;
   }[];
 }
 

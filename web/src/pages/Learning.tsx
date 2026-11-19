@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { DemoBanner, PageHead, Modal } from '../components/ui';
 import { useApi, LearningData, LearningTaskView } from '../api/client';
+import DailyLearningPlan from './DailyLearningPlan';
 
 
 const TYPE_CLS: Record<string, string> = { UNDERSTAND: 'chip-blue', PRACTICE: 'chip-purple', RETEST: 'chip-amber' };
@@ -16,13 +17,18 @@ const HELP_ITEMS = [
 ];
 
 export default function Learning() {
+  const [params] = useSearchParams();
+  return params.get('plan') === 'history' ? <LearningHistory /> : <DailyLearningPlan />;
+}
+
+function LearningHistory() {
   const navigate = useNavigate();
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpItem, setHelpItem] = useState<(typeof HELP_ITEMS)[number] | null>(null);
   const { data, loading, error } = useApi<LearningData>('/learning');
 
   const today = (data?.today ?? []).map(t => ({ ...t, domain: t.skill_name || t.skill || '' }));
-  const retest = (data?.retest_plan ?? []).map(r => ({ day: r.due_in_days <= 0 ? '已到期' : `${r.due_in_days} 天后`, date: r.due_date.slice(0, 10), tasks: [r.title], id: r.id, due: r.due_in_days <= 0 }));
+  const retest = (data?.retest_plan ?? []).map(r => ({ day: r.due_in_days == null ? '未安排' : r.due_in_days <= 0 ? '已到期' : `${r.due_in_days} 天后`, date: r.due_date?.slice(0, 10) ?? '待定', tasks: [r.title], id: r.id, due: r.due_in_days != null && r.due_in_days <= 0 }));
 
   return (
     <div>
@@ -30,6 +36,7 @@ export default function Learning() {
         title="学习中心"
         sub="任务关联本次作答的具体失分项；完成学习记录进度，新题验证再生成表现证据"
       >
+        <Link className="btn btn-outline" to="/learning">返回学习计划</Link>
         <button className="btn btn-outline" onClick={() => navigate('/profile')}>查看能力画像</button>
         <button className="btn btn-primary" onClick={() => navigate('/exam/diagnosis')}>开始一次诊断</button>
       </PageHead>

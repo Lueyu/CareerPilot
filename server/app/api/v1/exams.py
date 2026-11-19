@@ -29,7 +29,8 @@ from app.services.llm_judge import judge_open_answer
 from app.services.planner import plan_tasks_for_exam
 from app.services.learning_loop import complete_retest_for_exam
 from app.services.scorer import build_feedback, score_question
-from app.services.selection import covers_criterion, select_questions_for_exam
+from app.services.retest_targets import load_retest_plan
+from app.services.selection import select_questions_for_exam
 from app.services.tracing import add_span, emit_event, finish_trace, start_trace
 
 router = APIRouter()
@@ -114,6 +115,10 @@ async def create_exam(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
+    return await issue_exam(req, ws, session)
+
+
+async def issue_exam(req, ws, session, *, study_practice=None, interview_set=None):
     if req.kind not in EXAM_KINDS:
         raise HTTPException(status_code=400, detail=f"unknown exam kind '{req.kind}'")
     if req.question_ids and (req.retest_task_id or req.kind != Exam.KIND_BANK):
@@ -132,6 +137,31 @@ async def create_exam(
     skill_key = req.skill_key
     excluded = list(req.exclude_question_ids)
     task = None
+    retest_plan = None
+    study_topic = None
+    if study_practice is not None:
+        from app.services.study_practice import assert_retest_ready, resolve_retest_skill, skill_snapshot, taught_question_ids
+        if study_practice.retest_exam_id:
+            previous = await _get_own_exam(session, ws, study_practice.retest_exam_id, lock=True)
+            _maybe_expire(previous)
+            if previous.status not in ('ABORTED', 'EXPIRED'):
+                return await _exam_detail(session, ws, previous.id)
+            prior = (study_practice.source or {}).get('closed_retests', [])
+            study_practice.source = {**study_practice.source, 'closed_retests':
+                [*prior, {'exam_id': previous.id, 'status': previous.status}]}
+        skill = await resolve_retest_skill(session, study_practice)
+        if skill is None:
+            raise HTTPException(409, '练习尚未关联明确的能力域，不能据此安排正式复测')
+        await assert_retest_ready(session, study_practice, skill)
+        skill_key = skill.key
+        study_topic = study_practice.knowledge_point
+        if study_practice.source.get('question_id'):
+            excluded.append(study_practice.source['question_id'])
+        excluded.extend(await taught_question_ids(session, study_practice))
+        attempted = await session.scalars(select(ExamQuestion.question_id).join(Exam).where(Exam.workspace_id == ws.id))
+        excluded.extend(attempted)
+        study_practice.source = {**study_practice.source,
+            'skill_state_before': await skill_snapshot(session, ws.id, skill.id)}
     if req.retest_task_id:
         task = (await session.execute(select(LearningTask).where(
             LearningTask.id == req.retest_task_id, LearningTask.workspace_id == ws.id,
@@ -152,6 +182,7 @@ async def create_exam(
         skill_key = skill.key
         attempted = (await session.execute(select(ExamQuestion.question_id).join(Exam).where(Exam.workspace_id == ws.id))).scalars().all()
         excluded.extend(attempted)
+        retest_plan = await load_retest_plan(session, ws, task)
     selected = None
     if req.question_ids:
         rows = (await session.scalars(select(Question).where(Question.id.in_(req.question_ids), (Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id)))).all()
@@ -161,7 +192,9 @@ async def create_exam(
         selected, seen = [], set()
         for qid in req.question_ids:
             q = by_id[qid]
-            if (q.generation_meta or {}).get('assessment_use') == 'PRACTICE_ONLY':
+            if (q.generation_meta or {}).get('assessment_use') == 'PRACTICE_ONLY' and (
+                not interview_set or q.generation_meta.get('interview_set_id') != interview_set['id']
+            ):
                 raise HTTPException(409, '学习练习题已曝光，不能作为正式独立考题')
             if q.qtype not in ("open", "mcq") or (skill_key and (not q.skill or q.skill.key != skill_key)):
                 raise HTTPException(422, "指定题目不符合本次练习的技能或题型")
@@ -180,7 +213,7 @@ async def create_exam(
 
     exam = Exam(
         workspace_id=ws.id,
-        title=meta["title"],
+        title=interview_set['title'] if interview_set else meta["title"],
         kind=req.kind,
         status=Exam.STATUS_ACTIVE,
         duration_minutes=req.duration_minutes or meta["default_minutes"],
@@ -199,24 +232,16 @@ async def create_exam(
     else:
         questions, reason = await select_questions_for_exam(session, ws.id, exam, req.question_count,
                                                           skill_key=skill_key, exclude_question_ids=excluded,
-                                                          criterion_title=task.source_criterion if task else None,
-                                                          exclude_exposed=bool(task))
+                                                          retest_plan=retest_plan,
+                                                          exclude_exposed=bool(task or study_practice),
+                                                          study_topic=(study_practice.source.get('retest_topic') or study_topic)
+                                                          if study_practice else study_topic)
     if not questions:
         await session.rollback()
         raise HTTPException(status_code=409, detail="当前能力域没有可用的新题，请先补充题库后再验证")
     from app.services.project_assessment import freeze_assessment
     exam.project_assessment = await freeze_assessment(session, ws.id, questions, req.project_generation_id)
-    if task:
-        covered = any(covers_criterion(q, task.source_criterion) for q in questions)
-        scope = ("本次同能力域新题的评分项包含原失分项；结果仅验证这次作答。" if covered
-                 else "本次仅是同能力域新题检查，未直接覆盖原失分评分项，不能据此声称原评分项已通过。")
-        task.content = {**(task.content or {}), "source_criterion_covered": covered, "assessment_scope": scope}
-        reason += " " + scope
-    add_span(session, trace, "select_questions", int((time.perf_counter() - t0) * 1000), detail={"count": len(questions), "reason": reason})
-    await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000))
-
-    exam.selection_reason = reason
-    from app.services.assessment_versions import question_snapshot
+    from app.services.assessment_versions import digest, question_snapshot
     from app.models import JobStandard, JobStandardTarget
     standard_role = 'AI Agent 应用开发工程师'
     standard=await session.scalar(select(JobStandard).where(
@@ -238,9 +263,32 @@ async def create_exam(
         standard_snapshot={'id':None,'role':standard_role,'level':None,'version':None,
             'status':'NOT_CONFIGURED','calibration_status':'UNCALIBRATED','targets':[],
             'scope_note':'未配置岗位目标标准；本次评分仅记录作答表现，不能判断是否达到岗位要求。'}
-    for i, q in enumerate(questions, start=1):
+    snapshots = [question_snapshot(q, standard_snapshot) for q in questions]
+    if interview_set:
+        reason = f"来自「{interview_set['project_name']}」的独立套题；仅用于项目面试练习。"
+        for snapshot, question in zip(snapshots, questions):
+            snapshot['interview_set'] = question.generation_meta
+            snapshot.pop('question_version', None)
+            snapshot['question_version'] = digest(snapshot)
+    if study_practice is not None:
+        from app.services.study_practice import card_event_through
+        study_practice.retest_exam_id = exam.id
+        snapshots[0].update(study_practice_id=study_practice.id, study_session_id=study_practice.session_id,
+                            study_knowledge_point=study_topic,
+                            study_card_event_through=await card_event_through(session, study_practice))
+        reason += f" 核对「{study_topic}」相关的新情境，画像只使用独立作答的有效评价。"
+    if task and retest_plan:
+        covered = retest_plan.freeze(snapshots)
+        scope = ("本次出卷已冻结原失分评分项的审核映射；结果仅验证这次作答。" if covered
+                 else "本次可以练习同能力域新题，原失分评分项缺少审核映射，待验证。")
+        task.content = {**(task.content or {}), "source_criterion_covered": covered, "assessment_scope": scope}
+        reason += " " + scope
+    add_span(session, trace, "select_questions", int((time.perf_counter() - t0) * 1000), detail={"count": len(questions), "reason": reason})
+    await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000))
+    exam.selection_reason = reason
+    for i, (q, snapshot) in enumerate(zip(questions, snapshots), start=1):
         session.add(ExamQuestion(exam_id=exam.id, question_id=q.id, order_no=i,
-            creation_snapshot=question_snapshot(q,standard_snapshot)))
+            creation_snapshot=snapshot))
     await emit_event(session, ws.id, "exam.created", {"exam_id": exam.id, "kind": req.kind}, "exam", exam.id)
     await session.commit()
 
@@ -422,6 +470,12 @@ async def _finalize_exam(session: AsyncSession, ws: Workspace, exam: Exam, trace
         },
     }
 
+    if exam.questions and all((eq.frozen_snapshot or {}).get('interview_set') for eq in exam.questions):
+        exam.summary = {**exam.summary, "observations": [], "learning_tasks": []}
+        await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000))
+        await emit_event(session, ws.id, "exam.completed", {"exam_id": exam.id, "score": exam.score}, "exam", exam.id)
+        return
+
     # 6) 写证据(完成后才有资格作为能力证据)
     evidence_t0 = time.perf_counter()
     observations = []
@@ -442,7 +496,8 @@ async def _finalize_exam(session: AsyncSession, ws: Workspace, exam: Exam, trace
                 'status':'hit' if row['score']>=3 else 'missing'} for row in fb['criterion_scores']]
         meta = {
             "assessed": True, "exam_id": exam.id, "exam_question_id": eq.id,
-            "question_id": q.id, "canonical_question_id": q.canonical_question_id,
+            "question_id": q.id, "canonical_question_id": ((eq.frozen_snapshot or {}).get('independence') or {}).get(
+                'canonical_question_id', q.canonical_question_id),
             "score": answer.points, "max_points": answer.max_points, "judge_version": answer.judge_version,
             "qtype": q.qtype, "blank_answer": not bool((submitted.get("text_answer") or "").strip()),
             "criteria": criteria, "missed_criteria": missed,
@@ -620,6 +675,8 @@ async def _exam_detail(session: AsyncSession, ws: Workspace, exam_id: int) -> di
         "status": exam.status,
         "duration_minutes": exam.duration_minutes,
         "selection_reason": exam.selection_reason,
+        "interview_set_id": next(((eq.creation_snapshot or {}).get('interview_set', {}).get('interview_set_id')
+                                  for eq in exam.questions if (eq.creation_snapshot or {}).get('interview_set')), None),
         "started_at": exam.started_at.isoformat() if exam.started_at else None,
         "questions": [
             {

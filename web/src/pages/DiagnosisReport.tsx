@@ -1,3 +1,5 @@
+import StudyRetestResult from '../components/StudyRetestResult';
+import StudyEntryButton from '../components/StudyEntryButton';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { DemoBanner, PageHead, plainLevel } from '../components/ui';
@@ -28,7 +30,7 @@ const PENDING_STATUSES=['SUBMITTED','TRANSCRIPT_CONFIRMED','FROZEN','SCORING','S
 const STATUS_LABELS:Record<string,string>={COMPLETED:'本次评分已完成',SCORING_FAILED:'本次评分未完成',NEEDS_REVIEW:'评分结果需要复核',SCORING:'后台评分处理中',SCORING_RETRY_WAIT:'等待后台重试',SUBMITTED:'答卷已提交',FROZEN:'答卷已冻结',TRANSCRIPT_CONFIRMED:'答卷已确认',ABORTED:'考试已放弃',EXPIRED:'考试已超时'};
 interface AnswerGap {order_no:number;exam_question_id?:number;title:string;detail:string;quote?:string|null;ratio:number;criterion_id:string}
 
-export default function DiagnosisReport() {
+export default function DiagnosisReport({ studyMode = false }: { studyMode?: boolean } = {}) {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const returnTask=params.get('return_task_id');
@@ -105,6 +107,10 @@ export default function DiagnosisReport() {
   // 后端报告
   if (report && String(report.id) === reportId) {
     const r = report;
+    const studyPracticeId = r.questions[0]?.frozen?.study_practice_id;
+    if (studyMode && r.status === 'COMPLETED' && Number.isSafeInteger(studyPracticeId) && studyPracticeId > 0) {
+      return <StudyRetestResult key={r.id} report={r} practiceId={studyPracticeId} />;
+    }
     const deep = r.diagnosis_deep;
     const ob = r.overall;
     const degraded = r.status !== 'COMPLETED';
@@ -418,6 +424,7 @@ export default function DiagnosisReport() {
                       <div className="bank-answer" style={{whiteSpace:'pre-wrap'}}>{referenceText(q.reference_answer)}</div>
                     </div>
                   )}
+                  {q.exam_question_id && <StudyEntryButton kind="exam_question" id={q.exam_question_id}/>}
                   {q.exam_question_id && <QuestionAmbiguityFeedback key={`${r.id}:${q.exam_question_id}`} examId={r.id} questionId={q.exam_question_id}/>}
                 </div>
               )}

@@ -374,18 +374,18 @@ async def test_same_skill_check_records_when_original_criterion_is_not_covered(d
 
 
 @pytest.mark.asyncio
-async def test_retest_prefers_fresh_question_covering_source_criterion(db_session, test_workspace):
+async def test_retest_does_not_count_unmapped_same_title_as_coverage(db_session, test_workspace):
     skill, qs = await db_questions(db_session, test_workspace)
-    qs[0].rubric = {**qs[0].rubric, "points": [{"title": "different criterion"}]}
     task = LearningTask(workspace_id=test_workspace.id, skill_id=skill.id,
                         title="Fixture comparable retest", kind="RETEST", status="PENDING",
                         source_criterion="explain grounding", content={"verification_mode": "immediate"})
     db_session.add(task)
     await db_session.commit()
-    created = await exams.create_exam(exams.CreateExamReq(question_count=1, retest_task_id=task.id), test_workspace, db_session)
+    created = await exams.create_exam(exams.CreateExamReq(question_count=1, retest_task_id=task.id,
+        exclude_question_ids=[qs[0].id, qs[1].id]), test_workspace, db_session)
     eqs = (await db_session.execute(select(ExamQuestion).where(ExamQuestion.exam_id == created["id"]))).scalars().all()
     assert eqs[0].question_id == qs[2].id
-    assert task.content["source_criterion_covered"] is True
+    assert task.content["source_criterion_covered"] is False
 
 
 @pytest.mark.asyncio

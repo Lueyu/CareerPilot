@@ -39,15 +39,10 @@ async def _task(session, ws, task_id):
     return task
 
 
-async def assert_goal_sources(session, ws, goal):
-    """Check current eligibility without substituting new facts into a frozen plan."""
-    if goal.workspace_id != ws.id: raise HTTPException(404, '学习目标不存在')
-    if goal.status != 'ACTIVE' or goal.evidence_status in BAD_SOURCE:
-        raise HTTPException(409, '目标已暂停或来源需要复核，不能继续生成新反馈')
-    refs = goal.origin_refs or {}
-    await _assert_no_dispute(session, ws.id, refs.get('exam_question_id'))
+async def assert_assessed_origin(session, workspace_id, refs):
+    await _assert_no_dispute(session, workspace_id, refs.get('exam_question_id'))
     evidence = await session.scalar(select(Evidence).where(Evidence.id == refs.get('evidence_id'),
-        Evidence.workspace_id == ws.id).execution_options(populate_existing=True))
+        Evidence.workspace_id == workspace_id).execution_options(populate_existing=True))
     from app.services.competency import assessed_observations
     if not evidence or not assessed_observations([evidence], include_assisted=True):
         raise HTTPException(409, '原表现来源已撤回或不再有效，需要复核学习目标')
@@ -59,7 +54,7 @@ async def assert_goal_sources(session, ws, goal):
         raise HTTPException(409, '来源评分版本已改变，不能沿用旧计划')
     source = (await session.execute(select(ExamQuestion, Exam).join(Exam).where(
         ExamQuestion.id == refs.get('exam_question_id'), Exam.id == refs.get('exam_id'),
-        Exam.workspace_id == ws.id))).first()
+        Exam.workspace_id == workspace_id))).first()
     if source is None or source[1].status != 'COMPLETED':
         raise HTTPException(409, '来源答卷已撤回或不再是有效完成状态，需要复核')
     frozen = source[0].frozen_snapshot or {}
@@ -67,6 +62,18 @@ async def assert_goal_sources(session, ws, goal):
             frozen.get('answer_revision_id') != refs.get('answer_revision_id')
             or (frozen.get('rubric') or {}).get('rubric_version') != refs.get('rubric_version')):
         raise HTTPException(409, '来源答卷的冻结版本与目标不一致，需要复核')
+
+
+async def assert_goal_sources(session, ws, goal):
+    """Check current eligibility without substituting new facts into a frozen plan."""
+    if goal.workspace_id != ws.id: raise HTTPException(404, '学习目标不存在')
+    if goal.status != 'ACTIVE' or goal.evidence_status in BAD_SOURCE:
+        raise HTTPException(409, '目标已暂停或来源需要复核，不能继续生成新反馈')
+    if goal.gap_type == 'StudyTopic' and goal.source_task_id is None:
+        from app.services.study_practice import owned_session
+        await owned_session(session, ws.id, (goal.origin_refs or {}).get('study_session_id'))
+    else:
+        await assert_assessed_origin(session, ws.id, goal.origin_refs or {})
     for reference in (goal.meta or {}).get('source_memories', []):
         memory = await session.scalar(select(MemoryItem).where(MemoryItem.id == reference.get('id'),
             MemoryItem.workspace_id == ws.id).execution_options(populate_existing=True))
@@ -245,7 +252,7 @@ async def record_assistance(session, ws, activity_id, kind, request_key, expecte
     if kind not in ('HINT', 'REFERENCE'): raise HTTPException(422, '未知辅助类型')
     await _lock_workspace(session, ws)
     activity = await session.scalar(select(LearningActivity).where(LearningActivity.id == activity_id,
-        LearningActivity.workspace_id == ws.id).with_for_update())
+        LearningActivity.workspace_id == ws.id).with_for_update().execution_options(populate_existing=True))
     if activity is None: raise HTTPException(404, '学习活动不存在')
     if activity.version != expected_activity_revision: raise HTTPException(409, '活动版本已变化，请重新读取')
     if activity.status in ('DEFERRED','SKIPPED','PAUSED'):
@@ -260,7 +267,19 @@ async def record_assistance(session, ws, activity_id, kind, request_key, expecte
     activity.meta = meta
     goal = await session.get(LearningGoal, activity.goal_id)
     await assert_goal_sources(session, ws, goal)
-    if kind == 'HINT':
+    if goal.gap_type == 'StudyTopic' and goal.source_task_id is None:
+        from app.services.study_practice import owned_practice, mark_active_retest_help
+        study = await owned_practice(session, ws.id, activity.id)
+        if study.retest_exam_id:
+            await mark_active_retest_help(session, ws, study.retest_exam_id)
+        if kind == 'HINT':
+            content = activity.snapshot['study_hint']
+        else:
+            content = activity.snapshot['assessment_question']['answer_html']
+            from app.services.learning_exposure import record_reference_exposure
+            question = await session.get(Question, activity.question_id)
+            await record_reference_exposure(session, ws, question, source='study_practice_reference')
+    elif kind == 'HINT':
         content = '先对照以下已确定要求，补一个具体机制或例子：' + '；'.join(
             goal.success_criteria.get('required_evidence') or [goal.success_criteria.get('detail') or goal.target_behavior])
     else:
@@ -311,6 +330,9 @@ async def submit_activity(session, ws, activity, payload, request_key, expected_
         raise HTTPException(409, '继续修改需要明确关联上一次提交')
     revision = (await session.scalar(select(func.max(LearningSubmission.revision)).where(
         LearningSubmission.activity_id == activity.id)) or 0) + 1
+    if goal.gap_type == 'StudyTopic' and goal.source_task_id is None:
+        from app.services.study_practice import sync_card_help
+        await sync_card_help(session, ws.id, activity)
     assistance = _assistance(activity, payload.get('ai_declared', False))
     declared = payload.get('assistance') or {}
     if not isinstance(declared, dict): raise HTTPException(422, '辅助声明必须是对象')
@@ -399,6 +421,13 @@ async def submission_view(session, ws, submission_id, *, include_feedback=True, 
     if include_feedback:
         result['payload'] = submission.payload
         result['feedback'] = _feedback(step.result_json) if has_feedback else None
+        if run and step:
+            result['assessment'] = {'answer_revision_id': submission.answer_revision_id,
+                'question_version': step.input_json.get('question_version'),
+                'rubric_version': (step.input_json.get('rubric') or {}).get('rubric_version'),
+                'judge_version': step.result_json.get('judge_version') if has_feedback else None,
+                'configured_model': (run.meta or {}).get('model'), 'model_fingerprint': run.model_fingerprint,
+                'points': step.result_json.get('points') if has_feedback else None}
     if has_feedback and include_feedback and mark_seen:
         await _lock_workspace(session, ws)
         await session.refresh(activity)
@@ -457,7 +486,7 @@ async def publish_practice(session, ws, exam, run, steps):
     exam.completed_at = submission.completed_at
     exam.summary = {'mode':'PRACTICE','submission_id':submission.id,'mastery_updated':False}
     latest = activity.latest_submission_id == submission.id
-    if latest and goal.status == 'ACTIVE' and goal.evidence_status not in BAD_SOURCE:
+    if latest and goal.status == 'ACTIVE' and goal.evidence_status not in BAD_SOURCE and activity.status != 'SKIPPED':
         passed = bool(steps) and all(s.result_json.get('criterion_scores') and
             all(c['score'] >= 3 for c in s.result_json['criterion_scores']) and not s.result_json.get('critical_errors') for s in steps)
         assisted = any(submission.assistance.get(key) for key in ('hint_used','reference_viewed','feedback_seen','ai_declared','prior_attempt'))

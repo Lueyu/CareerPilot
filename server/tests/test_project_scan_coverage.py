@@ -78,12 +78,17 @@ def test_scan_api_view_does_not_serialize_legacy_ability_matrix():
 
 
 def test_asset_draft_does_not_republish_legacy_ability_scores():
+    from datetime import datetime, timezone
     from app.models.project import Project
-    from app.services.asset_pipeline import _render_markdown
+    from app.models.project_analysis import ProjectAnalysis
+    from app.services.asset_pipeline import _render_markdown, repository_observations
     project = Project(name="Repository", owner="example", repo="repo", repo_url="https://github.com/example/repo")
-    old_matrix = [{"key": "backend", "level": 4.9, "findings": 9}]
-    text = _render_markdown(project, [], old_matrix, {"backend": "后端工程"}, {})
+    report = ProjectAnalysis(report_published_at=datetime.now(timezone.utc), report={
+        "matrix": [{"key": "backend", "level": 4.9, "findings": 9}],
+        "claims": [{"kind": "CODE_OBSERVED", "title": "入口", "text": "调用路由",
+                    "citations": [{"path": "main.py", "start_line": 4, "end_line": 5}]}]})
+    text = _render_markdown(project, report, repository_observations(report), "CURRENT")
+    assert "main.py:4-5" in text
     assert "4.9" not in text
     assert "能力矩阵" not in text
-    assert "个人能力" in text
-    assert "历史扫描" in text
+    assert "个人职责和结果需要本人单独确认" in text

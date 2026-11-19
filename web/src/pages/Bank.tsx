@@ -1,13 +1,16 @@
+import StudyEntryButton from '../components/StudyEntryButton';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAppState } from '../components/AppState';
-import { DemoBanner, DiffLabel, Modal, PageHead, Stars } from '../components/ui';
+import { DiffLabel, Modal, PageHead, Stars } from '../components/ui';
 import { api, BankData, ImportReview, QuestionDetail } from '../api/client';
 import { trackImport } from '../lib/importTracker';
 import BankQuestionEditor from '../components/BankQuestionEditor';
+import BankReviewQueue, { sanitizeReviewAnswer } from './BankReviewQueue';
+import RetestMappingReview from '../components/RetestMappingReview';
 import {beginQuestionPractice} from '../lib/questionWorkshop';
 import {bankSourcePresentation} from '../lib/bankSource';
-import bank from '../data/bank.json';
+const bankUrl = new URL('../data/bank.json', import.meta.url).href;
 
 interface BankQ {
   id: string;
@@ -22,11 +25,22 @@ interface BankQ {
   html?: string;
 }
 
-const QUESTIONS = bank.questions as BankQ[];
-const TOPICS = bank.topics as { code: string; name: string; icon: string; order: number; desc: string }[];
-const TOPIC_NAME: Record<string, string> = Object.fromEntries(TOPICS.map((t) => [t.code, t.name]));
-
-type ImportStage = 'upload' | 'review' | 'done';
+type BankContent={questions:BankQ[];topics:{code:string;name:string;icon:string;order:number;desc:string}[]};
+type ImportStage = 'upload' | 'review';
+type Facet = 'companies' | 'topics' | 'sources';
+type Facets = Record<Facet, string[]>;
+type FacetCount = {name: string; count: number};
+type InterviewSet = { id: string; import_id: number; title: string; project_id: number; project_name: string; questions: {
+  id: number; title: string; source_item_id: number; original_title: string; extracted_title: string; source_files: string[];
+  evidence: {label: string; revision: string} | null;
+  fact_refs?: {ref: string; label: string; text: string; provenance: string; revision?: string}[];
+  rewrite_method?: 'model' | 'conditional_rules';
+  rewrite_fallback_reason?: string | null;
+}[] };
+const emptyFacets: Facets = {companies: [], topics: [], sources: []};
+const pageSize = 20;
+const facetLabels: Record<Facet, string> = {companies: '公司', topics: '主题', sources: '来源'};
+const sourceLabels: Record<string, string> = {PUBLIC_LICENSED: '共享题库', VERIFIED_PUBLIC: '已验证公开题', USER_PRIVATE: '个人收录', GENERATED: '生成题'};
 
 /** 架构图箭头 marker: 题库 html 引用 #sd-arr 但源数据无 defs, 渲染时统一注入 */
 const SD_MARKER_DEFS =
@@ -57,10 +71,24 @@ interface Row {
   isApi: boolean;
 }
 
-export default function Bank() {
+export default function Bank(){
+  const [content,setContent]=useState<BankContent>(),[error,setError]=useState(''),[retry,setRetry]=useState(0);
+  useEffect(()=>{const controller=new AbortController();setError('');fetch(bankUrl,{signal:controller.signal}).then(async r=>{if(!r.ok)throw Error(String(r.status));const bank=await r.json();if(!Array.isArray(bank.questions)||!Array.isArray(bank.topics))throw Error('格式异常');return bank}).then(bank=>{if(!controller.signal.aborted)setContent(bank)}).catch(e=>{if(!controller.signal.aborted)setError(e.message)});return()=>controller.abort()},[retry]);
+  if(!content)return <div className="card" role="status">{error?<>题库资料加载失败：{error} <button onClick={()=>setRetry(v=>v+1)}>重试</button></>:'正在打开题库资料…'}</div>;
+  return <BankPage bank={content}/>;
+}
+function BankPage({bank}:{bank:BankContent}) {
+  const QUESTIONS=bank.questions, TOPICS=bank.topics;
+  const TOPIC_NAME=useMemo<Record<string,string>>(()=>Object.fromEntries(TOPICS.map(t=>[t.code,t.name])),[TOPICS]);
   const navigate = useNavigate();
   const { toast } = useAppState();
-  const [filter, setFilter] = useState<{ kind: 'all' | 'pending' | 'company' | 'topic'; value?: string }>({ kind: 'all' });
+  const location = useLocation();
+  const [scope, setScope] = useState<'bank' | 'pending' | 'sets'>(() => new URLSearchParams(location.search).get('review') === '1' ? 'pending' : 'bank');
+  const [pendingCount, setPendingCount] = useState<number | null>(null);
+  const [facets, setFacets] = useState<Facets>(emptyFacets);
+  const [showFilters, setShowFilters] = useState(false);
+  const [page, setPage] = useState(0);
+  const [bankLoading, setBankLoading] = useState(true);
   const [detail, setDetail] = useState<Row | null>(null);
   const [zoomSvg, setZoomSvg] = useState<string | null>(null);
   const answerRef = useRef<HTMLDivElement>(null);
@@ -68,6 +96,7 @@ export default function Bank() {
     answerRef.current?.querySelectorAll('details.qa').forEach((d) => { (d as HTMLDetailsElement).open = open; });
   };
   const [editQ, setEditQ] = useState<Row | null>(null);
+  const [mappingQuestion, setMappingQuestion] = useState<{ id: number; title: string } | null>(null);
   const [mergeQ, setMergeQ] = useState<Row | null>(null);
   const [practiceBusy,setPracticeBusy] = useState<string|null>(null);
   const practiceAttempts = useRef(new Map<string,string>());
@@ -84,14 +113,14 @@ export default function Bank() {
     finally {setPracticeBusy(null);}
   };
   const [importOpen, setImportOpen] = useState(window.location.search.includes('import=1'));
-  const location = useLocation();
 
   // v3.1 M1: 在考试与面经 Tab 容器下, ?import=1 需要响应式触发
   useEffect(() => {
     if (location.search.includes('import=1')) setImportOpen(true);
+    if (new URLSearchParams(location.search).get('review') === '1') setScope('pending');
+    else setScope(previous => previous === 'pending' ? 'bank' : previous);
   }, [location.search]);
   const [stage, setStage] = useState<ImportStage>('upload');
-  const [approved, setApproved] = useState<string[]>([]);
 
   // 后端题库
   const [apiData, setApiData] = useState<BankData | null>(null);
@@ -102,20 +131,33 @@ export default function Bank() {
   // 导入流水线状态
   const [pasteText, setPasteText] = useState('');
   const [review, setReview] = useState<ImportReview | null>(null);
-  const [approveBusy, setApproveBusy] = useState(false);
-  const [approveResult, setApproveResult] = useState<string | null>(null);
 
   // 真实文件上传
   const [files, setFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [importErr, setImportErr] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [sets, setSets] = useState<InterviewSet[]>([]);
+  const [setsError, setSetsError] = useState('');
+  const [activeSet, setActiveSet] = useState<InterviewSet | null>(null);
+  const [projects, setProjects] = useState<{id:number;name:string}[]>([]);
+  const [projectId, setProjectId] = useState('');
+  const [setTitle, setSetTitle] = useState('');
+  const [selectedItems, setSelectedItems] = useState<number[]>([]);
+  const [edits, setEdits] = useState<Record<number,string>>({});
+  const [setBusy, setSetBusy] = useState(false);
+  const [paperBusy, setPaperBusy] = useState(false);
+  const [setError, setSetError] = useState('');
+  const [duration, setDuration] = useState(30);
+  const [promoted, setPromoted] = useState<number[]>([]);
+  const setAttempts = useRef(new Map<string, string>());
+  const paperAttempts = useRef(new Map<string, string>());
   const [company, setCompany] = useState('');
   const [level, setLevel] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // 答案预览 / 重新生成
+  // 答案预览
   const [openAns, setOpenAns] = useState<Record<number, boolean>>({});
-  const [ansBusy, setAnsBusy] = useState<number | null>(null);
 
   // 题目详情(真实答案)
   const [detailHtml, setDetailHtml] = useState<string | null>(null);
@@ -126,15 +168,42 @@ export default function Bank() {
 
   useEffect(() => {
     let alive = true;
-    const params = new URLSearchParams();
-    if (filter.kind === 'topic' && filter.value) params.set('topic', filter.value);
-    if (filter.kind === 'company' && filter.value) params.set('company', filter.value);
+    const params = new URLSearchParams({limit: String(pageSize), offset: String(page * pageSize)});
+    for (const [facet, choices] of Object.entries(facets)) for (const choice of choices) params.append(facet, choice);
     if (q.trim()) params.set('q', q.trim());
+    setBankLoading(true);
     api.get<BankData>(`/bank?${params.toString()}`)
-      .then((d) => { if (alive) { setApiData(d); setApiErr(null); } })
-      .catch((e) => { if (alive) setApiErr(String(e.message || e)); });
+      .then((d) => { if (alive) { setApiData(d); setApiErr(null); setPage((value) => Math.min(value, Math.max(0, Math.ceil(d.total / pageSize) - 1))); } })
+      .catch((e) => { if (alive) { setApiErr(String(e.message || e)); setApiData(null); } })
+      .finally(() => { if (alive) setBankLoading(false); });
     return () => { alive = false; };
-  }, [filter, q, reload]);
+  }, [facets, q, reload, page]);
+
+  useEffect(() => {
+    let alive = true;
+    api.get<{items:InterviewSet[]}>('/bank/interview-sets').then(data => {
+      if (alive) {
+        setSets(data.items); setSetsError('');
+        const requested = new URLSearchParams(location.search).get('set');
+        if (requested && new URLSearchParams(location.search).get('review') !== '1') {
+          const entry = data.items.find(item => item.id === requested);
+          setScope('sets');
+          if (entry) setActiveSet(entry);
+          else setSetsError('未找到面经集');
+        }
+      }
+    }).catch((error: Error) => { if (alive) setSetsError(error.message); });
+    return () => { alive = false; };
+  }, [reload, location.search]);
+
+  useEffect(() => {
+    if (stage !== 'review' || !importOpen) return;
+    let alive = true;
+    api.get<{items:{id:number;name:string}[]}>('/projects').then(result => {
+      if (alive) setProjects(result.items ?? []);
+    }).catch((error:Error) => { if (alive) setSetError(`项目加载失败：${error.message}`); });
+    return () => { alive = false; };
+  }, [stage, importOpen]);
 
   // 后端题目行(含答案 html 关联)
   const apiRows: Row[] = useMemo(() => {
@@ -164,51 +233,27 @@ export default function Bank() {
       difficulty: b.difficulty, tags: b.tags, source_type: 'PUBLIC_LICENSED', status: '已收录', html: b.html, isApi: false,
     })), []);
 
-  const rows = apiRows.length || !apiErr ? apiRows : staticRows;
-
-  // 待审核: 后端 pending imports(真实数据, 可能有多批)
-  const [pendingImports, setPendingImports] = useState<ImportReview[] | null>(null);
-  const [pendingBusy, setPendingBusy] = useState<string | null>(null);
-  useEffect(() => {
-    let alive = true;
-    api.get<{ imports: ImportReview[] }>('/bank/imports/pending')
-      .then((d) => { if (alive) setPendingImports(d.imports ?? []); })
-      .catch(() => { if (alive) setPendingImports([]); });
-    return () => { alive = false; };
-  }, [reload]);
-
-  const pendingRows = useMemo(() => {
-    const list: { importId: number; shortCode: string; itemId: number; rowId: string; title: string; topic: string; confidence: string; dup: boolean; busy: boolean; generationTaskId?:number }[] = [];
-    (pendingImports ?? []).forEach((imp) => {
-      imp.items.forEach((it) => {
-        list.push({
-          importId: imp.id,
-          generationTaskId: imp.meta?.generation_task_id || it.generation_meta?.task_id,
-          shortCode: imp.short_code,
-          itemId: it.id,
-          rowId: `${imp.short_code}-${it.id}`,
-          title: it.title,
-          topic: it.suggested_skill_key,
-          confidence: `${Math.round(it.extract_confidence * 100)}%`,
-          dup: !!it.is_duplicate_of,
-          busy: pendingBusy === `${imp.id}-${it.id}`,
-        });
-      });
-    });
-    return list;
-  }, [pendingImports, pendingBusy]);
-
-  const approveOne = async (importId: number, itemId: number, rowId: string) => {
-    setPendingBusy(`${importId}-${itemId}`);
-    try {
-      const r = await api.post<{ created: string[] }>(`/bank/imports/${importId}/approve`, { item_ids: [itemId] });
-      toast('✅', `${rowId.split('-')[0]} ${r.created?.[0] ?? ''} 已通过审核并加入题库`);
-      setReload((x) => x + 1);
-    } catch (e: any) {
-      toast('⚠️', `审核失败：${e?.message || '请重试'}`);
-    } finally {
-      setPendingBusy(null);
-    }
+  const fallbackRows = staticRows.filter(row => (!q.trim() || row.title.toLowerCase().includes(q.trim().toLowerCase())) &&
+    (!facets.companies.length || facets.companies.includes(row.company)) &&
+    (!facets.topics.length || facets.topics.includes(row.topic)) &&
+    (!facets.sources.length || facets.sources.includes(row.source_type)));
+  const rows = apiErr ? fallbackRows.slice(page * pageSize, (page + 1) * pageSize) : apiRows;
+  const resultCount = apiErr ? fallbackRows.length : apiData?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(resultCount / pageSize));
+  const toggleFacet = (facet: Facet, name: string) => {
+    setFacets(value => ({...value, [facet]: value[facet].includes(name) ? value[facet].filter(choice => choice !== name) : [...value[facet], name]}));
+    setPage(0);
+  };
+  const facetOptions = (facet: Facet) => {
+    const counts = (apiData?.facets?.[facet] ?? []) as unknown as FacetCount[];
+    const options = new Map(counts.map(({name, count}) => [name, count]));
+    for (const choice of facets[facet]) if (!options.has(choice)) options.set(choice, 0);
+    return [...options.entries()];
+  };
+  const facetName = (facet: Facet, name: string) => {
+    if (facet === 'topics') return TOPIC_NAME[name] ?? name;
+    if (facet === 'sources') return sourceLabels[name] ?? name;
+    return name === '所有公司' ? '原帖未限定公司' : name;
   };
 
   const openReviewFor = (imp: ImportReview) => {
@@ -217,34 +262,90 @@ export default function Bank() {
       return;
     }
     setReview(imp);
+    setSelectedItems(imp.items.filter(item => item.status !== 'REJECTED').map(item => item.id));
+    setEdits({});
+    setSetTitle(`${imp.meta?.company || '项目面试'} · ${imp.short_code}`);
+    setSetError('');
     setOpenAns({});
     setStage('review');
     setImportOpen(true);
   };
 
-  const topicCount = useMemo(() => {
-    const m: Record<string, number> = {};
-    (apiData?.facets?.topic ?? Object.fromEntries(TOPICS.map((t) => {
-      m[t.code] = rows.filter((r) => r.topic === t.code).length;
-      return [t.code, m[t.code]];
-    })));
-    if (apiData?.facets?.topic) return apiData.facets.topic as Record<string, number>;
-    const mm: Record<string, number> = {};
-    rows.forEach((r) => (mm[r.topic] = (mm[r.topic] ?? 0) + 1));
-    return mm;
-  }, [rows, apiData]);
-
-  const companies = useMemo(() => {
-    if (apiData?.facets?.company) {
-      return Object.entries(apiData.facets.company).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const selectScope = (value: typeof scope) => {
+    setScope(value);
+    const query = new URLSearchParams(location.search);
+    if (value === 'pending') {
+      query.set('review', '1');
+      query.delete('import');
     }
-    const m: Record<string, number> = {};
-    rows.forEach((r) => {
-      const c = (r.company || '').split(/[\/、,，]/)[0].trim();
-      if (c) m[c] = (m[c] ?? 0) + 1;
-    });
-    return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  }, [rows, apiData]);
+    else if (query.has('review')) {
+      query.delete('review');
+      query.delete('item');
+    }
+    else return;
+    if (value !== 'sets') query.delete('set');
+    navigate({ search: query.toString() }, {replace: true});
+  };
+
+  const openSet = (entry: InterviewSet) => {
+    setActiveSet(entry);
+    setSetError('');
+    setPromoted([]);
+    setScope('sets');
+  };
+
+  const closeSet = () => {
+    setActiveSet(null);
+    if (new URLSearchParams(location.search).has('set')) navigate('/bank', {replace:true});
+  };
+
+  const createSet = async () => {
+    if (!review || !projectId || !selectedItems.length || !setTitle.trim()) return;
+    const form = {project_id:Number(projectId), item_ids:selectedItems, title:setTitle,
+      edits:Object.fromEntries(selectedItems.filter(id => edits[id] !== undefined).map(id => [id, edits[id]]))};
+    const key = JSON.stringify([review.id, form]);
+    const requestId = setAttempts.current.get(key) || crypto.randomUUID();
+    setAttempts.current.set(key, requestId);
+    setSetBusy(true);
+    setSetError('');
+    try {
+      const entry = await api.post<InterviewSet>(`/bank/imports/${review.id}/interview-sets`, {...form, request_id:requestId});
+      setImportOpen(false);
+      openSet(entry);
+      setReload(value => value + 1);
+    } catch (error) { setSetError((error as Error).message); }
+    finally { setSetBusy(false); }
+  };
+
+  const startPaper = async () => {
+    if (!activeSet) return;
+    const key = `${activeSet.id}:${duration}`;
+    const requestId = paperAttempts.current.get(key) || crypto.randomUUID();
+    paperAttempts.current.set(key, requestId);
+    setPaperBusy(true);
+    setSetError('');
+    try {
+      const exam = await api.post<{id:number}>(`/bank/imports/${activeSet.import_id}/interview-sets/${activeSet.id}/paper`, {request_id:requestId, duration_minutes:duration});
+      paperAttempts.current.delete(key);
+      navigate(`/exam/diagnosis?id=${exam.id}`);
+    } catch (error) { setSetError((error as Error).message); }
+    finally { setPaperBusy(false); }
+  };
+
+  const promoteOriginal = async (question: InterviewSet['questions'][number]) => {
+    if (!activeSet) return;
+    setSetBusy(true);
+    setSetError('');
+    try {
+      const result = await api.post<{created:string[]}>(`/bank/imports/${activeSet.import_id}/approve`, {
+        item_ids:[question.source_item_id], edits:{[question.source_item_id]:{title:question.original_title}},
+      });
+      setPromoted(value => [...value, question.id]);
+      toast('✓', result.created.length ? '原题已收入个人通用题库' : '原题已处理或与通用题库重复');
+      setReload(value => value + 1);
+    } catch (error) { setSetError((error as Error).message); }
+    finally { setSetBusy(false); }
+  };
 
   /** 收集文件: 过滤超大/不支持的, 去重同名 */
   const addFiles = (list: FileList | File[] | null) => {
@@ -255,14 +356,29 @@ export default function Bank() {
     incoming.forEach((f) => {
       const ext = (f.name.split('.').pop() || '').toLowerCase();
       if (f.size > 12 * 1024 * 1024) { bad.push(`${f.name} 超过 12MB`); return; }
-      if (!['pdf', 'docx', 'md', 'markdown', 'txt', 'text', 'jpg', 'jpeg', 'png'].includes(ext)) {
+      if (!['pdf', 'docx', 'md', 'markdown', 'txt', 'text', 'jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
         bad.push(`${f.name} 格式暂不支持`);
         return;
       }
-      if (!files.some((x) => x.name === f.name && x.size === f.size)) ok.push(f);
+      if (files.length + ok.length >= 12) { bad.push('每次最多上传 12 个文件'); return; }
+      if (![...files, ...ok].some((x) => x.name === f.name && x.size === f.size)) ok.push(f);
     });
     if (ok.length) setFiles((prev) => [...prev, ...ok]);
     setImportErr(bad.length ? bad.join('；') : null);
+  };
+
+  const moveFile = (index:number, step:number) => setFiles(previous => {
+    const next = [...previous];
+    const target = index + step;
+    if (target < 0 || target >= next.length) return previous;
+    [next[index], next[target]] = [next[target], next[index]];
+    return next;
+  });
+
+  const openUpload = () => {
+    setStage('upload');
+    setImportErr(null);
+    setImportOpen(true);
   };
 
   const startImport = async () => {
@@ -273,18 +389,14 @@ export default function Bank() {
       return;
     }
     setImportErr(null);
+    setUploading(true);
     try {
-      let start: ImportReview;
-      if (files.length) {
-        const form = new FormData();
-        files.forEach((f) => form.append('files', f, f.name));
-        if (text) form.append('pasted_text', text);
-        if (company.trim()) form.append('company', company.trim());
-        if (level.trim()) form.append('level', level.trim());
-        start = await api.upload<ImportReview>('/bank/imports/upload', form);
-      } else {
-        start = await api.post<ImportReview>('/bank/imports', { pasted_text: text });
-      }
+      const form = new FormData();
+      files.forEach((f) => form.append('files', f, f.name));
+      if (text) form.append('pasted_text', text);
+      if (company.trim()) form.append('company', company.trim());
+      if (level.trim()) form.append('level', level.trim());
+      const start = await api.upload<ImportReview>('/bank/imports/upload', form);
       // 完全后台化: 注册全局追踪器(跨页面悬浮进度), 立即关闭弹窗不阻塞用户
       trackImport(start.id, start.short_code);
       setImportOpen(false);
@@ -297,45 +409,14 @@ export default function Bank() {
     } catch (e: any) {
       setImportErr(String(e.message || e));
       toast('⚠️', `提交失败: ${e.message}`);
-    }
+    } finally { setUploading(false); }
   };
 
-  // 后台导入完成: 刷新待审核列表; 若正停留在面经库, 直接打开审核弹窗
   useEffect(() => {
-    const h = (e: Event) => {
-      setReload((x) => x + 1);
-      const d = (e as CustomEvent).detail as { id: number; status: string } | undefined;
-      if (d?.status === 'REVIEW') {
-        api.get<ImportReview>(`/bank/imports/${d.id}`)
-          .then((r) => { setReview(r); setStage('review'); setImportOpen(true); })
-          .catch(() => { /* 列表已刷新, 用户可从待审核进入 */ });
-      }
-    };
+    const h = () => setReload((x) => x + 1);
     window.addEventListener('cp-import-finished', h);
     return () => window.removeEventListener('cp-import-finished', h);
   }, []);
-
-  /** 重新生成某条导入项的答案 */
-  const regenerateItem = async (itemId: number) => {    if (!review) return;
-    setAnsBusy(itemId);
-    try {
-      const r = await api.post<{ answer_html: string; answer_source: string }>(
-        `/bank/imports/${review.id}/items/${itemId}/answer?force=true`,
-      );
-      setReview((prev) => prev && {
-        ...prev,
-        items: prev.items.map((x) => x.id === itemId
-          ? { ...x, draft_answer: r.answer_html, has_answer: true, answer_source: r.answer_source }
-          : x),
-      });
-      setOpenAns((s) => ({ ...s, [itemId]: true }));
-      toast('✨', '已重新生成解答');
-    } catch (e: any) {
-      toast('⚠️', `生成失败: ${e.message}`);
-    } finally {
-      setAnsBusy(null);
-    }
-  };
 
   /** 打开题目详情: 拉真实答案(私有题无静态 html) */
   const openDetail = async (r: Row) => {
@@ -370,124 +451,77 @@ export default function Bank() {
     }
   };
 
-  const approveAll = async () => {
-    if (!review) {
-      // 静态降级
-      setApproved(['Q-018', 'Q-019', 'Q-020']);
-      setStage('done');
-      return;
-    }
-    setApproveBusy(true);
-    try {
-      const r = await api.post<{ created: string[]; import_id: number; status: string }>(`/bank/imports/${review.id}/approve`, {});
-      const createdCount = Array.isArray(r.created) ? r.created.length : 0;
-      const mergedCount = review.items.filter((i) => i.is_duplicate_of).length;
-      setApproveResult(`新增 ${createdCount} 题 · 合并重复 ${mergedCount} 题`);
-      setApproved(review.items.filter((i) => i.status !== 'MERGED' && !i.is_duplicate_of).map((i) => `${review.short_code}-${i.id}`));
-      setStage('done');
-      setReload((x) => x + 1);
-    } catch (e: any) {
-      toast('⚠️', `审核失败: ${e.message}`);
-    } finally {
-      setApproveBusy(false);
-    }
-  };
-
-  const totalAll = (apiData?.total ?? rows.length) + pendingRows.length;
-
   return (
-    <div>
+    <div className="bank-page">
       <PageHead
         title="面经库"
-        sub={`共 ${totalAll} 题 · ${apiData?.total ?? rows.length} 道题库题 + ${pendingRows.length} 道待审核${apiErr ? ' · 后端不可用(静态)' : ''}`}
+        sub={scope === 'pending' ? '核对题目、答案草稿和评分要点后决定是否入库。' : '按原帖整理一套面经，也可以跨面经查找通用题。'}
       >
+        {scope === 'pending' && <button className="btn btn-outline" onClick={openUpload}>导入面经</button>}
         <button className="btn btn-outline" onClick={() => navigate('/exam')}>用面经组卷</button>
         <button className="btn btn-outline" onClick={() => navigate('/bank/workshop')}>项目面经与智能补题</button>
-        <button className="btn btn-primary" onClick={() => { setImportOpen(true); setStage('upload'); setPasteText(''); setFiles([]); setCompany(''); setLevel(''); setImportErr(null); setDragOver(false); setReview(null); setApproveResult(null); }}>📥 导入面经</button>
       </PageHead>
-      <DemoBanner text={apiErr ? 'DEMO · 后端不可用，当前为静态题库演示。' : 'DEMO · 导入、审核与合并为示例流程；公开题库为本地静态数据。'} />
-
-      <div style={{ display: 'flex', gap: 26, alignItems: 'flex-start' }}>
-        {/* 过滤侧栏 */}
-        <div className="filter-side">
-          <div className="filter-group">
-            <div className="filter-title">题库</div>
-            <div className={`filter-item ${filter.kind === 'all' ? 'active' : ''}`} onClick={() => setFilter({ kind: 'all' })}>
-              <span>全部题目</span><span className="filter-count">{totalAll}</span>
-            </div>
-            <div className={`filter-item ${filter.kind === 'pending' ? 'active' : ''}`} onClick={() => setFilter({ kind: 'pending' })}>
-              <span>待审核</span><span className="filter-count">{pendingRows.length}</span>
-            </div>
+      <div className="bank-workspace">
+        {scope !== 'pending' && <section className="card bank-section">
+          <p className="hint">我的面经集</p>
+          <h2>{sets[0]?.title ?? '整理你的第一套项目面经'}</h2>
+          <p className="hint">每份面经集保留出处、核对后的原问和项目改写。</p>
+          <div className="bank-actions">
+            <button className="btn btn-primary" onClick={openUpload}>从截图导入</button>
+            {sets[0] && <button className="btn btn-outline" onClick={() => openSet(sets[0])}>打开面经集</button>}
           </div>
-          <div className="filter-group">
-            <div className="filter-title">按公司</div>
-            {companies.map(([c, n]) => (
-              <div key={c} className={`filter-item ${filter.kind === 'company' && filter.value === c ? 'active' : ''}`} onClick={() => setFilter({ kind: 'company', value: c })}>
-                <span>{c}</span><span className="filter-count">{n}</span>
-              </div>
-            ))}
+        </section>}
+        <nav className="bank-actions" aria-label="面经库范围">
+          {([['bank', '通用题'], ['sets', `我的面经集 · ${sets.length}`], ['pending', pendingCount === null ? '待审核' : `待审核 · ${pendingCount}`]] as const).map(([value, label]) =>
+            <button key={value} className={`btn ${scope === value ? 'btn-primary' : 'btn-outline'}`} aria-pressed={scope === value} onClick={() => selectScope(value)}>{label}</button>)}
+        </nav>
+        <BankReviewQueue
+          requestedKey={new URLSearchParams(location.search).get('item')}
+          visible={scope === 'pending'}
+          reload={reload}
+          topicNames={TOPIC_NAME}
+          onCountChange={setPendingCount}
+          onLibraryChange={() => setReload(value => value + 1)}
+          onOpenImport={openReviewFor}
+          onUpload={openUpload}
+        />
+        {scope === 'sets' ? <section className="card bank-section">
+          {setsError ? <p role="alert">面经集加载失败：{setsError}</p> : sets.length ? sets.map(entry =>
+            <div className="bank-set-row" key={entry.id}><div><b>{entry.title}</b><p className="hint">{entry.project_name} · {entry.questions.length} 题</p></div><button className="btn btn-outline" onClick={() => openSet(entry)}>打开面经集</button></div>
+          ) : <p className="hint">还没有面经集。导入后在「待审核」核对原问并选择项目。</p>}
+        </section> : scope === 'bank' && <>
+        <section className="card bank-section">
+          <p className="hint">题库筛选</p>
+          <div className="bank-actions">
+            {Object.entries(facets).flatMap(([facet, names]) => names.map(name => <button key={`${facet}:${name}`} className="btn btn-outline btn-sm" aria-label={`移除${facetLabels[facet as Facet]}：${facetName(facet as Facet, name)}`} onClick={() => toggleFacet(facet as Facet, name)}>{facetLabels[facet as Facet]} · {facetName(facet as Facet, name)} ×</button>))}
+            {q.trim() && <button className="btn btn-outline btn-sm" onClick={() => {setQ(''); setPage(0);}}>关键词 · {q} ×</button>}
           </div>
-          <div className="filter-group">
-            <div className="filter-title">按主题</div>
-            {TOPICS.map((t) => (
-              <div key={t.code} className={`filter-item ${filter.kind === 'topic' && filter.value === t.code ? 'active' : ''}`} onClick={() => setFilter({ kind: 'topic', value: t.code })}>
-                <span>{t.icon} {t.name}</span><span className="filter-count">{topicCount[t.code] ?? 0}</span>
-              </div>
-            ))}
+          <p className="hint">同类条件命中任一项即可，不同类条件需要同时满足。</p>
+          <div className="bank-actions">
+            <button className="btn btn-outline" aria-expanded={showFilters} onClick={() => setShowFilters(value => !value)}>调整筛选</button>
+            <button className="btn btn-ghost" onClick={() => {setFacets(emptyFacets); setQ(''); setPage(0);}}>重置筛选</button>
           </div>
-        </div>
-
-        {/* 题目列表 */}
-        <div className="card" style={{ flex: 1, minWidth: 0 }}>
+          {showFilters && (Object.keys(facetLabels) as Facet[]).map(facet => <fieldset className="bank-facet" key={facet}>
+            <legend>{facetLabels[facet]}</legend>
+            <div className="bank-actions">{facetOptions(facet).map(([name, count]) => <label key={name}><input type="checkbox" checked={facets[facet].includes(name)} onChange={() => toggleFacet(facet, name)} /> {facetName(facet, name)} ({count})</label>)}</div>
+          </fieldset>)}
+        </section>
+        <div className="card">
           <div className="card-head">
             <span className="card-title">
-              {filter.kind === 'all' ? '全部题目' : filter.kind === 'pending' ? '待审核题目' : filter.kind === 'topic' ? TOPIC_NAME[filter.value!] ?? filter.value : `${filter.value} 相关`}
+              通用题 · {bankLoading ? '加载中…' : `${resultCount} 题`}
             </span>
             <input
               className="inp"
+              aria-label="搜索通用题"
               placeholder="搜索题目关键词…"
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={(e) => {setQ(e.target.value); setPage(0);}}
               style={{ width: 220, padding: '6px 10px', fontSize: 13 }}
             />
           </div>
 
-          {filter.kind === 'pending' ? (
-            pendingImports === null ? (
-              <div className="empty"><b>加载中…</b></div>
-            ) : pendingRows.length === 0 ? (
-              <div className="empty"><b>没有待审核的导入</b><p>从「导入面经」开始，提取结果会出现在这里等待审核</p></div>
-            ) : (
-              pendingRows.map((p) => (
-                <div className="q-card" key={p.rowId}>
-                  <div className="q-id">{p.shortCode}</div>
-                  <div className="q-body">
-                    <div className="q-title" onClick={() => {
-                      const imp = (pendingImports ?? []).find((x) => x.id === p.importId);
-                      if (imp) openReviewFor(imp);
-                    }}>
-                      {p.title}
-                    </div>
-                    <div className="q-meta">
-                      <span className="chip chip-amber">待审核</span>
-                      <span className="chip chip-slate">{TOPIC_NAME[p.topic] ?? p.topic}</span>
-                      <span>提取置信度 {p.confidence}</span>
-                      {p.dup && <span className="chip chip-red">疑似重复 · 将合并为变体</span>}
-                    </div>
-                  </div>
-                  <div className="q-actions">
-                    <button className="btn btn-primary btn-sm" disabled={p.busy} onClick={() => p.generationTaskId ? navigate(`/bank/workshop?task=${p.generationTaskId}`) : approveOne(p.importId, p.itemId, p.rowId)}>
-                      {p.busy ? '入库中…' : p.generationTaskId ? '前往工作台审核' : '通过'}
-                    </button>
-                    <button className="btn btn-outline btn-sm" onClick={() => {
-                      const imp = (pendingImports ?? []).find((x) => x.id === p.importId);
-                      if (imp) openReviewFor(imp);
-                    }}>审核解答</button>
-                  </div>
-                </div>
-              ))
-            )
-          ) : rows.length === 0 ? (
+          {bankLoading ? <p className="empty" role="status">正在加载通用题…</p> : rows.length === 0 ? (
             <div className="empty"><b>没有匹配的题目</b><p>换个筛选条件试试</p></div>
           ) : (
             rows.map((r) => (
@@ -507,13 +541,24 @@ export default function Bank() {
                 </div>
                 <div className="q-actions">
                   <button className="btn btn-outline btn-sm" disabled={!bankSourcePresentation(r).editable} title={bankSourcePresentation(r).editable?'编辑个人题目信息':'共享题库只读，可导入面经后整理为个人题目'} onClick={() => setEditQ(r)}>{bankSourcePresentation(r).editable?'编辑':'共享题只读'}</button>
+                  {r.numericQuestionId != null && <button className="btn btn-outline btn-sm" onClick={() => {
+                    if (r.numericQuestionId != null) setMappingQuestion({ id: r.numericQuestionId, title: r.title });
+                  }}>复测映射</button>}
+                  <StudyEntryButton kind="question" id={r.numericQuestionId} bankKey={r.id}/>
                   <button className="btn btn-outline btn-sm" disabled={practiceBusy!==null} onClick={() => startPractice(r)}>{practiceBusy===r.id?'准备考试…':'开始练习'}</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => setMergeQ(r)}>合并重复</button>
                 </div>
               </div>
             ))
           )}
+          <div className="bank-actions bank-pagination">
+            {apiErr && <span role="status" className="hint">后端不可用，显示本地公开题快照。</span>}
+            <button className="btn btn-outline btn-sm" disabled={bankLoading || page === 0} onClick={() => setPage(page - 1)}>上一页</button>
+            <span className="hint">第 {page + 1} / {pageCount} 页</span>
+            <button className="btn btn-outline btn-sm" disabled={bankLoading || page + 1 >= pageCount} onClick={() => setPage(page + 1)}>下一页</button>
+          </div>
         </div>
+        </>}
       </div>
 
       {/* —— 题目详情(全屏最大化) —— */}
@@ -522,6 +567,7 @@ export default function Bank() {
           footer={
             <>
               <button className="btn btn-outline" disabled={!bankSourcePresentation(detail).editable} title={bankSourcePresentation(detail).editable?'编辑个人题目信息':'共享题库只读，可导入面经后整理为个人题目'} onClick={() => { setDetail(null); setEditQ(detail); }}>{bankSourcePresentation(detail).editable?'编辑':'共享题只读'}</button>
+              <StudyEntryButton kind="question" id={detail.numericQuestionId} bankKey={detail.id}/>
               <button className="btn btn-primary" disabled={practiceBusy!==null} onClick={() => startPractice(detail)}>{practiceBusy?'准备考试…':'开始练这题'}</button>
             </>
           }>
@@ -550,7 +596,9 @@ export default function Bank() {
                   const svg = (e.target as HTMLElement).closest('svg.sdiagram') as SVGSVGElement | null;
                   if (svg) setZoomSvg(svg.outerHTML);
                 }}
-                dangerouslySetInnerHTML={{ __html: SD_MARKER_DEFS + transformAnswer(detailHtml) }}
+                dangerouslySetInnerHTML={{ __html: detailHtml === detail.html
+                  ? SD_MARKER_DEFS + transformAnswer(detailHtml)
+                  : sanitizeReviewAnswer(transformAnswer(detailHtml)) }}
               />
             </>
           ) : (
@@ -573,6 +621,10 @@ export default function Bank() {
         </div>
       )}
 
+      {mappingQuestion && <Modal title="审核复测映射" onClose={() => setMappingQuestion(null)}>
+        <h3>{mappingQuestion.title}</h3>
+        <RetestMappingReview questionId={mappingQuestion.id} />
+      </Modal>}
       {editQ && <BankQuestionEditor question={editQ} topics={TOPICS} onClose={() => setEditQ(null)} onSaved={() => { toast('✅', '题目信息已保存'); setEditQ(null); setReload(x => x + 1); }} />}
 
       {/* —— 合并重复 —— */}
@@ -611,28 +663,72 @@ export default function Bank() {
       )}
 
       {/* —— 导入面经 —— */}
+      {activeSet && <Modal title={activeSet.title} size="lg" onClose={closeSet} footer={
+        <button className="btn btn-outline" onClick={closeSet}>回到面经库</button>
+      }>
+        <p className="hint">{activeSet.project_name} · {activeSet.questions.length} 道练习题</p>
+        <section className="card bank-section bank-set-questions">
+          <p className="hint">题目清单</p>
+          {activeSet.questions.map((item, index) => <article className="bank-set-question" key={item.id}>
+            <h3>{String(index + 1).padStart(2, '0')}　{item.rewrite_method === 'model' || (!item.rewrite_method && item.evidence) ? '项目题' : '条件式追问'}</h3>
+            <p className="bank-question-text">{item.rewrite_method === 'model' ? item.title : item.title.split('\n\n').slice(1).join('\n\n') || item.title}</p>
+            <details><summary>查看原文与依据</summary>
+              <p>原问：{item.original_title}</p>
+              {item.extracted_title !== item.original_title && <p>识别文字：{item.extracted_title}</p>}
+              <p>来源：{item.source_files.join('、') || '旧导入未记录文件'}</p>
+              {item.rewrite_method && <p>{item.rewrite_method === 'model' ? '模型改写 · 请核对引用' : `规则生成 · 条件题（${item.rewrite_fallback_reason === 'model_unavailable' ? '模型暂不可用，可从原导入重新生成' : item.rewrite_fallback_reason === 'no_evidence' ? '项目缺少可用资料' : '模型没有返回可核对的相关依据'}）`}</p>}
+              {item.fact_refs?.length ? <ul>{item.fact_refs.map(fact => <li key={fact.ref}>{fact.provenance === 'user_statement' ? '本人填写' : '仓库观察'} · {fact.label}{fact.revision ? ` · ${fact.revision.slice(0, 12)}` : ''}：{fact.text}</li>)}</ul> : <p>项目依据：{item.evidence ? `${item.evidence.label} · ${item.evidence.revision}` : '无可引用资料'}</p>}
+              <button className="btn btn-outline btn-sm" disabled={setBusy || promoted.includes(item.id)} onClick={() => promoteOriginal(item)}>{promoted.includes(item.id) ? '通用题收录已处理' : '将原问另收为通用题'}</button>
+            </details>
+          </article>)}
+        </section>
+        {activeSet.questions.some(item => item.rewrite_method === 'conditional_rules') && <button className="btn btn-outline" disabled={setBusy} onClick={async () => {
+          setSetBusy(true);
+          try {
+            const source = await api.get<ImportReview>(`/bank/imports/${activeSet.import_id}`);
+            openReviewFor(source);
+            setProjectId(String(activeSet.project_id));
+            setSelectedItems(activeSet.questions.map(item => item.source_item_id));
+            setEdits(Object.fromEntries(activeSet.questions.filter(item => item.original_title !== item.extracted_title).map(item => [item.source_item_id, item.original_title])));
+            setSetTitle(activeSet.title);
+            setAttempts.current.clear();
+            closeSet();
+          } catch (error) { toast('⚠️', `无法打开原导入：${(error as Error).message}`); }
+          finally { setSetBusy(false); }
+        }}>重新核对并生成</button>}
+        <section className="card bank-section">
+          <p className="hint">准备这场面试</p>
+          <h2>按本面经集生成试卷</h2>
+          <p className="hint">试卷冻结当前题目和来源，仅用于练习。</p>
+          <div className="bank-actions">
+            <label>时长 <select className="inp" value={duration} onChange={event => setDuration(Number(event.target.value))}>
+              {[15, 30, 45, 60].map(minutes => <option key={minutes} value={minutes}>{minutes} 分钟</option>)}
+            </select></label>
+            <button className="btn btn-primary" disabled={paperBusy} onClick={startPaper}>{paperBusy ? '正在生成试卷…' : '生成并打开试卷'}</button>
+          </div>
+        </section>
+        {setError && <p className="hint" role="alert">{setError}</p>}
+      </Modal>}
+
       {importOpen && (
         <Modal
-          title={stage === 'upload' ? '导入面经' : stage === 'review' ? '审核提取的问题' : '导入完成'}
+          title={stage === 'upload' ? '从截图导入原帖' : '核对原问与项目改写'}
           size="lg"
           onClose={() => setImportOpen(false)}
           footer={
             stage === 'upload' ? (
               <>
                 <button className="btn btn-outline" onClick={() => setImportOpen(false)}>取消</button>
-                <button className="btn btn-outline" disabled={!pasteText.trim() || files.length>0} onClick={() => navigate('/bank/workshop', {state:{sourceText:pasteText}})}>结合项目整理文本</button>
-                <button className="btn btn-primary" onClick={startImport}>开始解析</button>
+                <button className="btn btn-primary" disabled={uploading} onClick={startImport}>{uploading ? '正在上传…' : '识别文字并提取问题'}</button>
               </>
             ) : stage === 'review' ? (
               <>
                 <button className="btn btn-outline" onClick={() => setImportOpen(false)}>稍后处理</button>
-                {review && <button className="btn btn-outline" onClick={() => navigate(`/bank/workshop?source_import=${review.id}`)}>结合我的项目优化</button>}
-                <button className="btn btn-primary" onClick={approveAll} disabled={approveBusy}>
-                  {approveBusy ? '正在写入…' : review ? '全部通过' : '全部通过（演示）'}
+                <button className="btn btn-outline" onClick={() => {setImportOpen(false); selectScope('pending');}}>打开待审核队列</button>
+                <button className="btn btn-primary" onClick={createSet} disabled={setBusy || !review || !projectId || !selectedItems.length || !setTitle.trim()}>
+                  {setBusy ? '正在核对项目依据…' : '结合项目并保存到面经集'}
                 </button>
               </>
-            ) : stage === 'done' ? (
-              <button className="btn btn-primary" onClick={() => setImportOpen(false)}>完成</button>
             ) : undefined
           }
         >
@@ -660,7 +756,7 @@ export default function Bank() {
                   ref={fileRef}
                   type="file"
                   multiple
-                  accept=".pdf,.docx,.md,.markdown,.txt,.text,.jpg,.jpeg,.png,application/pdf,text/markdown,text/plain,image/jpeg,image/png"
+                  accept=".pdf,.docx,.md,.markdown,.txt,.text,.jpg,.jpeg,.png,.webp,application/pdf,text/markdown,text/plain,image/jpeg,image/png,image/webp"
                   style={{ display: 'none' }}
                   onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }}
                 />
@@ -671,8 +767,10 @@ export default function Bank() {
                   {files.map((f, i) => (
                     <div className="file-item" key={`${f.name}-${f.size}-${i}`}>
                       <span className="file-ic">{f.name.endsWith('.pdf') ? '📕' : f.name.endsWith('.docx') ? '📘' : /\.(jpe?g|png)$/i.test(f.name) ? '🖼️' : '📄'}</span>
-                      <span className="file-name">{f.name}</span>
+                      <span className="file-name">{i + 1}. {f.name}</span>
                       <span className="file-size">{f.size < 1024 ? `${f.size} B` : `${(f.size / 1024).toFixed(0)} KB`}</span>
+                      <button className="btn btn-ghost btn-sm" disabled={i === 0} aria-label={`上移 ${f.name}`} onClick={() => moveFile(i, -1)}>↑</button>
+                      <button className="btn btn-ghost btn-sm" disabled={i === files.length - 1} aria-label={`下移 ${f.name}`} onClick={() => moveFile(i, 1)}>↓</button>
                       <button className="file-x" title="移除" onClick={(e) => { e.stopPropagation(); setFiles((prev) => prev.filter((_, j) => j !== i)); }}>×</button>
                     </div>
                   ))}
@@ -743,8 +841,16 @@ export default function Bank() {
                 {review ? (
                   <>
                     <div className="hint" style={{ marginBottom: 12 }}>
-                      {review.short_code} · 共提取 {review.items.length} 道题 · 全部通过后进入题库
+                      {review.short_code} · 提取 {review.items.length} 道原问。原帖经历属于原作者；项目追问使用你所选项目的材料。
                     </div>
+                    <div className="form-row">
+                      <label className="field">面经集名称<input className="inp" maxLength={120} value={setTitle} onChange={event => setSetTitle(event.target.value)} /></label>
+                      <label className="field">我的项目<select className="inp" value={projectId} onChange={event => setProjectId(event.target.value)}>
+                        <option value="">{projects.length ? '选择项目' : '暂无可选项目'}</option>
+                        {projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
+                      </select></label>
+                    </div>
+                    {setError && <p role="alert" className="hint">{setError}</p>}
                     {review.meta?.files?.filter((f) => !f.ok).map((f) => (
                       <div className="demo-banner demo-banner-err" key={f.name} style={{ marginBottom: 8 }}>
                         {f.name}：{f.error || '解析失败'}
@@ -753,7 +859,8 @@ export default function Bank() {
                     {review.items.map((it) => (
                       <div className="rev-item" key={it.id}>
                         <div className="q-body">
-                          <div className="q-title">{it.title}</div>
+                          <label className="hint"><input type="checkbox" disabled={it.status === 'REJECTED'} checked={selectedItems.includes(it.id)} onChange={() => setSelectedItems(previous => previous.includes(it.id) ? previous.filter(id => id !== it.id) : [...previous, it.id])} /> 收录原问 · {it.generation_meta?.source_files?.join('、') || '导入记录'}{it.generation_meta?.extraction_method ? ` · ${it.generation_meta.extraction_method === 'model' ? '模型提取' : '规则提取'}` : ''}</label>
+                          <textarea className="textarea bank-original-input" aria-label={`修正原问 ${it.id}`} maxLength={1000} value={edits[it.id] ?? it.title} onChange={event => setEdits(previous => ({...previous, [it.id]:event.target.value}))} />
                           <div className="q-meta">
                             <span className={`chip ${it.extract_confidence >= 0.5 ? 'chip-green' : 'chip-amber'}`}>
                               置信度 {Math.round(it.extract_confidence * 100)}%
@@ -775,16 +882,9 @@ export default function Bank() {
                           >
                             {openAns[it.id] ? '收起解答' : '查看解答'}
                           </button>
-                          <button
-                            className="btn btn-outline btn-sm"
-                            disabled={ansBusy === it.id}
-                            onClick={() => regenerateItem(it.id)}
-                          >
-                            {ansBusy === it.id ? '生成中…' : it.has_answer ? '重新生成' : '✨ 生成解答'}
-                          </button>
                         </div>
                         {openAns[it.id] && it.draft_answer && (
-                          <div className="ans-preview bank-answer" dangerouslySetInnerHTML={{ __html: it.draft_answer }} />
+                          <div className="ans-preview bank-answer" dangerouslySetInnerHTML={{ __html: sanitizeReviewAnswer(it.draft_answer) }} />
                         )}
                       </div>
                     ))}
@@ -796,17 +896,6 @@ export default function Bank() {
             </div>
           )}
 
-          {stage === 'done' && (
-            <div className="score-box" style={{ padding: '36px 20px' }}>
-              <div style={{ fontSize: 34 }}>✅</div>
-              <h3 style={{ fontSize: 17, fontWeight: 650, marginTop: 10 }}>
-                {approveResult ?? `已通过 ${approved.length} 道题`}
-              </h3>
-              <p className="hint" style={{ textAlign: 'center', marginTop: 6 }}>
-                已加入「个人题库」，可在面经库中查看；答案草稿已生成，等待你进一步编辑。
-              </p>
-            </div>
-          )}
         </Modal>
       )}
     </div>
