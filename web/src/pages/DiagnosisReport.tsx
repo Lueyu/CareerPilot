@@ -1,7 +1,7 @@
 import StudyRetestResult from '../components/StudyRetestResult';
 import StudyEntryButton from '../components/StudyEntryButton';
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { DemoBanner, PageHead, plainLevel } from '../components/ui';
 import { api, ExamReportData, ScoringTaskAck } from '../api/client';
 import { clearExamCreation } from '../lib/coreLoop';
@@ -33,6 +33,7 @@ interface AnswerGap {order_no:number;exam_question_id?:number;title:string;detai
 export default function DiagnosisReport({ studyMode = false }: { studyMode?: boolean } = {}) {
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  const { hash } = useLocation();
   const returnTask=params.get('return_task_id');
   const returnLink=returnTask && /^[1-9]\d*$/.test(returnTask) && Number.isSafeInteger(Number(returnTask))?<button className="btn btn-outline" onClick={()=>navigate(`/learning/task/${returnTask}`)}>返回这次学习路径</button>:null;
   const [open, setOpen] = useState<number[]>([0]);
@@ -103,6 +104,15 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
   useEffect(() => {
     if (report?.status === 'COMPLETED') clearExamCreation();
   }, [report]);
+
+  const linkedQuestionIndex = report && String(report.id) === reportId
+    ? report.questions.findIndex(q => hash === `#exam-question-${q.order_no}`)
+    : -1;
+  useEffect(() => {
+    if (linkedQuestionIndex < 0) return;
+    setOpen(current => current.includes(linkedQuestionIndex) ? current : [...current, linkedQuestionIndex]);
+    document.getElementById(hash.slice(1))?.scrollIntoView();
+  }, [reportId, hash, linkedQuestionIndex]);
 
   // 后端报告
   if (report && String(report.id) === reportId) {
