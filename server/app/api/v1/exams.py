@@ -833,14 +833,24 @@ def _norm_pq_key(k) -> str | None:
     return s if s.isdigit() else None
 
 
-def _sanitize_pq(pq, expect: set) -> dict:
-    """只保留「题号 -> {why, how}」的合法条目, 丢弃 LLM 幻觉出的占位键(如 ':{')。"""
+def _sanitize_pq(pq, expect: set[str]) -> dict[str, dict[str, str]]:
+    """只保留指定题号及包含非空 why 和 how 的讲解。"""
+    if not isinstance(pq, dict):
+        return {}
     out = {}
-    for k, v in (pq or {}).items():
+    for k, v in pq.items():
         nk = _norm_pq_key(k)
-        if nk and nk in expect and isinstance(v, dict) and v.get("why") and v.get("how"):
-            out[nk] = {"why": str(v["why"]), "how": str(v["how"])}
+        if nk not in expect or not isinstance(v, dict):
+            continue
+        why, how = v.get("why"), v.get("how")
+        if isinstance(why, str) and why.strip() and isinstance(how, str) and how.strip():
+            out[nk] = {"why": why, "how": how}
     return out
+
+
+def _deep_coverage(expect: set[str], per_question: dict[str, dict[str, str]]) -> dict:
+    missing = sorted(int(no) for no in expect.difference(per_question))
+    return {"total": len(expect), "explained": len(expect) - len(missing), "missing_order_nos": missing}
 
 
 @router.post("/exams/{exam_id}/report/deep")
@@ -904,6 +914,8 @@ async def exam_report_deep(
 
     try:
         deep_raw = _json.loads(resp["content"])
+        if not isinstance(deep_raw, dict):
+            raise ValueError("deep diagnosis must be a JSON object")
     except Exception:
         await finish_trace(session, trace, "FAILED", int((time.perf_counter() - t0) * 1000), fail_reason="llm bad json")
         await session.commit()
@@ -913,18 +925,15 @@ async def exam_report_deep(
     expect = {str(eq.order_no) for eq in exam.questions}
     per_q = _sanitize_pq(deep_raw.get("per_question"), expect)
     retried = False
-    missing = sorted(expect - set(per_q.keys()), key=int)
+    missing = expect.difference(per_q)
     if missing:
-        fix = [f"第一次输出缺少题目 {('、'.join(missing))} 的 per_question 条目（或出现了占位键）。请严格按要求为每道题补齐。", ""]
-        for no in missing:
-            eq = next((e for e in exam.questions if str(e.order_no) == no), None)
-            if eq is not None and eq.order_no in q_material:
-                fix.append(q_material[eq.order_no])
-                fix.append("")
+        missing_in_order = sorted(missing, key=int)
+        fix = [f"第一次输出缺少题目 {'、'.join(missing_in_order)} 的 per_question 条目。请为这些题目补齐讲解。", ""]
+        fix.extend(q_material[int(no)] for no in missing_in_order)
         resp2 = await llm_adapter.chat(DEEP_DIAG_FIX, "\n".join(fix), json_mode=True, timeout=120, trace=trace, session=session, span_name="llm:deep_diagnosis_fix")
         if resp2:
             try:
-                per_q.update(_sanitize_pq(_json.loads(resp2["content"]).get("per_question"), expect))
+                per_q.update(_sanitize_pq(_json.loads(resp2["content"]).get("per_question"), missing))
                 retried = True
             except Exception:
                 pass
@@ -940,20 +949,31 @@ async def exam_report_deep(
         "retried": retried,
     }
     exam.summary = {**(exam.summary or {}), "diagnosis_deep": deep}
-    await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000), 0.02)
+    coverage = _deep_coverage(expect, per_q)
+    missing_order_nos = coverage["missing_order_nos"]
+    await finish_trace(
+        session, trace, "PARTIAL" if missing_order_nos else "SUCCESS",
+        int((time.perf_counter() - t0) * 1000), 0.02,
+        fail_reason="缺少逐题讲解：" + "、".join(f"Q{no}" for no in missing_order_nos) if missing_order_nos else None,
+    )
     await emit_event(session, ws.id, "exam.deep_diagnosis", {"exam_id": exam.id}, "exam", exam.id)
     await session.commit()
-    return deep
+    return {**deep, "coverage": coverage}
 
 
 async def _exam_report(session: AsyncSession, ws: Workspace, exam_id: int) -> dict:
     exam = await _get_own_exam(session, ws, exam_id)
+    summary = exam.summary or {}
+    deep = summary.get("diagnosis_deep") if exam.status == Exam.STATUS_COMPLETED else None
+    if deep:
+        expect = {str(eq.order_no) for eq in exam.questions}
+        per_q = _sanitize_pq(deep.get("per_question"), expect)
+        deep = {**deep, "per_question": per_q, "coverage": _deep_coverage(expect, per_q)}
     if exam.status=='COMPLETED' and getattr(exam,'active_scoring_run_id',None):
         from app.models import ScoringRun
         stored=await session.get(ScoringRun,exam.active_scoring_run_id)
         if stored and stored.workspace_id==ws.id and stored.status=='COMPLETED' and stored.report:
             result=deepcopy(stored.report)
-            deep=(exam.summary or {}).get('diagnosis_deep')
             if deep:result.update(diagnosis_deep=deep,has_deep=True)
             return result
     if exam.status not in (Exam.STATUS_COMPLETED, Exam.STATUS_SCORING_FAILED,'SCORING','SCORING_RETRY_WAIT','NEEDS_REVIEW','FROZEN'):
@@ -963,8 +983,6 @@ async def _exam_report(session: AsyncSession, ws: Workspace, exam_id: int) -> di
     scoring_task=await scoring_view(session,exam.active_scoring_run_id)
     breakdown = _skill_breakdown(exam.questions)
     states_map = await _states_map(session, ws, breakdown)
-    summary = exam.summary or {}
-    deep = summary.get("diagnosis_deep")
     return {
         "id": exam.id,
         "title": exam.title,
@@ -981,8 +999,8 @@ async def _exam_report(session: AsyncSession, ws: Workspace, exam_id: int) -> di
         "observations": summary.get("observations", []),
         "skill_breakdown": breakdown,
         "overall": None if degraded else _overall_diagnosis(breakdown, exam, states_map),
-        "diagnosis_deep": None if degraded else deep,
-        "has_deep": bool(deep) and not degraded,
+        "diagnosis_deep": deep,
+        "has_deep": bool(deep),
         "completed_at": exam.completed_at.isoformat() if exam.completed_at else None,
         "questions": [
             {

@@ -122,6 +122,7 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
       return <StudyRetestResult key={r.id} report={r} practiceId={studyPracticeId} />;
     }
     const deep = r.diagnosis_deep;
+    const coverage = deep?.coverage;
     const ob = r.overall;
     const degraded = r.status !== 'COMPLETED';
     const canRetry=r.scoring_task?r.scoring_task.can_retry:r.status==='SCORING_FAILED';
@@ -297,6 +298,14 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
           )}
           {deep && !deepBusy && (
             <>
+              {coverage && (
+                <p role="status">
+                  {`已解释 ${coverage.explained}/${coverage.total} 题`}
+                  {coverage.missing_order_nos.length
+                    ? ` · 未生成讲解 ${coverage.missing_order_nos.map(no => `Q${no}`).join('、')}`
+                    : ' · 逐题讲解完整'}
+                </p>
+              )}
               <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.85, whiteSpace: 'pre-wrap' }}>{deep.conclusion}</p>
               {!!deep.weaknesses.length && (
                 <div style={{ marginTop: 14 }}>
