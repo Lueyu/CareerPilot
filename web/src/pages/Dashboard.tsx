@@ -2,6 +2,7 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { DemoBanner, PageHead, SegBars, StatusChip, StatCard, plainLevel } from '../components/ui';
 import { useApi, DashboardData } from '../api/client';
+import { DiagnosisModelReadiness } from './Onboarding';
 
 
 const TYPE_CLS: Record<string, string> = { UNDERSTAND: 'chip-blue', PRACTICE: 'chip-purple', RETEST: 'chip-amber' };
@@ -69,6 +70,7 @@ export default function Dashboard() {
 
       {loading && <div className="demo-banner" style={{ marginBottom: 12 }}>正在从后端加载实时数据…</div>}
       {error && <div className="demo-banner demo-banner-err" style={{ marginBottom: 12 }}>后端不可用（{error}），无法读取当前空间数据，请稍后重试</div>}
+      {data?.workspace.is_demo === false && data.recent_activity?.length === 0 && <DiagnosisModelReadiness />}
 
       {/* 深色 hero 卡: 目标 + 一句通俗状态 + 差距 */}
       <div className="hero-card" style={{ marginBottom: 16 }}>
