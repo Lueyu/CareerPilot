@@ -2,12 +2,14 @@
 from copy import deepcopy
 from sqlalchemy import select
 from app.models import MemoryItem,Project,ProjectAnalysis
+from app.services.bank_review_memory import BANK_REVIEW_FEEDBACK_TYPE
 from app.services.project_jobs import fingerprint,utcnow
 from app.services.project_memory import PROJECT_TYPES,lock_project_memories,source_excerpts
 from app.services.tracing import emit_event
+from app.services.task_memory import TASK_COMPLETION_TYPE
 
 def eligible(row):
-    return row.status=='ACTIVE' and row.freshness=='CURRENT' and (
+    return row.mtype not in (TASK_COMPLETION_TYPE, BANK_REVIEW_FEEDBACK_TYPE) and row.status=='ACTIVE' and row.freshness=='CURRENT' and (
         row.mtype not in (*PROJECT_TYPES, 'LearningObservation', 'LearningPreference') or row.confirmed_at is not None)
 
 def view(row):

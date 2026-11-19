@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload
 
-from app.models import ImportItem, ImportSession, Question, QuestionGeneration, Skill
+from app.models import ImportItem, Question, QuestionGeneration, Skill
 from app.services import question_generation as protocol
 
 
@@ -27,14 +27,19 @@ def issue_signature(meta):
                   if target['fact_ref'] in refs)
 
 
-async def approve_generated(session, workspace, import_id, item_ids=None, edits=None):
+async def approve_generated(session, workspace, import_id, item_ids=None, edits=None, *,
+                            locked_import=None, commit=True, require_review_content=False):
     from app.api.v1.question_generation import normalized_title, workspace_lock
-    from app.api.v1.bank import SKILL_TOPIC
+    from app.api.v1.bank import SKILL_TOPIC, _owned_import
+    from app.services.bank_review_actions import bump_review_revision, ensure_not_revising
 
     if edits:
         raise HTTPException(422, "请先在补题工作台保存结构化编辑，再审核入库")
-    await workspace_lock(session, workspace.id)
-    imp = await session.scalar(select(ImportSession).where(ImportSession.id == import_id, ImportSession.workspace_id == workspace.id).execution_options(populate_existing=True))
+    if locked_import is None:
+        await workspace_lock(session, workspace.id)
+        imp = await _owned_import(session, workspace, import_id, lock=True)
+    else:
+        imp = locked_import
     if not imp or imp.status not in ("REVIEW", "APPROVED"):
         raise HTTPException(409, "当前会话不能审核")
     task = await session.scalar(select(QuestionGeneration).where(QuestionGeneration.import_session_id == imp.id, QuestionGeneration.workspace_id == workspace.id))
@@ -49,10 +54,12 @@ async def approve_generated(session, workspace, import_id, item_ids=None, edits=
     by_group = {(q.generation_meta or {}).get("group_key"): q for q in reversed(questions) if q.generation_meta}
     created, merged = [], []
     for draft in selected:
-        meta = draft.generation_meta or {}
+        ensure_not_revising(draft)
+        meta = {key: value for key, value in (draft.generation_meta or {}).items() if key != "bank_review"}
         try:
             payload = protocol.parse_response(json.dumps({"schema_version": 1, "batch_id": task.id, "items": [meta.get("item")]}, ensure_ascii=False), {**task.input_snapshot, "count": 1}, task.id, require_all_targets=False)[0]
-            content = protocol.render_item(payload, task.input_snapshot)
+            content = ({"answer_html": draft.draft_answer, "rubric": draft.draft_rubric} if require_review_content
+                       else protocol.render_item(payload, task.input_snapshot))
         except ValueError as exc:
             raise HTTPException(422, f"草稿 {draft.id}: {exc}") from exc
         if payload["question_mode"] == "needs_context" or payload.get("missing_context"):
@@ -62,6 +69,8 @@ async def approve_generated(session, workspace, import_id, item_ids=None, edits=
         # context as a canonical-linked variant rather than discarding its rubric.
         if duplicate and (not issue_signature(meta) or issue_signature(meta) == issue_signature(duplicate.generation_meta or {})):
             draft.status, draft.merged_into, draft.is_duplicate_of = "MERGED", duplicate.id, duplicate.id
+            if not require_review_content:
+                bump_review_revision(draft)
             merged.append({"item_id": draft.id, "question_id": duplicate.id})
             continue
         source_id = payload.get("source_question_id")
@@ -83,6 +92,8 @@ async def approve_generated(session, workspace, import_id, item_ids=None, edits=
         session.add(q)
         await session.flush()
         draft.status, draft.question_id = "APPROVED", q.id
+        if not require_review_content:
+            bump_review_revision(draft)
         by_id[q.id] = q
         by_title[normalized_title(q.title)] = q
         if meta.get("group_key"):
@@ -91,5 +102,6 @@ async def approve_generated(session, workspace, import_id, item_ids=None, edits=
     await session.flush()
     if all(d.status != "DRAFT" for d in drafts):
         imp.status, imp.reviewed_at = "APPROVED", datetime.now(timezone.utc)
-    await session.commit()
+    if commit:
+        await session.commit()
     return {"created": created, "merged": merged, "import_id": imp.id, "status": imp.status}

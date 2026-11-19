@@ -1,0 +1,108 @@
+.project-review {
+  --report-ink: #202333;
+  --report-muted: #596174;
+  --report-border: #d9dde8;
+  --report-brand: #5351bf;
+  --report-action: #5351bf;
+  --report-card: #fff;
+  --report-wash: #ebeafc;
+  --report-step: #e8f2ed;
+  --report-step-title: #214737;
+  --report-step-text: #315747;
+}
+
+:root[data-theme="dark"] .project-review {
+  --report-ink: var(--text);
+  --report-muted: var(--text-2);
+  --report-border: var(--border);
+  --report-brand: var(--purple);
+  --report-action: var(--primary);
+  --report-card: var(--card);
+  --report-wash: var(--purple-bg);
+  --report-step: var(--green-bg);
+  --report-step-title: var(--green);
+  --report-step-text: var(--text-2);
+}
+
+.project-review-crumb,
+.project-review-tabs,
+.project-review-picker,
+.project-report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.project-review-crumb {
+  color: var(--report-muted);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.project-review-picker .inp { width: auto; max-width: 230px; }
+.project-review-tabs { margin-bottom: 16px; }
+.project-review-tabs .btn,
+.project-report-actions .btn { min-height: 40px; }
+.project-review .btn-primary { background: var(--report-action); color: white; }
+.project-review .btn-outline { background: var(--report-card); border-color: var(--report-border); color: var(--report-ink); }
+
+.project-report-stack {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  margin-bottom: 16px;
+}
+
+.project-report-card {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 18px 24px;
+  border: 1px solid var(--report-border);
+  border-radius: 14px;
+  background: var(--report-card);
+  color: var(--report-ink);
+  overflow-wrap: anywhere;
+}
+
+.project-report-card h2 { margin: 0; font-size: 19px; line-height: 1.4; }
+.project-report-card p { margin: 0; color: var(--report-muted); }
+.project-report-card .project-report-label { font-size: 13px; font-weight: 500; }
+.project-report-feature { background: var(--report-wash); }
+.project-report-feature h2 { font-size: 23px; color: var(--report-brand); white-space: pre-wrap; }
+.project-report-version h3 { margin: 0; font-size: 14px; }
+.project-report-version { color: var(--report-muted); }
+.project-report-prose { white-space: pre-wrap; }
+
+.project-report-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.project-report-steps article {
+  padding: 15px 16px;
+  border-radius: 10px;
+  background: var(--report-step);
+  color: var(--report-step-title);
+  overflow-wrap: anywhere;
+}
+
+.project-report-steps p { margin: 8px 0 0; color: var(--report-step-text); font-size: 13px; }
+.project-report-entry { width: 100%; padding: 14px 0; border-top: 1px solid var(--report-border); scroll-margin-top: 75px; }
+.project-report-entry h3 { margin: 8px 0; }
+.project-review details summary { cursor: pointer; }
+.project-review .project-report-card li > code,
+.project-review .project-report-card pre { color: var(--text); font-size: 13px; line-height: 1.65; }
+
+@media (max-width: 740px) {
+  .project-review .page-head { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .project-review .page-actions { flex-wrap: wrap; justify-content: flex-start; }
+  .project-review .project-report-card, .project-resume .resume-card { padding: 16px; }
+  .project-review .project-report-stack > *, .project-review .project-report-card > * { max-width: 100%; }
+  .project-review-tabs { gap: 6px; }
+  .project-review-tabs .btn { padding-inline: 10px; }
+}

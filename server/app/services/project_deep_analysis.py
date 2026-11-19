@@ -16,7 +16,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.services.llm import AgentAdapter, get_llm_config
-from app.services.project_sources import open_repository, redact_source, redact_value
+from app.services.project_sources import SourceRepository, open_repository, redact_source, redact_value
 
 
 MAX_INITIAL_FILES = 12
@@ -331,6 +331,7 @@ async def review_inspected_sources(files: list[dict], context: dict, coverage: d
 async def analyze_project(
     project_info: dict, focus: str = "", personal_context: dict | None = None,
     progress: Callable[[str], Awaitable[None]] | None = None,
+    *, open_source: Callable[[dict], Awaitable[SourceRepository]] | None = None,
 ) -> dict:
     async def phase(stage: str):
         if progress is not None:
@@ -341,7 +342,7 @@ async def analyze_project(
         raise ProjectAnalysisError("未配置完整 LLM，无法执行 AI 深度分析；请先配置模型")
     await phase("fetch_repo")
     try:
-        repository = await open_repository(project_info)
+        repository = await (open_source or open_repository)(project_info)
     except (ValueError, httpx.HTTPError):
         raise ProjectAnalysisError("读取仓库或提交版本失败；请检查仓库地址、分支及访问配置") from None
     if not repository.manifest:

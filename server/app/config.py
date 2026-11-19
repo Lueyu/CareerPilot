@@ -3,6 +3,9 @@
 所有配置来自环境变量或 .env 文件; 生产环境绝不使用默认密码。
 """
 from functools import lru_cache
+import re
+
+from pydantic import Field, field_validator
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -21,6 +24,7 @@ class Settings(BaseSettings):
 
     # 认证(MVP: API token 简单校验; 生产换 JWT/OAuth)
     api_token: str = "cp-dev-token"
+    workspace_token_hashes: dict[str, str] = {}
     # 正式个人空间; Demo 仅由显式 X-Workspace: demo 访问。
     default_workspace_slug: str = "personal"
 
@@ -29,6 +33,24 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_base_url: str = ""
     llm_model: str = ""
+
+    # Application runtime tutoring routes. An empty strong model disables that seat.
+    study_flash_model: str = ""
+    study_strong_model: str = ""
+    study_strong_base_url: str = ""
+    study_strong_api_key: str = ""
+    study_strong_provider: str = ""
+    study_output_budget: int = 6000
+    study_timeout_seconds: int = 120
+    study_flash_context: int = 24000
+    study_strong_context: int = 48000
+    # Explicit deployment capabilities. Chat uses text SSE and bounded local tools.
+    study_flash_capabilities: list[str] = ["text", "stream"]
+    study_strong_capabilities: list[str] = ["text", "stream", "structured_text", "code_reasoning"]
+    study_project_roots: dict[str, str] = {}
+    # Frozen onto each new AI scan. Streaming may keep working while the model
+    # reasons, with a bounded wall-clock deadline independent of scan budgets.
+    project_scan_stage_timeout_seconds: int = Field(default=600, ge=180, le=600)
 
     # 评分引擎
     scorer_model_version: str = "rule-v1"
@@ -41,6 +63,15 @@ class Settings(BaseSettings):
     portal_base_branch: str = "master"              # 发布目标默认分支
     portal_content_dir: str = "portal/content"      # 仓库内内容目录
     portal_auto_merge: bool = False
+
+    @field_validator("workspace_token_hashes")
+    @classmethod
+    def validate_workspace_tokens(cls, value):
+        if any(not slug.strip() or not re.fullmatch(r"[0-9a-f]{64}", digest) for slug, digest in value.items()):
+            raise ValueError("Expected workspace slugs with lowercase SHA-256 token digests")
+        if len(set(value.values())) != len(value):
+            raise ValueError("Each workspace needs a distinct token")
+        return value
 
     @property
     def public_writes_enabled(self) -> bool:

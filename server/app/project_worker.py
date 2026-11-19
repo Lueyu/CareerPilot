@@ -4,15 +4,16 @@ import asyncio
 from contextlib import suppress
 import logging
 import os
+from pathlib import Path
 import time
 from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from app.db import SessionLocal,engine
-from app.models import Project,ProjectAnalysis,AnalysisStep,WorkerHeartbeat,MemoryItem
+from app.models import AppSetting,Project,ProjectAnalysis,AnalysisStep,WorkerHeartbeat,MemoryItem
 from app.services import project_jobs as jobs
 from app.services import project_autopilot_engine as analysis
-from app.services.project_autopilot_config import runtime_config,model_fingerprint
+from app.services.project_autopilot_config import CONSENT_VERSION,runtime_config,model_fingerprint
 from app.services.project_context import project_kind
 from app.services.project_candidates import publish_candidates,invalidate_changed_sources
 from app.services.project_memory import active_project_memories,PROJECT_TYPES
@@ -125,7 +126,10 @@ async def reconcile(factory=SessionLocal):
                 await session.commit();continue
             resolved=artifacts.get('resolve')
             if resolved:
-                run.target_sha=resolved.get('target_sha');project.branch=resolved.get('branch',project.branch)
+                observed = resolved.get('target_sha')
+                if observed and not run.target_sha and project.generation == run.generation:
+                    project.last_seen_sha = observed
+                run.target_sha=observed;project.branch=resolved.get('branch',project.branch)
             if 'manifest' in artifacts and not (run.result_meta or {}).get('memory_sources_checked'):
                 await invalidate_changed_sources(session,project,
                     affected_paths(artifacts['manifest'],context.get('baseline') or {}),run.target_sha)
@@ -181,9 +185,10 @@ async def execute_claim(claim,worker_id,factory=SessionLocal,lease_seconds=45,he
     async with factory() as session:
         if not await jobs.heartbeat(session,claim,lease_seconds):return
         run=await session.get(ProjectAnalysis,claim.run_id);project=await session.get(Project,claim.project_id)
-        try:config,credentials,settings=await runtime_config(session,claim.workspace_id)
+        one_run_consent = (getattr(run, 'result_meta', None) or {}).get('source_transfer_consent') == CONSENT_VERSION
+        try:config,credentials,settings=await runtime_config(session,claim.workspace_id,not one_run_consent)
         except PermissionError:
-            await jobs.fail_step(session,claim,'CONSENT_REQUIRED','请先确认自动分析的源码传输范围和预算');return
+            await jobs.fail_step(session,claim,'CONSENT_REQUIRED','请先确认此项目的源码传输范围');return
         current_fp=model_fingerprint(config)
         if run.model_config_fingerprint and current_fp!=run.model_config_fingerprint:
             await jobs.fail_step(session,claim,'CONFIG_CHANGED','模型配置已改变；本次任务保留原检查点，请新建完整分析');return
@@ -194,7 +199,7 @@ async def execute_claim(claim,worker_id,factory=SessionLocal,lease_seconds=45,he
         step=await session.get(AnalysisStep,claim.step_id)
         repair=_repair_diagnostic(step)
         runtime=analysis.RuntimeContext(workspace_id=claim.workspace_id,project_id=claim.project_id,
-            llm_config=config,credentials=credentials,max_source_bytes=run.budget.get('max_source_bytes',8388608),
+            llm_config=config,credentials=credentials,max_source_bytes=run.budget.get('max_source_bytes'),
             request_timeout=run.budget.get('request_timeout',180),input_chars=run.budget.get('input_chars',40000),
             transport_mode=(getattr(run,'result_meta',None) or {}).get('transport_mode','json'),
             stage_timeout=(getattr(run,'result_meta',None) or {}).get('stage_timeout_seconds'))
@@ -233,9 +238,33 @@ async def execute_claim(claim,worker_id,factory=SessionLocal,lease_seconds=45,he
         keeper.cancel()
         with suppress(asyncio.CancelledError):await keeper
 
-async def serve(poll_seconds=2,lease_seconds=45,heartbeat_seconds=10,once=False,factory=SessionLocal):
-    if heartbeat_seconds>=lease_seconds:raise ValueError('heartbeat must be shorter than lease')
-    worker_id=f'{os.getpid()}-{uuid4().hex}'
+async def serve(poll_seconds=2,lease_seconds=None,heartbeat_seconds=10,once=False,factory=SessionLocal,*,ready_file=None):
+    # Allow longer host scheduling stalls during streamed project analysis.
+    # An explicit lease override still applies to both kinds of job.
+    scoring_lease = 45 if lease_seconds is None else lease_seconds
+    project_lease = 180 if lease_seconds is None else lease_seconds
+    if heartbeat_seconds >= min(scoring_lease, project_lease):
+        raise ValueError('heartbeat must be shorter than lease')
+    worker_id=f'{os.getpid()}-{analysis.PROMPT_BUNDLE_VERSION}-{uuid4().hex}'
+
+    async def announce_worker():
+        nonlocal ready_file
+        await worker_heartbeat(factory, worker_id)
+        if ready_file is not None:
+            ready_file.touch(exist_ok=False)
+            ready_file = None
+
+    # An upgraded worker may be launched by the ordinary personal startup
+    # during the drain. Advertise its version without touching old checkpoints.
+    while True:
+        async with factory() as session:
+            handoff = await session.get(AppSetting, jobs.HANDOFF_KEY)
+        if not handoff or handoff.value.get('target_prompt') != analysis.PROMPT_BUNDLE_VERSION:
+            break
+        await announce_worker()
+        if once:
+            return
+        await asyncio.sleep(poll_seconds)
     async def scheduler_loop():
         from app.services.project_scheduler import tick
         while True:
@@ -245,20 +274,24 @@ async def serve(poll_seconds=2,lease_seconds=45,heartbeat_seconds=10,once=False,
     scheduler=asyncio.create_task(scheduler_loop()) if not once else None
     try:
         while True:
-            await worker_heartbeat(factory,worker_id)
+            await announce_worker()
             from app.services import assessment_jobs,assessment_worker
             await assessment_worker.reconcile(factory)
             async with factory() as session:
-                grading=await assessment_jobs.claim_step(session,worker_id,lease_seconds)
+                grading=await assessment_jobs.claim_step(session,worker_id,scoring_lease)
             if grading:
-                await assessment_worker.execute_claim(grading,worker_id,factory,lease_seconds,heartbeat_seconds)
+                await assessment_worker.execute_claim(grading,worker_id,factory,scoring_lease,heartbeat_seconds)
                 await assessment_worker.reconcile(factory)
                 if once:return
                 continue
+            from app.services.study_notes import process_next_note_job
+            if await process_next_note_job(factory):
+                if once: return
+                continue
             await reconcile(factory)
-            async with factory() as session:claim=await jobs.claim_step(session,worker_id,lease_seconds)
+            async with factory() as session:claim=await jobs.claim_step(session,worker_id,project_lease)
             if claim:
-                await execute_claim(claim,worker_id,factory,lease_seconds,heartbeat_seconds)
+                await execute_claim(claim,worker_id,factory,project_lease,heartbeat_seconds)
                 await reconcile(factory)
             if once:return
             if not claim:await asyncio.sleep(poll_seconds)
@@ -270,9 +303,10 @@ async def serve(poll_seconds=2,lease_seconds=45,heartbeat_seconds=10,once=False,
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--poll-seconds',type=float,default=2)
-    parser.add_argument('--lease-seconds',type=float,default=45)
+    parser.add_argument('--lease-seconds',type=float,help='override the lease for both scoring and project stages')
     parser.add_argument('--heartbeat-seconds',type=float,default=10)
     parser.add_argument('--once',action='store_true')
+    parser.add_argument('--ready-file', type=Path, help='create this file after the first persisted heartbeat')
     args=parser.parse_args()
     logging.basicConfig(level=logging.INFO,format='%(asctime)s %(name)s %(levelname)s %(message)s')
     async def run():

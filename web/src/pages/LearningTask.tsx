@@ -1,12 +1,20 @@
+import StudyEntryButton from '../components/StudyEntryButton';
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAppState } from '../components/AppState';
 import { DemoBanner, Modal, PageHead } from '../components/ui';
-import { api, useApi, LearningTaskView, TaskContentResp, TaskHelpResp } from '../api/client';
+import { api, useApi, LearningTaskView, RetestGoalOutcome, TaskContentResp, TaskHelpResp } from '../api/client';
 import LearningPathPanel from '../components/LearningPathPanel';
 
 
 const TYPE_NAME: Record<string, string> = { UNDERSTAND: '理解', PRACTICE: '实践', RETEST: '复测' };
+const GOAL_RESULT: Record<RetestGoalOutcome['status'], string> = {
+  UNMAPPED: '待验证（缺少已审核映射）',
+  UNVERIFIED: '待验证',
+  ASSISTED: '已辅助作答，独立表现待验证',
+  PASSED: '通过',
+  FAILED: '未通过',
+};
 
 // —— v3.1 M4: 统一 5 步教学流(类比→小例子→原理→结合项目→验证) ——
 interface FiveStep {
@@ -33,7 +41,7 @@ export default function LearningTask() {
   const {data:task,error,loading}=useApi<LearningTaskView>(id?`/learning/tasks/${id}`:null);
   if(params.get('legacy')==='1' || task?.kind==='RETEST')return <LegacyLearningTask/>;
   if(!task || String(task.id)!==id)return <div><PageHead title="学习路径"><button className="btn btn-outline" onClick={()=>navigate('/learning')}>返回学习计划</button></PageHead><div className="card" role={error?'alert':undefined}>{error?`无法读取任务：${error}`:loading?'正在读取任务…':'未指定学习任务。'}</div></div>;
-  return <div><PageHead title={task.title} sub="围绕一个具体目标完成练习、反馈、修订和验证"><button className="btn btn-outline" onClick={()=>navigate('/learning')}>返回学习计划</button></PageHead><LearningPathPanel key={task.id} task={task}/><details className="card"><summary>原任务来源与完整教学</summary><p>具体失分项：{task.source_criterion || '历史任务未记录'}</p>{task.content?.observation?.answer_excerpt && <blockquote>{task.content.observation.answer_excerpt}</blockquote>}{task.source_exam_id && <button className="btn btn-outline btn-sm" onClick={()=>navigate(`/exam/diagnosis/report?id=${task.source_exam_id}`)}>查看原答与失分证据</button>}<p className="hint">原五步教学和学习产物仍可访问；尚未缓存的教学内容会使用已配置的模型或规则生成。</p><button className="btn btn-outline" onClick={()=>navigate(`/learning/task/${task.id}?legacy=1`)}>打开原教学内容</button></details></div>;
+  return <div><PageHead title={task.title} sub="围绕一个具体目标完成练习、反馈、修订和验证"><StudyEntryButton kind="task" id={task.id}/><button className="btn btn-outline" onClick={()=>navigate('/learning')}>返回学习计划</button></PageHead><LearningPathPanel key={task.id} task={task}/><details className="card"><summary>原任务来源与完整教学</summary><p>具体失分项：{task.source_criterion || '历史任务未记录'}</p>{task.content?.observation?.answer_excerpt && <blockquote>{task.content.observation.answer_excerpt}</blockquote>}{task.source_exam_id && <button className="btn btn-outline btn-sm" onClick={()=>navigate(`/exam/diagnosis/report?id=${task.source_exam_id}`)}>查看原答与失分证据</button>}<p className="hint">原五步教学和学习产物仍可访问；尚未缓存的教学内容会使用已配置的模型或规则生成。</p><button className="btn btn-outline" onClick={()=>navigate(`/learning/task/${task.id}?legacy=1`)}>打开原教学内容</button></details></div>;
 }
 
 function LegacyLearningTask() {
@@ -88,7 +96,8 @@ function LegacyLearningTask() {
     if (!task) return;
     // 缓存命中直接展示
     const validTaskCache = !task.source_exam_question_id || task.content?.source_context_version === 2;
-    const cached = gen?.help_cache?.[mode] || (validTaskCache ? task.content?.help_cache?.[mode] : undefined);
+    const cached = [gen?.help_cache?.[mode], validTaskCache ? task.content?.help_cache?.[mode] : undefined]
+      .find((entry) => entry?.source === 'llm' && entry.text);
 
     if (cached?.text) {
       setHelpText(cached.text);
@@ -210,6 +219,9 @@ function LegacyLearningTask() {
 
   if (!task || String(task.id) !== id) return <div><PageHead title="学习任务"><button className="btn btn-outline" onClick={() => navigate('/learning')}>返回学习计划</button></PageHead><div className="card" role={loadErr ? 'alert' : undefined}>{loadErr ? `无法读取任务：${loadErr}` : '正在读取任务…'}</div></div>;
 
+  const retestResult = task.content?.retest_result;
+  const goalOutcomes = retestResult?.goal_outcomes;
+
   return (
     <div>
       <PageHead
@@ -217,6 +229,7 @@ function LegacyLearningTask() {
         sub={`${TYPE_NAME[kind] || kind}任务 · ${domain || ''} · 预计 ${minutes} 分钟`}
       >
         <button className="btn btn-outline" onClick={() => navigate('/learning')}>← 返回学习计划</button>
+        <StudyEntryButton kind="task" id={task.id}/>
         {task.kind!=='RETEST' && <button className="btn btn-outline" onClick={()=>navigate(`/learning/task/${task.id}`)}>回到学习路径</button>}
       </PageHead>
       {actionErr && <div role="alert" className="demo-banner demo-banner-err">{actionErr}</div>}
@@ -238,15 +251,24 @@ function LegacyLearningTask() {
         <p>{task.kind === 'RETEST' ? `计划复测日期：${task.due_date || '—'}。需到期后进行新作答。` : '学习进度已完成，可进行即时新题验证。该结果不代表 1/3/7 天保持。'}</p>
         <button className="btn btn-primary" disabled={busy || (task.kind === 'RETEST' && !!task.due_date && new Date(task.due_date).getTime() > Date.now())} onClick={retest}>{busy ? '准备新题…' : task.kind === 'RETEST' ? '开始到期复测' : '即时新题验证'}</button>
       </div>}
-      {task.content?.retest_result && <div className="card" style={{ marginBottom: 16 }}>
+      {retestResult && <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-title">最近新题验证</div>
-        <p>结果：{task.content.retest_result.outcome || '已记录'} · 得分：{task.content.retest_result.score ?? '未完成评分'}</p>
-        <p>{`本题整体：${task.content.retest_result.passed === true ? '通过' : task.content.retest_result.passed === false ? '未通过' : '未评定'}`}</p>
-        <p>{`原评分项覆盖：${task.content.retest_result.source_criterion_covered === true ? '已覆盖' : task.content.retest_result.source_criterion_covered === false ? '未覆盖' : '未记录'}`}</p>
-        <p>{`原评分项结果：${task.content.retest_result.source_criterion_covered !== true || task.content.retest_result.source_criterion_passed == null ? '未验证' : task.content.retest_result.source_criterion_passed ? '通过' : '未通过'}`}</p>
-        <p>{`验证范围：${task.content.retest_result.assessment_scope || '未记录；不能据此认定原评分项已通过'}`}</p>
-        <p className="hint">{task.content.retest_result.scope_note || '仅反映本次作答表现，不代表长期保持。'}</p>
-        <button className="btn btn-outline" onClick={() => navigate(`/exam/diagnosis/report?id=${task.content?.retest_result?.exam_id}&return_task_id=${task.id}`)}>查看本次验证报告</button>
+        <p>整题得分：{retestResult.score ?? '未完成评分'}</p>
+        <p>{`本题整体：${retestResult.passed === true ? '通过' : retestResult.passed === false ? '未通过' : '未评定'}`}</p>
+        {goalOutcomes?.length ? <>
+          <ul aria-label="原评分项结果">
+            {goalOutcomes.map((goal, index) => (
+              <li key={goal.goal_id ?? `legacy-${index}`}>
+                <b>{goal.source_criterion || '原评分项'}</b>
+                {' · '}{GOAL_RESULT[goal.status]}
+                {goal.score !== null && ` · 评分项得分：${goal.score}`}
+              </li>
+            ))}
+          </ul>
+          {retestResult.assessment_scope && <p>验证范围：{retestResult.assessment_scope}</p>}
+        </> : <p>原评分项结果：待验证（历史记录缺少审核映射）</p>}
+        <p className="hint">{(goalOutcomes?.length ? retestResult.scope_note : null) || '仅反映本次作答表现，不代表长期保持。'}</p>
+        <button className="btn btn-outline" onClick={() => navigate(`/exam/diagnosis/report?id=${retestResult.exam_id}&return_task_id=${task.id}`)}>查看本次验证报告</button>
       </div>}
       <DemoBanner />
 
@@ -349,7 +371,6 @@ function LegacyLearningTask() {
         )}
         <div className="hint" style={{ marginTop: 10 }}>
           {helpSrc === 'llm' && '✨ 由 AI 结合题库材料生成 · 结果已缓存，可反复查看'}
-          {helpSrc === 'rule' && '⚙️ 规则生成（LLM 未配置时的确定性回答）'}
           {helpSrc === 'none' && 'ℹ️ 本次为错误提示，未缓存'}
         </div>
         </Modal>

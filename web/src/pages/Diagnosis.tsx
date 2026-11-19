@@ -8,13 +8,13 @@ import { useSpeechRecognition } from '../lib/speech';
 
 type Phase = 'loading' | 'quiz' | 'scoring' | 'uncertain' | 'closed' | 'error';
 
-export default function Diagnosis() {
+export default function Diagnosis({ studyMode = false }: { studyMode?: boolean } = {}) {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const requestedId = params.get('id');
   const returnTask=params.get('return_task_id');
   const validReturnTask=returnTask && /^[1-9]\d*$/.test(returnTask) && Number.isSafeInteger(Number(returnTask))?returnTask:null;
-  const reportPath=(id:number)=>`/exam/diagnosis/report?id=${id}${validReturnTask?`&return_task_id=${validReturnTask}`:''}`;
+  const reportPath=(id:number)=>`${studyMode ? '/study/retest' : '/exam/diagnosis'}/report?id=${id}${validReturnTask?`&return_task_id=${validReturnTask}`:''}`;
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
@@ -97,7 +97,7 @@ export default function Diagnosis() {
     setAbortOpen(false); setBusy(true); setActionError(null);
     try {
       await api.post(`/exams/${exam.id}/abort`);
-      clearExamCreation(); clearSavedDraft(exam.id); navigate('/exam');
+      clearExamCreation(); clearSavedDraft(exam.id); navigate(studyMode ? '/study/notes?tab=review' : '/exam');
     } catch (e: any) { setActionError(`放弃失败：${e.message || e}。考试仍保留。`); }
     finally { setBusy(false); }
   };
@@ -130,17 +130,17 @@ export default function Diagnosis() {
     } finally { setBusy(false); }
   };
 
-  if (phase === 'error') return <div className="card"><h2>无法加载本次考试</h2><p role="alert">{createErr}</p><button className="btn btn-primary" onClick={() => setRetry(x => x + 1)}>重试</button><button className="btn btn-outline" onClick={() => navigate('/exam')}>返回考试中心</button></div>;
+  if (phase === 'error') return <div className="card"><h2>无法加载本次考试</h2><p role="alert">{createErr}</p><button className="btn btn-primary" onClick={() => setRetry(x => x + 1)}>重试</button><button className="btn btn-outline" onClick={() => navigate(studyMode ? '/study/notes?tab=review' : '/exam')}>{studyMode ? '返回复习与练习' : '返回考试中心'}</button></div>;
   if(phase==='uncertain')return <div className="card"><h2>正在核对本次提交状态</h2><p role="alert">{actionError}</p><p>确认服务器状态前保持答卷只读，避免修改已经冻结的答案。</p><button className="btn btn-primary" disabled={busy} onClick={checkSubmission}>重新核对本次状态</button></div>;
-  if(phase==='closed')return <div className="card"><h2>{exam?.status==='EXPIRED'?'本次考试已超时':'本次考试已放弃'}</h2><p>已保存的作答保留，本次没有有效成绩。当前不能继续修改或提交。</p><button className="btn btn-outline" onClick={()=>navigate('/exam')}>返回考试中心</button></div>;
+  if(phase==='closed')return <div className="card"><h2>{exam?.status==='EXPIRED'?'本次考试已超时':'本次考试已放弃'}</h2><p>已保存的作答保留，本次没有有效成绩。当前不能继续修改或提交。</p><button className="btn btn-outline" onClick={()=>navigate(studyMode ? '/study/notes?tab=review' : '/exam')}>{studyMode ? '返回复习与练习' : '返回考试中心'}</button></div>;
 
   if (phase === 'loading') {
     return (
       <div>
         <div className="quiz-top">
           <div>
-            <div className="page-title" style={{ fontSize: 22 }}>独立诊断</div>
-            <div className="page-sub">正在生成自适应试卷…</div>
+            <div className="page-title" style={{ fontSize: 22 }}>{studyMode ? '新情境复测' : '独立诊断'}</div>
+            <div className="page-sub">{studyMode ? '正在读取本场试题…' : '正在生成自适应试卷…'}</div>
           </div>
         </div>
         <div className="score-box">
@@ -150,10 +150,10 @@ export default function Diagnosis() {
               <circle className="ring-spin" cx="55" cy="55" r="46" fill="none" stroke="var(--primary)" strokeWidth="8" strokeLinecap="round"
                 strokeDasharray="289" strokeDashoffset="80" transform="rotate(-90 55 55)" />
             </svg>
-            <div className="ring-label">选题中</div>
+            <div className="ring-label">{studyMode ? '读取中' : '选题中'}</div>
           </div>
-          <h3 style={{ fontSize: 18, fontWeight: 650, marginTop: 18 }}>自适应选题引擎运行中…</h3>
-          <p className="hint" style={{ textAlign: 'center' }}>优先覆盖状态未知 / 待验证 / 低于目标的能力域</p>
+          <h3 style={{ fontSize: 18, fontWeight: 650, marginTop: 18 }}>{studyMode ? '正在打开复测' : '自适应选题引擎运行中…'}</h3>
+          <p className="hint" style={{ textAlign: 'center' }}>{studyMode ? '沿用出卷时保存的题目和评价标准' : '优先覆盖状态未知 / 待验证 / 低于目标的能力域'}</p>
         </div>
       </div>
     );
@@ -164,7 +164,7 @@ export default function Diagnosis() {
       <div>
         <div className="quiz-top">
           <div>
-            <div className="page-title" style={{ fontSize: 22 }}>独立诊断</div>
+            <div className="page-title" style={{ fontSize: 22 }}>{studyMode ? '新情境复测' : '独立诊断'}</div>
             <div className="page-sub">正在保存并冻结本次答卷…</div>
           </div>
         </div>
@@ -192,15 +192,15 @@ export default function Diagnosis() {
   }
 
   if (!q || !exam) return null;
+  const interviewSetId = exam.interview_set_id;
 
   return (
     <div>
       <div className="quiz-top">
         <div>
-          <div className="page-title" style={{ fontSize: 22 }}>独立诊断</div>
+          <div className="page-title" style={{ fontSize: 22 }}>{interviewSetId ? '练习这套面经' : studyMode ? '新情境复测' : '独立诊断'}</div>
           <div className="page-sub">
-            题 {idx + 1}/{qs.length} · {q.skill || q.title.slice(0, 24)}
-            {exam && <span className="chip chip-green" style={{ marginLeft: 8 }}>真实选题</span>}
+            {interviewSetId ? `来源：${exam.title} · 题目版本已冻结` : <>题 {idx + 1}/{qs.length} · {q.skill || q.title.slice(0, 24)}<span className="chip chip-green" style={{ marginLeft: 8 }}>真实选题</span></>}
 
           </div>
         </div>
@@ -213,13 +213,14 @@ export default function Diagnosis() {
           <button className="btn btn-outline btn-sm" onClick={() => setAbortOpen(true)}>放弃考试</button>
         </div>
       </div>
-      <DemoBanner />
+      {!interviewSetId && <DemoBanner />}
 
       {actionError && <div role="alert" className="demo-banner demo-banner-err">{actionError}<button className="btn btn-outline btn-sm" onClick={() => navigate(reportPath(exam.id))}>查看本次状态</button></div>}
       <div role="status" className="hint">{draft.saving?'正在保存到服务器…':draft.entries.some(e=>e.dirty)?'有尚未保存到服务器的编辑，浏览器草稿已保留。':'已保存到服务器。关闭页面后可从考试中心继续。'}</div>
       {draft.saveError && <div role="alert" className="demo-banner demo-banner-err">{draft.saveError}<button className="btn btn-outline btn-sm" disabled={busy || draft.saving} onClick={()=>void draft.flush().catch(()=>{})}>重试保存</button></div>}
       {draft.entries.map((entry,i)=>entry.conflict && <div role="alert" className="demo-banner" key={i}>第 {i+1} 题服务器已有不同版本，本地编辑未被覆盖。<p>服务器答案：{String(entry.serverValue??'未作答')}</p><button className="btn btn-outline btn-sm" onClick={()=>draft.resolveConflict(i,false)}>使用服务器答案</button><button className="btn btn-outline btn-sm" onClick={()=>draft.resolveConflict(i,true)}>按最新版本保存我的编辑</button></div>)}
       <div className="quiz-card">
+        <div className={interviewSetId ? 'bank-quiz-stem' : undefined}>
         <div className="quiz-q-head">
           <span className="chip chip-purple">第 {idx + 1} 题</span>
           <span className="chip chip-slate">{isText ? '文本作答' : '单选'}</span>
@@ -227,10 +228,13 @@ export default function Diagnosis() {
           {isText && <span className="chip chip-amber">建议 3-5 分钟</span>}
         </div>
         <h3 className="quiz-stem">{q.title}</h3>
+        </div>
 
         {isText ? (
-          <div>
+          <div className={interviewSetId ? 'bank-quiz-answer' : undefined}>
+            {interviewSetId && <label className="hint" htmlFor="bank-practice-answer">我的作答</label>}
             <textarea
+              id={interviewSetId ? 'bank-practice-answer' : undefined}
               className="textarea"
               style={{ minHeight: 150, marginTop: 16 }}
               placeholder="输入你的回答，或点击下方麦克风语音输入…"
@@ -260,6 +264,10 @@ export default function Diagnosis() {
                 <span className="hint">点击麦克风语音输入，识别结果自动追加到回答框（中文）。</span>
               )}
             </div>
+            {interviewSetId && <button className="btn btn-outline btn-sm" disabled={busy || listening || !!interim} onClick={async () => {
+              try { await draft.flush(); if (draft.getEntries().some(entry => entry.conflict)) throw new Error('请先处理答案版本冲突'); navigate(`/bank?set=${interviewSetId}`); }
+              catch (error) { setActionError(`保存失败：${(error as Error).message}`); }
+            }}>返回面经集</button>}
           </div>
         ) : (
           <div className="opts" style={{ marginTop: 18 }}>

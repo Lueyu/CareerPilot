@@ -1,5 +1,6 @@
 """Persistent explicit AI analysis; no execution of repository code."""
 from datetime import datetime, timezone
+from functools import partial
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,6 +13,8 @@ from app.db import SessionLocal, get_session
 from app.models import Exam, ExamQuestion, ImportItem, Project, ProjectAnalysis, QuestionGeneration, Workspace
 from app.services.project_context import project_kind, project_profile
 from app.services.project_memory import active_project_memories, lock_project_memories, publish_project_memories, source_excerpts, report_binding
+from app.services.project_sources import open_repository
+from app.services.repository_credentials import repository_credentials
 
 router = APIRouter(tags=['project-analysis'])
 
@@ -138,7 +141,9 @@ async def execute_analysis(analysis_id, workspace_id, project_id):
                 'note': '用户对旧版本项目认知的纠正；需与本次代码核对，不能自动视为新版本事实。'}
                 for m in await active_project_memories(session, workspace_id, project_id) if m.source == 'USER']
             focus = run.focus
-        result = await analyze_project(info, focus, profile, progress=progress)
+            credentials = await repository_credentials(session, workspace_id)
+        open_source = partial(open_repository, token=credentials.get(f"{info['kind']}_token", ''))
+        result = await analyze_project(info, focus, profile, progress=progress, open_source=open_source)
         async with SessionLocal() as session:
             await lock_project_memories(session, workspace_id)
             run = await owned_run(session, workspace_id, project_id, analysis_id, lock=True)

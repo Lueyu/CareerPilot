@@ -7,7 +7,7 @@ import json
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.project import Project, ProjectFinding, ProjectScan
+from app.models.project import Project
 from app.services.project_memory import active_project_memories, memory_fact
 
 
@@ -60,31 +60,11 @@ async def build_project_context(
             "id": f"P{project.id}-{key}", "text": f"{PROFILE_LABELS[key]}：{value}",
             "source": "user_statement", "field": key,
         } for key, value in profile.items() if value]
-        scan = None
-        if project_kind(project) != "manual":
-            scan = (await session.execute(select(ProjectScan).where(
-                ProjectScan.project_id == project.id, ProjectScan.workspace_id == workspace_id,
-                ProjectScan.status == "SUCCESS",
-            ).order_by(ProjectScan.id.desc()).limit(1))).scalar_one_or_none()
-        if scan:
-            findings = (await session.execute(select(ProjectFinding).where(
-                ProjectFinding.project_id == project.id, ProjectFinding.workspace_id == workspace_id,
-                ProjectFinding.scan_id == scan.id,
-            ).order_by(ProjectFinding.id))).scalars().all()
-            facts.extend({
-                "id": f"P{project.id}-finding-{finding.id}",
-                "text": "\n".join(value for value in (finding.title, finding.detail) if value),
-                "source": "repository_observation", "file_path": finding.file_path,
-                "scan_id": scan.id, "level": finding.level,
-                "note": "仓库观察不代表本人负责或掌握；仅按用户填写的职责归因。",
-            } for finding in findings)
         facts.extend(memory_fact(m) for m in await active_project_memories(session, workspace_id, project.id))
         context = {
             "id": project.id, "name": project.name, "kind": project_kind(project),
             "profile": profile, "facts": facts,
             "has_personal_context": bool(profile["role"] and profile["responsibilities"]),
-            "scan_id": scan.id if scan else None,
-            "scan_fingerprint": scan.commit_sha if scan else None,
             "repo_url": project.repo_url if project_kind(project) != "manual" else None,
         }
         encoded = json.dumps(context, ensure_ascii=False, sort_keys=True, separators=(",", ":"))

@@ -15,6 +15,9 @@ import httpx
 from app.services.project_sources import is_safe_source_path, redact_source
 
 
+MAX_RESPONSE_BYTES = 16_000_000
+
+
 class SourceError(ValueError):
     safe_for_user = True
 
@@ -57,7 +60,7 @@ def _headers(kind, credentials, raw=False):
     return headers
 
 
-async def _get(kind, path, credentials, *, params=None, raw=False, max_bytes=16_000_000):
+async def _get(kind, path, credentials, *, params=None, raw=False, max_bytes=MAX_RESPONSE_BYTES):
     origin = 'https://api.github.com' if kind == 'github' else 'https://gitcode.com/api/v5'
     try:
         async with httpx.AsyncClient(timeout=30.0, trust_env=False, follow_redirects=False) as client:
@@ -81,6 +84,8 @@ async def _get(kind, path, credentials, *, params=None, raw=False, max_bytes=16_
                 async for chunk in response.aiter_bytes(chunk_size=min(65536, max_bytes + 1)):
                     size += len(chunk)
                     if size > max_bytes:
+                        if max_bytes >= MAX_RESPONSE_BYTES:
+                            raise SourceError('SOURCE_UNAVAILABLE', '单次仓库响应超过安全读取范围，无法完整读取')
                         raise SourceError('BUDGET_EXHAUSTED', '单份仓库资料超过读取预算，请调整预算后恢复')
                     chunks.append(chunk)
                 return b''.join(chunks), response.headers

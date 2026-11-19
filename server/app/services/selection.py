@@ -8,12 +8,15 @@
 """
 from __future__ import annotations
 
-import re
+from typing import TYPE_CHECKING
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Exam, Question, SkillState
 from app.services.evolution import get_active_candidate
+
+if TYPE_CHECKING:
+    from app.services.retest_targets import RetestPlan
 
 INFO_GAIN_ORDER = {
     SkillState.STATUS_UNKNOWN: 0,          # 完全未知, 信息增益最大
@@ -24,17 +27,12 @@ INFO_GAIN_ORDER = {
 }
 
 
-def covers_criterion(question, title: str | None) -> bool:
-    normalize = lambda value: re.sub(r"^(?:要点|评分项)\s*[:：]\s*", "", str(value or "").strip()).casefold()
-    return bool(title) and any(normalize(p.get("title") if isinstance(p, dict) else p) == normalize(title)
-                               for p in ((question.rubric or {}).get("criteria") or (question.rubric or {}).get("points", [])))
-
-
 async def select_questions_for_exam(
     session: AsyncSession, workspace_id: int, exam: Exam, count: int = 3,
     *, skill_key: str | None = None, exclude_question_ids: list[int] | None = None,
-    criterion_title: str | None = None,
+    retest_plan: RetestPlan | None = None,
     exclude_exposed: bool = False,
+    study_topic: str | None = None,
 ) -> tuple[list[Question], str]:
     """为独立诊断选 N 道题, 返回 (题目列表, 选择理由)。"""
     states = (
@@ -78,18 +76,31 @@ async def select_questions_for_exam(
             q = parent
         return q.id
     excluded = set(exclude_question_ids or [])
+    study_families = {}
+    if study_topic:
+        from app.services.learning_exposure import _families
+        study_families = await _families(session, workspace_id, study_variants=True)
+        excluded |= {study_families.get(qid, qid) for qid in excluded}
     if exclude_exposed:
         from app.services.learning_exposure import exposed_families
-        excluded |= await exposed_families(session, workspace_id)
+        excluded |= await exposed_families(session, workspace_id, study_variants=bool(study_families))
     excluded |= {canonical_id(by_id[qid]) for qid in list(excluded) if qid in by_id}
     unique_pool = []
     seen_canonical = set()
+    coverage = {q.id: retest_plan.covered_goals(q) for q in pool} if retest_plan else {}
+    if retest_plan:
+        primary = retest_plan.primary_goal_id
+        pool.sort(key=lambda q: (-len(coverage[q.id]), primary not in coverage[q.id]))
+    if study_topic:
+        from app.services.study_practice import matching_questions
+        scores = matching_questions(pool, skill_key, study_topic)
+        pool = sorted((q for q in pool if q.id in scores), key=lambda q: -scores[q.id])
     for q in pool:
         if (q.generation_meta or {}).get('assessment_use') == 'PRACTICE_ONLY':
             continue
         if (q.rubric or {}).get('review_required'):
             continue
-        canonical = canonical_id(q)
+        canonical = study_families.get(q.id) or canonical_id(q)
         if skill_key and (not q.skill or q.skill.key != skill_key):
             continue
         if q.id in excluded or canonical in excluded or canonical in seen_canonical:
@@ -97,8 +108,19 @@ async def select_questions_for_exam(
         seen_canonical.add(canonical)
         unique_pool.append(q)
     pool = unique_pool
-    if criterion_title:
-        pool.sort(key=lambda q: not covers_criterion(q, criterion_title))
+    if retest_plan:
+        selected = []
+        assigned = set()
+        while pool and len(selected) < count:
+            def priority_for_retest(question):
+                remaining = coverage[question.id] - assigned
+                return len(remaining), primary in remaining
+
+            question = max(pool, key=priority_for_retest)
+            selected.append(question)
+            assigned.update(coverage[question.id])
+            pool.remove(question)
+        return selected, "优先选择有审核映射的未曝光新题，其余使用同能力域新题。"
 
     # 按能力域分桶
     by_skill: dict[int | None, list[Question]] = {}

@@ -13,6 +13,19 @@ from test_project_jobs import setup_run
 
 
 @pytest.mark.asyncio
+async def test_new_ai_scans_freeze_stream_deadline_and_legacy_jobs_keep_transport(db_session, test_workspace):
+    from app.config import get_settings
+    _, _, current = await setup_run(db_session, test_workspace)
+    await db_session.refresh(current)
+    assert current.result_meta['transport_mode'] == 'sse-v1'
+    assert current.result_meta['stage_timeout_seconds'] == get_settings().project_scan_stage_timeout_seconds
+    _, _, earlier = await setup_run(db_session, test_workspace, request_key='earlier',
+                                    prompt_bundle_version='project-autopilot-prompts-v2')
+    await db_session.refresh(earlier)
+    assert 'transport_mode' not in earlier.result_meta
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('mode', ['json', 'sse-v1'])
 async def test_project_transport_is_explicit_and_preserves_model_and_deadline(monkeypatch, mode):
     rt = runtime(api)

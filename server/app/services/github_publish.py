@@ -62,19 +62,21 @@ class GitHubError(Exception):
 class GitHubPublisher:
     def __init__(self, token: str | None = None, api_url: str | None = None, dry_run: bool = False):
         s = get_settings()
-        self.token = token or s.github_token
+        self.token = s.github_token if token is None else token
         self.api_url = (api_url or s.github_api_url).rstrip("/")
         self.dry_run = dry_run
 
     # ---- 基础设施 ----
     @property
     def headers(self) -> dict[str, str]:
-        return {
-            "Authorization": f"Bearer {self.token}",
+        headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "CareerPilot-Publisher",
         }
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        return headers
 
     async def _request(self, method: str, path: str, json: dict | None = None) -> dict:
         if method.upper() != "GET":
@@ -82,8 +84,6 @@ class GitHubPublisher:
                 "公开写入已关闭; 仅可保存本地草稿或生成 dry-run 预览",
                 status_code=403, detail="public_writes_disabled",
             )
-        if not self.token:
-            raise GitHubError("未配置 GITHUB_TOKEN, 无法访问 GitHub API", detail="missing_token")
         url = f"{self.api_url}{path}"
         async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
             resp = await client.request(method, url, headers=self.headers, json=json)

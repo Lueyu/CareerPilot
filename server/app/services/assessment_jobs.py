@@ -17,6 +17,21 @@ TERMINAL=('COMPLETED','CANCELLED','FAILED','NEEDS_REVIEW')
 def now():return datetime.now(timezone.utc)
 
 
+def scoring_route(inputs):
+    # Only a held-out open retest in this flow can publish new competency evidence.
+    return 'study_strong' if any(p.get('study_practice_id') and p.get('qtype') == 'open'
+                                 for _, p in inputs) else 'default'
+
+
+def scoring_config(base, route):
+    if route != 'study_strong':
+        return base
+    from app.services.study_routing import profile
+    # A missing deep model fails through the normal NOT_CONFIGURED worker path.
+    # No silent substitution of a lower-quality judge on an evidence-producing run.
+    return profile(base, 'strong') or {'provider': '', 'model': '', 'base_url': '', 'api_key': ''}
+
+
 async def enqueue(session, ws, exam, *, mode='OFFICIAL'):
     if exam.workspace_id!=ws.id:raise ValueError('考试不属于当前工作空间')
     if mode not in ('OFFICIAL', 'PRACTICE') or (mode == 'PRACTICE') != (exam.kind == 'practice'):
@@ -36,9 +51,20 @@ async def enqueue(session, ws, exam, *, mode='OFFICIAL'):
         if not eq.creation_snapshot and not eq.frozen_snapshot:
             raise HTTPException(409,'这份旧试卷未在开考时冻结题目与标准；已保留答卷，请新建版本明确的考试')
         revision=await ensure_revision(session,eq)
+        if (eq.creation_snapshot or {}).get('study_practice_id'):
+            paper_type = eq.creation_snapshot['qtype']
+            if ((paper_type == 'mcq' and revision.payload.get('choice_index') is None) or
+                    (paper_type == 'open' and not (revision.payload.get('text_answer') or '').strip())):
+                raise HTTPException(422, '请提交自己的原答再进行复测；未作答的学习目标保留待验证')
         if not eq.frozen_snapshot:
             base=deepcopy(eq.creation_snapshot or question_snapshot(eq.question))
-            if mode == 'OFFICIAL':
+            if base.get('interview_set'):
+                base.update(assessment_mode='PRACTICE', independence={
+                    'eligible_for_independent_verification': False,
+                    'canonical_question_id': base.get('canonical_question_id'),
+                    'reason': '面经集试卷用于练习，不计入独立验证',
+                })
+            elif mode == 'OFFICIAL':
                 from app.services.learning_exposure import independence_snapshot
                 independence, assistance = await independence_snapshot(session, ws.id, exam, eq, base)
                 base.update(independence=independence, assistance=assistance, assessment_mode='OFFICIAL')
@@ -49,12 +75,14 @@ async def enqueue(session, ws, exam, *, mode='OFFICIAL'):
             raise HTTPException(409,'旧开放题标准与当前评分器不兼容，不能自动改写历史标准')
         frozen.setdefault('answer_revision_id',revision.id)
         inputs.append((eq,frozen))
+    route = scoring_route(inputs)
+    cfg = scoring_config(cfg, route)
     exam.scoring_generation=(exam.scoring_generation or 0)+1
     trace=await start_trace(session,ws.id,'assessment_scoring',f'评分：{exam.title}',trigger='user',trigger_ref=f'exam:{exam.id}')
     run=ScoringRun(exam_id=exam.id,workspace_id=ws.id,generation=exam.scoring_generation,
         status='QUEUED',mode=mode,judge_version=JUDGE_VERSION,model_fingerprint=model_fingerprint(cfg),
         input_hash=digest([i for _,i in inputs]),trace_id=trace.id,
-        meta={'model':cfg.get('model'),'provider':cfg.get('provider'),'cost_known':False,
+        meta={'scoring_route':route,'model':cfg.get('model'),'provider':cfg.get('provider'),'cost_known':False,
               'raw_response_visibility':'private_database_only','prompt_version':JUDGE_PROMPT_VERSION,
               'version_semantics':{
                   'question_version':'outer immutable question snapshot fingerprint, including rubric and question metadata',
@@ -235,6 +263,7 @@ async def resume(session,ws,exam):
     if run.status=='COMPLETED':return run
     if run.status=='CANCELLED':raise ValueError('已取消的任务不能恢复')
     cfg,_,_=await runtime_config(session,ws.id,require_consent=False)
+    cfg=scoring_config(cfg,(run.meta or {}).get('scoring_route','default'))
     if model_fingerprint(cfg)!=run.model_fingerprint or run.judge_version!=JUDGE_VERSION:
         raise ValueError('模型或评分器版本变化，不能混合旧成功题；请保留原成绩并创建影子复核')
     rows=(await session.scalars(select(ScoringStep).where(ScoringStep.run_id==run.id).with_for_update())).all()
@@ -282,5 +311,6 @@ async def view(session,run_id):
         'can_retry':run.status in ('FAILED','NEEDS_REVIEW'),
         'error':{'code':run.error_category,'message':run.error} if run.error else None,
         'judge_version':run.judge_version,'model_fingerprint':run.model_fingerprint,
+        'scoring_route':(run.meta or {}).get('scoring_route','default'),'requested_model':(run.meta or {}).get('model'),
         'questions':[{'order_no':s.order_no,'status':s.status,'attempt_count':s.attempt_count,
             'can_retry':s.status=='FAILED','error':{'code':s.error_category,'message':s.error} if s.error else None} for s in rows]}

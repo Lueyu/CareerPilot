@@ -49,7 +49,7 @@ CareerPilot 不做"刷题工具"。它围绕一条核心闭环工作：
 web/                  前端（React 18 + Vite + TypeScript）
   src/pages/          11 个页面：总览/岗位对标/能力画像/考试中心/学习中心/
                       面经库/项目与职业资产/记忆中心/系统观测台/进化实验室/设置
-  src/api/client.ts   后端 API 封装（失败时降级静态演示数据）
+  src/api/client.ts   后端 API 封装（请求失败时报告错误）
   src/data/bank.json  161 道公开题库（从旧版题库迁移）
 
 server/               后端（FastAPI + PostgreSQL + SQLAlchemy async）
@@ -96,7 +96,7 @@ npm install
 npm run dev                 # http://localhost:5173
 ```
 
-后端不可用时前端自动降级为静态演示模式（页面顶部会提示）。
+后端不可用时，依赖 API 的页面会显示错误或数据不可用状态。启动后端后刷新页面。演示工作空间需要手动切换。
 
 ### 环境变量（.env，均可省略）
 

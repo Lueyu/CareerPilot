@@ -1,11 +1,16 @@
 """模型汇总导入: 保证 Base.metadata 收集所有表。"""
 from app.db import Base  # noqa: F401
+from app.models.study_chat import StudySession, StudyMessage
+from app.models.study_notes import StudyNote, StudyNoteVersion, StudyNoteJob, StudyCard, StudyCardEvent
+from app.models.study_practice import StudyPractice
 from app.models.workspace import User, Workspace, WorkspaceMember  # noqa: F401
 from app.models.app_setting import AppSetting  # noqa: F401
 from app.models.skill import Skill, JobStandard, JobStandardTarget, SkillState  # noqa: F401
 from app.models.question import Question, ImportSession, ImportItem  # noqa: F401
+from app.models.retest_mapping import RetestCriterionMapping  # noqa: F401
 from app.models.question_generation import QuestionGeneration  # noqa: F401
 from app.models.project_analysis import ProjectAnalysis, AnalysisStep, WorkerHeartbeat  # noqa: F401
+from app.models.project_resume import ProjectResumeDraft
 from app.models.evidence import Evidence  # noqa: F401
 from app.models.exam import Exam, ExamQuestion, ExamAnswer  # noqa: F401
 from app.models.assessment import AnswerRevision, ScoringRun, ScoringStep  # noqa: F401
@@ -35,12 +40,12 @@ from app.models.jd import JdSource  # noqa: F401
 __all__ = [
     "Base", "User", "Workspace", "WorkspaceMember", "AppSetting",
     "Skill", "JobStandard", "JobStandardTarget", "SkillState",
-    "Question", "ImportSession", "ImportItem",
+    "Question", "ImportSession", "ImportItem", "RetestCriterionMapping",
     "Evidence", "Exam", "ExamQuestion", "ExamAnswer",
     "LearningTask", "MemoryItem",
     "Trace", "TraceSpan", "DecisionRecord", "Event",
     "PublicContentSource", "PublicContentDraft", "ContentPublication",
     "ContentPublicationRule", "ContentReleaseAudit",
-    "Project", "ProjectScan", "ProjectFinding", "ProjectAnalysis", "CareerAsset", "AssetUpdateRun",
+    "Project", "ProjectScan", "ProjectFinding", "ProjectAnalysis", "ProjectResumeDraft", "CareerAsset", "AssetUpdateRun",
     "EvolutionCandidate", "EvolutionRun", "CompetencySnapshot", "JdSource",
 ]

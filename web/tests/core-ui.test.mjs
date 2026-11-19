@@ -52,7 +52,7 @@ test('unknown benchmark domain must not become a numeric gap', async () => {
 
 test('completed learning tasks remain available for immediate verification', async () => {
   globalThis.fetch = async () => json({ today: [], retest_plan: [], completed: [{ id: 99, title: 'Actual completed task', kind: 'PRACTICE', status: 'DONE' }] });
-  const tree = await mount(Learning);
+  const tree = await mount(Learning, '/learning?plan=history', '/learning');
   try { assert.match(text(tree), /Actual completed task/); assert.match(text(tree), /即时/); }
   finally { await cleanup(tree); }
 });
@@ -216,20 +216,36 @@ test(`${view.name} explains an uncalibrated observation without promoting it to 
 });
 
 for (const scenario of [
-  { name: 'same-domain pass without source criterion coverage', result: { passed: true, source_criterion_covered: false, source_criterion_passed: null }, overall: '通过', coverage: '未覆盖', criterion: '未验证' },
-  { name: 'overall pass with a failed source criterion', result: { passed: true, source_criterion_covered: true, source_criterion_passed: false }, overall: '通过', coverage: '已覆盖', criterion: '未通过' },
-  { name: 'covered source criterion explicitly passed', result: { passed: true, source_criterion_covered: true, source_criterion_passed: true }, overall: '通过', coverage: '已覆盖', criterion: '通过' },
-  { name: 'legacy result without source criterion assessment', result: { passed: true }, overall: '通过', coverage: '未记录', criterion: '未验证' },
+  { name: 'legacy result with an old criterion pass', result: { passed: true, source_criterion_covered: true, source_criterion_passed: true }, overall: '通过' },
+  { name: 'legacy result without source criterion assessment', result: { passed: false }, overall: '未通过' },
 ]) {
   test(`retest presentation distinguishes ${scenario.name}`, async () => {
-    globalThis.fetch = async () => json({ id: 99, title: 'specific task', kind: 'PRACTICE', status: 'DONE', source_criterion: 'original missing point', content: { source: 'rule', analogy: 'actual teaching', retest_result: { exam_id: 42, score: 85, outcome: '本次结果已记录', assessment_scope: '同域新题', ...scenario.result } } });
+    globalThis.fetch = async () => json({ id: 99, title: 'specific task', kind: 'PRACTICE', status: 'DONE', source_criterion: 'original missing point', content: { source: 'rule', analogy: 'actual teaching', retest_result: { exam_id: 42, score: 85, outcome: '历史原项已通过', assessment_scope: '历史映射范围', scope_note: '历史验证说明', ...scenario.result } } });
     const tree = await mount(LearningTask, '/learning/task/99?legacy=1', '/learning/task/:id');
     try {
       const rendered = text(tree);
       assert.ok(rendered.includes(`本题整体：${scenario.overall}`));
-      assert.ok(rendered.includes(`原评分项覆盖：${scenario.coverage}`));
-      assert.ok(rendered.includes(`原评分项结果：${scenario.criterion}`));
-      assert.ok(rendered.includes('验证范围：同域新题'));
+      assert.match(rendered, /整题得分：.*85/);
+      assert.match(rendered, /原评分项结果：待验证（历史记录缺少审核映射）/);
+      assert.doesNotMatch(rendered, /历史原项已通过|历史映射范围|历史验证说明/);
     } finally { await cleanup(tree); }
   });
 }
+
+test('retest keeps reviewed goal outcomes separate from the overall exam result', async () => {
+  const goal_outcomes = [
+    { goal_id: 1, source_criterion: 'Unmapped criterion', status: 'UNMAPPED', score: null, independent: null, covered: false },
+    { goal_id: 2, source_criterion: 'Assisted criterion', status: 'ASSISTED', score: 95, independent: false, covered: true },
+    { goal_id: 3, source_criterion: 'Independent criterion', status: 'FAILED', score: 40, independent: true, covered: true },
+  ];
+  globalThis.fetch = async () => json({ id: 99, title: 'specific task', kind: 'RETEST', status: 'DONE', content: { retest_result: { exam_id: 42, passed: true, goal_outcomes } } });
+  const tree = await mount(LearningTask, '/learning/task/99?legacy=1', '/learning/task/:id');
+  try {
+    assert.ok(text(tree).includes('本题整体：通过'));
+    const rows = tree.root.findByProps({ 'aria-label': '原评分项结果' }).findAllByType('li');
+    const renderedRows = rows.map(row => JSON.stringify(row.findByType('b').children) + row.children.filter(child => typeof child === 'string').join(''));
+    assert.match(renderedRows[0], /Unmapped criterion.*待验证/);
+    assert.match(renderedRows[1], /Assisted criterion.*独立表现待验证.*95/);
+    assert.match(renderedRows[2], /Independent criterion.*未通过.*40/);
+  } finally { await cleanup(tree); }
+});

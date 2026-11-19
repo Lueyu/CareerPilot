@@ -1,13 +1,15 @@
 """Relational integration tests use explicit fixtures, never a real model."""
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app.api.v1.learning import complete_task, learning_center
-from app.models import Evidence, Event, Exam, ExamAnswer, ExamQuestion, LearningTask, Question, Skill, SkillState
+from app.api.v1.memory import confirm_memory, delete_memory, list_memory
+from app.models import Evidence, Event, Exam, ExamAnswer, ExamQuestion, LearningTask, MemoryItem, Question, Skill, SkillState, Workspace
 
 
 async def task_fixture(session, ws, kind="UNDERSTAND"):
@@ -59,6 +61,66 @@ async def test_unassessed_workspace_does_not_invent_gap_tasks(db_session, test_w
     result = await learning_center(ws=test_workspace, session=db_session)
     assert result["today"] == []
     assert result["retest_plan"] == []
+
+
+@pytest.mark.asyncio
+async def test_task_completion_memory_reviews_are_private_and_repeatable(db_session, test_workspace):
+    task, _ = await task_fixture(db_session, test_workspace)
+    assert (await list_memory(ws=test_workspace, session=db_session))["items"] == []
+
+    await complete_task(task.id, ws=test_workspace, session=db_session)
+    await complete_task(task.id, ws=test_workspace, session=db_session)
+    candidate, = (await list_memory(ws=test_workspace, session=db_session))["items"]
+    assert candidate["status"] == "CANDIDATE"
+    assert candidate["source_ref"] == f"learning_task:{task.id}"
+    assert candidate["meta"]["completed_at"] == task.completed_at.isoformat()
+
+    other = Workspace(slug="memory-test-" + uuid4().hex, name="Other workspace")
+    db_session.add(other)
+    await db_session.flush()
+    assert (await list_memory(ws=other, session=db_session))["items"] == []
+    for action in (confirm_memory, delete_memory):
+        with pytest.raises(HTTPException) as error:
+            await action(candidate["id"], ws=other, session=db_session)
+        assert error.value.status_code == 404
+    workspace_id = test_workspace.id
+    await db_session.rollback()
+
+    workspace = await db_session.get(Workspace, workspace_id)
+    for _ in range(2):
+        await confirm_memory(candidate["id"], ws=workspace, session=db_session)
+    approved, = (await list_memory(ws=workspace, session=db_session))["items"]
+    assert approved["status"] == "ACTIVE"
+    assert approved["revision"] == candidate["revision"] + 1
+    assert approved["eligible_for_personalization"] is False
+
+    for _ in range(2):
+        await delete_memory(candidate["id"], ws=workspace, session=db_session)
+    assert (await list_memory(ws=workspace, session=db_session))["items"] == []
+    dismissed = await db_session.get(MemoryItem, candidate["id"])
+    assert dismissed.revision == approved["revision"] + 1
+
+
+@pytest.mark.asyncio
+async def test_old_completed_tasks_backfill_without_reviving_ignored_records(db_session, test_workspace):
+    completed, _ = await task_fixture(db_session, test_workspace)
+    pending, _ = await task_fixture(db_session, test_workspace)
+    completed.status = "DONE"
+    completed.completed_at = datetime.now(timezone.utc) - timedelta(days=7)
+    await db_session.commit()
+    migration = (Path(__file__).resolve().parents[1] / "migrations/016_task_completion_memory.sql").read_text(encoding="utf-8")
+    insert_backfill = text(migration.split(";")[1].strip())
+    await db_session.execute(insert_backfill)
+    await db_session.execute(insert_backfill)
+    await db_session.commit()
+    candidate, = (await list_memory(ws=test_workspace, session=db_session))["items"]
+    assert candidate["meta"]["source_task_id"] == completed.id != pending.id
+    assert datetime.fromisoformat(candidate["meta"]["completed_at"]) == completed.completed_at
+    assert candidate["status"] == "CANDIDATE"
+    await delete_memory(candidate["id"], ws=test_workspace, session=db_session)
+    await db_session.execute(insert_backfill)
+    await db_session.commit()
+    assert (await list_memory(ws=test_workspace, session=db_session))["items"] == []
 
 
 @pytest.mark.asyncio
@@ -179,23 +241,24 @@ async def test_teaching_uses_source_observation_and_keeps_private_material_scope
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("covered,hit,expected", [(True,False,False), (False,False,None), (True,True,True)])
-async def test_retest_pass_does_not_hide_original_criterion_gap(db_session, test_workspace, covered, hit, expected):
+@pytest.mark.parametrize("matching_title", [True, False])
+async def test_retest_pass_does_not_verify_legacy_title_only_gap(db_session, test_workspace, matching_title):
     import datetime as dt
     from app.services.learning_loop import complete_retest_for_exam
     task, skill = await task_fixture(db_session, test_workspace, "RETEST")
     task.source_criterion = "检索评估"
-    task.content = {"source_criterion_covered": covered, "assessment_scope": "Fixture scope"}
+    task.content = {"source_criterion_covered": matching_title, "assessment_scope": "Fixture scope"}
     question = Question(short_code="outcome-"+uuid4().hex[:10], title="Fixture new question", skill_id=skill.id,
-                        workspace_id=test_workspace.id, qtype="open", topic="rag", rubric={"points":[{"title":"检索评估" if covered else "其他评分项"}]})
+                        workspace_id=test_workspace.id, qtype="open", topic="rag", rubric={"points":[{"title":"检索评估" if matching_title else "其他评分项"}]})
     eq = ExamQuestion(question=question, order_no=1, frozen_snapshot={'rubric':question.rubric}, answer=ExamAnswer(points=4, max_points=5,
-        verdict="CORRECT", feedback={"hit_points":["检索评估"] if hit else ["其他评分项"],
-                                     "missed_points":[] if hit else ["检索评估"]}))
+        verdict="CORRECT", feedback={"hit_points":["检索评估" if matching_title else "其他评分项"],
+                                     "missed_points":[]}))
     exam = Exam(workspace_id=test_workspace.id, title="Fixture retest", kind="focused", status="COMPLETED",
         score=80, completed_at=dt.datetime.now(dt.timezone.utc), retest_task_id=task.id, questions=[eq])
     db_session.add(exam)
     await db_session.flush()
     await complete_retest_for_exam(db_session, exam)
-    assert task.content["retest_result"]["source_criterion_passed"] is expected
+    assert task.content["retest_result"]["passed"] is True
+    assert task.content["retest_result"]["source_criterion_passed"] is None
     center = await learning_center(ws=test_workspace, session=db_session)
     assert task.id in [item["id"] for item in center["completed"]]

@@ -7,6 +7,7 @@ import QuestionDraftEditor from '../components/QuestionDraftEditor';
 import {approvalBlock, assessedBatchQuestionIds, beginProjectAssessment, beginQuestionPractice, GeneratedItem, ITEM_LABELS, messageOf, ProjectRecord, QUESTION_LABELS, SKILLS, TASK_LABELS, WorkshopRow, WorkshopSuggestion, WorkshopTask} from '../lib/questionWorkshop';
 import {issueWorkshopPath, ProjectAnalysisRun} from '../lib/projectIntelligence';
 import {SourceCitations} from '../components/ProjectAnalysisPanel';
+import {sanitizeReviewAnswer} from './BankReviewQueue';
 
 const panel: React.CSSProperties = {padding:20,marginBottom:20};
 const toolbar: React.CSSProperties = {display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'};
@@ -42,7 +43,6 @@ export default function QuestionWorkshop() {
   const [task,setTask] = useState<WorkshopTask|null>(null);
   const [response,setResponse] = useState('');
   const [editingItem,setEditingItem] = useState<number|null>(null);
-  const [selected,setSelected] = useState<number[]>([]);
   const createAttempt = useRef({payload:'',key:''});
   const practiceAttempts = useRef(new Map<number,string>());
   const assessmentAttempt=useRef({signature:'',key:''});
@@ -92,7 +92,7 @@ export default function QuestionWorkshop() {
   },[sourceAnalysisId,sourceProjectId,issueSignature,taskId]);
   useEffect(()=>{
     let active = true;
-    setTask(null);setEditingItem(null);setSelected([]);setResponse('');setNotice('');setError('');
+    setTask(null);setEditingItem(null);setResponse('');setNotice('');setError('');
     if(taskId) api.get<WorkshopTask>(`/question-generation/${taskId}`).then(t=>{if(active){setTask(t);setResponse(t.raw_response || '');}}).catch(e=>{if(active)setError(messageOf(e));});
     return ()=>{active=false;};
   },[taskId]);
@@ -132,19 +132,8 @@ export default function QuestionWorkshop() {
   });
   const saveItem = async(row:WorkshopRow,item:GeneratedItem) => perform(async()=>{
     if(!task)return;
-    await api.patch(`/question-generation/${task.id}/items/${row.id}`,{item});
+    await api.patch(`/question-generation/${task.id}/items/${row.id}`,{item, revision: row.review_revision ?? 0});
     await refreshTask();setEditingItem(null);setNotice('草稿已保存并重新排版，尚未入库。');
-  });
-  const approve = (ids:number[]) => perform(async()=>{
-    if(!task?.import_session_id || !ids.length)return;
-    const result=await api.post<{created:string[]}>(`/bank/imports/${task.import_session_id}/approve`,{item_ids:ids});
-    await refreshTask();await loadResources();setSelected([]);
-    setNotice(result.created.length ? `已保存 ${result.created.length} 道私有题目：${result.created.join('、')}`:'审核完成；重复题已合并，没有新增独立题目。');
-  });
-  const reject=(row:WorkshopRow)=>perform(async()=>{
-    if(!task?.import_session_id)return;
-    await api.post(`/bank/imports/${task.import_session_id}/items/${row.id}/reject`,{});
-    await refreshTask();setSelected(old=>old.filter(id=>id!==row.id));setNotice('已驳回，此题不会进入题库。');
   });
   const copyPrompt=()=>perform(async()=>{
     if(!task)return;
@@ -184,7 +173,6 @@ export default function QuestionWorkshop() {
     createAttempt.current={payload:'',key:''};setNotice('');setError('');navigate(path);
   };
   const rows=task?.review?.items || [];
-  const eligible=rows.filter(row=>!approvalBlock(row));
   const taskProjects=task?.input_snapshot?.project_context || [];
 
   return <div className="question-workshop">
@@ -253,22 +241,22 @@ export default function QuestionWorkshop() {
           <h3>审核答案 · {task.review.short_code}</h3>
           <p className="hint">检查具体答案、追问与评分要点，再选择入库。项目变体沿用原题关系，不能当成独立能力证据。</p>
           {task.input_snapshot.source_analysis_id && <div className="demo-banner" style={{marginBottom:14}}><b>项目问题专项考核</b><p>本批次已有 {assessedBatchQuestionIds(rows).length} 道审核通过的题目可用于考核。新答卷会经过现有评分与学习安排流程。</p><button className="btn btn-primary" disabled={busy || !assessedBatchQuestionIds(rows).length} onClick={assessBatch}>开始本批次考核</button></div>}
-          <div style={{...toolbar,marginBottom:16}}><label><input type="checkbox" checked={eligible.length>0 && eligible.every(r=>selected.includes(r.id))} onChange={e=>setSelected(e.target.checked?eligible.map(r=>r.id):[])} disabled={!eligible.length || busy}/> 全选可入库草稿</label><button className="btn btn-primary btn-sm" disabled={busy || !selected.length || editingItem!==null} onClick={()=>approve(selected)}>{busy?'处理中…':`通过所选 ${selected.length} 题`}</button><Link className="btn btn-outline btn-sm" to="/bank">查看私有题库</Link></div>
+          <div style={{...toolbar,marginBottom:16}}><Link className="btn btn-outline btn-sm" to="/bank?review=1">打开待审核队列</Link><Link className="btn btn-ghost btn-sm" to="/bank">查看私有题库</Link></div>
           {rows.length===0 && <p>本次没有审核题目。</p>}
           {rows.map(row=>{
             const item=row.generation_meta?.item;
             const blocked=approvalBlock(row);
             const project=taskProjects.find(p=>p.id===item?.project_id);
             return <article key={row.id} style={{borderTop:'1px solid var(--border)',padding:'20px 0'}}>
-              <div style={toolbar}><input type="checkbox" aria-label={`选择题目 ${row.id}`} checked={selected.includes(row.id)} disabled={!!blocked || busy} onChange={e=>setSelected(old=>e.target.checked?[...old,row.id]:old.filter(id=>id!==row.id))}/><span className="chip chip-slate">{ITEM_LABELS[row.status] || row.status}</span>{item && <span className="chip chip-purple">{QUESTION_LABELS[item.question_mode]}</span>}<span className="hint">{row.generation_meta?.source==='api'?'API 生成':'外部聊天回填'}</span></div>
+              <div style={toolbar}><span className="chip chip-slate">{ITEM_LABELS[row.status] || row.status}</span>{item && <span className="chip chip-purple">{QUESTION_LABELS[item.question_mode]}</span>}<span className="hint">{row.generation_meta?.source==='api'?'API 生成':'外部聊天回填'}</span></div>
               <h3>{row.title}</h3>
               {item && <><p className="hint">原题：{item.original_question || '本批次新拟题'}{item.source_question_id ? ` · 来源题 #${item.source_question_id}`:''}</p>{project && <p>项目：{project.name}</p>}{item.fact_refs.length>0 && <details><summary>查看答案引用的项目事实</summary><ul>{item.fact_refs.map(ref=><li key={ref}>{project?.facts.find(f=>f.id===ref)?.text || '快照中无此事实'} <small>({ref})</small></li>)}</ul></details>}</>}
               {!!row.is_duplicate_of && <p className="hint">与题目 #{row.is_duplicate_of} 重复，通过后将合并，不新增独立题目。</p>}
               {blocked && row.status==='DRAFT' && <p role="status" className="demo-banner">{blocked}{item?.missing_context?.length ? `：${item.missing_context.join('；')}`:''}</p>}
               {row.status==='APPROVED' && row.question_id && <button className="btn btn-primary btn-sm" disabled={busy} onClick={()=>practice(row)}>{busy?'准备考试…':'开始练这题'}</button>}
               {editingItem===row.id && item ? <QuestionDraftEditor key={row.id} item={item} skills={task.input_snapshot.skills || SKILLS} projects={taskProjects} busy={busy} onCancel={()=>setEditingItem(null)} onSave={value=>saveItem(row,value)}/> : <>
-                <details open={rows.length===1}><summary>查看完整答案、追问与评分要点</summary>{row.draft_answer ? <div className="bank-answer" dangerouslySetInnerHTML={{__html:row.draft_answer}}/>:<p>暂无答案</p>}</details>
-                {row.status==='DRAFT' && <div style={{...toolbar,marginTop:14}}><button className="btn btn-outline btn-sm" disabled={busy || !item || editingItem!==null} onClick={()=>setEditingItem(row.id)}>编辑答案与评分要点</button><button className="btn btn-primary btn-sm" disabled={busy || !!blocked || editingItem!==null} onClick={()=>approve([row.id])}>通过入私有库</button><button className="btn btn-ghost btn-sm" disabled={busy || editingItem!==null} onClick={()=>reject(row)}>驳回</button></div>}
+                <details open={rows.length===1}><summary>查看完整答案、追问与评分要点</summary>{row.draft_answer ? <div className="bank-answer" dangerouslySetInnerHTML={{__html:sanitizeReviewAnswer(row.draft_answer)}}/>:<p>暂无答案</p>}</details>
+                {row.status==='DRAFT' && <div style={{...toolbar,marginTop:14}}><Link className="btn btn-primary btn-sm" to={`/bank?review=1&item=${task.import_session_id}-${row.id}`}>审核这道题</Link><button className="btn btn-outline btn-sm" disabled={busy || !item || editingItem!==null} onClick={()=>setEditingItem(row.id)}>编辑答案与评分要点</button></div>}
               </>}
             </article>;
           })}

@@ -172,7 +172,7 @@ async def _gitcode_tree(owner: str, repo: str, revision: str, token: str) -> tup
     return list(entries.values()), True
 
 
-async def open_repository(project_info: dict) -> SourceRepository:
+async def open_repository(project_info: dict, *, token: str = "") -> SourceRepository:
     kind = project_info.get("kind") or "github"
     if kind not in ("github", "gitcode"):
         raise ValueError("AI 深度分析需要 GitHub 或 GitCode 仓库，手工项目请维护项目资料")
@@ -181,7 +181,6 @@ async def open_repository(project_info: dict) -> SourceRepository:
         raise ValueError("仓库地址无效")
     provider = github_repo if kind == "github" else gitcode_repo
     try:
-        token = await (github_repo.get_github_token() if kind == "github" else gitcode_repo.get_gitcode_token())
         branch = project_info.get("branch")
         if not branch:
             meta = await provider.fetch_repo_meta(owner, repo, token)

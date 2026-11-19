@@ -41,6 +41,38 @@ async def consent(session, ws):
 
 
 @pytest.mark.asyncio
+async def test_worker_handoff_stages_one_consented_scan_without_replacing_old_work(db_session, test_workspace):
+    from app.services import project_jobs
+    from app.services.project_prompts import PROMPT_BUNDLE_VERSION
+    p = await project(db_session, test_workspace)
+    old = await project_jobs.enqueue(db_session, p, 'existing', prompt_bundle_version='old')
+    old.status = 'RUNNING'
+    generation = p.generation
+    db_session.add(AppSetting(key=project_jobs.HANDOFF_KEY, value={'target_prompt': PROMPT_BUNDLE_VERSION}))
+    await db_session.commit()
+    try:
+        async with api(db_session, test_workspace) as client:
+            for key in ('first', 'second'):
+                response = await client.post(f'/projects/{p.id}/ai-scan', json={
+                    'request_key': key, 'acknowledge_source_transfer': True})
+                assert response.status_code == 202, response.text
+                data = response.json()
+                assert data['status'] == 'WAITING_WORKER' and data['allowed_actions'] == ['cancel']
+            queued = (await db_session.scalars(select(ProjectAnalysis).where(
+                ProjectAnalysis.project_id == p.id, ProjectAnalysis.status == 'WAITING_WORKER'))).one()
+            assert queued.result_meta['source_transfer_consent'] == CONSENT_VERSION
+            await db_session.refresh(p)
+            await db_session.refresh(old)
+            assert p.generation == generation and old.status == 'RUNNING'
+            assert not p.pending_update
+            await project_jobs.control_run(db_session, queued.id, test_workspace.id, 'cancel')
+            assert queued.status == 'CANCELLED'
+    finally:
+        await db_session.execute(delete(AppSetting).where(AppSetting.key == project_jobs.HANDOFF_KEY))
+        await db_session.commit()
+
+
+@pytest.mark.asyncio
 async def test_enable_requires_explicit_transfer_consent_and_queues_existing_repos(db_session, test_workspace):
     p = await project(db_session, test_workspace)
     await project(db_session, test_workspace, meta={'kind':'manual'})
@@ -140,6 +172,22 @@ async def test_saved_module_is_visible_as_partial_before_final_report_exists(db_
         assert value['latest_run']['coverage_status']=='PARTIAL'
         assert value['report'] is None
         assert 'Saved module observation' in str(value['partial_preview'])
+
+
+@pytest.mark.asyncio
+async def test_editing_enabled_budget_only_updates_future_scan_defaults(db_session, test_workspace):
+    started = await project(db_session, test_workspace)
+    await project(db_session, test_workspace)
+    await consent(db_session, test_workspace)
+    async with api(db_session, test_workspace) as client:
+        one = (await client.post(f'/projects/{started.id}/ai-scan', json={})).json()
+        saved = await client.put('/project-autopilot/settings', json={'enabled':True,
+            'acknowledge_source_transfer':True, 'budget':{}})
+        assert saved.status_code == 200 and saved.json()['budget'] == {}
+        rows = (await db_session.scalars(select(ProjectAnalysis).where(
+            ProjectAnalysis.workspace_id == test_workspace.id))).all()
+        assert len(rows) == 1 and rows[0].id == one['id']
+        assert rows[0].budget == {'max_model_calls':5,'max_source_bytes':10000}
 
 
 @pytest.mark.asyncio
@@ -254,3 +302,42 @@ async def test_first_enable_resumes_same_config_consent_blocked_run_without_a_se
         await db_session.refresh(run);await db_session.refresh(p)
         assert run.status=='QUEUED' and p.pending_update is None
         assert await db_session.scalar(select(func.count()).select_from(ProjectAnalysis).where(ProjectAnalysis.project_id==p.id))==1
+
+
+@pytest.mark.asyncio
+async def test_single_scan_consent_has_no_workspace_side_effects(db_session, test_workspace):
+    p = await project(db_session, test_workspace)
+    await project(db_session, test_workspace)
+    async with api(db_session, test_workspace) as client:
+        settings = (await client.get('/project-autopilot/settings')).json()
+        assert settings['budget'] == {} and not settings['enabled']
+        path = f'/projects/{p.id}/ai-scan'
+        assert (await client.post(path, json={})).status_code == 409
+        first = await client.post(path, json={'acknowledge_source_transfer': True})
+        assert first.status_code == 202, first.text
+        duplicate = await client.post(path, json={'acknowledge_source_transfer': True})
+        assert duplicate.json()['id'] == first.json()['id']
+        await client.put('/project-autopilot/settings', json={'enabled':False, 'budget':{'max_model_calls':3}})
+        saved = await client.get(f"/analysis-runs/{first.json()['id']}")
+        assert saved.json()['status'] == 'QUEUED' and saved.json()['budget'] == {}
+        assert not (await client.get('/project-autopilot/settings')).json()['enabled']
+    runs = (await db_session.scalars(select(ProjectAnalysis).where(ProjectAnalysis.workspace_id == test_workspace.id))).all()
+    assert len(runs) == 1 and runs[0].budget == {}
+    assert runs[0].result_meta['source_transfer_consent'] == CONSENT_VERSION
+    await db_session.refresh(p)
+    assert p.pending_update is None
+
+
+@pytest.mark.asyncio
+async def test_explicit_scan_replaces_incompatible_open_run(db_session, test_workspace):
+    p = await project(db_session, test_workspace)
+    async with api(db_session, test_workspace) as client:
+        url = f'/projects/{p.id}/ai-scan'
+        first = (await client.post(url, json={'acknowledge_source_transfer': True})).json()
+        old = await db_session.get(ProjectAnalysis, first['id'])
+        old.prompt_bundle_version = 'project-autopilot-prompts-v2'
+        await db_session.commit()
+        new = await client.post(url, json={'acknowledge_source_transfer': True})
+        assert new.status_code == 202 and new.json()['id'] != old.id
+        await db_session.refresh(old)
+        assert old.status == 'CANCELLED'

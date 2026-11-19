@@ -17,9 +17,9 @@ services:
       retries: 20
 
   server:
-    build: ./server
+    build: &backend-build ./server
     container_name: careerpilot-api
-    environment:
+    environment: &backend-environment
       DATABASE_URL: postgresql+asyncpg://careerpilot:careerpilot_dev@postgres:5432/careerpilot
       API_TOKEN: ${API_TOKEN:-cp-dev-token}
       DEFAULT_WORKSPACE_SLUG: ${DEFAULT_WORKSPACE_SLUG:-personal}
@@ -38,6 +38,22 @@ services:
       - "${API_HOST_PORT:-8000}:8000"  # 本机 8000 被占用时可用 API_HOST_PORT 改口
     depends_on:
       postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8000/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+
+  worker:
+    build: *backend-build
+    container_name: careerpilot-worker
+    environment: *backend-environment
+    command: ["python", "-m", "app.project_worker"]
+    # The API image completes bootstrap, migrations, and seed before serving /healthz.
+    depends_on:
+      server:
         condition: service_healthy
 
   web:

@@ -66,17 +66,18 @@ async def test_manual_scan_is_refused_before_network_or_trace(db_session, test_w
     row = Project(workspace_id=test_workspace.id, name="Manual", repo_url="", owner="", repo="", branch="", meta={"kind": "manual"})
     db_session.add(row)
     await db_session.commit()
+    from app.api.v1 import project_autopilot
     async def forbidden(*args, **kwargs):
-        pytest.fail("manual projects must never scan GitHub or create a scan trace")
-    monkeypatch.setattr(projects, "collect_repo_snapshot", forbidden)
-    monkeypatch.setattr(projects, "start_trace", forbidden)
+        pytest.fail("manual projects must never enqueue repository analysis")
+    monkeypatch.setattr(project_autopilot.project_jobs, "enqueue", forbidden)
     with pytest.raises(HTTPException) as exc:
-        await projects.scan_project(row.id, ws=test_workspace, session=db_session)
+        await project_autopilot.reanalyze(row.id, project_autopilot.ReanalyzeIn(acknowledge_source_transfer=True),
+                                          ws=test_workspace, session=db_session)
     assert exc.value.status_code == 409
 
 
 @pytest.mark.asyncio
-async def test_context_snapshots_distinguish_user_facts_and_repository_observations(db_session, test_workspace):
+async def test_new_context_snapshots_exclude_legacy_keyword_scans(db_session, test_workspace):
     build = context_builder()
     row = Project(workspace_id=test_workspace.id, name="Knowledge", repo_url="https://github.com/example/knowledge", owner="example", repo="knowledge", meta={
         "profile": {"role": "后端开发", "responsibilities": "实现权限过滤", "outcomes": "还没有量化结果"},
@@ -96,10 +97,10 @@ async def test_context_snapshots_distinguish_user_facts_and_repository_observati
     assert first["has_personal_context"] is True
     assert first["profile"]["outcomes"] == "还没有量化结果"
     assert "never-export-unrelated-meta" not in str(first)
-    assert {f["source"] for f in first["facts"]} == {"user_statement", "repository_observation"}
+    assert {f["source"] for f in first["facts"]} == {"user_statement"}
     assert any(f["id"] == f"P{row.id}-role" for f in first["facts"])
-    assert any(f["id"] == f"P{row.id}-finding-{finding.id}" for f in first["facts"])
-    assert first["scan_fingerprint"] == "9:40:2026-11-16"
+    assert not any(f["id"] == f"P{row.id}-finding-{finding.id}" for f in first["facts"])
+    assert "scan_fingerprint" not in first
     assert "commit_sha" not in first
     row.meta = {**row.meta, "profile": {"role": "架构师", "responsibilities": "设计架构"}}
     await db_session.delete(finding)
@@ -107,7 +108,7 @@ async def test_context_snapshots_distinguish_user_facts_and_repository_observati
     changed = (await build(db_session, test_workspace.id, [row.id]))[0]
     assert first["profile"]["role"] == "后端开发"
     assert first["snapshot_fingerprint"] != changed["snapshot_fingerprint"]
-    assert any(f["source"] == "repository_observation" for f in first["facts"])
+    assert not any(f["source"] == "repository_observation" for f in first["facts"])
 
 
 @pytest.mark.asyncio
@@ -166,16 +167,13 @@ async def test_scan_id_cannot_read_findings_from_a_different_project(db_session,
 
 
 @pytest.mark.asyncio
-async def test_github_scan_preserves_personal_profile(db_session, test_workspace, monkeypatch):
+async def test_import_registers_without_scanning_and_preserves_personal_profile(db_session, test_workspace):
     result = await projects.create_project(projects.ProjectIn(
         name="Repository", owner="example", repo="scan-fixture",
         profile={"role": "后端开发", "responsibilities": "实现鉴权"},
     ), ws=test_workspace, session=db_session)
-    async def fixture_snapshot(*args, **kwargs):
-        return {"tree": [], "description": "Updated repo summary", "languages": {"Python": 12}, "commit_count": 1}
-    monkeypatch.setattr(projects, "collect_repo_snapshot", fixture_snapshot)
-    response = await projects.scan_project(result["id"], ws=test_workspace, session=db_session)
-    assert response["scan"]["status"] == "SUCCESS"
+    assert result['run_id'] is None
+    assert not any(route.path == '/projects/{project_id}/scan' for route in projects.router.routes)
     updated = await projects.get_project(result["id"], ws=test_workspace, session=db_session)
     assert updated["profile"]["responsibilities"] == "实现鉴权"
-    assert updated["description"] == "Updated repo summary"
+    assert updated["latest_scan"] is None

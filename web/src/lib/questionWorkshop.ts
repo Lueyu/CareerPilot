@@ -26,6 +26,7 @@ export interface GeneratedItem {
 }
 export interface WorkshopRow {
   id: number; title: string; status: string; draft_answer?: string | null; draft_rubric?: unknown;
+  review_revision?: number;
   question_id?: number | null; merged_into?: number | null; is_duplicate_of?: number | null;
   generation_meta?: { item: GeneratedItem; task_id?: number; source?: string } | null;
 }

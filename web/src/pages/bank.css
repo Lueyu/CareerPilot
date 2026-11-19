@@ -1,0 +1,192 @@
+.bank-workspace { display: grid; gap: 16px; }
+.bank-section { display: grid; gap: 10px; padding: 18px 24px; border-radius: 14px; }
+.bank-section h2, .bank-section h3, .bank-section p { margin: 0; }
+.bank-section h2 { font-size: 21px; }
+.bank-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.bank-set-row { display: flex; gap: 10px; justify-content: space-between; align-items: center; }
+.bank-set-questions { background: var(--primary-50); margin: 14px 0; }
+.bank-set-question { display: grid; gap: 8px; }
+.bank-set-question details { display: grid; overflow-wrap: anywhere; }
+.bank-set-question details p { margin: 6px 0; }
+.bank-set-question summary { cursor: pointer; }
+.bank-facet { margin: 0; padding: 8px 12px; min-width: 0; border: 1px solid var(--border); border-radius: 9px; }
+.bank-facet label { cursor: pointer; }
+.bank-pagination { justify-content: flex-end; padding: 12px 16px; }
+.bank-original-input { width: 100%; min-height: 60px; }
+.bank-quiz-stem, .bank-quiz-answer { padding: 18px 24px; border: 1px solid var(--border); border-radius: 14px; }
+.bank-quiz-stem { background: var(--primary-50); }
+.bank-quiz-stem .quiz-stem { white-space: pre-line; }
+.bank-quiz-answer { margin-top: 16px; }
+.bank-quiz-answer > button { margin-top: 12px; }
+
+.bank-review { container-type: inline-size; }
+.bank-review-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 300px) minmax(0, 1fr);
+  gap: 16px;
+  height: clamp(420px, calc(100dvh - 300px), 900px);
+}
+.bank-review-list, .bank-review-detail {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.bank-review-list-head {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.bank-review-list-title, .bank-review-rubric-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.bank-review-list-title h2 { font-size: 16px; }
+.bank-review-list-head .inp { min-width: 0; width: 100%; }
+.bank-review-rows {
+  list-style: none;
+  padding: 5px;
+  margin: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.bank-review-rows > li + li { border-top: 1px solid var(--border-2); }
+.bank-review-row {
+  width: 100%;
+  padding: 12px 10px;
+  display: grid;
+  gap: 5px;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.bank-review-row:hover { background: var(--hover); }
+.bank-review-row[aria-current="true"] { background: var(--primary-50); border-color: var(--primary-200); }
+.bank-review-row:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.bank-review-row-meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.bank-review-row-meta > span:first-child, .bank-review-row-topic { color: var(--text-3); font-size: 12px; }
+.bank-review-row-title {
+  font-weight: 600;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.bank-review-no-matches { padding: 16px; color: var(--text-3); }
+.bank-review-detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 22px clamp(16px, 3vw, 32px) 24px;
+  overflow-wrap: anywhere;
+}
+.bank-review-detail-head { display: grid; justify-items: start; gap: 10px; }
+.bank-review-detail h2 {
+  font-size: clamp(18px, 1.7vw, 25px);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.bank-review-detail h2:focus { outline: none; }
+.bank-review-detail h3 { font-size: 16px; }
+.bank-review-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.bank-review-facts { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; font-size: 12px; }
+.bank-review-facts > div { display: flex; gap: 6px; }
+.bank-review-facts dt { color: var(--text-3); white-space: nowrap; }
+.bank-review-facts dd { margin: 0; color: var(--text-2); }
+.bank-review-original {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border-left: 3px solid var(--primary-200);
+  border-radius: var(--radius-sm);
+}
+.bank-review-detail-body > .bank-review-original { margin-top: 16px; }
+.bank-review-original h3 { color: var(--text-2); font-size: 13px; }
+.bank-review-original p { white-space: pre-wrap; margin-top: 4px; }
+.bank-review-duplicate { color: var(--amber); font-size: 12px; }
+.bank-review-source.btn { min-height: auto; padding: 0; color: var(--primary); }
+.bank-review-reading { border-top: 1px solid var(--border); margin-top: 18px; padding-top: 14px; }
+.bank-review-reading > h3, .bank-review-rubric-head { margin-bottom: 10px; }
+.bank-review-answer { overflow-x: auto; }
+.bank-review-answer p, .bank-review-answer li, .bank-review-answer .fu-a { white-space: pre-wrap; }
+.bank-review-answer th, .bank-review-answer table b { white-space: normal; }
+.bank-review-rubric { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.bank-review-rubric > li {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.bank-review-rubric p { margin-top: 4px; white-space: pre-wrap; }
+.bank-review-keywords { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.bank-review-actions {
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+.bank-review-action-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.bank-review-feedback { display: grid; gap: 7px; }
+.bank-review-feedback label { font-weight: 600; }
+.bank-review-feedback label .hint { margin-left: 4px; font-weight: 400; }
+.bank-review-feedback textarea { width: 100%; resize: vertical; max-height: 30vh; }
+.bank-review-reject.btn { color: var(--red); background: var(--card); border-color: var(--red-border); }
+.bank-review-reject.btn:not(:disabled):hover { background: var(--red-bg); }
+.bank-review-back.btn { display: none; }
+.bank-review-notice, .bank-review-warning {
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  overflow-wrap: anywhere;
+}
+.bank-review-notice { background: var(--primary-50); border-color: var(--primary-200); }
+.bank-review-warning {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  background: var(--red-bg);
+  border-color: var(--red-border);
+}
+.bank-review-action-error { color: var(--red); overflow-wrap: anywhere; }
+.bank-review > .bank-review-notice, .bank-review > .bank-review-warning { margin-bottom: 10px; }
+.bank-review-detail-body > .bank-review-notice, .bank-review-detail-body > .bank-review-warning { margin-top: 14px; }
+.bank-review-empty { padding: 24px; display: grid; gap: 8px; justify-items: start; }
+.bank-review-empty h2 { font-size: 18px; }
+.bank-review-empty p { color: var(--text-2); }
+
+@media (max-width: 1060px) {
+  .bank-page > .page-head { flex-direction: column; gap: 10px; margin-bottom: 12px; }
+  .bank-page > .page-head .page-actions { flex-wrap: wrap; }
+}
+
+@container (max-width: 720px) {
+  .bank-review-layout { display: block; height: auto; }
+  .bank-review-layout[data-detail-open="false"] .bank-review-detail,
+  .bank-review-layout[data-detail-open="true"] .bank-review-list { display: none; }
+  .bank-review-detail-body { overflow: visible; }
+  .bank-review-back.btn { display: inline-flex; padding-left: 0; color: var(--primary); }
+  .bank-review-actions { position: sticky; bottom: 0; z-index: 1; }
+  .bank-review-action-row { justify-content: flex-start; }
+}

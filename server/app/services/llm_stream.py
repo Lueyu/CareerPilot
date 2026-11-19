@@ -34,6 +34,7 @@ class ChatCompletionStream:
         self.meta, self.started_at = meta, started_at
         self.limits = DEFAULT_LIMITS
         self.usage = None
+        self.reported_model = None
         self.parts: list[str] = []
         self.content_bytes = 0
         self.finish = None
@@ -89,6 +90,8 @@ class ChatCompletionStream:
             self.fail('invalid_json')
         if value.get('error') is not None:
             self.fail('provider_error')
+        if isinstance(value.get('model'), str):
+            self.reported_model = value['model'][:200]
         usage = value.get('usage')
         if isinstance(usage, dict):
             safe_usage = {k: usage[k] for k in ('prompt_tokens', 'completion_tokens', 'total_tokens')
@@ -147,7 +150,7 @@ class ChatCompletionStream:
             self.finish = finish
             self.meta['stream_finish_ms'] = self.elapsed()
 
-    async def read(self, response: httpx.Response):
+    async def read(self, response: httpx.Response, on_content=None):
         if response.headers.get('content-type', '').split(';', 1)[0].strip().lower() != 'text/event-stream':
             self.fail('unsupported_content_type')
         line = bytearray()
@@ -179,7 +182,10 @@ class ChatCompletionStream:
                     if part.endswith(b'\r'):
                         part = part[:-1]
                     if not part:
+                        previous_parts = len(self.parts)
                         self.dispatch(data_lines, event_type)
+                        if on_content and len(self.parts) > previous_parts:
+                            await on_content(self.parts[-1])
                         data_lines.clear()
                         event_type, event_bytes = None, 0
                         if self.done:

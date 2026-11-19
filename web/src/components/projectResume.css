@@ -1,0 +1,25 @@
+.project-resume { display: grid; gap: 16px; color: var(--text); }
+.project-resume h2, .project-resume h3, .project-resume p { margin: 0; }
+.project-resume h2 { font-size: 30px; line-height: 1.25; }
+.project-resume h3 { font-size: 20px; line-height: 1.4; }
+.project-resume p, .project-resume small { color: var(--text-2); }
+.project-resume header, .project-resume form { display: grid; gap: 12px; }
+.project-resume .resume-card {
+  display: grid;
+  gap: 10px;
+  padding: 18px 24px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.project-resume .resume-facts { background: var(--purple-bg); }
+.project-resume .resume-facts h3 { color: var(--purple); }
+.project-resume .resume-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.project-resume label { display: grid; gap: 6px; font-weight: 600; }
+.project-resume .resume-confirm { display: flex; align-items: baseline; }
+.project-resume .resume-citation { display: block; }
+.project-resume textarea { width: 100%; padding: 10px; resize: vertical; font: inherit; color: inherit; background: var(--surface-2); border: 1px solid var(--text-3); border-radius: 8px; }
+.project-resume .resume-text { white-space: pre-wrap; }
+.project-resume .resume-error { color: var(--red); }

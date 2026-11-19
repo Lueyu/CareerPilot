@@ -24,8 +24,8 @@ utcnow = project_jobs.utcnow
 
 
 class BudgetIn(BaseModel):
-    max_model_calls: int = Field(default=32, ge=1, le=10000)
-    max_source_bytes: int = Field(default=8388608, ge=1, le=1073741824)
+    max_model_calls: int | None = Field(default=None, ge=1, le=10000)
+    max_source_bytes: int | None = Field(default=None, ge=1, le=1073741824)
 
 
 class SettingsIn(BaseModel):
@@ -36,6 +36,7 @@ class SettingsIn(BaseModel):
 
 
 class ReanalyzeIn(BaseModel):
+    acknowledge_source_transfer: bool = False
     mode: Literal['full'] = 'full'
     request_key: str = Field(default_factory=lambda: uuid4().hex, min_length=1, max_length=120)
 
@@ -73,6 +74,8 @@ async def worker_view(session):
 
 
 def run_actions(status, error_code=None):
+    if status == 'WAITING_WORKER':
+        return ['cancel']
     if status in project_jobs.ACTIVE:
         return ['pause', 'cancel']
     if status in ('PAUSED_USER', 'PAUSED_BUDGET', 'BLOCKED'):
@@ -143,7 +146,7 @@ def report_summary(project, row):
 
 async def autopilot_view(session, project):
     settings = await settings_for(session, project.workspace_id)
-    consent_required = settings.get('consent_version') != CONSENT_VERSION
+    consent_required = not settings['enabled'] or settings.get('consent_version') != CONSENT_VERSION
     worker = await worker_view(session)
     run = await latest_run(session, project)
     task = await run_view(session, run) if run else None
@@ -152,18 +155,16 @@ async def autopilot_view(session, project):
         MemoryItem.workspace_id == project.workspace_id, MemoryItem.mtype.in_(PROJECT_TYPES),
         MemoryItem.status == 'PENDING_REVIEW', MemoryItem.meta['project_id'].as_integer() == project.id))
     actions = ['remove'] if not project.archived_at else []
-    if settings['enabled'] and not consent_required and not project.archived_at and project_kind(project) != 'manual':
-        actions += ['check_updates', 'reanalyze']
+    if not project.archived_at and project_kind(project) != 'manual':
+        actions.append('ai_scan')
+        if not consent_required:
+            actions += ['check_updates', 'reanalyze']
     if project_kind(project) == 'manual':
         label = '手工登记的项目经历'
-    elif consent_required:
-        label = '尚未启用自动分析，请确认源码传输与预算'
-    elif not settings['enabled']:
-        label = '自动分析已关闭，已有进度保留'
-    elif not worker['online']:
-        label = '尚未启动本地后台服务'
+    elif task and task['status'] in project_jobs.ACTIVE and not worker['online']:
+        label = '已排队，等待本地后台服务启动'
     elif task:
-        label = {'QUEUED':'已导入，等待分析', 'RUNNING':'正在了解项目',
+        label = {'WAITING_WORKER':'等待后台升级，扫描已排队', 'QUEUED':'已导入，等待分析', 'RUNNING':'正在了解项目',
             'RETRY_WAIT':'暂时无法继续，进度已保存', 'COMPLETED':'已完成，可查看报告',
             'PAUSED_USER':'已暂停，进度已保存', 'PAUSED_BUDGET':'达到自动分析预算，进度已保存',
             'BLOCKED':'暂时无法继续，进度已保存', 'FAILED_FINAL':'暂时无法继续，进度已保存',
@@ -173,7 +174,7 @@ async def autopilot_view(session, project):
         elif report and report.id != run.id and task['status'] in project_jobs.ACTIVE:
             label = '检测到更新，正在更新报告'
     else:
-        label = '已完成，可查看报告' if report else '已导入，等待分析'
+        label = '已完成，可查看报告' if report else '可开始 AI 扫描'
     return {'user_status':label, 'enabled':settings['enabled'], 'consent_required':consent_required,
         'worker':worker, 'latest_run':task, 'latest_valid_report':report_summary(project, report),
         'pending_candidate_count':pending or 0, 'allowed_actions':actions}
@@ -181,8 +182,10 @@ async def autopilot_view(session, project):
 
 async def settings_view(session, workspace_id):
     config, _, settings = await runtime_config(session, workspace_id, require_consent=False)
-    provider = ' / '.join(str(config.get(k) or '') for k in ('provider','model')).strip(' /')
-    return {**settings, 'source_notice':SOURCE_NOTICE, 'provider_display_name':provider or '尚未配置模型'}
+    profiles = config['auto_profiles']
+    models = [f'{label} {profiles[tier]["model"]}' for tier, label in (('flash', '快速'), ('strong', '深入'))
+              if profiles.get(tier) and profiles[tier].get('model')]
+    return {**settings, 'source_notice':SOURCE_NOTICE, 'provider_display_name':'Auto · ' + ' / '.join(models) if models else '尚未配置模型'}
 
 
 @router.get('/project-autopilot/settings')
@@ -192,11 +195,11 @@ async def get_settings(ws: Workspace = Depends(get_workspace), session: AsyncSes
 
 @router.put('/project-autopilot/settings')
 async def put_settings(req: SettingsIn, ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session)):
-    if req.enabled and (not req.acknowledge_source_transfer or req.budget is None):
-        raise HTTPException(400, '启用前必须明确确认源码传输，并设置自动分析预算')
+    if req.enabled and not req.acknowledge_source_transfer:
+        raise HTTPException(400, '启用前必须明确确认源码传输范围')
     await session.execute(text('SELECT pg_advisory_xact_lock(20261119, :ws)'), {'ws':ws.id})
     before = await settings_for(session, ws.id)
-    value = {**before, 'enabled':req.enabled, 'budget':req.budget.model_dump() if req.budget else before['budget']}
+    value = {**before, 'enabled':req.enabled, 'budget':req.budget.model_dump(exclude_none=True) if req.budget else before['budget']}
     if req.check_interval_hours is not None:
         value['check_interval_hours'] = req.check_interval_hours
     if req.enabled:
@@ -212,9 +215,10 @@ async def put_settings(req: SettingsIn, ws: Workspace = Depends(get_workspace), 
         pending_runs = (await session.scalars(select(ProjectAnalysis).where(ProjectAnalysis.workspace_id == ws.id,
             ProjectAnalysis.pipeline_version != 'legacy', ProjectAnalysis.status.in_(project_jobs.OPEN)))).all()
         for pending in pending_runs:
-            pending.budget = dict(value['budget'])
+            if (pending.result_meta or {}).get('source_transfer_consent') != CONSENT_VERSION:
+                pending.budget = dict(value['budget'])
     await session.commit()
-    if req.enabled:
+    if req.enabled and not before['enabled']:
         config, _, _ = await runtime_config(session, ws.id)
         pipeline, prompt = versions()
         projects = (await session.scalars(select(Project).where(Project.workspace_id == ws.id, Project.archived_at.is_(None)))).all()
@@ -236,9 +240,10 @@ async def put_settings(req: SettingsIn, ws: Workspace = Depends(get_workspace), 
                     model_config_fingerprint=model_fingerprint(config), pipeline_version=pipeline, prompt_bundle_version=prompt)
                 project.next_check_at = utcnow() + timedelta(hours=value['check_interval_hours'])
         await session.commit()
-    else:
+    elif before['enabled'] and not req.enabled:
         ids = (await session.scalars(select(ProjectAnalysis.id).where(ProjectAnalysis.workspace_id == ws.id,
-            ProjectAnalysis.pipeline_version != 'legacy', ProjectAnalysis.status.in_(project_jobs.ACTIVE)))).all()
+            ProjectAnalysis.pipeline_version != 'legacy', ProjectAnalysis.status.in_(project_jobs.ACTIVE),
+            ProjectAnalysis.result_meta['source_transfer_consent'].as_string().is_distinct_from(CONSENT_VERSION)))).all()
         for run_id in ids:
             await project_jobs.control_run(session, run_id, ws.id, 'pause')
     return await settings_view(session, ws.id)
@@ -260,13 +265,15 @@ async def control_run(run_id: int, action: Literal['pause','resume','cancel'], w
         raise HTTPException(409, '当前任务不支持此操作；模型配置变化请取消旧任务并完整重新分析')
     if action == 'resume':
         try:
-            config, _, settings = await runtime_config(session, ws.id)
+            one_run_consent = (run.result_meta or {}).get('source_transfer_consent') == CONSENT_VERSION
+            config, _, settings = await runtime_config(session, ws.id, require_consent=not one_run_consent)
         except PermissionError as exc:
             raise HTTPException(409, str(exc)) from exc
         if run.model_config_fingerprint and run.model_config_fingerprint != model_fingerprint(config):
             raise HTTPException(409, '模型配置已变化，请取消旧任务并完整重新分析，避免混用不同模型的阶段结果')
         if run.status == 'PAUSED_BUDGET':
-            if settings['budget'].get('max_model_calls',32) <= (run.usage or {}).get('model_calls',0):
+            limit = settings['budget'].get('max_model_calls')
+            if limit is not None and limit <= (run.usage or {}).get('model_calls',0):
                 raise HTTPException(409, '预算仍不足；请在自动分析设置中明确提高预算后恢复')
             run.budget = dict(settings['budget'])
             await session.commit()
@@ -277,16 +284,27 @@ async def control_run(run_id: int, action: Literal['pause','resume','cancel'], w
     return await run_view(session, run)
 
 
+@router.post('/projects/{project_id}/ai-scan', status_code=202)
 @router.post('/projects/{project_id}/reanalyze', status_code=202)
 async def reanalyze(project_id: int, req: ReanalyzeIn, ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session)):
     project = await owned_project(session, ws.id, project_id)
     if project_kind(project) == 'manual':
         raise HTTPException(409, '手工项目没有可分析的仓库，请继续维护个人经历')
     try:
-        config, _, settings = await runtime_config(session, ws.id)
+        config, _, settings = await runtime_config(session, ws.id, require_consent=not req.acknowledge_source_transfer)
+        await session.execute(text('SELECT pg_advisory_xact_lock(20261117, 0)'))
         pipeline, prompt = versions()
-        run = await project_jobs.enqueue(session, project, req.request_key, mode='full', budget=settings['budget'],
+        run = await project_jobs.enqueue(session, project, req.request_key, mode='full', budget=settings['budget'], reuse_open=True,
             model_config_fingerprint=model_fingerprint(config), pipeline_version=pipeline, prompt_bundle_version=prompt)
+        if req.acknowledge_source_transfer and run.status in project_jobs.OPEN:
+            await session.flush()
+            await session.refresh(run, with_for_update=True)
+            run.result_meta = {**(run.result_meta or {}), 'source_transfer_consent': CONSENT_VERSION}
+            await session.flush()
+            if run.status == 'BLOCKED' and await session.scalar(select(AnalysisStep.id).where(
+                AnalysisStep.run_id == run.id, AnalysisStep.status == 'BLOCKED',
+                AnalysisStep.error_category == 'CONSENT_REQUIRED').limit(1)):
+                await project_jobs.control_run(session, run.id, ws.id, 'resume')
         await session.commit()
     except (PermissionError, ValueError) as exc:
         raise HTTPException(409, str(exc)) from exc
@@ -300,7 +318,7 @@ async def check_updates(project_id: int, ws: Workspace = Depends(get_workspace),
         raise HTTPException(409, '手工项目没有远端仓库')
     settings = await settings_for(session, ws.id)
     if not settings['enabled'] or settings.get('consent_version') != CONSENT_VERSION:
-        raise HTTPException(409, '请先确认源码传输与预算，启用自动分析')
+        raise HTTPException(409, '请先确认源码传输范围并启用自动分析')
     project.next_check_at = utcnow()
     await session.commit()
     return {'project_id':project.id, 'status':'CHECK_QUEUED', 'next_check_at':project.next_check_at.isoformat()}

@@ -1,0 +1,145 @@
+import React, { useEffect, useState } from 'react';
+import { api, RetestHistoricalMapping, RetestMappingCriterion, RetestMappings } from '../api/client';
+import { messageOf } from '../lib/questionWorkshop';
+
+export default function RetestMappingReview({ questionId }: { questionId: number }) {
+  const path = `/retest-mappings/${questionId}`;
+  const [data, setData] = useState<RetestMappings | null>(null);
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    api.get<RetestMappings>(path).then(
+      result => { if (active) setData(result); },
+      failure => { if (active) setError(messageOf(failure)); },
+    );
+    return () => { active = false; };
+  }, [path, reload]);
+
+  if (error) return <>
+    <p role="alert" className="demo-banner demo-banner-err">{error}</p>
+    <button className="btn btn-outline btn-sm" onClick={() => { setError(''); setReload(count => count + 1); }}>重新读取评分项</button>
+  </>;
+  if (!data) return <p role="status">正在读取评分项…</p>;
+
+  const historical = data.historical_mappings ?? [];
+
+  return <section aria-label="复测评分项映射">
+    <p className="hint">评分标准版本 {data.rubric_version || '未记录'}。同一个行为标识和版本只用于评分要求相同的行为。评分要求变化时，请使用新的行为版本。</p>
+    {!data.reviewable && <p className="hint">当前评分标准未开放映射审核。</p>}
+    {data.criteria.length === 0 && <p className="hint">暂无可显示的评分项。</p>}
+    {data.criteria.map(criterion => (
+      <CriterionReview key={`${data.rubric_version}:${criterion.criterion_id}`} path={path}
+        rubricVersion={data.rubric_version} reviewable={data.reviewable} initial={criterion} />
+    ))}
+    {historical.length > 0 && <section aria-label="历史评分标准映射">
+      <h4>历史评分标准映射</h4>
+      <p className="hint">历史映射可用于后续复测中已冻结的原评分项。撤销后，后续复测无法使用该映射。</p>
+      {historical.map(mapping => (
+        <HistoricalReview key={JSON.stringify([mapping.rubric_version, mapping.criterion_id])} path={path} mapping={mapping} />
+      ))}
+    </section>}
+  </section>;
+}
+
+function revokeMapping(path: string, criterionId: string, rubricVersion: string) {
+  const query = new URLSearchParams({ rubric_version: rubricVersion });
+  return api.del<void>(`${path}/${encodeURIComponent(criterionId)}?${query}`);
+}
+
+function HistoricalReview({ path, mapping }: { path: string; mapping: RetestHistoricalMapping }) {
+  const [status, setStatus] = useState<'ready' | 'pending' | 'removed'>('ready');
+  const [error, setError] = useState('');
+
+  async function remove() {
+    setStatus('pending');
+    setError('');
+    try {
+      await revokeMapping(path, mapping.criterion_id, mapping.rubric_version);
+      setStatus('removed');
+    } catch (failure) {
+      setError(messageOf(failure));
+      setStatus('ready');
+    }
+  }
+
+  return <div className="card" style={{ marginBottom: 12 }}>
+    <p>{mapping.criterion_id} · 评分标准版本 {mapping.rubric_version}</p>
+    <p className="hint">{mapping.behavior_key} · 行为版本 {mapping.behavior_version}</p>
+    {status === 'removed' ? <p role="status">已撤销历史映射</p> : (
+      <button type="button" className="btn btn-outline btn-sm" disabled={status === 'pending'} onClick={remove}>撤销历史映射</button>
+    )}
+    {error && <p role="alert" className="demo-banner demo-banner-err">{error}</p>}
+  </div>;
+}
+
+function CriterionReview({ path, rubricVersion, reviewable, initial }: {
+  path: string; rubricVersion: string; reviewable: boolean; initial: RetestMappingCriterion;
+}) {
+  const [criterion, setCriterion] = useState(initial);
+  const [key, setKey] = useState(initial.behavior_key ?? '');
+  const [version, setVersion] = useState(String(initial.behavior_version ?? 1));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const behaviorVersion = Number(version);
+  const valid = /^[a-z0-9][a-z0-9._-]{0,127}$/.test(key) && Number.isInteger(behaviorVersion)
+    && behaviorVersion >= 1 && behaviorVersion <= 2147483647;
+  const criterionPath = `${path}/${encodeURIComponent(criterion.criterion_id)}`;
+
+  async function approve(event: React.FormEvent) {
+    event.preventDefault();
+    if (!valid || busy) return;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const updated = await api.put<RetestMappingCriterion>(criterionPath, {
+        rubric_version: rubricVersion, behavior_key: key, behavior_version: behaviorVersion, confirm: true,
+      });
+      setCriterion(updated);
+      setNotice('已批准映射');
+    } catch (failure) {
+      setError(messageOf(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      await revokeMapping(path, criterion.criterion_id, rubricVersion);
+      setCriterion({ ...criterion, behavior_key: null, behavior_version: null, reviewed_at: null });
+      setKey('');
+      setVersion('1');
+      setNotice('已撤销映射');
+    } catch (failure) {
+      setError(messageOf(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <div className="card" style={{ marginBottom: 12 }}>
+    <h4>{criterion.title || criterion.criterion_id}</h4>
+    <p className="hint">{criterion.behavior_key ? `已审核 · ${criterion.behavior_key} · 行为版本 ${criterion.behavior_version}` : '待审核 · 暂无映射'}</p>
+    {reviewable && <form onSubmit={approve}>
+      <label className="field">
+        <span>行为标识</span>
+        <input className="inp" type="text" value={key} maxLength={128} placeholder="rag.retrieval-metrics" disabled={busy} onChange={event => setKey(event.target.value)} />
+      </label>
+      <label className="field">
+        <span>行为版本</span>
+        <input className="inp" type="number" min={1} max={2147483647} step={1} value={version} disabled={busy} onChange={event => setVersion(event.target.value)} />
+      </label>
+      <button className="btn btn-primary btn-sm" type="submit" disabled={busy || !valid}>确认并批准映射</button>
+      {criterion.behavior_key && <button className="btn btn-outline btn-sm" type="button" disabled={busy} onClick={remove}>撤销映射</button>}
+    </form>}
+    {notice && <p role="status">{notice}</p>}
+    {error && <p role="alert" className="demo-banner demo-banner-err">{error}</p>}
+  </div>;
+}

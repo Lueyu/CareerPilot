@@ -24,7 +24,6 @@ from app.models import Base
 from test_assessment_processes import Fixture, ready
 
 SERVER = Path(__file__).resolve().parents[1]
-PG = Path('C:/Users/97956/scoop/apps/postgresql/current/bin')
 CONFIG = {'provider':'fixture','model':'assessment-fixture',
           'base_url':'https://fixture.invalid','api_key':'fixture-not-a-live-key'}
 
@@ -41,12 +40,9 @@ httpx.AsyncClient.request=forbidden
 '''
 
 WORKER_HARNESS = COMMON_HARNESS + r'''
-from app.services import assessment_jobs as jobs,assessment_worker as worker
+from app.services import assessment_worker as worker
 from test_assessment_reliability import result_for
 folder=Path(os.environ['FIXTURE_FOLDER'])
-async def config(*args,**kwargs):return {'provider':'fixture','model':'assessment-fixture','base_url':'https://fixture.invalid','api_key':'fixture-not-a-live-key'},{},{}
-jobs.runtime_config=config
-worker.runtime_config=config
 worker.OUTBOX_ROOT=folder/'private-outbox'
 async def evaluate(claim,cfg,repair=None):
     with (folder/'model-calls.jsonl').open('a',encoding='utf-8') as f:
@@ -220,15 +216,15 @@ async def transactional_dump_restore(source_url, folder):
         async with source.transaction(isolation='repeatable_read',readonly=True):
             snapshot=await source.fetchval('SELECT pg_export_snapshot()')
             before=await database_snapshot(source)
-            await invoke([str(PG/'pg_dump.exe'),'--no-password','--dbname='+source_url.database,
+            await invoke(['pg_dump','--no-password','--dbname='+source_url.database,
                 '--snapshot='+snapshot,'--format=custom','--file='+str(archive)])
-            listing=await invoke([str(PG/'pg_restore.exe'),'--list',str(archive)])
+            listing=await invoke(['pg_restore','--list',str(archive)])
             entries=sum(bool(l.strip()) and not l.startswith(';') for l in listing.splitlines())
             assert archive.stat().st_size>0 and entries>0
             checksum=hashlib.sha256(archive.read_bytes()).hexdigest()
             (folder/'learning-feedback-fixture.dump.sha256').write_text(checksum+'\n',encoding='ascii')
             await admin.execute('CREATE DATABASE '+ident(target))
-            await invoke([str(PG/'pg_restore.exe'),'--no-password','--dbname='+target,
+            await invoke(['pg_restore','--no-password','--dbname='+target,
                 '--single-transaction','--exit-on-error','--no-owner','--no-privileges',str(archive)])
             restored=await asyncpg.connect(database=target,server_settings={'default_transaction_read_only':'on'},**options(source_url))
             async with restored.transaction(isolation='repeatable_read',readonly=True):

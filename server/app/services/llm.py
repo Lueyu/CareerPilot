@@ -95,7 +95,8 @@ class AgentAdapter:
     async def chat_with(self, cfg: dict[str, Any], system: str, user: str, json_mode: bool = False,
                         timeout: float = 60.0, trace: Any = None, session: Any = None,
                         span_name: str | None = None, reasoning_effort: str | None = None,
-                        *, stream: bool = False, total_timeout: float | None = None) -> dict[str, Any] | None:
+                        *, stream: bool = False, total_timeout: float | None = None,
+                        on_content=None) -> dict[str, Any] | None:
         """用给定配置调用一次 chat; 失败返回 None(降级信号)。
 
         trace+session 同时提供时, 记录 Agent Run span(provider/model/duration/tokens/cost/retry) 到观测台。
@@ -117,6 +118,10 @@ class AgentAdapter:
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": 0.2,
         }
+        if cfg.get("output_limit"):
+            payload["max_tokens"] = cfg["output_limit"]
+        if stream and cfg.get("report_usage"):
+            payload["stream_options"] = {"include_usage": True}
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
         if reasoning_effort is not None:
@@ -199,11 +204,13 @@ class AgentAdapter:
                             async with client.stream('POST', f"{cfg['base_url'].rstrip('/')}/chat/completions",
                                 headers=headers, json=payload, extensions={'trace': record_transport_event}) as resp:
                                 resp.raise_for_status()
-                                stream_result = await reader.read(resp)
+                                stream_result = await reader.read(resp, on_content) if on_content else await reader.read(resp)
                     result = stream_result
                     return result
                 finally:
                     self.last_usage = reader.usage
+                    if getattr(reader, "reported_model", None):
+                        self.last_response_meta["reported_model"] = reader.reported_model
             async with httpx.AsyncClient(timeout=timeout, event_hooks={'response': [record_response_headers]}) as client:
                 resp = await client.post(
                     f"{cfg['base_url'].rstrip('/')}/chat/completions",
@@ -217,6 +224,9 @@ class AgentAdapter:
                     response_body_ms=int((time.perf_counter() - t0) * 1000))
                 resp.raise_for_status()
                 data = resp.json()
+                model_identity = safe_request_id(data.get('model'))
+                if model_identity:
+                    self.last_response_meta['reported_model'] = model_identity
                 reported_usage = data.get('usage') or {}
                 if isinstance(reported_usage, dict):
                     self.last_usage = {k: reported_usage[k] for k in ('prompt_tokens', 'completion_tokens', 'total_tokens')

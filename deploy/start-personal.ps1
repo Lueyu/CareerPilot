@@ -12,6 +12,8 @@ New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
 $savedWorkspace = $env:DEFAULT_WORKSPACE_SLUG
 $savedEncoding = $env:PYTHONIOENCODING
 $savedApiBase = $env:VITE_API_BASE
+$webApiKey = "VITE_DEV_API_$WebPort"
+$savedWebApi = [Environment]::GetEnvironmentVariable($webApiKey, "Process")
 $savedApiToken = $env:VITE_API_TOKEN
 $savedViteWorkspace = $env:VITE_WORKSPACE
 $createdProcesses = @()
@@ -20,6 +22,7 @@ try {
     $env:DEFAULT_WORKSPACE_SLUG = 'personal'
     $env:PYTHONIOENCODING = 'utf-8'
     $env:VITE_API_BASE = "http://127.0.0.1:$Port/api/v1"
+    [Environment]::SetEnvironmentVariable($webApiKey, $env:VITE_API_BASE, "Process")
     $env:VITE_WORKSPACE = 'personal'
     if (-not $InitializeOnly) {
         $ports = @($Port)
@@ -94,6 +97,7 @@ try {
 } finally {
     $env:DEFAULT_WORKSPACE_SLUG = $savedWorkspace
     $env:PYTHONIOENCODING = $savedEncoding
+    [Environment]::SetEnvironmentVariable($webApiKey, $savedWebApi, "Process")
     $env:VITE_API_BASE = $savedApiBase
     $env:VITE_API_TOKEN = $savedApiToken
     $env:VITE_WORKSPACE = $savedViteWorkspace

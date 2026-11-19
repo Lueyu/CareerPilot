@@ -145,7 +145,7 @@ def test_general_eligibility_requires_learning_confirmation():
 
 
 @pytest.mark.asyncio
-async def test_only_frozen_independent_retest_updates_transfer_not_retention(db_session, test_workspace):
+async def test_legacy_aggregate_retest_does_not_promote_learning_goal(db_session, test_workspace):
     from datetime import datetime, timezone
     from app.models import LearningTask
     from app.services.learning_memory import on_verification_completed
@@ -153,26 +153,19 @@ async def test_only_frozen_independent_retest_updates_transfer_not_retention(db_
     parent = LearningTask(workspace_id=test_workspace.id, title='source fixture', kind='UNDERSTAND', status='DONE')
     db_session.add(parent); await db_session.flush()
     goal.source_task_id = parent.id
+    goal.verification = {**goal.verification, 'transfer': 'PENDING'}
     check = LearningTask(workspace_id=test_workspace.id, title='new question', kind='RETEST', retest_of=parent.id,
         status='DONE', content={'retest_result':{'source_criterion_passed':True,'source_criterion_covered':True,
             'mode':'immediate','criterion_bindings':[{'rubric_version':'new-version'}]}})
     db_session.add(check); await db_session.flush()
     exam = SimpleNamespace(id=555, workspace_id=test_workspace.id, active_scoring_run_id=777,
         completed_at=datetime.now(timezone.utc), questions=[SimpleNamespace(frozen_snapshot={
-            'independence':{'eligible_for_independent_verification':False,'reason':'reference exposed'},
+            'independence':{'eligible_for_independent_verification':True},
             'answer_revision_id':42})])
     await on_verification_completed(db_session, exam, check)
-    assert goal.verification['transfer'] != 'PASSED'
+    assert goal.verification['transfer'] == 'PENDING'
+    assert goal.verification['understanding'] == 'UNVERIFIED'
     assert goal.verification['retention'] == 'NOT_DUE'
-    exam.id=556
-    exam.questions[0].frozen_snapshot['independence']['eligible_for_independent_verification'] = True
-    await on_verification_completed(db_session, exam, check)
-    assert goal.verification['transfer'] == 'PASSED'
-    assert goal.verification['understanding'] == 'INDEPENDENT_CORRECT'
-    assert goal.verification['retention'] == 'NOT_DUE'
-    rows = (await db_session.scalars(select(MemoryItem).where(MemoryItem.workspace_id==test_workspace.id))).all()
-    assert all(row.status == 'CANDIDATE' for row in rows)
-    assert len(rows) == 2
 
 
 @pytest.mark.asyncio

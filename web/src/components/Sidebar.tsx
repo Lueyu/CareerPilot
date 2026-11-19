@@ -9,6 +9,7 @@ const NAV: { ic: string; label: string; to: string; match: (p: string) => boolea
   { ic: '🏠', label: '首页', to: '/', match: (p) => p === '/' },
   { ic: '🎯', label: '能力与岗位', to: '/benchmark', match: (p) => p === '/benchmark' || p.startsWith('/profile') },
   { ic: '📝', label: '考试与面经', to: '/exam', match: (p) => p === '/exam' || p.startsWith('/exam/') || p === '/bank' },
+  { ic: '💬', label: '学习聊天与笔记', to: '/study/chat', match: (p) => p.startsWith('/study/') },
   { ic: '📚', label: '学习计划', to: '/learning', match: (p) => p.startsWith('/learning') },
   { ic: '🚀', label: '项目与简历', to: '/assets', match: (p) => p.startsWith('/assets') },
 ];
@@ -51,6 +52,7 @@ export default function Sidebar() {
           <NavLink
             key={n.to}
             to={n.to}
+            title={n.label}
             className={itemCls(n.match(pathname))}
             end={n.to === '/'}
           >
@@ -66,6 +68,7 @@ export default function Sidebar() {
           <NavLink
             key={n.to}
             to={n.to}
+            title={n.label}
             className={`nav-item nav-item-sub ${n.match(pathname) ? 'active' : ''}`}
           >
             <span className="nav-num">{n.ic}</span>
@@ -83,7 +86,7 @@ export default function Sidebar() {
       </div>
 
       <div className="nav-settings">
-        <NavLink to="/settings" className={itemCls(pathname.startsWith('/settings'))}>
+        <NavLink to="/settings" title="设置与工作空间" className={itemCls(pathname.startsWith('/settings'))}>
           <span className="nav-num">⚙</span>
           <span>设置与工作空间</span>
         </NavLink>

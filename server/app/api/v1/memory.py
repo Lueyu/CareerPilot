@@ -6,16 +6,18 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import MemoryItem, Workspace
+from app.services.bank_review_memory import BANK_REVIEW_FEEDBACK_TYPE, review_feedback_eligible
 from app.services.llm import AgentAdapter
 from app.services.tracing import emit_event
 from app.services.project_memory import lock_project_memories
 from app.services.project_candidates import eligible
+from app.services.task_memory import TASK_COMPLETION_TYPE
 
 router = APIRouter()
 
@@ -36,11 +38,22 @@ class ImportDialogReq(BaseModel):
     text: str
 
 
+def _personalization_reason(memory: MemoryItem) -> str | None:
+    if memory.mtype == BANK_REVIEW_FEEDBACK_TYPE:
+        return "仅作为同技能题库生成的过往审核案例"
+    if memory.mtype == TASK_COMPLETION_TYPE:
+        return "仅记录学习进度"
+    if eligible(memory):
+        return None
+    return "来源已变化，需要复核" if memory.freshness != "CURRENT" else "尚未确认或已被替代"
+
+
 @router.get("/memory")
 async def list_memory(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
+    await session.execute(text("SELECT capture_exam_completion_memory(:workspace_id)"), {"workspace_id": ws.id})
     items = (
         await session.execute(
             select(MemoryItem)
@@ -48,6 +61,7 @@ async def list_memory(
             .order_by(MemoryItem.id.desc())
         )
     ).scalars().all()
+    await session.commit()
     return {
         "items": [
             {
@@ -61,7 +75,8 @@ async def list_memory(
                 "revision": m.revision,
                 "freshness": m.freshness,
                 "eligible_for_personalization": eligible(m),
-                "ineligible_reason": None if eligible(m) else ('来源已变化，需要复核' if m.freshness!='CURRENT' else '尚未确认或已被替代'),
+                "ineligible_reason": _personalization_reason(m),
+                "eligible_for_bank_generation": review_feedback_eligible(m),
                 "meta": m.meta,
                 "superseded_by": m.superseded_by,
                 "created_at": m.created_at.isoformat(),
@@ -90,7 +105,10 @@ async def confirm_memory(
         raise HTTPException(409, '项目和学习候选请使用带版本检查的候选审核入口')
     if m.status not in ('CANDIDATE', 'ACTIVE'):
         raise HTTPException(409, '已替代或删除的记忆不可重新激活')
+    if m.status == 'ACTIVE':
+        return {"id": m.id, "status": m.status}
     m.status = "ACTIVE"
+    m.revision += 1
     m.confirmed_at = dt.datetime.now(dt.timezone.utc)
     await session.commit()
     return {"id": m.id, "status": m.status}
@@ -162,6 +180,8 @@ async def delete_memory(
     ).scalar_one_or_none()
     if m is None:
         raise HTTPException(status_code=404, detail="memory not found")
+    if m.status == 'DISMISSED':
+        return {"id": m.id, "status": m.status}
     m.status = "DISMISSED"
     m.revision += 1
     if m.mtype in LEARNING_TYPES:
@@ -184,6 +204,8 @@ async def import_dialog(
     candidates = await _extract_memories(text)
     created = []
     for c in candidates:
+        if c["mtype"] == BANK_REVIEW_FEEDBACK_TYPE:
+            continue
         dup = (
             await session.execute(
                 select(MemoryItem).where(

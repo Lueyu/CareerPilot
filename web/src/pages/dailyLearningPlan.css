@@ -1,0 +1,543 @@
+.daily-plan {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.daily-plan-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.daily-plan h1, .daily-plan h2, .daily-plan h3, .daily-plan p {
+  margin: 0;
+}
+
+.daily-plan h1 {
+  font-size: clamp(26px, 3vw, 34px);
+  line-height: 1.2;
+}
+
+.daily-plan h2 { font-size: 22px; line-height: 1.25; }
+.daily-plan h3 { font-size: 15px; line-height: 1.4; }
+.daily-plan p, .daily-plan small { color: var(--text-2); }
+.daily-plan .btn { min-height: 36px; }
+.daily-plan .demo-banner { margin: 0; }
+
+.daily-plan-heading,
+.daily-plan-row,
+.daily-plan-actions,
+.daily-plan-replan {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.daily-plan-heading,
+.daily-plan-row,
+.daily-plan-replan {
+  justify-content: space-between;
+}
+
+.daily-plan-heading p { margin-top: 4px; }
+
+.daily-plan-card {
+  min-width: 0;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.daily-plan-goal {
+  display: grid;
+  gap: 8px;
+}
+
+.daily-plan-goal h2 { font-size: clamp(20px, 2.5vw, 26px); }
+
+.daily-plan-eyebrow {
+  color: var(--primary-600);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.daily-plan-progress-line {
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.daily-plan-progress-count {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.daily-plan-progress-count strong {
+  color: var(--text);
+  font-size: clamp(29px, 4vw, 38px);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.daily-plan-badge {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 9px;
+  border-radius: 100px;
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.daily-plan-pace-ahead,
+.daily-plan-item-completed { background: var(--green-bg); color: var(--green); }
+
+.daily-plan-pace-on_track,
+.daily-plan-task-stage { background: var(--primary-50); color: var(--primary-600); }
+
+.daily-plan-pace-behind,
+.daily-plan-item-overdue,
+.daily-plan-item-unscheduled { background: var(--amber-bg); color: var(--amber); }
+
+.daily-plan-retest-badge { background: var(--blue-bg); color: var(--blue); }
+
+.daily-plan-track {
+  position: relative;
+  height: 8px;
+  border-radius: 100px;
+  background: var(--track);
+}
+
+.daily-plan-track-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+}
+
+.daily-plan-track-marker {
+  position: absolute;
+  inset-block: -2px;
+  width: 2px;
+  transform: translateX(-1px);
+  border-radius: 1px;
+  background: var(--text);
+}
+
+.daily-plan-goal-footer {
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  font-size: 13px;
+}
+
+.daily-plan-text-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary-600);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+}
+
+.daily-plan-text-button:hover { text-decoration: underline; }
+.daily-plan-text-button:focus-visible,
+.daily-plan-cell:focus-visible,
+.daily-plan :is(.btn, input, textarea, summary):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.daily-plan-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.daily-plan-calendar {
+  container-type: inline-size;
+}
+
+.daily-plan-calendar h2 {
+  font-size: clamp(17px, 2.25vw, 25px);
+}
+
+.daily-plan-calendar-nav {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.daily-plan-month-arrow.btn {
+  padding: 0;
+  width: 36px;
+}
+
+.daily-plan-chevron {
+  display: block;
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  mask: url('../assets/learning-calendar/chevron-left.svg') center / contain no-repeat;
+}
+
+.daily-plan-month-arrow:last-child .daily-plan-chevron {
+  mask-image: url('../assets/learning-calendar/chevron-right.svg');
+}
+
+.daily-plan .btn:disabled {
+  cursor: default;
+  opacity: .45;
+}
+
+.daily-plan-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 11px 0 9px;
+  padding: 0;
+  list-style: none;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.daily-plan-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.daily-plan-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.daily-plan-completed { background: var(--green); }
+.daily-plan-scheduled { background: var(--primary); }
+.daily-plan-shifted { background: var(--amber); }
+.daily-plan-retest { background: var(--blue); }
+
+.daily-plan-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.daily-plan-weekday {
+  color: var(--text-2);
+  text-align: center;
+  font-size: 12px;
+}
+
+.daily-plan-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-height: 68px;
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.3;
+  text-align: left;
+}
+
+button.daily-plan-cell:hover { border-color: var(--primary); }
+.daily-plan-cell.is-adjacent,
+.daily-plan-cell:not(button) { background: var(--surface-2); color: var(--text-3); }
+
+.daily-plan-cell.is-today time { color: var(--primary-600); font-weight: 700; }
+.daily-plan-cell.is-deadline { border-color: var(--amber); }
+.daily-plan-cell.is-deadline time { text-decoration: underline; text-decoration-color: var(--amber); text-underline-offset: 3px; }
+.daily-plan-cell.is-selected { border-color: var(--primary); background: var(--primary-50); }
+
+.daily-plan-cell-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+  font-weight: 600;
+}
+
+.daily-plan-cell-today,
+.daily-plan-cell-deadline {
+  color: var(--primary-600);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.daily-plan-cell-deadline { color: var(--amber); }
+
+.daily-plan-cell-summary {
+  max-width: 100%;
+  color: var(--text-2);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.daily-plan-cell-dots {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 3px;
+}
+
+.daily-plan-day {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.daily-plan-day-body {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.daily-plan-day-body:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.daily-plan-day-head {
+  display: grid;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.daily-plan-day-head h2 small {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.daily-plan-day-head p { font-size: 13px; }
+
+.daily-plan-task-list,
+.daily-plan-task,
+.daily-plan-form {
+  display: grid;
+  gap: 10px;
+}
+
+.daily-plan-task,
+.daily-plan-upcoming {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+}
+
+.daily-plan-task {
+  gap: 6px;
+  align-content: start;
+  font-size: 13px;
+}
+
+.daily-plan-task-badges,
+.daily-plan-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.daily-plan-task-source,
+.daily-plan-task-source:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.daily-plan-day-links {
+  align-items: baseline;
+  gap: 4px 12px;
+  font-size: 13px;
+}
+
+.daily-plan-upcoming ul {
+  display: grid;
+  gap: 3px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.daily-plan-upcoming-tasks {
+  font-size: 12px;
+}
+
+.daily-plan-upcoming h3 {
+  font-size: 14px;
+}
+
+.daily-plan-replan p {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 13px;
+}
+
+.daily-plan-evidence-details summary {
+  color: var(--primary-600);
+  cursor: pointer;
+}
+
+.daily-plan-evidence { white-space: pre-wrap; }
+.daily-plan-empty { padding: 5px 0; }
+.daily-plan .daily-plan-error { color: var(--red); }
+.daily-plan .daily-plan-notice { color: var(--green); }
+
+.daily-plan-form { align-items: start; }
+
+.daily-plan-form :is(input:not([type="checkbox"]), textarea) {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text);
+}
+
+.daily-plan-form textarea { resize: vertical; }
+
+.daily-plan-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.daily-plan-checkbox input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
+.daily-plan-dialog {
+  width: min(520px, calc(100% - 24px));
+  max-height: min(80dvh, 720px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.daily-plan-dialog::backdrop { background: rgb(15 23 42 / 55%); }
+.daily-plan-dialog > header { padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.daily-plan-dialog h2:focus { outline: none; }
+
+.daily-plan-dialog-body {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+}
+
+@container (max-width: 500px) {
+  .daily-plan-cell { padding-inline: 4px; }
+}
+
+@container (max-width: 420px) {
+  .daily-plan-cell {
+    align-items: center;
+    justify-content: flex-start;
+    min-height: 47px;
+    padding: 5px 2px;
+  }
+
+  .daily-plan-cell-summary,
+  .daily-plan-cell-today,
+  .daily-plan-cell-deadline { display: none; }
+}
+
+@media (min-width: 1051px) {
+  .daily-plan-layout {
+    grid-template-columns: minmax(0, 11fr) minmax(0, 14fr);
+  }
+
+  .daily-plan-day {
+    contain: size;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .daily-plan-day-body {
+    min-height: 0;
+    margin: -4px;
+    padding: 4px;
+    overflow-y: auto;
+    scroll-padding: 4px;
+    scrollbar-gutter: stable;
+  }
+}
+
+.learning-mobile-nav-button.btn,
+.learning-mobile-drawer { display: none; }
+
+@media (max-width: 760px) {
+  .app-learning-calendar > .sidebar,
+  .app-learning-calendar .topbar .search-box,
+  .app-learning-calendar .topbar .btn-primary,
+  .app-learning-calendar .crumb > span:not(.crumb-cur) { display: none; }
+  .app-learning-calendar .topbar { min-height: 54px; padding: 8px 16px; }
+  .learning-mobile-nav-button.btn { display: inline-flex; }
+  .learning-mobile-drawer[open] {
+    display: block;
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(86vw, 300px);
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: var(--navy);
+  }
+  .learning-mobile-drawer::backdrop { background: rgb(12 21 38 / 52%); }
+  .learning-mobile-drawer > .sidebar { width: 100%; min-height: 100%; height: auto; }
+  .learning-mobile-nav-close.btn { position: sticky; top: 8px; float: right; margin: 8px 12px 0 0; z-index: 1; }
+}
+
+@media (max-width: 600px) {
+  .daily-plan { gap: 12px; }
+  .daily-plan-heading { align-items: flex-start; flex-wrap: wrap; }
+  .daily-plan-heading p { font-size: 13px; }
+  .daily-plan-heading .btn { min-height: 32px; }
+  .daily-plan-card { padding: 13px; }
+  .daily-plan-calendar .daily-plan-row { flex-wrap: wrap; }
+  .daily-plan-calendar-grid { gap: 3px; }
+  .daily-plan-calendar-nav { gap: 4px; }
+  .daily-plan-calendar-nav .btn { min-height: 34px; padding: 0 8px; font-size: 12px; }
+  .daily-plan-month-arrow.btn { width: 34px; padding: 0; }
+  .daily-plan-legend { gap: 4px 9px; }
+  .daily-plan-replan { flex-wrap: wrap; }
+}

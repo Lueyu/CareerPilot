@@ -3,7 +3,6 @@
 运行: cd server && python -m pytest tests/ -v
 """
 import sys
-import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -259,8 +258,6 @@ def test_run_all_low_risk_gate():
 
 
 # ---------------------------------------------------------------- evolution 规则(DB 集成, monkeypatch 信号)
-from app.db import SessionLocal
-from app.models import Workspace
 from app.services import evolution as evo
 
 
@@ -271,46 +268,33 @@ def _sig(avg, rt=0.0, rtt=5, exams=5):
 
 
 @pytest.mark.asyncio
-async def test_evolution_propose_rules(monkeypatch):
-    slug = f"test-evo-{uuid.uuid4().hex[:8]}"
-    created = None
+async def test_evolution_propose_rules(monkeypatch, db_session, test_workspace):
+    signals = _sig(0.4)
 
     async def fake_sig(session, wid):
-        return _SIG_BOX["v"]
+        return signals
 
     monkeypatch.setattr(evo, "collect_signals", fake_sig)
-    _SIG_BOX = {"v": None}
-    try:
-        async with SessionLocal() as s:
-            ws = Workspace(slug=slug, name="测试空间", target_role="AI 工程师", target_level="P6", is_demo=False)
-            s.add(ws)
-            await s.commit()
-            created = ws
+    ws_id = test_workspace.id
 
-            _SIG_BOX["v"] = _sig(0.4)
-            low = await evo.propose_candidate(s, ws.id)
-            assert low["proposed"] and low["candidate"].body["candidate"]["difficulty_bias"] == 1
-            await evo.reject_candidate(s, ws.id, low["candidate"])
+    low = await evo.propose_candidate(db_session, ws_id)
+    assert low["proposed"] and low["candidate"].body["candidate"]["difficulty_bias"] == 1
+    await evo.reject_candidate(db_session, ws_id, low["candidate"])
 
-            _SIG_BOX["v"] = _sig(0.9)
-            high = await evo.propose_candidate(s, ws.id)
-            assert high["proposed"] and high["candidate"].body["candidate"]["difficulty_bias"] == -1
-            await evo.reject_candidate(s, ws.id, high["candidate"])
+    signals = _sig(0.9)
+    high = await evo.propose_candidate(db_session, ws_id)
+    assert high["proposed"] and high["candidate"].body["candidate"]["difficulty_bias"] == -1
+    await evo.reject_candidate(db_session, ws_id, high["candidate"])
 
-            _SIG_BOX["v"] = _sig(0.7, rt=0.3)
-            cadence = await evo.propose_candidate(s, ws.id)
-            assert cadence["proposed"] and cadence["candidate"].kind == "retest_cadence"
-            await evo.reject_candidate(s, ws.id, cadence["candidate"])
+    signals = _sig(0.7, rt=0.3)
+    cadence = await evo.propose_candidate(db_session, ws_id)
+    assert cadence["proposed"] and cadence["candidate"].kind == "retest_cadence"
+    await evo.reject_candidate(db_session, ws_id, cadence["candidate"])
 
-            _SIG_BOX["v"] = _sig(0.72, rt=0.7)
-            healthy = await evo.propose_candidate(s, ws.id)
-            assert healthy["proposed"] is False and "暂无" in healthy["reason"]
+    signals = _sig(0.72, rt=0.7)
+    healthy = await evo.propose_candidate(db_session, ws_id)
+    assert healthy["proposed"] is False and "暂无" in healthy["reason"]
 
-            _SIG_BOX["v"] = _sig(0.5, exams=2)
-            few = await evo.propose_candidate(s, ws.id)
-            assert few["proposed"] is False and "样本不足" in few["reason"]
-    finally:
-        if created is not None:
-            async with SessionLocal() as s:
-                await s.delete(created)
-                await s.commit()
+    signals = _sig(0.5, exams=2)
+    few = await evo.propose_candidate(db_session, ws_id)
+    assert few["proposed"] is False and "样本不足" in few["reason"]

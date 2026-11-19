@@ -4,13 +4,21 @@ import {api} from '../api/client';
 import {AutopilotRun,AutopilotSettings,WorkerStatus} from '../lib/projectIntelligence';
 import {messageOf} from '../lib/questionWorkshop';
 
-export const RUN_LABELS:Record<string,string>={QUEUED:'已导入，等待分析',RUNNING:'正在了解项目',RETRY_WAIT:'暂时无法继续，进度已保存',COMPLETED:'已完成，可查看报告',PAUSED_USER:'已暂停，进度已保存',PAUSED_BUDGET:'达到自动分析预算，进度已保存',BLOCKED:'暂时无法继续，进度已保存',CANCELLED:'分析任务已取消',FAILED_FINAL:'本次分析未完成，进度已保存'};
+export const RUN_LABELS:Record<string,string>={WAITING_WORKER:'等待后台升级，扫描已排队',QUEUED:'已导入，等待分析',RUNNING:'正在了解项目',RETRY_WAIT:'暂时无法继续，进度已保存',COMPLETED:'已完成，可查看报告',PAUSED_USER:'已暂停，进度已保存',PAUSED_BUDGET:'达到自动分析预算，进度已保存',BLOCKED:'暂时无法继续，进度已保存',CANCELLED:'分析任务已取消',FAILED_FINAL:'本次分析未完成，进度已保存'};
+export function projectRunLabel(run: AutopilotRun) {
+  if (run.report_id === run.id && run.coverage_status === 'COMPLETE' && run.status !== 'COMPLETED') {
+    const preparing = ['RUNNING', 'QUEUED', 'RETRY_WAIT'].includes(run.status);
+    return preparing ? '报告已生成，正在整理候选记忆' : '报告已生成，候选记忆尚未完成';
+  }
+  if (run.status === 'COMPLETED' && run.coverage_status === 'PARTIAL') return '已完成部分分析，仍有内容未覆盖';
+  return RUN_LABELS[run.status] || '正在读取任务状态';
+}
 const STAGES:Record<string,string>={resolve:'读取仓库版本',manifest_page:'分页盘点项目文件',manifest:'整理文件目录',plan_modules:'划分分析模块',read_source:'阅读模块源码',analyze_module:'分析模块实现与问题',module:'保存模块分析',cross_module:'核对跨模块调用与数据流',explain_section:'整理项目报告章节',report:'汇总并核对完整报告',candidates:'整理待确认的项目记忆',fetch_repo:'读取仓库版本与目录',snapshot:'读取仓库版本与目录',inventory:'梳理目录与模块',select_files:'梳理重点模块',read_initial:'阅读首批源码',followup_files:'寻找关联代码',read_followup:'补读关联代码',review_modules:'分组分析模块与问题',module_analysis:'分组分析模块与问题',final_report:'形成架构与问题报告',synthesis:'汇总项目报告',validate_report:'核对报告与代码引用',memory_candidates:'整理待确认的项目记忆'};
 export function ProjectRunStatus({run,worker,compact=false}: {run:AutopilotRun|null;worker?:WorkerStatus;compact?:boolean}) {
   return <div>
     {worker && !worker.online && <p role="status" className="hint">尚未启动本地后台服务。已有进度会保留；启动 Worker 后继续处理。</p>}
     {run && <div role={run.error?'alert':'status'}>
-      <p><strong>{run.status==='COMPLETED' && run.coverage_status==='PARTIAL'?'已完成部分分析，仍有内容未覆盖':RUN_LABELS[run.status] || '正在读取任务状态'}</strong></p>
+      <p><strong>{projectRunLabel(run)}</strong></p>
       {!compact && <>
         {run.stage && <p className="hint">{run.error?'停留阶段':'当前阶段'}：{STAGES[run.stage] || '后台处理项目资料'}</p>}
         {run.total_modules>0 && <p className="hint">已保存 {run.completed_modules} / {run.total_modules} 个模块的分析。{run.coverage_status==='PARTIAL'?'当前是部分分析，不能视为完整项目结论。':''}</p>}
@@ -50,10 +58,10 @@ export function ProjectActions({projectId,run,allowedActions,onChanged,onHistory
 
 export function AutopilotSettingsForm({onSaved,onLoaded,compact=false}: {onSaved?:(settings:AutopilotSettings)=>void;onLoaded?:(settings:AutopilotSettings)=>void;compact?:boolean}) {
   const [config,setConfig]=useState<AutopilotSettings|null>(null);const [error,setError]=useState('');const [busy,setBusy]=useState(false);
-  const [ack,setAck]=useState(false);const [calls,setCalls]=useState(32);const [bytes,setBytes]=useState(8388608);const [interval,setIntervalHours]=useState(6);
-  useEffect(()=>{let active=true;api.get<AutopilotSettings>('/project-autopilot/settings').then(s=>{if(active){if(!s.budget || typeof s.enabled!=='boolean')throw new Error('自动分析设置响应不完整，请重新打开后重试');setConfig(s);setCalls(s.budget.max_model_calls);setBytes(s.budget.max_source_bytes);setIntervalHours(s.check_interval_hours);onLoaded?.(s);}}).catch(e=>{if(active)setError(messageOf(e));});return()=>{active=false;};},[]);
-  const save=async(enabled:boolean)=>{setBusy(true);setError('');try{const next=await api.put<AutopilotSettings>('/project-autopilot/settings',{enabled,acknowledge_source_transfer:ack || !!config?.consented_at,budget:{max_model_calls:calls,max_source_bytes:bytes},check_interval_hours:interval});setConfig(next);onSaved?.(next);}catch(e){setError(messageOf(e));}finally{setBusy(false);}};
-  const valid=Number.isInteger(calls) && calls>0 && Number.isInteger(bytes) && bytes>0 && Number.isFinite(interval) && interval>0;
+  const [ack,setAck]=useState(false);const [calls,setCalls]=useState('');const [bytes,setBytes]=useState('');const [interval,setIntervalHours]=useState(6);
+  useEffect(()=>{let active=true;api.get<AutopilotSettings>('/project-autopilot/settings').then(s=>{if(active){if(!s.budget || typeof s.enabled!=='boolean')throw new Error('自动分析设置响应不完整，请重新打开后重试');setConfig(s);setCalls(String(s.budget.max_model_calls ?? ''));setBytes(String(s.budget.max_source_bytes ?? ''));setIntervalHours(s.check_interval_hours);onLoaded?.(s);}}).catch(e=>{if(active)setError(messageOf(e));});return()=>{active=false;};},[]);
+  const save=async(enabled:boolean)=>{setBusy(true);setError('');try{const next=await api.put<AutopilotSettings>('/project-autopilot/settings',{enabled,acknowledge_source_transfer:ack || !!config?.consented_at,budget:{max_model_calls:calls ? Number(calls) : null,max_source_bytes:bytes ? Number(bytes) : null},check_interval_hours:interval});setConfig(next);onSaved?.(next);}catch(e){setError(messageOf(e));}finally{setBusy(false);}};
+  const valid=[calls,bytes].every(raw=>raw === '' || (Number.isSafeInteger(Number(raw)) && Number(raw)>0)) && Number.isFinite(interval) && interval>0;
   return <section className={compact?undefined:'card'} style={{padding:compact?0:20}}>
     <h3>项目自动分析</h3>
     {error && <p role="alert">无法保存或读取自动分析设置：{error}</p>}
@@ -63,10 +71,12 @@ export function AutopilotSettingsForm({onSaved,onLoaded,compact=false}: {onSaved
       <p className="hint">当前模型服务：{config.provider_display_name || '尚未配置模型，请到模型与 Agent 连接设置'}。请仅导入有权交给该服务分析的仓库。不会执行或修改仓库代码。</p>
       {(!compact || !config.enabled) && <>
         {!config.consented_at && <label style={{display:'flex',gap:8,alignItems:'flex-start',margin:'12px 0'}}><input type="checkbox" aria-label="确认源码发送与自动分析预算" checked={ack} onChange={e=>setAck(e.target.checked)}/>我了解源码片段将发送给配置的模型服务，并确认以下自动分析预算。</label>}
-        <label className="field"><span>每次分析最多模型调用次数</span><input className="inp" type="number" min={1} aria-label="自动分析模型调用预算" value={calls} onChange={e=>setCalls(Number(e.target.value))}/></label>
-        <details><summary>更多预算与检查设置</summary><label className="field"><span>每次分析源码读取上限（字节）</span><input className="inp" type="number" min={1} value={bytes} onChange={e=>setBytes(Number(e.target.value))}/></label><label className="field"><span>本地后台运行时检查更新间隔（小时）</span><input className="inp" type="number" min={1} value={interval} onChange={e=>setIntervalHours(Number(e.target.value))}/></label></details>
+        <details><summary>可选预算与自动检查</summary><p className="hint">留空表示不限整次扫描总量。模型上下文和单次请求限制仍然适用。</p>
+          <label className="field"><span>每次扫描的模型调用上限</span><input className="inp" type="number" min={1} placeholder="不限" aria-label="自动分析模型调用预算" value={calls} onChange={e=>setCalls(e.target.value)}/></label>
+          <label className="field"><span>每次扫描的源码字节上限</span><input className="inp" type="number" min={1} placeholder="不限" value={bytes} onChange={e=>setBytes(e.target.value)}/></label><label className="field"><span>本地后台运行时检查更新间隔（小时）</span><input className="inp" type="number" min={1} value={interval} onChange={e=>setIntervalHours(Number(e.target.value))}/></label></details>
         <p className="hint">达到预算后保留进度并暂停，不会自动增加额度。费用取决于配置服务的计价；这里不估算金额。</p>
         <button className="btn btn-primary" disabled={busy || !valid || (!config.consented_at && !ack)} onClick={()=>save(true)}>{busy?'保存中…':config.enabled?'保存自动分析设置':'确认并启用自动分析'}</button>
+        {!config.enabled && <button className="btn btn-outline" disabled={busy || !valid} onClick={()=>save(false)}>只保存预算</button>}
         {config.enabled && <button className="btn btn-outline" style={{marginLeft:8}} disabled={busy} onClick={()=>save(false)}>关闭自动排队</button>}
       </>}
       {compact && config.enabled && <p className="hint">已启用自动分析，新导入仓库会排队处理。预算可在设置中调整。</p>}

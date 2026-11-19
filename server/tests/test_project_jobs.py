@@ -135,3 +135,17 @@ async def test_lease_heartbeats_and_elapsed_task_time_are_independent(db_session
     for seconds in range(20,3620,20):
         assert await jobs.heartbeat(db_session,claim,lease_seconds=30,now=start+timedelta(seconds=seconds))
     assert await jobs.complete_step(db_session,claim,{'long_session':'checkpoint'},now=start+timedelta(seconds=3601))
+
+
+@pytest.mark.asyncio
+async def test_default_budget_allows_model_calls_beyond_old_limit(db_session, test_workspace):
+    jobs, _, run = await setup_run(db_session, test_workspace)
+    first = await jobs.claim_step(db_session, 'worker')
+    await jobs.complete_step(db_session, first, {'manifest': 'saved'})
+    run.usage = {'model_calls': 100}
+    await jobs.ensure_steps(db_session, run, [dict(key='more', stage='analyze_module', requires=['resolve'])])
+    await db_session.commit()
+    claimed = await jobs.claim_step(db_session, 'worker')
+    assert claimed.run_id == run.id and claimed.step_key == 'more'
+    await db_session.refresh(run)
+    assert run.usage['model_calls'] == 101

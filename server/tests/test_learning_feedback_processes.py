@@ -32,6 +32,10 @@ def seed_factory(monkeypatch, *, second_queued=True):
         session.add(AppSetting(key=f'llm:{workspace.id}',value=deepcopy(CONFIG)))
         await session.flush()
         task=await task_with_valid_origin(session,workspace,monkeypatch)
+        # The seed helper stubs the origin exam. Queue practice submissions with
+        # the same stored configuration the separate API and worker will read.
+        from app.services import assessment_jobs, project_autopilot_config
+        monkeypatch.setattr(assessment_jobs, 'runtime_config', project_autopilot_config.runtime_config)
         path=await prepare_path(session,workspace,task.id)
         activities=[await session.get(LearningActivity,row['id']) for row in path['activities'][:2]]
         first=await submit_activity(session,workspace,activities[0],
