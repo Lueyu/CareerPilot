@@ -613,10 +613,10 @@ def _extract_structured_questions(text: str) -> list[dict]:
         qa = QA_HEAD.match(ln)
         numbered = NUMBERED_HEAD.match(ln)
         title = numbered.group(1).strip() if numbered and 6 <= len(ln.strip()) <= 120 else ""
-        # 问答里的编号步骤仍属于答案，除非这一行有提问信号。
+        # 答案里的编号步骤可能叙述“检查系统是如何工作的”。
         numbered_question = title and (
             cur_q is None or title.endswith(("?", "？"))
-            or any(word in title for word in ("什么", "如何", "怎么", "为什么"))
+            or (title.startswith(("什么", "如何", "怎么", "为什么")) and not title.endswith(("。", ".")))
         )
         if qa or numbered_question:
             if cur_q and len(cur_q) >= 6:

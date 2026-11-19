@@ -56,8 +56,14 @@ async def test_long_import_without_model_keeps_late_question_and_sources(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(('answer', 'last'), [
+    ('Items leave in insertion order.\n1. Append new items at the tail.\n2. Remove the head item.',
+     'How do workers recover expired jobs?'),
+    ('按下面两步检查。\n1. 先检查消费者是如何领取任务的。\n2. 然后核对任务的等待时间。',
+     '如何恢复超时任务？'),
+], ids=['english-answer-steps', 'chinese-answer-steps'])
 async def test_long_offline_mixed_import_keeps_order_and_answer_boundaries(
-    db_session, test_workspace, isolated_import_sessions, monkeypatch,
+    db_session, test_workspace, isolated_import_sessions, monkeypatch, answer, last,
 ):
     async def offline_chat(self, *args, **kwargs):
         return None
@@ -66,8 +72,6 @@ async def test_long_offline_mixed_import_keeps_order_and_answer_boundaries(
     monkeypatch.setattr(bank.AgentAdapter, 'chat', offline_chat)
     first = 'How do workers claim a job?'
     paired = 'How does a queue preserve insertion order?'
-    last = 'How do workers recover expired jobs?'
-    answer = 'Items leave in insertion order.\n1. Append new items at the tail.\n2. Remove the head item.'
     pasted_text = (
         f'1. {first}\n'
         + 'Synthetic interview notes.\n' * 320
