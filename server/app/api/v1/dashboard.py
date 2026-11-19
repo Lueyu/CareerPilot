@@ -4,8 +4,10 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.api.deps import get_workspace
+from app.api.v1.learning import _today
 from app.db import get_session
 from app.models import (
     Evidence, Exam, ImportSession, JobStandard, LearningTask, Question, Skill, SkillState, Workspace,
@@ -37,12 +39,32 @@ async def dashboard(
             .where(
                 LearningTask.workspace_id == ws.id,
                 LearningTask.status != LearningTask.STATUS_DONE,
+                LearningTask.kind != LearningTask.KIND_RETEST,
                 LearningTask.retest_round == 0,
             )
             .order_by(LearningTask.id)
             .limit(6)
         )
     ).scalars().all()
+
+    parent = aliased(LearningTask)
+    due_retests = (
+        await session.execute(
+            select(LearningTask.id, LearningTask.title, LearningTask.due_date,
+                   parent.id.label("parent_id"), parent.title.label("parent_title"))
+            .join(parent, LearningTask.retest_of == parent.id)
+            .where(
+                LearningTask.workspace_id == ws.id,
+                LearningTask.kind == LearningTask.KIND_RETEST,
+                LearningTask.status != LearningTask.STATUS_DONE,
+                LearningTask.due_date <= _today(),
+                LearningTask.skill_id.is_not(None),
+                parent.workspace_id == ws.id,
+                parent.status == LearningTask.STATUS_DONE,
+            )
+            .order_by(LearningTask.due_date, LearningTask.id)
+        )
+    ).mappings().all()
 
     pending_imports = (
         await session.execute(
@@ -105,6 +127,9 @@ async def dashboard(
         },
         "gap": gap,
         "domains": domains,
+        "due_retests": [
+            {**retest, "due_date": retest["due_date"].isoformat()} for retest in due_retests
+        ],
         "today_tasks": [
             {
                 "id": t.id, "title": t.title, "kind": t.kind, "why": t.why,
