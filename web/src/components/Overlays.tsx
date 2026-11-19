@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState } from './AppState';
 import { Modal } from './ui';
@@ -13,25 +13,40 @@ const QUICK_ACTIONS = [
 export function CommandPalette() {
   const { cmdOpen, setCmdOpen } = useAppState();
   const [q, setQ] = useState('');
+  const [selectedTo, setSelectedTo] = useState<string | null>(null);
   const navigate = useNavigate();
+  const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
+  const activeOptionRef = useRef<HTMLDivElement>(null);
   const profile = useApi<ProfileData>(cmdOpen ? '/profile' : null);
   const learning = useApi<LearningData>(cmdOpen ? '/learning' : null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        setCmdOpen(!cmdOpen);
+        if (!e.repeat) setCmdOpen(!cmdOpen);
+      } else if (cmdOpen && e.key === 'Escape') {
+        e.preventDefault();
+        setCmdOpen(false);
       }
-      if (e.key === 'Escape') setCmdOpen(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [cmdOpen, setCmdOpen]);
 
-  useEffect(() => {
-    if (cmdOpen) setTimeout(() => inputRef.current?.focus(), 30);
+  useLayoutEffect(() => {
+    if (cmdOpen) {
+      const focused = document.activeElement;
+      previousFocus.current = focused instanceof HTMLElement ? focused : null;
+      inputRef.current?.focus();
+    } else {
+      if (previousFocus.current?.isConnected) previousFocus.current.focus();
+      previousFocus.current = null;
+      setSelectedTo(null);
+    }
   }, [cmdOpen]);
 
   const groups = useMemo(() => {
@@ -40,47 +55,97 @@ export function CommandPalette() {
       { g: '任务', items: (learning.data?.today ?? []).map(t => ({ ic: '📌', name: t.title, meta: t.status, to: `/learning/task/${t.id}` })) },
     ];
     const kw = q.trim().toLowerCase();
-    if (!kw) return all;
     return all
-      .map((g) => ({ ...g, items: g.items.filter((it) => (it.name + it.meta).toLowerCase().includes(kw)) }))
+      .map((g) => ({ ...g, items: kw ? g.items.filter((it) => (it.name + it.meta).toLowerCase().includes(kw)) : g.items }))
       .filter((g) => g.items.length > 0);
   }, [q, profile.data, learning.data]);
+
+  const items = groups.flatMap(g => g.items);
+  const activeIndex = Math.max(0, items.findIndex(item => item.to === selectedTo));
+  const activeItem = items[activeIndex];
+  const optionId = (to: string) => `${listId}-${to}`;
+  const activeId = activeItem ? optionId(activeItem.to) : undefined;
+
+  useLayoutEffect(() => {
+    if (cmdOpen) activeOptionRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [activeId, cmdOpen]);
+
+  const openResult = (to: string) => {
+    setCmdOpen(false);
+    navigate(to);
+  };
+
+  const onInputKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.nativeEvent.isComposing) return;
+    if (e.key === 'Tab') {
+      e.preventDefault();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!items.length) return;
+      const step = e.key === 'ArrowDown' ? 1 : -1;
+      const nextIndex = (activeIndex + step + items.length) % items.length;
+      setSelectedTo(items[nextIndex].to);
+    } else if (e.key === 'Enter' && activeItem) {
+      e.preventDefault();
+      openResult(activeItem.to);
+    }
+  };
 
   if (!cmdOpen) return null;
   return (
     <div className="modal-mask" onClick={() => setCmdOpen(false)}>
-      <div className="modal cmdk" onClick={(e) => e.stopPropagation()}>
+      <div className="modal cmdk" role="dialog" aria-label="全局搜索" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <div className="cmdk-input">
           <span>🔍</span>
           <input
             ref={inputRef}
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setSelectedTo(null);
+            }}
+            onKeyDown={onInputKey}
+            role="combobox"
+            aria-label="搜索技能、证据、任务"
+            aria-autocomplete="list"
+            aria-controls={listId}
+            aria-expanded="true"
+            aria-activedescendant={activeId}
             placeholder="搜索技能、证据、任务…"
           />
           <span className="kbd">ESC</span>
         </div>
-        <div className="cmdk-groups">{(profile.loading || learning.loading) && <p className="hint">正在读取当前空间…</p>}{(profile.error || learning.error) && <p role="alert">搜索读取失败：{profile.error || learning.error}</p>}
-          {groups.length === 0 && <div className="empty" style={{ padding: 20 }}><b>无匹配结果</b></div>}
-          {groups.map((g) => (
-            <div key={g.g}>
-              <div className="cmdk-group-title">{g.g}</div>
-              {g.items.map((it) => (
-                <div
-                  className="cmdk-item"
-                  key={it.name}
-                  onClick={() => {
-                    setCmdOpen(false);
-                    navigate(it.to);
-                  }}
-                >
-                  <span className="cmdk-item-ic">{it.ic}</span>
-                  <span className="cmdk-item-name">{it.name}</span>
-                  <span className="cmdk-item-meta">{it.meta}</span>
-                </div>
-              ))}
-            </div>
-          ))}
+        <div className="cmdk-groups">
+          {(profile.loading || learning.loading) && <p role="status" className="hint">正在读取当前空间…</p>}
+          {(profile.error || learning.error) && <p role="alert">搜索读取失败：{profile.error || learning.error}</p>}
+          {!profile.loading && !learning.loading && !items.length && (
+            <div className="empty" role="status" style={{ padding: 20 }}><b>无匹配结果</b></div>
+          )}
+          <div role="listbox" id={listId} aria-label="搜索结果">
+            {groups.map((g) => (
+              <div role="group" aria-label={g.g} key={g.g}>
+                <div className="cmdk-group-title" aria-hidden="true">{g.g}</div>
+                {g.items.map((it) => {
+                  const selected = it.to === activeItem?.to;
+                  return (
+                    <div
+                      className={selected ? 'cmdk-item sel' : 'cmdk-item'}
+                      key={it.to}
+                      id={optionId(it.to)}
+                      ref={selected ? activeOptionRef : null}
+                      role="option"
+                      aria-selected={selected}
+                      onClick={() => openResult(it.to)}
+                    >
+                      <span className="cmdk-item-ic" aria-hidden="true">{it.ic}</span>
+                      <span className="cmdk-item-name">{it.name}</span>
+                      <span className="cmdk-item-meta">{it.meta}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
         </div>
         <div className="cmdk-foot">
           <span>↑↓ 选择</span>
