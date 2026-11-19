@@ -151,7 +151,7 @@ async def settings_overview(
         "members": members,
         "counts": counts,
         "connections": {
-            # LLM: 已配置 provider+key 即视为已连接(密钥不回显)
+            # LLM 环境默认值，仅用于概览
             "llm": {
                 "active": bool(cfg.llm_provider and cfg.llm_api_key),
                 "provider": cfg.llm_provider or None,
@@ -402,17 +402,29 @@ def _hint(key: str) -> str | None:
     return f"****{key[-4:]}" if key else None
 
 
+def _llm_configured(config: dict) -> bool:
+    return all((config.get(field) or "").strip() for field in ("provider", "api_key", "base_url", "model"))
+
+
+class LlmReadiness(BaseModel):
+    configured: bool
+
+
+@router.get("/settings/llm/readiness", dependencies=[Depends(require_local_owner)])
+async def get_llm_readiness(ws: Workspace = Depends(get_workspace)) -> LlmReadiness | None:
+    if ws.is_demo:
+        return None
+    return LlmReadiness(configured=_llm_configured(await get_llm_config()))
+
+
 async def _llm_payload() -> dict:
     cfgv = await get_llm_config()
-    provider = cfgv.get("provider") or ""
-    key = cfgv.get("api_key") or ""
     return {
-        "active": bool(provider and key),
-        "provider": provider or None,
+        "active": _llm_configured(cfgv),
+        "provider": cfgv.get("provider") or None,
         "base_url": cfgv.get("base_url") or None,
         "model": cfgv.get("model") or None,
-        "api_key_set": bool(key),
-        "api_key_hint": _hint(key),
+        "api_key_set": bool(cfgv.get("api_key")),
         "source": cfgv.get("source", "none"),
     }
 
@@ -468,8 +480,7 @@ async def test_llm(body: LlmTest):
     latency_ms = int((time.monotonic() - t0) * 1000)
     if result is None:
         return {"ok": False, "latency_ms": latency_ms, "model": cfgv.get("model"), "error": "调用失败(网络/凭证/模型名), 未返回内容"}
-    reply = (result.get("content") or "").strip()
-    return {"ok": True, "latency_ms": latency_ms, "model": cfgv.get("model"), "reply": reply[:120]}
+    return {"ok": True, "latency_ms": latency_ms, "model": cfgv.get("model")}
 
 
 # --------------------------------------------------------------------------

@@ -1,5 +1,30 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { getWorkspace, useApi, workspaceLogin } from '../api/client';
+
+export function DiagnosisModelReadiness() {
+  const applicable = !workspaceLogin && getWorkspace() !== 'demo';
+  const { data, loading, error } = useApi<{ configured: boolean } | null>(
+    applicable ? '/settings/llm/readiness' : null,
+  );
+  if (!applicable || loading || (!data && !error)) return null;
+
+  const message = error
+    ? '暂时无法读取模型配置。你可以在设置中查看模型状态。'
+    : data?.configured
+      ? '模型已配置。可在设置中点击「测试连接」，确认开放题评分所用的模型可以访问。'
+      : '模型未配置。你可以先开始答题，开放题评分需要配置模型。';
+
+  return (
+    <div className="card" style={{ margin: '12px 0 16px' }}>
+      <div className="card-head">
+        <span className="card-title">诊断前的模型准备</span>
+        <Link className="link" to="/settings?tab=models">模型设置</Link>
+      </div>
+      <p className="hint" role="status">{message}</p>
+    </div>
+  );
+}
 
 export default function Onboarding() {
   const navigate = useNavigate();
@@ -22,6 +47,7 @@ export default function Onboarding() {
           CareerPilot 用证据而非感觉评估你的能力：诊断、对标、学习、复测，
           每一步都有据可循。专为 AI Agent 应用开发工程师打造。
         </p>
+        <DiagnosisModelReadiness />
         <div className="ob-cta">
           <button className="btn btn-primary btn-lg" style={{ fontSize: 15, padding: '12px 30px' }} onClick={() => navigate('/')}>
             开始体验 CareerPilot →

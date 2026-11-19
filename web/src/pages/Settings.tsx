@@ -32,8 +32,13 @@ const ACTION_META: Record<string, { label: string; cls: string }> = {
 
 export default function Settings() {
   const { toast } = useAppState();
-  const [searchParams]=useSearchParams();
-  const [tab, setTab] = useState<TabKey>(()=>searchParams.get('tab')==='rules'?'rules':'workspace');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = TABS.find(t => t.key === searchParams.get('tab'))?.key ?? 'workspace';
+  const setTab = (key: TabKey) => setSearchParams(previous => {
+    const next = new URLSearchParams(previous);
+    next.set('tab', key);
+    return next;
+  });
   const [ov, setOv] = useState<SettingsOverview | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -234,8 +239,9 @@ function WorkspaceTab({ ov, reload, toast }: { ov: SettingsOverview; reload: () 
 /* ---------------- 模型与连接(全可配置) ---------------- */
 type LlmCfg = {
   active: boolean; provider: string | null; base_url: string | null; model: string | null;
-  api_key_set: boolean; api_key_hint: string | null; source: 'db' | 'env' | 'none';
+  api_key_set: boolean; source: 'db' | 'env' | 'none';
 };
+type LlmTestResult = { ok: true; latency_ms: number } | { ok: false; error: string };
 type GhCfg = {
   active: boolean; token_hint: string | null; source: 'db' | 'env' | 'none';
   target_repo?: string; base_branch?: string; content_dir?: string;
@@ -250,7 +256,8 @@ function ModelsTab({ toast }: { toast: (ic: string, msg: string) => void }) {
   const [apiKey, setApiKey] = useState('');
   const [llmSaving, setLlmSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [testRes, setTestRes] = useState<{ ok: boolean; latency_ms?: number; model?: string; reply?: string; error?: string } | null>(null);
+  const [testRes, setTestRes] = useState<LlmTestResult | null>(null);
+  const llmBusy = llmSaving || testing;
   const [llmErr, setLlmErr] = useState<string | null>(null);
 
   // ---- GitHub 配置 ----
@@ -278,6 +285,7 @@ function ModelsTab({ toast }: { toast: (ic: string, msg: string) => void }) {
 
   const saveLlm = async () => {
     setLlmSaving(true);
+    setTestRes(null);
     try {
       await api.put('/settings/llm', {
         provider: provider.trim() || undefined,
@@ -298,28 +306,31 @@ function ModelsTab({ toast }: { toast: (ic: string, msg: string) => void }) {
     setTesting(true);
     setTestRes(null);
     try {
-      const r = await api.post<typeof testRes>('/settings/llm/test', {
+      const r = await api.post<LlmTestResult>('/settings/llm/test', {
         provider: provider.trim() || undefined,
         base_url: baseUrl.trim() || undefined,
         model: model.trim() || undefined,
         api_key: apiKey.trim() || undefined, // 测试允许用未保存的新 key 试连
       });
       setTestRes(r);
-    } catch (e) {
-      setTestRes({ ok: false, error: e instanceof ApiError ? e.message : String(e) });
+    } catch {
+      setTestRes({ ok: false, error: '无法完成连接测试，请稍后重试。' });
     } finally {
       setTesting(false);
     }
   };
 
   const resetLlm = async () => {
+    setLlmSaving(true);
+    setTestRes(null);
     try {
       await api.del('/settings/llm');
       await loadLlm();
-      setTestRes(null);
       toast('↩️', '已恢复 server/.env 默认 LLM 配置');
     } catch (e) {
       toast('❌', `重置失败: ${String(e)}`);
+    } finally {
+      setLlmSaving(false);
     }
   };
 
@@ -355,42 +366,42 @@ function ModelsTab({ toast }: { toast: (ic: string, msg: string) => void }) {
       <div className="card">
         <div className="card-head">
           <span className="card-title">LLM 连接（推理与生成）</span>
-          {llm && <span className={`chip ${llm.active ? 'chip-green' : 'chip-slate'}`}>{llm.active ? '已连接' : '未配置'}</span>}
+          {llm && <span className={`chip ${llm.active ? 'chip-blue' : 'chip-slate'}`}>{llm.active ? '已配置' : '未配置'}</span>}
         </div>
         {llmErr && <p className="hint" style={{ color: 'var(--red)' }}>加载失败: {llmErr}</p>}
         {llm && (
           <>
             <p className="hint" style={{ margin: '4px 0 12px' }}>
-              当前生效：{llm.provider || '—'} · {llm.model || '—'} · 密钥 {llm.api_key_hint || '未设置'} {srcChip(llm.source)}
-              <br />修改后立即生效，无需重启后端；密钥只存本地（DB/env），接口不回显。开放题评分失败会明确报错，可检查连接后重试。
+              当前生效：{llm.provider || '—'} · {llm.model || '—'} · 密钥 {llm.api_key_set ? '已设置' : '未设置'} {srcChip(llm.source)}
+              <br />保存后立即生效。点击「测试连接」会用当前表单值发起一次模型请求。
             </p>
             <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div className="field">
                 <label>Provider（标识名，任意）</label>
-                <input className="inp" value={provider} onChange={(e) => setProvider(e.target.value)} placeholder="gateway / deepseek / glm" />
+                <input className="inp" value={provider} disabled={llmBusy} onChange={(e) => { setProvider(e.target.value); setTestRes(null); }} placeholder="gateway / deepseek / glm" />
               </div>
               <div className="field">
                 <label>模型名</label>
-                <input className="inp" value={model} onChange={(e) => setModel(e.target.value)} placeholder="如 deepseek-v4-flash" />
+                <input className="inp" value={model} disabled={llmBusy} onChange={(e) => { setModel(e.target.value); setTestRes(null); }} placeholder="如 deepseek-v4-flash" />
               </div>
             </div>
             <div className="field">
               <label>Base URL（OpenAI 兼容 /v1）</label>
-              <input className="inp" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://…/v1" />
+              <input className="inp" value={baseUrl} disabled={llmBusy} onChange={(e) => { setBaseUrl(e.target.value); setTestRes(null); }} placeholder="https://…/v1" />
             </div>
             <div className="field">
-              <label>API Key {llm.api_key_set && <span className="hint" style={{ display: 'inline' }}>（已设置 {llm.api_key_hint}，留空保留）</span>}</label>
-              <input className="inp" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="粘贴新 Key，留空保留现有" />
+              <label>API Key {llm.api_key_set && <span className="hint" style={{ display: 'inline' }}>（已设置，留空保留）</span>}</label>
+              <input className="inp" type="password" value={apiKey} disabled={llmBusy} onChange={(e) => { setApiKey(e.target.value); setTestRes(null); }} placeholder="粘贴新 Key，留空保留现有" />
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <button className="btn btn-primary btn-sm" disabled={llmSaving} onClick={() => void saveLlm()}>{llmSaving ? '保存中…' : '保存'}</button>
-              <button className="btn btn-outline btn-sm" disabled={testing} onClick={() => void testLlm()}>{testing ? '测试中…' : '🔌 测试连接'}</button>
-              {llm.source === 'db' && <button className="btn btn-ghost btn-sm" onClick={() => void resetLlm()}>恢复 .env 默认</button>}
+              <button className="btn btn-primary btn-sm" disabled={llmBusy} onClick={() => void saveLlm()}>{llmSaving ? '保存中…' : '保存'}</button>
+              <button className="btn btn-outline btn-sm" disabled={llmBusy} onClick={() => void testLlm()}>{testing ? '测试中…' : '🔌 测试连接'}</button>
+              {llm.source === 'db' && <button className="btn btn-ghost btn-sm" disabled={llmBusy} onClick={() => void resetLlm()}>恢复 .env 默认</button>}
             </div>
             {testRes && (
-              <div className={`hint`} style={{ marginTop: 10, color: testRes.ok ? 'var(--green)' : 'var(--red)' }}>
+              <div className="hint" role="status" style={{ marginTop: 10, color: testRes.ok ? 'var(--green)' : 'var(--red)' }}>
                 {testRes.ok
-                  ? `✅ 连接成功 · ${testRes.model} · ${testRes.latency_ms}ms · 回复「${testRes.reply}」`
+                  ? `✅ 本次测试连接成功 · ${testRes.latency_ms}ms`
                   : `❌ 测试失败：${testRes.error}`}
               </div>
             )}
