@@ -181,6 +181,7 @@ export interface ExamReportData {
     weaknesses: { skill: string; why: string; gap?: string }[];
     actions: { title: string; detail: string }[];
     per_question: Record<string, { why: string; how: string }>;
+    coverage: { total: number; explained: number; missing_order_nos: number[] };
     generated_at?: string; model?: string;
   } | null;
   has_deep?: boolean;
