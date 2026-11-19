@@ -9,6 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import candidate_delivery as delivery
+import review_board
 
 
 def git(tree, *args):
@@ -116,6 +117,39 @@ def test_verify_reuses_bound_receipt_after_publication(identity, monkeypatch):
     (tree / "app.txt").write_bytes(b"new edit\n")
     with pytest.raises(ValueError, match="differs from change.patch"):
         delivery.verify_delivery(*identity)
+
+
+def test_morning_links_only_verified_dev_snapshots_and_keeps_failed_receipts(identity, monkeypatch):
+    run, tree, base, _, project = identity
+    git(tree, "update-ref", "refs/remotes/origin/dev", base)
+    git(tree, "commit", "-qam", "Deployment")
+    deployed = git(tree, "rev-parse", "HEAD").decode().strip()
+    (run / "change.patch").write_bytes(b"")
+    binding, _, _ = delivery.candidate(run, tree, deployed, delivery.digest(b""), project)
+    attempt = run / "candidate-preview"
+    attempt.mkdir()
+    regression = [sys.executable, "-c",
+                  "from pathlib import Path; assert Path('app.txt').read_text().strip() == 'candidate'; print('passed')"]
+    check = delivery.run_check(attempt, "regression", regression, tree, delivery.environment())
+    app = {"preview_url": "http://127.0.0.1:51001/"}
+    receipt = dict(binding, status="passed", regression=check, application=app, preview_url=app["preview_url"])
+    delivery.save(run / delivery.RECEIPT, receipt)
+    monkeypatch.setattr(delivery, "application_check", lambda *_: app)
+    failed = run.parent / "failed-preview"
+    failed.mkdir()
+    delivery.save(failed / delivery.RECEIPT, dict(binding, project="squabble", status="failed"))
+
+    off_dev = "\n".join(review_board.morning([], [failed, run]))
+    assert deployed[:12] in off_dev and app["preview_url"] not in off_dev
+    assert "Squabble" in off_dev and "failed-preview" in off_dev
+
+    git(tree, "commit", "--allow-empty", "-qm", "Newer dev tip")
+    git(tree, "update-ref", "refs/remotes/origin/dev", "HEAD")
+    git(tree, "checkout", "--detach", deployed)
+    on_dev = "\n".join(review_board.morning([], [failed, run]))
+    assert app["preview_url"] in on_dev
+    (attempt / "regression.log").write_text("changed", encoding="utf-8")
+    assert app["preview_url"] not in "\n".join(review_board.morning([], [run]))
 
 
 @pytest.mark.parametrize("code", ["pass", "print('# pass 0')", "print('1 skipped in 0.1s')", "raise SystemExit(2)"])

@@ -35,6 +35,8 @@ python scripts/agent/nightly.py decide --id $id --decision revise --file $revise
 4. 所有可交付项合入后，按[本地部署说明](candidate-preview.md)部署各项目刚读取的 `origin/dev` 提交。用独立数据库与回环端口验证组合后的主要操作，把两套应用留到早晨。
 5. 执行中断时先查原会话、工作树和 GitHub PR。确认原执行者停止后用 `recover --id ID --owner OLD --new-owner NEW --confirm-stopped --reason TEXT` 接管现有分支。PR 已合入时直接补记回执。任务持续时间没有固定上限。
 
+第一批已领取的本地任务由当前所有者在对应仓库抓取 `origin/dev` 后，再执行 `claim --dev --id ID --owner OWNER`。转换要求原领取基线已包含在 `origin/dev` 中，现有工作树、分支提交和领取基线会保留。转换后通过 `record-dev` 登记已合入的 PR。
+
 ```powershell
 python scripts/agent/nightly.py record-dev --id $id --owner $owner --pr $prUrl --head $reviewedHead
 ```
@@ -47,7 +49,7 @@ python scripts/agent/nightly.py record-dev --id $id --owner $owner --pr $prUrl -
 python scripts/agent/review_board.py morning --output $morningReport --dev-preview $careerPilotRun --dev-preview $squabbleRun
 ```
 
-晨报提供两套应用地址、部署的 `dev` SHA、功能 PR、体验步骤、验收结果和待解决事项。用户体验后决定是否把对应 `dev` 提交合入主干。
+晨报提供部署的 `dev` SHA、功能 PR、体验步骤、验收结果和待解决事项。通过验收且部署提交仍包含在对应仓库本地 `origin/dev` 中的预览会显示应用链接。验收失败的部署仍会显示证据入口。用户体验后决定是否把对应 `dev` 提交合入主干。
 
 收到对已验证候选的明确反馈后，选用 `accept`（接纳）、`return`（要求修改）或 `decline`（放弃）。将用户原话登记到账本，晨报会显示对应决定。退回或放弃的改动先通过新的修订或回退 PR 处理，再交付包含该变更的 `dev` 批次。
 

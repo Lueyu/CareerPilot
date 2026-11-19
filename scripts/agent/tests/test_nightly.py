@@ -82,13 +82,57 @@ class AgileTests(unittest.TestCase):
         (Path(row["run_dir"]) / "binding.json").write_text(json.dumps(binding))
         return row
 
+    def test_claim_dev_converts_existing_worktree_without_moving_its_branch(self):
+        task = self.proposal("A", "intro.md")
+        self.submit(task)
+        self.decide("A")
+        local = self.task("claim", "A")
+        worktree = Path(local["workspace"])
+        self.git("checkout", "-qb", "codex/feature", repo=worktree)
+        (worktree / "intro.md").write_text("feature\n")
+        self.git("-c", "user.name=Fixture", "-c", "user.email=fixture@localhost",
+                 "commit", "-qam", "feature", repo=worktree)
+        head = self.git("rev-parse", "HEAD", repo=worktree)
+        (worktree / "other.md").write_text("pending edit\n")
+        (self.target / "other.md").write_text("upstream edit\n")
+        self.git("-c", "user.name=Fixture", "-c", "user.email=fixture@localhost",
+                 "commit", "-qam", "advance dev")
+        self.git("update-ref", "refs/remotes/origin/dev", "HEAD")
+
+        self.task("claim", "A", "--dev", owner="other", code=2)
+        self.assertEqual(self.cli("status")["tasks"][0], local)
+        dev = self.task("claim", "A", "--dev")
+        self.assertEqual(dev["permissions"], "verified-pr-to-dev")
+        self.assertEqual(dev["base"], local["base"])
+        self.assertEqual(dev["claimed_at"], local["claimed_at"])
+        self.assertEqual(dev["history"][:-1], local["history"])
+        self.assertEqual(dev["history"][-1]["target"], "dev")
+        self.assertEqual(dev, self.task("claim", "A", "--dev"))
+        self.assertEqual(dev, self.task("claim", "A"))
+        self.assertEqual(self.git("rev-parse", "HEAD", repo=worktree), head)
+        self.assertEqual(self.git("branch", "--show-current", repo=worktree), "codex/feature")
+        self.assertEqual((worktree / "other.md").read_text(), "pending edit\n")
+
+    def test_dev_claim_rejects_local_finish_but_can_record_failure(self):
+        task = self.proposal("A", "other.md")
+        self.submit(task)
+        self.decide("A")
+        self.git("update-ref", "refs/remotes/origin/dev", task["base"])
+        dev = self.task("claim", "A", "--dev")
+        (Path(dev["workspace"]) / "other.md").write_text("verified local fixture\n")
+        bound = self.bind("A")
+        self.task("finish", "A", code=2)
+        self.assertEqual(self.cli("status")["tasks"][0], bound)
+        failed = self.task("finish", "A", "--result", "failed", "--reason", "check failed")
+        self.assertEqual(failed["phase"], "failed")
+
     def test_dev_delivery_records_github_squash_and_releases_scope(self):
         first = self.proposal("A", "intro.md")
         self.submit(first, self.proposal("B", "intro.md"))
         self.decide("A")
         self.decide("B")
         self.git("update-ref", "refs/remotes/origin/dev", first["base"])
-        task = self.task("claim", "A", "--dev")
+        task = self.task("claim", "A")
         worktree = Path(task["workspace"])
         (worktree / "intro.md").write_text("approved feature\n")
         self.git("add", "intro.md", repo=worktree)
@@ -109,14 +153,28 @@ class AgileTests(unittest.TestCase):
         args = type("DevDelivery", (), dict(pr=api["url"], head=head))()
         with closing(sqlite3.connect(self.ledger)) as db, db:
             db.row_factory = sqlite3.Row
+            with patch("subprocess.check_output", return_value=json.dumps(api)):
+                with self.assertRaisesRegex(ValueError, "claim --dev"):
+                    nightly["record_dev_delivery"](db, nightly["task_rows"](db)["A"], task, args,
+                                                   self.target, run_dir)
+        self.assertEqual(self.cli("status")["tasks"][0], task)
+
+        task = self.task("claim", "A", "--dev")
+        with closing(sqlite3.connect(self.ledger)) as db, db:
+            db.row_factory = sqlite3.Row
             with patch("subprocess.check_output", return_value=json.dumps(dict(api, baseRefName="main"))):
                 with self.assertRaisesRegex(ValueError, "merged into dev"):
                     nightly["record_dev_delivery"](db, nightly["task_rows"](db)["A"], task, args,
                                                    self.target, run_dir)
             with patch("subprocess.check_output", return_value=json.dumps(api)):
-                for _ in range(2):
-                    nightly["record_dev_delivery"](db, nightly["task_rows"](db)["A"], task, args,
-                                                   self.target, run_dir)
+                nightly["record_dev_delivery"](db, nightly["task_rows"](db)["A"], task, args,
+                                               self.target, run_dir)
+                # Previous versions could record a dev delivery on a local-only claim.
+                db.execute("DELETE FROM agile_history WHERE task_id='A' AND event='target-changed'")
+                row = nightly["task_rows"](db)["A"]
+                historical = nightly["task_receipt"](db, row, first, self.ledger.parent)
+                self.assertEqual(historical["permissions"], "verified-pr-to-dev")
+                nightly["record_dev_delivery"](db, row, historical, args, self.target, run_dir)
         successor = self.task("claim", "B", "--dev")
         self.assertEqual(successor["base"], merged)
         self.assertEqual(Path(successor["workspace"], "intro.md").read_text(), "approved feature\n")
@@ -211,6 +269,9 @@ class AgileTests(unittest.TestCase):
         self.assertIn(a["commit"], self.git("rev-list", b["base"]).splitlines())
         self.assertEqual(b["approved_base"], first["base"])
         self.assertEqual(b["predecessors"][0]["kind"], "overlap")
+        self.git("update-ref", "refs/remotes/origin/dev", first["base"])
+        self.assertIn("claimed base", self.task("claim", "B", "--dev", code=2)["reason"])
+        self.assertEqual(next(row for row in self.cli("status")["tasks"] if row["id"] == "B"), b)
         (Path(b["workspace"]) / "intro.md").write_text("verified B\n")
         self.bind("B")
         b = self.task("finish", "B")

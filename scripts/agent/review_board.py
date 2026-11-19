@@ -5,10 +5,12 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 
-from candidate_delivery import verify_delivery
+from candidate_delivery import PROJECTS, RECEIPT, digest, verify_delivery
+from nightly import fetched_dev_contains
 
 
 HERE = Path(__file__).resolve().parent
@@ -35,6 +37,35 @@ def application_link(task, saved_url):
     except (ValueError, OSError, subprocess.SubprocessError):
         pass
     return "预览需要恢复，先检查本轮部署回执。"
+
+
+def dev_snapshot(receipt):
+    base = receipt.get("base")
+    workspace = receipt.get("workspace")
+    if (not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{40}", base)
+            or not isinstance(workspace, str) or receipt.get("patch_sha256") != digest(b"")):
+        return False
+    try:
+        return fetched_dev_contains(Path(workspace), base)
+    except (ValueError, OSError):
+        return False
+
+
+def deployment_line(directory):
+    evidence = local_link("部署证据", directory)
+    try:
+        receipt = json.loads((directory / RECEIPT).read_bytes())
+        project = PROJECTS[receipt["project"]][-1]
+        base = receipt["base"][:12]
+    except (ValueError, OSError, KeyError, TypeError):
+        return f"- 无法读取部署回执。{evidence}"
+    if receipt.get("status") != "passed":
+        return f"- {project} 提交 `{base}`。预览验收未通过。{evidence}"
+    if not dev_snapshot(receipt):
+        return f"- {project} 提交 `{base}`。无法确认部署来自本地已抓取的 `origin/dev`。{evidence}"
+    url = receipt.get("preview_url")
+    link = application_link({**receipt, "run_dir": directory}, url) if url else "预览未就绪。"
+    return f"- {project} `dev` 提交 `{base}`。{link} {evidence}"
 
 
 def evening(tasks, catalog):
@@ -81,12 +112,7 @@ def morning(tasks, deployments=()):
     counts = Counter(LABEL[t["phase"]] for t in tasks)
     lines.append("，".join(f"{name} {n} 项" for name, n in counts.items()) or "本次没有登记的建议。")
     for directory in deployments:
-        receipt = json.loads((directory / "candidate-delivery.json").read_bytes())
-        project = {"careerpilot": "CareerPilot", "squabble": "Squabble"}[receipt["project"]]
-        url = receipt.get("preview_url")
-        link = (application_link({"run_dir": directory, **receipt}, url)
-                if url else "预览未就绪。")
-        lines += ["", f"- {project} `dev` 提交 `{receipt['base'][:12]}`。{link}"]
+        lines += ["", deployment_line(directory)]
     for project in sorted({t["project"] for t in tasks}):
         lines += ["", f"## {project}"]
         for task in (t for t in tasks if t["project"] == project):
@@ -113,7 +139,8 @@ def morning(tasks, deployments=()):
                 if check and check.get("exit_code") == 0:
                     lines.append(f"  - {label}通过。")
             if url:
-                lines.append("  - " + application_link(task, url))
+                link = application_link(task, url) if dev_snapshot(task) else "预览未绑定到已验证的 `dev` 部署。"
+                lines.append("  - " + link)
             if task.get("run_dir") and Path(task["run_dir"]).is_dir():
                 report = Path(task["run_dir"]) / "report.md"
                 if report.is_file():

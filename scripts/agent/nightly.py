@@ -79,12 +79,17 @@ def record_versions(directory, owner):
     (directory / "versions.json").write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
-def check_workspace(tree, state, repo):
+def check_workspace(tree, state, repo, *, allow_commits=False):
     if (Path(git("rev-parse", "--show-toplevel", cwd=tree)).resolve() != tree.resolve()
             or git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=tree)
-            != git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=repo)
-            or git("rev-parse", "HEAD", cwd=tree) != state["base"]
-            or git("rev-parse", "--abbrev-ref", "HEAD", cwd=tree) != "HEAD"):
+            != git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=repo)):
+        raise ValueError("The candidate worktree or its base changed.")
+    head = git("rev-parse", "HEAD", cwd=tree)
+    if allow_commits:
+        valid = is_ancestor(repo, state["base"], head)
+    else:
+        valid = head == state["base"] and git("rev-parse", "--abbrev-ref", "HEAD", cwd=tree) == "HEAD"
+    if not valid:
         raise ValueError("The candidate worktree or its base changed.")
 
 
@@ -398,6 +403,11 @@ def is_ancestor(repo, older, newer):
     return result.returncode == 0
 
 
+def fetched_dev_contains(repo, commit):
+    tip = revision_at_ref(repo, "refs/remotes/origin/dev")
+    return bool(tip) and is_ancestor(repo, commit, tip)
+
+
 def overlaps(left, right):
     for first in left:
         for second in right:
@@ -503,7 +513,8 @@ def task_receipt(db, row, proposal, runs, reasons=()):
     claim = next((event for event in state["history"] if event["event"] == "claimed"), {})
     state["predecessors"] = claim.get("predecessors", [])
     state["claimed_at"] = claim.get("at")
-    if claim.get("target") == "dev" or (state["delivery"] or {}).get("dev_commit"):
+    target = next((event for event in reversed(state["history"]) if event["event"] == "target-changed"), claim)
+    if target.get("target") == "dev" or (row["phase"] == "passed" and (state["delivery"] or {}).get("dev_commit")):
         state["permissions"] = "verified-pr-to-dev"
     state["review"] = next(({name: value for name, value in event.items() if name != "event"}
                             for event in state["history"] if event["event"] == "feedback"), None)
@@ -559,7 +570,7 @@ def integrate_dependencies(repo, proposal, predecessors, timestamp):
     return base
 
 
-def ensure_task_workspace(directory, repo, state):
+def ensure_task_workspace(directory, repo, state, *, allow_commits=False):
     if directory.is_symlink() or directory.resolve() != directory:
         raise ValueError("The task run directory has been redirected.")
     directory.mkdir(parents=True, exist_ok=True)
@@ -568,7 +579,7 @@ def ensure_task_workspace(directory, repo, state):
         git("worktree", "add", "--detach", str(tree), state["base"], cwd=repo)
     if tree.resolve() != tree:
         raise ValueError("The task workspace has been redirected.")
-    check_workspace(tree, state, repo)
+    check_workspace(tree, state, repo, allow_commits=allow_commits)
     return tree
 
 
@@ -637,6 +648,8 @@ def publish_task(db, row, repo, directory, claimed_at):
 
 
 def record_dev_delivery(db, row, state, args, repo, directory):
+    if state["permissions"] != "verified-pr-to-dev":
+        raise ValueError("Run claim --dev as the current owner before recording a dev delivery.")
     slug = {"careerpilot": "Lueyu/CareerPilot", "squabble": "Lueyu/squabble"}.get(state["project"].casefold())
     match = re.fullmatch(r"https://github\.com/([^/]+/[^/]+)/pull/([1-9][0-9]*)", args.pr)
     if not slug or not match or match[1].casefold() != slug.casefold():
@@ -649,8 +662,7 @@ def record_dev_delivery(db, row, state, args, repo, directory):
     if (pr["state"] != "MERGED" or pr["baseRefName"] != "dev" or pr["isCrossRepository"]
             or pr["headRefOid"] != args.head or not commit):
         raise ValueError("GitHub did not confirm the verified head merged into dev.")
-    tip = revision_at_ref(repo, "refs/remotes/origin/dev")
-    if not tip or not is_ancestor(repo, commit, tip):
+    if not fetched_dev_contains(repo, commit):
         raise ValueError("Fetch origin/dev and confirm it contains the merged PR.")
     if not is_ancestor(repo, state["base"], args.head):
         raise ValueError("The PR head does not include the task's claimed base.")
@@ -738,7 +750,7 @@ def agile_transition(db, args, controller, runs, document):
             db.execute("BEGIN IMMEDIATE")
             row = task_rows(db)[key]
             phase = row["phase"]
-            state["base"] = row["effective_base"]
+            state = task_receipt(db, row, proposal, runs)
         if action == "recover":
             new_owner = nonempty(args.new_owner, "new owner")
             reason = nonempty(args.reason, "recovery reason")
@@ -759,9 +771,14 @@ def agile_transition(db, args, controller, runs, document):
         elif action == "record-dev" and phase in ("claimed", "passed"):
             record_dev_delivery(db, row, state, args, repo, directory)
         elif action == "claim" and phase == "claimed":
-            ensure_task_workspace(directory, repo, state)
+            already_dev = state["permissions"] == "verified-pr-to-dev"
+            if args.dev and not already_dev and not fetched_dev_contains(repo, state["base"]):
+                raise ValueError("Fetch origin/dev and confirm it contains the claimed base.")
+            ensure_task_workspace(directory, repo, state, allow_commits=args.dev or already_dev)
+            if args.dev and not already_dev:
+                record_event(db, key, "target-changed", owner=owner, target="dev", base=state["base"])
         elif action in ("resume", "retry") and phase in ("claimed", {"resume": "blocked", "retry": "failed"}[action]):
-            ensure_task_workspace(directory, repo, state)
+            ensure_task_workspace(directory, repo, state, allow_commits=state["permissions"] == "verified-pr-to-dev")
             if phase != "claimed":
                 db.execute("UPDATE agile_tasks SET phase='claimed',note=NULL,patch_sha256=NULL WHERE id=?", (key,))
                 record_event(db, key, action, owner=owner)
@@ -781,6 +798,8 @@ def agile_transition(db, args, controller, runs, document):
             write_checkpoint(directory, patch)
             db.execute("UPDATE agile_tasks SET patch_sha256=? WHERE id=?", (digest, key))
         elif action == "finish" and phase in ("claimed", "publishing", "passed"):
+            if state["permissions"] == "verified-pr-to-dev":
+                raise ValueError("Use record-dev to complete a dev claim after its verified PR merges.")
             if phase == "claimed":
                 tree = ensure_task_workspace(directory, repo, state)
                 stage_publication(db, row, state, directory, tree, repo)
@@ -845,7 +864,8 @@ def main():
         command.add_argument("--id", required=True)
         command.add_argument("--owner", required=True)
         if name == "claim":
-            command.add_argument("--dev", action="store_true", help="Use the latest fetched origin/dev")
+            command.add_argument("--dev", action="store_true",
+                                 help="Claim from fetched origin/dev or convert your existing claim")
         if name == "record-dev":
             command.add_argument("--pr", required=True)
             command.add_argument("--head", required=True, help="Full SHA independently verified before merge")
