@@ -44,7 +44,7 @@ python scripts/agent/nightly.py record-dev --id $id --owner $owner --pr $prUrl -
 开发者在队列告一段落或遇阻时生成统一晨报并发回本地链接。默认涵盖两个项目，可用 `--ids` 限定本晚处理过的编号（含往日获批项），或用 `--batch` 回看一批建议。
 
 ```powershell
-python scripts/agent/review_board.py morning --output $morningReport
+python scripts/agent/review_board.py morning --output $morningReport --dev-preview $careerPilotRun --dev-preview $squabbleRun
 ```
 
 晨报提供两套应用地址、部署的 `dev` SHA、功能 PR、体验步骤、验收结果和待解决事项。用户体验后决定是否把对应 `dev` 提交合入主干。

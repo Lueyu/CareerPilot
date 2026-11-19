@@ -76,10 +76,17 @@ def evening(tasks, catalog):
     return lines
 
 
-def morning(tasks):
+def morning(tasks, deployments=()):
     lines = ["# 本地候选晨报", ""]
     counts = Counter(LABEL[t["phase"]] for t in tasks)
     lines.append("，".join(f"{name} {n} 项" for name, n in counts.items()) or "本次没有登记的建议。")
+    for directory in deployments:
+        receipt = json.loads((directory / "candidate-delivery.json").read_bytes())
+        project = {"careerpilot": "CareerPilot", "squabble": "Squabble"}[receipt["project"]]
+        url = receipt.get("preview_url")
+        link = (application_link({"run_dir": directory, **receipt}, url)
+                if url else "预览未就绪。")
+        lines += ["", f"- {project} `dev` 提交 `{receipt['base'][:12]}`。{link}"]
     for project in sorted({t["project"] for t in tasks}):
         lines += ["", f"## {project}"]
         for task in (t for t in tasks if t["project"] == project):
@@ -129,6 +136,8 @@ def main():
     results = commands.add_parser("morning")
     results.add_argument("--batch", help="limit to one discovery batch; default covers the full ledger")
     results.add_argument("--ids", nargs="+", help="include specific tasks across batches")
+    results.add_argument("--dev-preview", action="append", type=Path, default=[],
+                         help="Include a deployed dev run directory. Repeat for both projects.")
     for command in (choices, results):
         command.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
@@ -147,7 +156,7 @@ def main():
         tasks = [t for t in tasks if t["id"] in requested]
         if requested.difference(t["id"] for t in tasks):
             parser.error("Unknown task ID in the selected ledger or batch.")
-    lines = evening(tasks, catalog) if args.command == "evening" else morning(tasks)
+    lines = evening(tasks, catalog) if args.command == "evening" else morning(tasks, args.dev_preview)
     lines += ["", "生成时间　" + datetime.now(CHINA).isoformat(timespec="seconds"), ""]
     args.output.parent.mkdir(exist_ok=True, parents=True)
     args.output.write_text("\n".join(lines), encoding="utf-8")
