@@ -38,4 +38,6 @@ All four suites run in both coverage scopes. The `shared` scope requires 33 name
 
 The preview renders the recorded checks, runner output, and any attached change patch. The latest receipt must match the saved attempt byte for byte. Give the preview an exact `attempt-*` path to revisit a previous result. Each render writes `preview.json` and `preview.html` to its own `preview-*` directory. If the HTTP fetch succeeds, the directory also contains `http-body.html`. The preview receipt records the acceptance receipt's SHA-256 as `verify_sha256` and the test result as `verify_status`.
 
-Nightly `finish --id ID --owner OWNER` checks the saved CareerPilot acceptance receipt, patch copy, evidence preview and HTTP body against the candidate. The user can try the running product through the separate application preview recorded in the morning report. A new verification attempt requires a matching evidence preview. [Local deployment](../../docs/agent/candidate-preview.md)
+For a local-only claim, `finish --id ID --owner OWNER` checks the saved acceptance receipt, patch copy and evidence preview. A new verification attempt requires a matching evidence preview.
+
+For a `dev` claim, verify the feature at its PR head. After the PR merges, use `record-dev` to register the GitHub receipt. The morning report links to the running deployment of the integrated `dev` commit. [Nightly workflow](../../docs/agent/nightly.md) · [Local deployment](../../docs/agent/candidate-preview.md)
