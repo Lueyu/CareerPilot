@@ -219,7 +219,7 @@ async def complete_task(
 async def start_retest(task_id: int, ws: Workspace = Depends(get_workspace),
                        session: AsyncSession = Depends(get_session)):
     """Open a new-question exam; completion never supplies its result."""
-    from app.api.v1.exams import CreateExamReq, create_exam
+    from app.api.v1.exams import CreateExamReq, _maybe_expire, create_exam
     from app.services.learning_loop import retest_fields
 
     await session.execute(select(Workspace.id).where(Workspace.id == ws.id).with_for_update())
@@ -255,6 +255,8 @@ async def start_retest(task_id: int, ws: Workspace = Depends(get_workspace),
     from app.models import Exam
     attempts = (await session.execute(select(Exam).where(
         Exam.workspace_id == ws.id, Exam.retest_task_id == check.id).order_by(Exam.id.desc()))).scalars().all()
+    for attempt in attempts:
+        _maybe_expire(attempt)
     reusable = next((item for item in attempts if item.status not in ("ABORTED", "EXPIRED")), None)
     key = reusable.idempotency_key if reusable else f"retest-{check.id}-{len(attempts) + 1}"
     exam = await create_exam(CreateExamReq(kind="focused", question_count=1,

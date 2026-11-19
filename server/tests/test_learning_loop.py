@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select, text
 
 from app.api.v1.learning import complete_task, learning_center
@@ -164,6 +165,87 @@ async def test_future_retest_cannot_claim_delayed_retention_early(db_session, te
     with pytest.raises(HTTPException) as error:
         await learning.start_retest(task.id, ws=test_workspace, session=db_session)
     assert error.value.status_code == 409
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("minutes_past_duration", "expired"),
+    [(3, True), (-1, False), (1, False)],
+    ids=["expired", "within-duration", "within-grace"],
+)
+async def test_due_retest_reopens_only_expired_attempts(
+    db_session, test_workspace, monkeypatch, minutes_past_duration, expired
+):
+    from app.api.deps import get_workspace
+    from app.db import get_session
+    from app.main import app
+
+    parent, skill = await task_fixture(db_session, test_workspace)
+    task, _ = await task_fixture(db_session, test_workspace, "RETEST")
+    parent.status = "DONE"
+    task.retest_of = parent.id
+    task.skill_id = skill.id
+    task.due_date = date.today() - timedelta(days=1)
+    db_session.add_all([
+        Question(short_code="retry-" + uuid4().hex[:12], workspace_id=test_workspace.id,
+                 skill_id=skill.id, title=title, qtype="open", topic="rag",
+                 rubric={"max_points": 5, "points": [
+                     {"title": title, "detail": "Describe a labeled evaluation set."}
+                 ]})
+        for title in ("Measure retrieval recall", "Measure retrieval precision")
+    ])
+    await db_session.commit()
+
+    monkeypatch.setitem(app.dependency_overrides, get_workspace, lambda: test_workspace)
+    monkeypatch.setitem(app.dependency_overrides, get_session, lambda: db_session)
+    retest_url = f"/api/v1/learning/tasks/{task.id}/retest"
+    saved_answer = "Compare retrieval results against a labeled set."
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://fixture") as client:
+        initial = await client.post(retest_url)
+        assert initial.status_code == 200, initial.text
+        prior_id = initial.json()["exam_id"]
+        prior_url = f"/api/v1/exams/{prior_id}"
+        saved = await client.post(
+            f"{prior_url}/answers", json={"order_no": 1, "text_answer": saved_answer}
+        )
+        assert saved.status_code == 200, saved.text
+
+        prior = await db_session.get(Exam, prior_id)
+        prior.started_at = datetime.now(timezone.utc) - timedelta(
+            minutes=prior.duration_minutes + minutes_past_duration
+        )
+        await db_session.commit()
+
+        reopened = await client.post(retest_url)
+        assert reopened.status_code == 200, reopened.text
+        reopened_id = reopened.json()["exam_id"]
+        assert reopened.json()["mode"] == "delayed"
+        if expired:
+            assert reopened_id != prior_id
+        else:
+            assert reopened_id == prior_id
+
+        reopened_url = f"/api/v1/exams/{reopened_id}"
+        detail = await client.get(reopened_url)
+        assert detail.status_code == 200
+        assert detail.json()["status"] == "ACTIVE"
+        repeat = await client.post(retest_url)
+        assert repeat.status_code == 200
+        assert repeat.json()["exam_id"] == reopened_id
+
+        old_detail = await client.get(prior_url)
+        assert old_detail.status_code == 200
+        assert old_detail.json()["status"] == ("EXPIRED" if expired else "ACTIVE")
+        old_question, = old_detail.json()["questions"]
+        assert old_question["answer"]["text_answer"] == saved_answer
+        if expired:
+            new_question, = detail.json()["questions"]
+            assert new_question["short_code"] != old_question["short_code"]
+            assert new_question["answer"] is None
+            saved = await client.post(
+                f"{reopened_url}/answers", json={"order_no": 1, "text_answer": "Use labeled queries."}
+            )
+            assert saved.status_code == 200, saved.text
 
 
 @pytest.mark.asyncio
