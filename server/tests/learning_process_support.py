@@ -40,12 +40,9 @@ httpx.AsyncClient.request=forbidden
 '''
 
 WORKER_HARNESS = COMMON_HARNESS + r'''
-from app.services import assessment_jobs as jobs,assessment_worker as worker
+from app.services import assessment_worker as worker
 from test_assessment_reliability import result_for
 folder=Path(os.environ['FIXTURE_FOLDER'])
-async def config(*args,**kwargs):return {'provider':'fixture','model':'assessment-fixture','base_url':'https://fixture.invalid','api_key':'fixture-not-a-live-key'},{},{}
-jobs.runtime_config=config
-worker.runtime_config=config
 worker.OUTBOX_ROOT=folder/'private-outbox'
 async def evaluate(claim,cfg,repair=None):
     with (folder/'model-calls.jsonl').open('a',encoding='utf-8') as f:

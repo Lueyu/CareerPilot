@@ -358,17 +358,19 @@ async def _process_import(
             await session.commit()
 
         # 阶段 0: 解析文档(文件 OCR/Office 解析是最慢的一步; to_thread 避免阻塞事件循环)
+        paste_text = paste_text.strip()
+        text_parts = [("粘贴文本", paste_text)] if paste_text else []
         if raw_items:
             t_stage = time.perf_counter()
             extracted = await asyncio.to_thread(extract_many, raw_items)
             parse_ms = int((time.perf_counter() - t_stage) * 1000)
             file_meta = [x.as_meta() for x in extracted.files]
             ok_names = [f.name for f in extracted.ok_files]
-            text_parts = [("粘贴文本", paste_text.strip()), *((f.name, f.text) for f in extracted.ok_files)]
+            text_parts.extend((f.name, f.text) for f in extracted.ok_files)
         else:
             file_meta, ok_names = [], []
-            text_parts = [("粘贴文本", paste_text.strip())]
-        source_text = "\n\n".join(text for _, text in text_parts)[:MAX_TEXT_CHARS].strip()
+        source_separator = "\n\n"
+        source_text = source_separator.join(text for _, text in text_parts)[:MAX_TEXT_CHARS].strip()
         imported = await session.get(ImportSession, import_id)
         imported.meta = {**(imported.meta or {}), "files": file_meta, "extracted_source_text": source_text}
         await advance(1, f"已解析 {len(file_meta) or '文本'} · {len(source_text)} 字符")
@@ -385,9 +387,13 @@ async def _process_import(
         by_title = {}
         remaining_chars = MAX_TEXT_CHARS
         for name, text in text_parts:
-            if not text.strip() or remaining_chars <= 0:
+            if remaining_chars <= 0:
+                break
+            text = text[:remaining_chars]
+            remaining_chars -= len(text) + len(source_separator)
+            if not text.strip():
                 continue
-            for candidate in await _extract_questions(text[: min(8000, remaining_chars)]):
+            for candidate in await _extract_questions(text):
                 key = re.sub(r"\W+", "", candidate["title"]).casefold()
                 if key in by_title:
                     names = by_title[key]["source_files"]
@@ -397,7 +403,6 @@ async def _process_import(
                     candidate["source_files"] = [name]
                     by_title[key] = candidate
                     candidates.append(candidate)
-            remaining_chars -= min(len(text), 8000)
         candidates = candidates[:20]
         if not candidates:
             raise RuntimeError("已读取文字，但没有识别到面试题；请检查截图是否清楚，或粘贴原题。")
@@ -620,7 +625,9 @@ def _extract_qa_pairs(text: str) -> list[dict]:
 
 
 async def _extract_questions(text: str) -> list[dict]:
-    """LLM 可用走 LLM, 否则规则: 疑问句/编号行视为题目。"""
+    """LLM 优先。长文本或 LLM 无结果时，用规则扫描全文。"""
+    prompt_limit = 8000
+    model_candidates = []
     adapter = AgentAdapter()
     if adapter.active:
         sys_prompt = (
@@ -631,18 +638,20 @@ async def _extract_questions(text: str) -> list[dict]:
             '"company": str, "level": str}]}。不要解释。'
         )
         try:
-            out = await adapter.chat(sys_prompt, text[:8000], json_mode=True)
+            out = await adapter.chat(sys_prompt, text[:prompt_limit], json_mode=True)
             if out and out.get("content"):
                 parsed = _parse_llm_questions(out["content"])
                 if parsed:
-                    return [{**item, "extraction_method": "model"} for item in parsed]
+                    model_candidates = [{**item, "extraction_method": "model"} for item in parsed]
+                    if len(text) <= prompt_limit:
+                        return model_candidates
         except Exception:
             pass
 
     # 规则: 优先识别「问/答」成对结构(原文带答案时直接保留)
     pairs = _extract_qa_pairs(text)
     if len(pairs) >= 1:
-        return [
+        return model_candidates + [
             {
                 "title": p["title"],
                 "skill_key": _guess_skill(p["title"]),
@@ -672,7 +681,7 @@ async def _extract_questions(text: str) -> list[dict]:
                     "extraction_method": "rules",
                 }
             )
-    return results[:20]
+    return model_candidates + results[:20]
 
 
 SKILL_KEYWORDS: list[tuple[str, list[str]]] = [

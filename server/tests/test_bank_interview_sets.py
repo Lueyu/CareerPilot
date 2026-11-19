@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException, UploadFile
 from PIL import Image, ImageDraw, ImageFont
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.v1 import bank
 from app.api.v1.exams import CreateExamReq, issue_exam
@@ -24,6 +25,88 @@ def screenshot(name, text):
     image.save(output, 'PNG')
     output.seek(0)
     return UploadFile(filename=name, file=output)
+
+
+@pytest.fixture
+def isolated_import_sessions(db_session, monkeypatch):
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False, autoflush=False)
+    monkeypatch.setattr(bank, 'SessionLocal', factory)
+
+
+@pytest.mark.asyncio
+async def test_long_import_without_model_keeps_late_question_and_sources(
+    db_session, test_workspace, isolated_import_sessions,
+):
+    filler = 'Synthetic interview notes.\n' * 320
+    title = 'How does a queue preserve insertion order?'
+    pasted_text = f'{filler}Q: {title}\nA: Items leave in insertion order.'
+    duplicate = f'{filler}Q: {title.lower().rstrip("?")}\nA: A queue uses FIFO.'
+    uploaded = await bank.start_import_upload(
+        files=[UploadFile(filename='notes.txt', file=io.BytesIO(duplicate.encode()))],
+        pasted_text=pasted_text, company='', level='', ws=test_workspace, session=db_session,
+    )
+    for task in list(bank._BG_IMPORT_TASKS):
+        await task
+    review = await bank.import_status(uploaded['id'], test_workspace, db_session)
+    assert review['status'] == 'REVIEW', review['meta'].get('error')
+    assert [item['title'] for item in review['items']] == [title]
+    item = review['items'][0]
+    assert item['draft_answer'] == 'Items leave in insertion order.'
+    assert item['generation_meta'] == {'source_files': ['粘贴文本', 'notes.txt'], 'extraction_method': 'rules'}
+
+
+@pytest.mark.asyncio
+async def test_long_import_keeps_late_question_when_model_returns_early_item(
+    db_session, test_workspace, isolated_import_sessions, monkeypatch,
+):
+    early_title = 'How do workers claim a job?'
+    late_title = 'How does a queue preserve insertion order?'
+    pasted_text = (
+        f'Q: {early_title}\nA: Use an atomic update.\n'
+        + 'Synthetic interview notes.\n' * 320
+        + f'Q: {late_title}\nA: Items leave in insertion order.'
+    )
+    prompts = []
+
+    async def model_reply(self, system, user, **kwargs):
+        prompts.append(user)
+        return {'content': json.dumps({'questions': [{'title': early_title, 'draft_answer': 'Use an atomic update.'}]})}
+
+    monkeypatch.setattr(bank.AgentAdapter, 'active', True)
+    monkeypatch.setattr(bank.AgentAdapter, 'chat', model_reply)
+    uploaded = await bank.start_import(bank.StartImportReq(pasted_text=pasted_text), test_workspace, db_session)
+    for task in list(bank._BG_IMPORT_TASKS):
+        await task
+    review = await bank.import_status(uploaded['id'], test_workspace, db_session)
+    assert review['status'] == 'REVIEW', review['meta'].get('error')
+    assert [item['title'] for item in review['items']] == [early_title, late_title]
+    assert [item['generation_meta'] for item in review['items']] == [
+        {'source_files': ['粘贴文本'], 'extraction_method': 'model'},
+        {'source_files': ['粘贴文本'], 'extraction_method': 'rules'},
+    ]
+    assert prompts == [pasted_text[:8000]]
+
+
+@pytest.mark.asyncio
+async def test_long_import_respects_text_and_item_caps(db_session, test_workspace, isolated_import_sessions):
+    titles = [f'How does fixture queue {number} handle retries?' for number in range(21)]
+    questions = '\n'.join(f'Q: {title}\nA: Use a retry budget.' for title in titles)
+    notes = 'x' * (60_000 - 1 - len(questions)) + '\n' + questions
+    duplicate = f'Q: {titles[0]}\nA: Use a retry budget.'
+    uploaded = await bank.start_import_upload(
+        files=[
+            UploadFile(filename='long.txt', file=io.BytesIO(notes.encode())),
+            UploadFile(filename='over-budget.txt', file=io.BytesIO(duplicate.encode())),
+        ],
+        pasted_text='', company='', level='', ws=test_workspace, session=db_session,
+    )
+    for task in list(bank._BG_IMPORT_TASKS):
+        await task
+    review = await bank.import_status(uploaded['id'], test_workspace, db_session)
+    assert review['status'] == 'REVIEW', review['meta'].get('error')
+    assert review['meta']['extracted_source_text'] == notes
+    assert [item['title'] for item in review['items']] == titles[:20]
+    assert all(item['generation_meta']['source_files'] == ['long.txt'] for item in review['items'])
 
 
 @pytest.mark.asyncio

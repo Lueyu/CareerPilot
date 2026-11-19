@@ -38,7 +38,8 @@ from app.models.public_content import (
     DRAFT_STATUS_VALIDATION_FAILED,
 )
 from app.services.content_validation import is_low_risk, run_all
-from app.services.github_publish import GitHubError, GitHubPublisher, make_publisher_rt
+from app.services.github_publish import GitHubError, GitHubPublisher
+from app.services.repository_credentials import repository_credentials
 from app.services.tracing import add_span, emit_event, finish_trace, start_trace
 
 router = APIRouter()
@@ -402,7 +403,7 @@ async def publish_draft(
     await session.flush()
 
     try:
-        publisher = await make_publisher_rt(dry_run=dry_run)
+        publisher = GitHubPublisher(token='', dry_run=dry_run)
         # 1) base sha(只读)
         base_sha = await publisher.get_base_sha(repo, base_branch)
         pub.base_sha = base_sha
@@ -524,7 +525,8 @@ async def refresh_build(
         raise HTTPException(status_code=404, detail=f"publication {pub_id} not found")
     if not p.head_sha:
         return _pub_view(p)
-    publisher = await make_publisher_rt()
+    token = (await repository_credentials(session, ws.id))['github_token']
+    publisher = GitHubPublisher(token=token)
     runs = await publisher.get_workflow_runs(p.target_repo, p.head_sha)
     if runs:
         latest = max(runs, key=lambda r: r.get("created_at") or "")

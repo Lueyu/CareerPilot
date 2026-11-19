@@ -59,6 +59,18 @@ function Get-CareerPilotOwnedProcess {
     return $process
 }
 
+function Stop-CareerPilotVerifiedHandle {
+    param([System.Diagnostics.Process]$Process)
+    if ($Process.HasExited) { return }
+    try {
+        $Process.Kill()
+    } catch {
+        # A venv launcher can exit as its verified child terminates.
+        if (-not $Process.WaitForExit(1000)) { throw }
+    }
+    if (-not $Process.WaitForExit(5000)) { throw "Recorded process $($Process.Id) did not exit" }
+}
+
 function Stop-CareerPilotOwnedProcess {
     param($Identity, [string]$ProjectDir)
     $process = Get-CareerPilotOwnedProcess $Identity $ProjectDir
@@ -78,10 +90,10 @@ function Stop-CareerPilotOwnedProcess {
     }
     foreach ($childIdentity in $children) {
         $childProcess = Get-CareerPilotOwnedProcess $childIdentity $ProjectDir
-        if ($childProcess -and -not $childProcess.HasExited) { $childProcess.Kill(); [void]$childProcess.WaitForExit(5000) }
+        if ($childProcess) { Stop-CareerPilotVerifiedHandle $childProcess }
     }
     $process.Refresh()
-    if (-not $process.HasExited) { $process.Kill(); [void]$process.WaitForExit(5000) }
+    Stop-CareerPilotVerifiedHandle $process
 }
 
 function Sync-CareerPilotWorkerState {

@@ -15,7 +15,8 @@ from app.models.project_analysis import ProjectAnalysis
 from app.models.public_content import ContentPublication, PublicContentDraft
 from app.models.workspace import Workspace
 from app.services.asset_pipeline import create_asset_update, repository_observations
-from app.services.github_repo import GitHubRepoError, fetch_file_text, get_github_token
+from app.services.github_repo import GitHubRepoError, fetch_file_text, fetch_tree
+from app.services.repository_credentials import repository_credentials
 from app.services.tracing import add_span, emit_event, finish_trace, start_trace
 
 router = APIRouter()
@@ -91,14 +92,14 @@ async def sync_assets(
     owner, _, name = repo.partition("/")
     synced, errors = [], []
     try:
-        from app.services.github_repo import fetch_tree
-        tree = await fetch_tree(owner, name, get_github_token(), None)
+        token = (await repository_credentials(session, ws.id))['github_token']
+        tree = await fetch_tree(owner, name, token, None)
         content_files = [
             it["path"] for it in tree
             if it["type"] == "blob" and it["path"].endswith((".md", ".json")) and "/" in it["path"]
         ][:20]
         for path in content_files:
-            text = await fetch_file_text(owner, name, path, get_github_token(), None)
+            text = await fetch_file_text(owner, name, path, token, None)
             if text is None:
                 continue
             h = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]

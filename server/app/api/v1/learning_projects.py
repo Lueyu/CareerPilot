@@ -14,6 +14,7 @@ from app.models.learning_project import LearningProjectSnapshot
 from app.services.project_practice import (report_options, build_contract, assessment_for_contract,
                                            normalize_submission, MAX_FILES)
 from app.services.project_sources import open_repository
+from app.services.repository_credentials import repository_credentials
 from app.services.assessment_versions import digest
 
 router = APIRouter()
@@ -128,16 +129,18 @@ async def preview_project(activity_id: int, body: PreviewIn, ws=Depends(get_work
     project_info = {'kind': (project.meta or {}).get('kind', 'github'), 'owner': project.owner,
                     'repo': project.repo, 'branch': body.commit_sha}
     data = body.model_dump()
+    remote = body.source_kind == 'github_commit'
+    if remote:
+        if project_info['kind'] != 'github' or not re.fullmatch(r'[a-fA-F0-9]{40}|[a-fA-F0-9]{64}', body.commit_sha or ''):
+            raise HTTPException(422, '请提交已授权 GitHub 仓库的完整 commit SHA；本入口不读取本地未推送修改')
+        credentials = await repository_credentials(session, ws.id)
     # No network request runs while a database transaction holds a row lock.
     ws = SimpleNamespace(id=ws.id)
     await session.commit()
-    remote = body.source_kind == 'github_commit'
     try:
         if remote:
-            if project_info['kind'] != 'github' or not re.fullmatch(r'[a-fA-F0-9]{40}|[a-fA-F0-9]{64}', body.commit_sha or ''):
-                raise ValueError('请提交已授权 GitHub 仓库的完整 commit SHA；本入口不读取本地未推送修改')
             async with asyncio.timeout(45):
-                repo = await open_repository(project_info)
+                repo = await open_repository(project_info, token=credentials['github_token'])
                 if repo.revision != body.commit_sha.lower() or repo.tree_truncated:
                     raise ValueError('远端版本或文件清单无法完整核对')
                 present = {x['path'] for x in repo.manifest}
