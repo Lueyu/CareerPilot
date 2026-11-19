@@ -56,6 +56,34 @@ async def test_long_import_without_model_keeps_late_question_and_sources(
 
 
 @pytest.mark.asyncio
+async def test_long_offline_mixed_import_keeps_order_and_answer_boundaries(
+    db_session, test_workspace, isolated_import_sessions, monkeypatch,
+):
+    async def offline_chat(self, *args, **kwargs):
+        return None
+
+    monkeypatch.setattr(bank.AgentAdapter, 'active', False)
+    monkeypatch.setattr(bank.AgentAdapter, 'chat', offline_chat)
+    first = 'How do workers claim a job?'
+    paired = 'How does a queue preserve insertion order?'
+    last = 'How do workers recover expired jobs?'
+    answer = 'Items leave in insertion order.\n1. Append new items at the tail.\n2. Remove the head item.'
+    pasted_text = (
+        f'1. {first}\n'
+        + 'Synthetic interview notes.\n' * 320
+        + f'Q: {paired}\nA: {answer}\n2. {last}'
+    )
+    uploaded = await bank.start_import(bank.StartImportReq(pasted_text=pasted_text), test_workspace, db_session)
+    for task in list(bank._BG_IMPORT_TASKS):
+        await task
+    review = await bank.import_status(uploaded['id'], test_workspace, db_session)
+    assert review['status'] == 'REVIEW', review['meta'].get('error')
+    paired_item = next(item for item in review['items'] if item['title'] == paired)
+    assert paired_item['draft_answer'] == answer
+    assert [item['title'] for item in review['items']] == [first, paired, last]
+
+
+@pytest.mark.asyncio
 async def test_long_import_keeps_late_question_when_model_returns_early_item(
     db_session, test_workspace, isolated_import_sessions, monkeypatch,
 ):

@@ -600,28 +600,42 @@ def _parse_llm_questions(content: str) -> list[dict]:
 
 
 QA_HEAD = re.compile(r"^\s*(?:问|问题|Q|q)\s*[:：]\s*(.+)$")
+NUMBERED_HEAD = re.compile(r"^\s*[0-9]+[.、]\s*(\S.+)$")
 
 
-def _extract_qa_pairs(text: str) -> list[dict]:
-    """识别「问：… 答：…」成对结构, 把已有答案一并带出来。"""
-    lines = text.splitlines()
-    pairs: list[dict] = []
+def _extract_structured_questions(text: str) -> list[dict]:
+    """按原文顺序提取问答和编号题，保留问答的原文答案。"""
+    items: list[dict] = []
     cur_q: str | None = None
     buf: list[str] = []
-    for ln in lines:
-        m = QA_HEAD.match(ln)
-        if m:
+    has_qa = False
+    for ln in text.splitlines():
+        qa = QA_HEAD.match(ln)
+        numbered = NUMBERED_HEAD.match(ln)
+        title = numbered.group(1).strip() if numbered and 6 <= len(ln.strip()) <= 120 else ""
+        # 问答里的编号步骤仍属于答案，除非这一行有提问信号。
+        numbered_question = title and (
+            cur_q is None or title.endswith(("?", "？"))
+            or any(word in title for word in ("什么", "如何", "怎么", "为什么"))
+        )
+        if qa or numbered_question:
             if cur_q and len(cur_q) >= 6:
-                pairs.append({"title": cur_q[:200], "answer": "\n".join(buf).strip()})
-            cur_q, buf = m.group(1).strip(), []
+                items.append({"title": cur_q[:200], "answer": "\n".join(buf).strip(), "confidence": 0.7})
+                has_qa = True
+            cur_q, buf = None, []
+            if qa:
+                cur_q = qa.group(1).strip()
+            else:
+                items.append({"title": title, "answer": "", "confidence": 0.55 if title.endswith(("?", "？")) else 0.4})
             continue
-        if ln.strip().startswith(("答", "A:", "A：", "a:")):
-            buf.append(ln.split("：", 1)[-1].split(":", 1)[-1].strip())
-        elif cur_q is not None:
+        if cur_q is not None:
+            if ln.strip().startswith(("答", "A:", "A：", "a:")):
+                ln = ln.split("：", 1)[-1].split(":", 1)[-1].strip()
             buf.append(ln)
     if cur_q and len(cur_q) >= 6:
-        pairs.append({"title": cur_q[:200], "answer": "\n".join(buf).strip()})
-    return [p for p in pairs if p["title"]]
+        items.append({"title": cur_q[:200], "answer": "\n".join(buf).strip(), "confidence": 0.7})
+        has_qa = True
+    return items if has_qa else []
 
 
 async def _extract_questions(text: str) -> list[dict]:
@@ -648,18 +662,18 @@ async def _extract_questions(text: str) -> list[dict]:
         except Exception:
             pass
 
-    # 规则: 优先识别「问/答」成对结构(原文带答案时直接保留)
-    pairs = _extract_qa_pairs(text)
-    if len(pairs) >= 1:
+    # 规则: 按原文顺序识别问答和编号题
+    structured = _extract_structured_questions(text)
+    if structured:
         return model_candidates + [
             {
                 "title": p["title"],
                 "skill_key": _guess_skill(p["title"]),
-                "confidence": 0.7,
+                "confidence": p["confidence"],
                 "draft_answer": p["answer"],
                 "extraction_method": "rules",
             }
-            for p in pairs[:20]
+            for p in structured[:20]
         ]
 
     # 规则降级: 按行找题目特征

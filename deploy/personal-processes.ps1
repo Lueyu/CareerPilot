@@ -134,6 +134,7 @@ function Start-CareerPilotWorker {
     $mutex = Enter-CareerPilotWorkerLock $ProjectDir
     $process = $null
     $identity = $null
+    $readyPath = $null
     try {
         if (Test-Path -LiteralPath $statePath) {
             $existing = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
@@ -147,11 +148,17 @@ function Start-CareerPilotWorker {
         $arguments = @('-m', 'app.project_worker', '--poll-seconds', $PollSeconds.ToString($culture),
             '--heartbeat-seconds', $HeartbeatSeconds.ToString($culture))
         if ($null -ne $LeaseSeconds) { $arguments += @('--lease-seconds', $LeaseSeconds) }
+        $readyName = 'worker-' + [guid]::NewGuid().ToString('N') + '.ready'
+        $readyPath = Join-Path $runtimeDir $readyName
+        $arguments += @('--ready-file', "..\personal\runtime\$readyName")
         $process = Start-Process -FilePath $PythonPath -ArgumentList $arguments -WorkingDirectory (Join-Path $ProjectDir 'server') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $runtimeDir 'worker.out.log') -RedirectStandardError (Join-Path $runtimeDir 'worker.err.log')
         $identity = New-CareerPilotProcessIdentity $process $ProjectDir 'app.project_worker'
-        Start-Sleep -Milliseconds 750
-        $process.Refresh()
-        if ($process.HasExited) { throw 'Worker exited; inspect personal/runtime/worker.err.log' }
+        $startup = [Diagnostics.Stopwatch]::StartNew()
+        while (-not [IO.File]::Exists($readyPath)) {
+            if ($process.WaitForExit(100)) { throw 'Worker exited before its first heartbeat; inspect personal/runtime/worker.err.log' }
+            if ($startup.Elapsed.TotalSeconds -ge 30) { throw 'Worker did not record a heartbeat within 30 seconds; inspect personal/runtime/worker.err.log' }
+        }
+        if (-not (Get-CareerPilotOwnedProcess $identity $ProjectDir)) { throw 'Worker exited during startup' }
         Write-CareerPilotState $statePath $identity
         Sync-CareerPilotWorkerState $runtimeDir $identity
         return @{ Identity = $identity; StartedNew = $true }
@@ -159,7 +166,11 @@ function Start-CareerPilotWorker {
         if ($identity) { Stop-CareerPilotOwnedProcess $identity $ProjectDir }
         elseif ($process -and -not $process.HasExited) { $process.Kill() }
         throw
-    } finally { $mutex.ReleaseMutex(); $mutex.Dispose() }
+    } finally {
+        if ($readyPath) { Remove-Item -LiteralPath $readyPath -ErrorAction SilentlyContinue }
+        $mutex.ReleaseMutex()
+        $mutex.Dispose()
+    }
 }
 
 function Stop-CareerPilotWorker {

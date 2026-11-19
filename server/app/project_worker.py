@@ -4,6 +4,7 @@ import asyncio
 from contextlib import suppress
 import logging
 import os
+from pathlib import Path
 import time
 from uuid import uuid4
 from sqlalchemy import select
@@ -237,7 +238,7 @@ async def execute_claim(claim,worker_id,factory=SessionLocal,lease_seconds=45,he
         keeper.cancel()
         with suppress(asyncio.CancelledError):await keeper
 
-async def serve(poll_seconds=2,lease_seconds=None,heartbeat_seconds=10,once=False,factory=SessionLocal):
+async def serve(poll_seconds=2,lease_seconds=None,heartbeat_seconds=10,once=False,factory=SessionLocal,*,ready_file=None):
     # Allow longer host scheduling stalls during streamed project analysis.
     # An explicit lease override still applies to both kinds of job.
     scoring_lease = 45 if lease_seconds is None else lease_seconds
@@ -245,6 +246,14 @@ async def serve(poll_seconds=2,lease_seconds=None,heartbeat_seconds=10,once=Fals
     if heartbeat_seconds >= min(scoring_lease, project_lease):
         raise ValueError('heartbeat must be shorter than lease')
     worker_id=f'{os.getpid()}-{analysis.PROMPT_BUNDLE_VERSION}-{uuid4().hex}'
+
+    async def announce_worker():
+        nonlocal ready_file
+        await worker_heartbeat(factory, worker_id)
+        if ready_file is not None:
+            ready_file.touch(exist_ok=False)
+            ready_file = None
+
     # An upgraded worker may be launched by the ordinary personal startup
     # during the drain. Advertise its version without touching old checkpoints.
     while True:
@@ -252,7 +261,7 @@ async def serve(poll_seconds=2,lease_seconds=None,heartbeat_seconds=10,once=Fals
             handoff = await session.get(AppSetting, jobs.HANDOFF_KEY)
         if not handoff or handoff.value.get('target_prompt') != analysis.PROMPT_BUNDLE_VERSION:
             break
-        await worker_heartbeat(factory, worker_id)
+        await announce_worker()
         if once:
             return
         await asyncio.sleep(poll_seconds)
@@ -265,7 +274,7 @@ async def serve(poll_seconds=2,lease_seconds=None,heartbeat_seconds=10,once=Fals
     scheduler=asyncio.create_task(scheduler_loop()) if not once else None
     try:
         while True:
-            await worker_heartbeat(factory,worker_id)
+            await announce_worker()
             from app.services import assessment_jobs,assessment_worker
             await assessment_worker.reconcile(factory)
             async with factory() as session:
@@ -297,6 +306,7 @@ def main():
     parser.add_argument('--lease-seconds',type=float,help='override the lease for both scoring and project stages')
     parser.add_argument('--heartbeat-seconds',type=float,default=10)
     parser.add_argument('--once',action='store_true')
+    parser.add_argument('--ready-file', type=Path, help='create this file after the first persisted heartbeat')
     args=parser.parse_args()
     logging.basicConfig(level=logging.INFO,format='%(asctime)s %(name)s %(levelname)s %(message)s')
     async def run():

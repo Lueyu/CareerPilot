@@ -54,10 +54,14 @@ def sandbox(tmp_path):
     for path in [server / 'bootstrap.py', server / 'migrate.py', app / '__init__.py', app / 'seed.py']:
         path.write_text('', encoding='utf-8')
     (app / 'config.py').write_text('class Settings:\n    api_token="fixture-token"\ndef get_settings():\n    return Settings()\n', encoding='utf-8')
-    (app / 'project_worker.py').write_text('''import json,os,time
+    (app / 'project_worker.py').write_text('''import json,os,sys,time
 from pathlib import Path
-Path('worker.started.json').write_text(json.dumps({'pid':os.getpid(),'cwd':str(Path.cwd()),'workspace':os.getenv('DEFAULT_WORKSPACE_SLUG'),'args':__import__('sys').argv[1:],'started':time.time()}))
-if os.getenv('FIXTURE_WORKER_FAIL'): raise SystemExit(23)
+Path('worker.started.json').write_text(json.dumps({'pid':os.getpid(),'cwd':str(Path.cwd()),'workspace':os.getenv('DEFAULT_WORKSPACE_SLUG'),'args':sys.argv[1:],'started':time.time()}))
+if os.getenv('FIXTURE_WORKER_FAIL'):
+    time.sleep(2)
+    raise SystemExit(23)
+if '--ready-file' in sys.argv:
+    Path(sys.argv[sys.argv.index('--ready-file') + 1]).touch(exist_ok=False)
 while True: time.sleep(.1)
 ''', encoding='utf-8')
     (server / 'uvicorn.py').write_text('''import json,os,sys,time
@@ -145,10 +149,13 @@ def test_failed_worker_start_reaps_new_api(sandbox):
     env['FIXTURE_WORKER_FAIL'] = '1'
     result = launch(root, env)
     assert result.returncode != 0
+    assert (root / 'server/worker.started.json').is_file()
     for name in ('api.started.json', 'worker.started.json'):
         marker = root / 'server' / name
         if marker.exists():
             assert not alive(json.loads(marker.read_text())['pid']), 'Failed startup leaked a fixture process'
+    assert not (root / 'personal/runtime/worker.json').exists()
+    assert not list((root / 'personal/runtime').glob('worker-*.ready'))
     assert not (root / 'personal/runtime/processes.json').exists()
 
 
