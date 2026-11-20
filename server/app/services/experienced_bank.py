@@ -1,4 +1,5 @@
 """Install and read the shared experienced-interview practice pack."""
+import json
 from html import escape
 from pathlib import Path
 from typing import Annotated, Literal
@@ -12,6 +13,7 @@ from app.models import Question, Skill
 from app.models.question import SOURCE_PUBLIC
 
 CATALOG_PATH = Path(__file__).resolve().parents[1] / "data" / "experienced_bank"
+LEGACY_DOMAINS_PATH = CATALOG_PATH.parent / "legacy_domains.json"
 PACK = "experienced_bank"
 ORIGIN = "AUTHORED_ORIGINAL"
 PRACTICE_ONLY = "PRACTICE_ONLY"
@@ -162,30 +164,64 @@ async def install_pack(session: AsyncSession, skills: dict[str, Skill]) -> tuple
     return len(created), len(owned), sorted(remaining - owned)
 
 
+def catalog_questions(domains: list[Domain], rows: list[Question]) -> dict[str, list[dict]]:
+    from app.seed import BANK_PATH
+
+    by_code = {row.short_code: row for row in rows if (
+        row.workspace_id is None and row.canonical_question_id is None
+        and not row.is_demo and row.source_type == SOURCE_PUBLIC
+    )}
+    legacy_domains = {}
+    originals = {}
+    if LEGACY_DOMAINS_PATH.is_file() and BANK_PATH.is_file():
+        legacy_domains = json.loads(LEGACY_DOMAINS_PATH.read_text(encoding="utf-8"))
+        originals = {entry["id"]: entry for entry in json.loads(
+            BANK_PATH.read_text(encoding="utf-8")
+        )["questions"]}
+
+    questions_by_domain: dict[str, list[dict]] = {}
+    seen: set[int] = set()
+    for domain in domains:
+        questions = questions_by_domain[domain.key] = []
+        for entry in domain.questions:
+            row = by_code.get(entry.code)
+            if (row is not None and is_owned_question(row)
+                    and row.generation_meta["domain_key"] == domain.key):
+                questions.append(_catalog_entry(row, entry.level, "authored"))
+                seen.add(row.id)
+
+    for domain in domains:
+        for level in ("mid", "senior"):
+            for code in legacy_domains.get(domain.key, {}).get(level, []):
+                row = by_code.get(code)
+                original = originals.get(code)
+                if (row is None or original is None or row.id in seen or row.qtype != "open"
+                        or row.generation_meta or row.topic != original["topic"]
+                        or row.title != original["title"]):
+                    continue
+                questions_by_domain[domain.key].append(_catalog_entry(row, level, "legacy"))
+                seen.add(row.id)
+    return questions_by_domain
+
+
+def _catalog_entry(row: Question, level: Literal["mid", "senior"], source: Literal["authored", "legacy"]) -> dict:
+    return {
+        "id": row.id, "short_code": row.short_code, "title": row.title,
+        "level": level, "tags": row.tags or [], "source": source,
+    }
+
+
 async def list_installed_pack(session: AsyncSession) -> dict:
     domains = load_catalog()
-    codes = [question.code for domain in domains for question in domain.questions]
-    rows = (await session.execute(
-        select(
-            Question.id, Question.short_code, Question.title, Question.level, Question.tags,
-            Question.generation_meta["domain_key"].as_string().label("domain_key"),
-        ).where(Question.short_code.in_(codes), owned_question_clause())
-    )).all() if codes else []
-    installed = {(row.domain_key, row.short_code): row for row in rows}
-
-    result = []
-    for domain in domains:
-        questions = []
-        for entry in domain.questions:
-            row = installed.get((domain.key, entry.code))
-            if row is not None:
-                questions.append({
-                    "id": row.id, "short_code": row.short_code, "title": row.title,
-                    "level": row.level, "tags": row.tags,
-                })
-        if questions:
-            result.append({
-                "key": domain.key, "name": domain.name, "order": domain.order,
-                "focus": domain.focus, "questions": questions,
-            })
-    return {"domains": result}
+    rows = (await session.scalars(select(Question).where(
+        Question.workspace_id.is_(None), Question.canonical_question_id.is_(None),
+        Question.is_demo.is_(False), Question.source_type == SOURCE_PUBLIC,
+    ))).all()
+    questions_by_domain = catalog_questions(domains, rows)
+    return {"domains": [
+        {
+            "key": domain.key, "name": domain.name, "order": domain.order,
+            "focus": domain.focus, "questions": questions_by_domain[domain.key],
+        }
+        for domain in domains if questions_by_domain[domain.key]
+    ]}

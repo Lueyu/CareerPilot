@@ -7,7 +7,7 @@ from uuid import uuid4
 import httpx
 import pytest
 import pytest_asyncio
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -71,6 +71,9 @@ async def isolated_seed(db_session, monkeypatch, tmp_path):
     legacy.write_text(json.dumps({"questions": [
         {"id": "LEGACY-Q1", "topic": "rag", "title": "旧题原文", "html": "<p>旧题解析</p>"},
     ]}), encoding="utf-8")
+    legacy_domains = tmp_path / "legacy_domains.json"
+    legacy_domains.write_text(json.dumps({"reliability": {"mid": [], "senior": ["LEGACY-Q1"]}}))
+    monkeypatch.setattr(experienced_bank, "LEGACY_DOMAINS_PATH", legacy_domains)
     monkeypatch.setattr(seed, "engine", engine)
     monkeypatch.setattr(seed, "SessionLocal", factory)
     monkeypatch.setattr(seed, "BANK_PATH", legacy)
@@ -142,7 +145,7 @@ async def test_seed_concurrent_fresh_and_reseed_with_collisions(isolated_seed, c
         assert (await by_code(session, "EXP-UNRELATED")).answer_html == "<p>既有解析</p>"
         assert (await by_code(session, "EXP-WRONG-DOMAIN")).generation_meta["domain_key"] == "some_other_domain"
         listing = await experienced_bank.list_installed_pack(session)
-        assert [row["short_code"] for row in listing["domains"][0]["questions"]] == ["EXP-Z", "EXP-B"]
+        assert [row["short_code"] for row in listing["domains"][0]["questions"]] == ["EXP-Z", "EXP-B", "LEGACY-Q1"]
 
 
 @pytest.mark.asyncio
@@ -215,11 +218,13 @@ async def test_catalog_listing_exposure_and_practice_scoring(isolated_seed, monk
         assert response.status_code == 200
         assert response.json() == {"domains": [
             {"key": "reliability", "name": "可靠性", "order": 1, "focus": "检查失败时的行为", "questions": [
-                {"id": first.id, "short_code": "EXP-Z", "level": "mid", "title": first.title, "tags": ["超时", "重试"]},
-                {"id": second.id, "short_code": "EXP-A", "level": "mid", "title": second.title, "tags": ["超时", "重试"]},
+                {"id": first.id, "short_code": "EXP-Z", "level": "mid", "title": first.title, "tags": ["超时", "重试"], "source": "authored"},
+                {"id": second.id, "short_code": "EXP-A", "level": "mid", "title": second.title, "tags": ["超时", "重试"], "source": "authored"},
+                {"id": legacy.id, "short_code": "LEGACY-Q1", "level": "senior",
+                 "title": legacy.title, "tags": [], "source": "legacy"},
             ]},
             {"key": "delivery", "name": "交付", "order": 2, "focus": "检查失败时的行为", "questions": [
-                {"id": third.id, "short_code": "EXP-M", "level": "senior", "title": third.title, "tags": ["超时", "重试"]},
+                {"id": third.id, "short_code": "EXP-M", "level": "senior", "title": third.title, "tags": ["超时", "重试"], "source": "authored"},
             ]},
         ]}
         async with factory() as session:
@@ -250,12 +255,33 @@ async def test_catalog_listing_exposure_and_practice_scoring(isolated_seed, monk
         mixed = await client.post("/exams", json={"kind": "bank_exam", "question_ids": [first.id, legacy.id]})
         assert mixed.status_code == 422
 
-        response = await client.post("/exams", json={"kind": "bank_exam", "question_ids": [first.id, third.id]})
+        ordinary = await client.post("/exams", json={"kind": "bank_exam", "question_ids": [legacy.id],
+                                                     "idempotency_key": "ordinary"})
+        assert ordinary.status_code == 200 and ordinary.json()["kind"] == "bank_exam"
+        assert ordinary.json()["experienced_bank_practice"] is False
+        assert (await client.post("/exams", json={"kind": "bank_exam", "question_ids": [first.id]})).json()[
+            "experienced_bank_practice"] is True
+
+        request = {"kind": "bank_exam", "experienced_bank": True, "question_ids": [first.id, third.id, legacy.id]}
+        for invalid in (
+            {"kind": "diagnosis"}, {"question_ids": []}, {"retest_task_id": retest.id},
+            {"project_generation_id": 1}, {"question_ids": [legacy.id, private.id]},
+            {"question_ids": [legacy.id, omitted.id]}, {"question_ids": [-1]},
+        ):
+            assert (await client.post("/exams", json={**request, **invalid})).status_code == 422
+        assert (await client.post("/exams", json={**request, "question_ids": [legacy.id],
+                                                 "idempotency_key": "ordinary"})).status_code == 409
+        async with factory() as session:
+            with pytest.raises(HTTPException) as blocked:
+                await exams.issue_exam(exams.CreateExamReq(**request), personal, session,
+                                       interview_set={"id": "fixture"})
+            assert blocked.value.status_code == 422
+        response = await client.post("/exams", json=request)
         assert response.status_code == 200, response.text
         practice = response.json()
         assert practice["kind"] == "practice" and practice["experienced_bank_practice"] is True
         assert practice["title"] == "社招专项"
-        assert [row["short_code"] for row in practice["questions"]] == ["EXP-Z", "EXP-M"]
+        assert [row["short_code"] for row in practice["questions"]] == ["EXP-Z", "EXP-M", "LEGACY-Q1"]
         assert "原始参考" not in response.text and all(c not in response.text for c in CRITERIA)
         url = f"/exams/{practice['id']}"
         assert (await client.get(url, headers={"X-Workspace": "foreign"})).status_code == 404
@@ -286,19 +312,20 @@ async def test_catalog_listing_exposure_and_practice_scoring(isolated_seed, monk
         response = await client.post(url + "/submit", json={"answers": [
             {"order_no": 1, "text_answer": "先确认日志中的超时范围，限制重试并用幂等键检查副作用。"},
             {"order_no": 2, "text_answer": "先限定重试次数，再验证下游请求有没有重复写入。"},
+            {"order_no": 3, "text_answer": "检索后核对证据与回答中的关键事实。"},
         ]})
         assert response.status_code == 202, response.text
         async with factory() as session:
             run = await session.get(ScoringRun, response.json()["task_id"])
             assert run.mode == "PRACTICE"
-        for _ in range(2):
+        for _ in range(3):
             async with factory() as session:
                 claim = await assessment_jobs.claim_step(session, "experienced-fixture")
             await assessment_worker.execute_claim(claim, "experienced-fixture", factory)
         await assessment_worker.reconcile(factory)
 
-        assert len(received) == 2
-        assert [call["rubric"]["role_level"] for call in received] == ["mid", "senior"]
+        assert len(received) == 3
+        assert [call["rubric"]["role_level"] for call in received] == ["mid", "senior", "目标层级尚未确认"]
         rubric = received[0]["rubric"]
         assert rubric["schema_version"] == 2 and rubric["role_level"] == "mid"
         assert rubric["calibration_status"] != "HUMAN_REVIEWED"
@@ -316,6 +343,10 @@ async def test_catalog_listing_exposure_and_practice_scoring(isolated_seed, monk
         unexposed = result["questions"][1]["frozen"]
         assert unexposed["assistance"]["reference_viewed"] is False
         assert unexposed["independence"]["eligible_for_independent_verification"] is False
+        legacy_frozen = result["questions"][2]["frozen"]
+        assert legacy_frozen["independence"]["canonical_question_id"] == legacy.id
+        assert legacy_frozen["independence"]["eligible_for_independent_verification"] is False
+        assert legacy_frozen["assessment_mode"] == "PRACTICE"
         titles = {entry["criterion_id"]: entry["title"] for entry in frozen["rubric"]["criteria"]}
         assert [titles[entry["criterion_id"]]
                 for entry in result["questions"][0]["answer"]["feedback"]["criterion_scores"]] == CRITERIA
@@ -329,3 +360,31 @@ async def test_catalog_listing_exposure_and_practice_scoring(isolated_seed, monk
         assert await session.scalar(select(func.count(Evidence.id)).where(Evidence.workspace_id == personal.id)) == 0
         assert await session.scalar(select(func.count(CompetencySnapshot.id)).where(
             CompetencySnapshot.workspace_id == personal.id)) == 0
+
+@pytest.mark.parametrize("replacement", [
+    {"topic": "eval"},
+    {"title": "被替换的题目"},
+    {"source_type": "USER_PRIVATE"},
+    {"generation_meta": {"assessment_use": "PRACTICE_ONLY"}},
+    {"workspace_id": 1},
+    {"canonical_question_id": 2},
+    {"is_demo": True},
+])
+def test_legacy_catalog_ignores_collisions(monkeypatch, tmp_path, replacement):
+    originals = tmp_path / "bank.json"
+    originals.write_text(json.dumps({"questions": [
+        {"id": "LEGACY-Q1", "topic": "rag", "title": "旧题原文"},
+    ]}), encoding="utf-8")
+    mapping = tmp_path / "legacy_domains.json"
+    mapping.write_text(json.dumps({"reliability": {"mid": ["LEGACY-Q1"], "senior": []}}))
+    monkeypatch.setattr(seed, "BANK_PATH", originals)
+    monkeypatch.setattr(experienced_bank, "LEGACY_DOMAINS_PATH", mapping)
+    domain = experienced_bank.Domain(
+        key="reliability", name="可靠性", order=1, focus="失败处理", questions=[],
+    )
+    row = Question(**{
+        "id": 3, "short_code": "LEGACY-Q1", "title": "旧题原文", "topic": "rag",
+        "qtype": "open", "source_type": "PUBLIC_LICENSED", "is_demo": False,
+        **replacement,
+    })
+    assert experienced_bank.catalog_questions([domain], [row]) == {"reliability": []}
