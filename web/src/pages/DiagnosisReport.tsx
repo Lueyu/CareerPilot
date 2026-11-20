@@ -2,7 +2,7 @@ import StudyRetestResult from '../components/StudyRetestResult';
 import StudyEntryButton from '../components/StudyEntryButton';
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { experiencedBankPath, isExperiencedPractice } from '../lib/experiencedBankPath';
+import { experiencedBankPath, hasExperiencedBankOrigin } from '../lib/experiencedBankPath';
 import { DemoBanner, PageHead, plainLevel } from '../components/ui';
 import { api, ExamReportData, ScoringTaskAck } from '../api/client';
 import { clearExamCreation } from '../lib/coreLoop';
@@ -46,11 +46,11 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
   const [rescoreErr, setRescoreErr] = useState<string | null>(null);
   const [pollPaused,setPollPaused]=useState(false);
   const reportId=params.get('id');const currentId=useRef(reportId);currentId.current=reportId;
-  const experiencedPractice = !studyMode && (report && String(report.id) === reportId
-    ? isExperiencedPractice(report, params)
-    : params.get('track') === 'experienced');
-  const reportTitle = '社招专项练习报告';
-  const bankReturn = experiencedPractice ? <Link className="btn btn-outline" to={experiencedBankPath(params)}>返回社招题单</Link> : null;
+  const currentReport = report && String(report.id) === reportId ? report : null;
+  const experiencedPractice = !studyMode && currentReport?.experienced_bank_practice === true;
+  const openingBankReport = !studyMode && !currentReport && hasExperiencedBankOrigin(params);
+  const reportTitle = '题库练习报告';
+  const bankReturn = experiencedPractice || openingBankReport ? <Link className="btn btn-outline" to={experiencedBankPath(params)}>返回题库</Link> : null;
   const retryPending=useRef(false);
   const toggle = (i: number) =>
     setOpen((o) => (o.includes(i) ? o.filter((x) => x !== i) : [...o, i]));
@@ -111,8 +111,8 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
   }, [report]);
 
   // 后端报告
-  if (report && String(report.id) === reportId) {
-    const r = report;
+  if (currentReport) {
+    const r = currentReport;
     const studyPracticeId = r.questions[0]?.frozen?.study_practice_id;
     if (studyMode && r.status === 'COMPLETED' && Number.isSafeInteger(studyPracticeId) && studyPracticeId > 0) {
       return <StudyRetestResult key={r.id} report={r} practiceId={studyPracticeId} />;
@@ -142,7 +142,7 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
       : '评分来源见逐题结果';
     return (
       <div>
-        <PageHead title={experiencedPractice ? reportTitle : r.title?.trim() || reportTitles[r.kind || ''] || '本次答题报告'} sub={`${experiencedPractice ? '练习' : '考试'} #${r.id} · ${STATUS_LABELS[r.status] || r.status} · ${r.completed_at ? new Date(r.completed_at).toLocaleString('zh-CN', { hour12: false }) : '—'}`}>
+        <PageHead title={experiencedPractice ? reportTitle : (r.title === '社招专项' ? '题库练习' : r.title?.trim()) || reportTitles[r.kind || ''] || '本次答题报告'} sub={`${experiencedPractice ? '练习' : '考试'} #${r.id} · ${STATUS_LABELS[r.status] || r.status} · ${r.completed_at ? new Date(r.completed_at).toLocaleString('zh-CN', { hour12: false }) : '—'}`}>
           {bankReturn ?? <button className="btn btn-outline" onClick={() => navigate('/exam')}>返回考试中心</button>}
           {!degraded && !experiencedPractice && <button className="btn btn-primary" onClick={() => navigate('/learning')}>查看今日任务</button>}
           {returnLink}
@@ -170,7 +170,7 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
 
         <div className="report-hero">
           <div>
-            <div className="hero-label">{experiencedPractice ? '本次练习得分' : `本次得分 · ${r.title}`}</div>
+            <div className="hero-label">{experiencedPractice ? '本次练习得分' : `本次得分 · ${r.title === '社招专项' ? '题库练习' : r.title}`}</div>
             <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>
               {!degraded && r.score != null ? `${r.score} 分` : '评分未完成'}
               <span className="hero-chip" style={{ marginLeft: 10 }}>{r.questions.length} 题 · {!degraded?r.gained_points??'—':'—'}/{totalPoints} 分</span>
@@ -455,7 +455,7 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
   }
 
   return <div>
-    <PageHead title={experiencedPractice ? reportTitle : '本次诊断报告'} sub={reportId ? `${experiencedPractice ? '练习' : '考试'} #${reportId}` : '未指定考试'}>
+    <PageHead title={openingBankReport ? reportTitle : '本次诊断报告'} sub={reportId ? `${openingBankReport ? '练习' : '考试'} #${reportId}` : '未指定考试'}>
       {bankReturn ?? <button className="btn btn-outline" onClick={() => navigate('/exam')}>返回考试中心</button>}
       {returnLink}
     </PageHead>

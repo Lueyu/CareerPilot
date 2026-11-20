@@ -51,7 +51,7 @@ export default function ExamCenter() {
     : [];
   const history = data?.history
     ? data.history.map((h) => ({
-        id: h.id, name: h.title, type: h.experienced_bank_practice ? '社招专项练习' : KIND_NAME[h.kind] || h.kind, count:h.question_count,
+        id: h.id, name: h.experienced_bank_practice || h.title === '社招专项' ? '题库练习' : h.title, type: h.experienced_bank_practice ? '题库练习' : KIND_NAME[h.kind] || h.kind, count:h.question_count,
         experienced: h.experienced_bank_practice,
         status: h.status, score: h.score, time: (h.completed_at || h.started_at || '').slice(0, 10),
         report: ['COMPLETED', 'SCORING_FAILED', 'SCORING', 'SCORING_RETRY_WAIT','NEEDS_REVIEW','SUBMITTED','FROZEN','TRANSCRIPT_CONFIRMED'].includes(h.status),
@@ -64,8 +64,7 @@ export default function ExamCenter() {
         title="考试中心"
         sub="独立诊断与学习任务新题验证，记录每次真实作答"
       >
-        <button className="btn btn-outline" onClick={() => navigate('/bank')}>查看题库</button>
-        <Link className="btn btn-outline" to={EXPERIENCED_BANK_PATH}>社招专项题库</Link>
+        <Link className="btn btn-outline" to={EXPERIENCED_BANK_PATH}>查看题库</Link>
         <button className="btn btn-primary" onClick={() => navigate('/exam/diagnosis')}>开始独立诊断</button>
       </PageHead>
       <DemoBanner />

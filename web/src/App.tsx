@@ -14,7 +14,8 @@ import Onboarding from './pages/Onboarding';
 import Dashboard from './pages/Dashboard';
 import CompetencyTabs from './pages/CompetencyTabs';
 import ProfileDetail from './pages/ProfileDetail';
-import ExamTabs from './pages/ExamTabs';
+import ExamCenter from './pages/ExamCenter';
+import Bank from './pages/Bank';
 import Diagnosis from './pages/Diagnosis';
 import DiagnosisReport from './pages/DiagnosisReport';
 import Learning from './pages/Learning';
@@ -31,15 +32,15 @@ import QuestionWorkshop from './pages/QuestionWorkshop';
 function Layout() {
   const { pathname } = useLocation();
   const study = pathname.startsWith('/study/');
-  const learning = pathname === '/learning';
+  const usesMobileDrawer = pathname === '/learning' || pathname === '/bank';
   const mobileNav = React.useRef<HTMLDialogElement>(null);
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
-  React.useEffect(() => { if (!learning) setMobileNavOpen(false); }, [learning]);
-  const compactNav = study || pathname === '/bank' || pathname === '/memory' || pathname === '/assets' || pathname.startsWith('/assets/project/');
+  React.useEffect(() => { if (!usesMobileDrawer) setMobileNavOpen(false); }, [usesMobileDrawer]);
+  const compactNav = study || pathname === '/memory' || pathname === '/assets' || pathname.startsWith('/assets/project/');
   return (
-    <div className={`app${compactNav ? ' app-compact-nav' : ''}${learning ? ' app-learning-calendar' : ''}`}>
+    <div className={`app${compactNav ? ' app-compact-nav' : ''}${usesMobileDrawer ? ' app-drawer-nav' : ''}`}>
       <Sidebar />
-      {learning && <dialog ref={mobileNav} className="learning-mobile-drawer" aria-label="CareerPilot 导航" onClose={() => setMobileNavOpen(false)}
+      {usesMobileDrawer && <dialog ref={mobileNav} className="learning-mobile-drawer" aria-label="CareerPilot 导航" onClose={() => setMobileNavOpen(false)}
         onClick={event => {
           const target = event.target;
           if (target === event.currentTarget || (target instanceof Element && target.closest('a, .ws-card'))) mobileNav.current?.close();
@@ -48,7 +49,7 @@ function Layout() {
         {mobileNavOpen && <Sidebar />}
       </dialog>}
       <div className="app-main">
-        <Topbar beforeCrumb={learning && <button className="btn btn-outline learning-mobile-nav-button" type="button" aria-haspopup="dialog"
+        <Topbar beforeCrumb={usesMobileDrawer && <button className="btn btn-outline learning-mobile-nav-button" type="button" aria-haspopup="dialog"
           onClick={() => { mobileNav.current?.showModal(); setMobileNavOpen(true); }}>菜单</button>} />
         <div className={study ? 'app-body app-body-study' : 'app-body'}>
           <Outlet />
@@ -85,8 +86,8 @@ export default function App() {
         <Route path="/benchmark" element={<CompetencyTabs />} />
         <Route path="/profile" element={<CompetencyTabs />} />
         <Route path="/profile/:domain" element={<ProfileDetail />} />
-        <Route path="/exam" element={<ExamTabs />} />
-        <Route path="/bank" element={<ExamTabs />} />
+        <Route path="/exam" element={<ExamCenter />} />
+        <Route path="/bank" element={<Bank />} />
         <Route path="/bank/workshop" element={<QuestionWorkshop />} />
         <Route path="/exam/diagnosis" element={<Diagnosis />} />
         <Route path="/exam/diagnosis/report" element={<DiagnosisReport />} />

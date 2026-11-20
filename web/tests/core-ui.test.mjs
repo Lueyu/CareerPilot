@@ -12,6 +12,7 @@ import Learning from '../src/pages/Learning.tsx';
 import LearningTask from '../src/pages/LearningTask.tsx';
 import Profile from '../src/pages/Profile.tsx';
 import ProfileDetail from '../src/pages/ProfileDetail.tsx';
+import { experiencedHistoryPath, experiencedPracticePath, rememberExperiencedFilters } from '../src/lib/experiencedBankPath.ts';
 
 const memory = () => {
   const entries = new Map();
@@ -63,6 +64,60 @@ test('report request failure keeps the requested id and does not load old histor
   const tree = await mount(DiagnosisReport, '/exam/diagnosis/report?id=77');
   try { assert.match(text(tree), /77/); assert.match(text(tree), /report unavailable/); assert.doesNotMatch(text(tree), /演示报告/); assert.equal(calls.length, 1); assert.ok(calls[0].endsWith('/exams/77/report')); }
   finally { await cleanup(tree); }
+});
+
+const bankFilters = 'level=senior&domain=tools&source=authored&q=tool+calls&company=Example+AI&page=2';
+const bankReturn = `/bank?${bankFilters}`;
+
+test('bank practice detail returns to the filtered catalog when its GET fails', async () => {
+  globalThis.fetch = async () => json({ detail: 'exam unavailable' }, 503);
+  const params = new URLSearchParams(`${bankFilters}&scope=mine&track=experienced&review=1`);
+  const tree = await mount(Diagnosis, experiencedPracticePath(87, params), '/exam/diagnosis');
+  try {
+    assert.match(text(tree), /无法加载本次练习.*exam unavailable/);
+    assert.doesNotMatch(text(tree), /专项/);
+    await act(async () => button(tree, '返回题库').props.onClick());
+    assert.equal(location.pathname + location.search, bankReturn);
+  } finally { await cleanup(tree); }
+});
+
+test('bank history and legacy report URLs return to the filtered catalog when the report GET fails', async () => {
+  globalThis.fetch = async () => json({ detail: 'report unavailable' }, 503);
+  rememberExperiencedFilters(87, new URLSearchParams(bankFilters));
+  for (const path of [
+    experiencedHistoryPath(87, true),
+    `/exam/diagnosis/report?id=87&track=experienced&${bankFilters}`,
+  ]) {
+    const tree = await mount(DiagnosisReport, path, '/exam/diagnosis/report');
+    try {
+      assert.match(text(tree), /题库练习报告.*report unavailable/);
+      assert.doesNotMatch(text(tree), /专项/);
+      const back = tree.root.findAllByType('a').find(link => link.children.join('') === '返回题库');
+      assert.equal(back?.props.href, bankReturn);
+      await act(async () => back.props.onClick({ button: 0, preventDefault() {} }));
+      assert.equal(location.pathname + location.search, bankReturn);
+    } finally { await cleanup(tree); }
+  }
+});
+
+test('finished bank practice carries its filters and origin into the report redirect', async () => {
+  globalThis.fetch = async () => json({ id: 87, status: 'COMPLETED', experienced_bank_practice: true });
+  rememberExperiencedFilters(87, new URLSearchParams(bankFilters));
+  const tree = await mount(Diagnosis, experiencedHistoryPath(87, false), '/exam/diagnosis');
+  try {
+    assert.equal(location.pathname + location.search, `/exam/diagnosis/report?id=87&from=bank&${bankFilters}`);
+  } finally { await cleanup(tree); }
+});
+
+test('a legacy origin marker cannot classify a loaded report as bank practice', async () => {
+  for (const flag of [undefined, false]) {
+    globalThis.fetch = async () => json({ id: 87, status: 'COMPLETED', kind: 'practice', title: '另一场练习', questions: [], experienced_bank_practice: flag });
+    const tree = await mount(DiagnosisReport, '/exam/diagnosis/report?id=87&track=experienced');
+    try {
+      assert.match(text(tree), /另一场练习.*查看今日任务/);
+      assert.doesNotMatch(text(tree), /题库练习报告|评分仅用于本题|返回题库/);
+    } finally { await cleanup(tree); }
+  }
 });
 
 test('failed atomic save keeps local edits and only unlocks after the server confirms ACTIVE', async () => {

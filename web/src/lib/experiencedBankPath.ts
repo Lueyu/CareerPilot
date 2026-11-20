@@ -1,27 +1,33 @@
 import { getWorkspace } from '../api/client';
 
-export const EXPERIENCED_BANK_PATH = '/bank?track=experienced';
+export const EXPERIENCED_BANK_PATH = '/bank';
 
-export function isExperiencedPractice(
-  exam: { kind?: string; experienced_bank_practice?: boolean },
-  params: URLSearchParams,
-): boolean {
-  return exam.experienced_bank_practice ?? (exam.kind === 'practice' && params.get('track') === 'experienced');
+export function hasExperiencedBankOrigin(params: URLSearchParams): boolean {
+  return params.get('from') === 'bank' || params.get('track') === 'experienced';
 }
 
 export function experiencedBankFilters(params: URLSearchParams): Record<string, string> {
-  const filters: Record<string, string> = { track: 'experienced' };
+  const filters: Record<string, string> = {};
   const level = params.get('level');
   const domain = params.get('domain');
   const source = params.get('source');
   if (level === 'mid' || level === 'senior') filters.level = level;
   if (domain) filters.domain = domain;
   if (source === 'legacy' || source === 'authored') filters.source = source;
+  for (const key of ['q', 'company']) {
+    const value = params.get(key)?.trim();
+    if (value) filters[key] = value;
+  }
+  const page = params.get('page');
+  if (page && /^\d+$/.test(page) && Number.isSafeInteger(Number(page)) && Number(page) > 1) {
+    filters.page = String(Number(page));
+  }
   return filters;
 }
 
 export function experiencedBankPath(params: URLSearchParams): string {
-  return `/bank?${new URLSearchParams(experiencedBankFilters(params))}`;
+  const query = new URLSearchParams(experiencedBankFilters(params)).toString();
+  return query ? EXPERIENCED_BANK_PATH + '?' + query : EXPERIENCED_BANK_PATH;
 }
 
 function practiceFiltersKey(id: number) {
@@ -43,10 +49,18 @@ export function experiencedHistoryPath(id: number, report: boolean): string {
   } catch {
     // History links also work without saved filters.
   }
-  const query = new URLSearchParams({ id: String(id), ...experiencedBankFilters(filters) });
+  return experiencedExamPath(id, filters, report);
+}
+
+function experiencedExamPath(id: number, params: URLSearchParams, report: boolean): string {
+  const query = new URLSearchParams({ id: String(id), from: 'bank', ...experiencedBankFilters(params) });
   return `/exam/diagnosis${report ? '/report' : ''}?${query}`;
 }
 
 export function experiencedPracticePath(id: number, params: URLSearchParams): string {
-  return `/exam/diagnosis?${new URLSearchParams({ id: String(id), ...experiencedBankFilters(params) })}`;
+  return experiencedExamPath(id, params, false);
+}
+
+export function experiencedReportPath(id: number, params: URLSearchParams): string {
+  return experiencedExamPath(id, params, true);
 }
