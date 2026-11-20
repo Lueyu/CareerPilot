@@ -1,5 +1,6 @@
 """Install and read the shared experienced-interview practice pack."""
 import json
+from functools import lru_cache
 from html import escape
 from pathlib import Path
 from typing import Annotated, Literal
@@ -8,6 +9,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only, raiseload
 
 from app.models import Question, Skill
 from app.models.question import SOURCE_PUBLIC
@@ -164,20 +166,42 @@ async def install_pack(session: AsyncSession, skills: dict[str, Skill]) -> tuple
     return len(created), len(owned), sorted(remaining - owned)
 
 
-def catalog_questions(domains: list[Domain], rows: list[Question]) -> dict[str, list[dict]]:
+def _legacy_domains() -> dict[str, dict[str, list[str]]]:
+    if not LEGACY_DOMAINS_PATH.is_file():
+        return {}
+    return json.loads(LEGACY_DOMAINS_PATH.read_text(encoding="utf-8"))
+
+
+@lru_cache(maxsize=1)
+def _original_identities(path: Path, version: tuple[int, int, int, int]) -> dict[str, tuple[str, str]]:
+    return {
+        entry["id"]: (entry["title"], entry["topic"])
+        for entry in json.loads(path.read_text(encoding="utf-8"))["questions"]
+    }
+
+
+def catalog_questions(
+    domains: list[Domain], rows: list[Question],
+    legacy_domains: dict[str, dict[str, list[str]]] | None = None,
+) -> dict[str, list[dict]]:
     from app.seed import BANK_PATH
 
     by_code = {row.short_code: row for row in rows if (
         row.workspace_id is None and row.canonical_question_id is None
         and not row.is_demo and row.source_type == SOURCE_PUBLIC
     )}
-    legacy_domains = {}
+    if legacy_domains is None:
+        legacy_domains = _legacy_domains()
     originals = {}
-    if LEGACY_DOMAINS_PATH.is_file() and BANK_PATH.is_file():
-        legacy_domains = json.loads(LEGACY_DOMAINS_PATH.read_text(encoding="utf-8"))
-        originals = {entry["id"]: entry for entry in json.loads(
-            BANK_PATH.read_text(encoding="utf-8")
-        )["questions"]}
+    if legacy_domains:
+        try:
+            stat = BANK_PATH.stat()
+        except FileNotFoundError:
+            pass
+        else:
+            originals = _original_identities(
+                BANK_PATH, (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns),
+            )
 
     questions_by_domain: dict[str, list[dict]] = {}
     seen: set[int] = set()
@@ -196,8 +220,7 @@ def catalog_questions(domains: list[Domain], rows: list[Question]) -> dict[str, 
                 row = by_code.get(code)
                 original = originals.get(code)
                 if (row is None or original is None or row.id in seen or row.qtype != "open"
-                        or row.generation_meta or row.topic != original["topic"]
-                        or row.title != original["title"]):
+                        or row.generation_meta or (row.title, row.topic) != original):
                     continue
                 questions_by_domain[domain.key].append(_catalog_entry(row, level, "legacy"))
                 seen.add(row.id)
@@ -213,11 +236,26 @@ def _catalog_entry(row: Question, level: Literal["mid", "senior"], source: Liter
 
 async def list_installed_pack(session: AsyncSession) -> dict:
     domains = load_catalog()
-    rows = (await session.scalars(select(Question).where(
+    legacy_domains = _legacy_domains()
+    codes = {entry.code for domain in domains for entry in domain.questions}
+    codes.update(
+        code for domain in domains for level in ("mid", "senior")
+        for code in legacy_domains.get(domain.key, {}).get(level, [])
+    )
+    rows = (await session.scalars(select(Question).options(
+        load_only(
+            Question.id, Question.short_code, Question.title, Question.tags, Question.topic,
+            Question.qtype, Question.generation_meta, Question.workspace_id,
+            Question.canonical_question_id, Question.is_demo, Question.source_type,
+            raiseload=True,
+        ),
+        raiseload("*"),
+    ).where(
+        Question.short_code.in_(codes),
         Question.workspace_id.is_(None), Question.canonical_question_id.is_(None),
         Question.is_demo.is_(False), Question.source_type == SOURCE_PUBLIC,
     ))).all()
-    questions_by_domain = catalog_questions(domains, rows)
+    questions_by_domain = catalog_questions(domains, rows, legacy_domains)
     return {"domains": [
         {
             "key": domain.key, "name": domain.name, "order": domain.order,

@@ -1,6 +1,7 @@
 """Install and grade experienced-bank practice in an isolated test schema."""
 import asyncio
 import json
+from collections import Counter
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -35,6 +36,18 @@ def test_shipped_domains_cover_both_experience_levels():
         for level in ("mid", "senior"):
             assert sum(q.level == level for q in domain.questions) >= 3, domain.key
         assert all(q.skill in skills for q in domain.questions)
+
+
+def test_shipped_legacy_mapping_covers_each_original_once():
+    mapping = json.loads(experienced_bank.LEGACY_DOMAINS_PATH.read_text(encoding="utf-8"))
+    originals = json.loads(seed.BANK_PATH.read_text(encoding="utf-8"))["questions"]
+    assert set(mapping) == {domain.key for domain in experienced_bank.load_catalog()}
+    assert all(set(levels) == {"mid", "senior"} for levels in mapping.values())
+    assert len(originals) == 161
+    assert Counter(
+        code for levels in mapping.values() for codes in levels.values() for code in codes
+    ) == {entry["id"]: 1 for entry in originals}
+    assert len({entry["id"] for entry in originals}) == len(originals)
 
 
 def authored(code, level="mid"):
