@@ -96,6 +96,7 @@ export default function Bank() {
   const query = new URLSearchParams(location.search);
   const scope = bankScope(query);
   const experienced = scope === 'bank';
+  const [catalogSummary, setCatalogSummary] = useState<{questions: number; domains: number} | null>(null);
   const hasImportLink = query.get('import') === '1';
   const requestedSet = scope === 'sets' ? query.get('set') : null;
   const [pendingCount, setPendingCount] = useState<number | null>(null);
@@ -487,7 +488,7 @@ export default function Bank() {
 
   return (
     <div className="bank-page">
-      <PageHead title="面试题库">
+      <PageHead title="面试题库" sub={experienced && catalogSummary ? `${catalogSummary.questions} 道题 · ${catalogSummary.domains} 个能力域` : undefined}>
         <button className="btn btn-primary" onClick={openUpload}>导入面经</button>
       </PageHead>
       <nav className="bank-actions" aria-label="题库工作区">
@@ -496,6 +497,7 @@ export default function Bank() {
       </nav>
       {experienced && (
         <ExperiencedBank
+          onCatalogSummary={setCatalogSummary}
           practiceBusy={practiceBusy}
           practiceError={practiceError}
           onPractice={question => startPractice({id: question.short_code, numericQuestionId: question.id})}
