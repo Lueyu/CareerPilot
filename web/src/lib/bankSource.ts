@@ -1,3 +1,5 @@
+export const ORIGINAL_SCENARIO_LABEL = '原创情景题';
+
 /** Presentation and edit affordances follow the persisted source, not company text. */
 export function bankSourcePresentation(question:{source_type:string;company?:string|null}) {
   const isPrivate=question.source_type==='USER_PRIVATE' || question.source_type==='GENERATED';

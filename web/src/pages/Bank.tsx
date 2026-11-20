@@ -1,6 +1,6 @@
 import StudyEntryButton from '../components/StudyEntryButton';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAppState } from '../components/AppState';
 import { DiffLabel, Modal, PageHead, Stars } from '../components/ui';
 import { api, BankData, ImportReview, QuestionDetail } from '../api/client';
@@ -9,7 +9,9 @@ import BankQuestionEditor from '../components/BankQuestionEditor';
 import BankReviewQueue, { sanitizeReviewAnswer } from './BankReviewQueue';
 import RetestMappingReview from '../components/RetestMappingReview';
 import {beginQuestionPractice} from '../lib/questionWorkshop';
-import {bankSourcePresentation} from '../lib/bankSource';
+import {bankSourcePresentation, ORIGINAL_SCENARIO_LABEL} from '../lib/bankSource';
+import ExperiencedBank, { EXPERIENCE_LABELS, type ExperiencedQuestion } from './ExperiencedBank';
+import { EXPERIENCED_BANK_PATH, experiencedPracticePath } from '../lib/experiencedBankPath';
 const bankUrl = new URL('../data/bank.json', import.meta.url).href;
 
 interface BankQ {
@@ -26,6 +28,7 @@ interface BankQ {
 }
 
 type BankContent={questions:BankQ[];topics:{code:string;name:string;icon:string;order:number;desc:string}[]};
+const emptyBankContent: BankContent = {questions: [], topics: []};
 type ImportStage = 'upload' | 'review';
 type Facet = 'companies' | 'topics' | 'sources';
 type Facets = Record<Facet, string[]>;
@@ -71,14 +74,32 @@ interface Row {
   isApi: boolean;
 }
 
-export default function Bank(){
+type PracticeQuestion = Pick<Row, 'id' | 'numericQuestionId'>;
+type ExperiencedReference = {
+  id: string;
+  numericQuestionId: number;
+  title: string;
+  domainName: string;
+  level: ExperiencedQuestion['level'];
+};
+type ReferenceQuestion = Row | ExperiencedReference;
+
+export default function Bank() {
+  const query = new URLSearchParams(useLocation().search);
+  const experienced = query.get('track') === 'experienced' && query.get('review') !== '1' &&
+    query.get('import') !== '1' && !query.get('set');
+  return experienced ? <BankPage /> : <GeneralBank />;
+}
+
+function GeneralBank(){
   const [content,setContent]=useState<BankContent>(),[error,setError]=useState(''),[retry,setRetry]=useState(0);
   useEffect(()=>{const controller=new AbortController();setError('');fetch(bankUrl,{signal:controller.signal}).then(async r=>{if(!r.ok)throw Error(String(r.status));const bank=await r.json();if(!Array.isArray(bank.questions)||!Array.isArray(bank.topics))throw Error('格式异常');return bank}).then(bank=>{if(!controller.signal.aborted)setContent(bank)}).catch(e=>{if(!controller.signal.aborted)setError(e.message)});return()=>controller.abort()},[retry]);
   if(!content)return <div className="card" role="status">{error?<>题库资料加载失败：{error} <button onClick={()=>setRetry(v=>v+1)}>重试</button></>:'正在打开题库资料…'}</div>;
   return <BankPage bank={content}/>;
 }
-function BankPage({bank}:{bank:BankContent}) {
-  const QUESTIONS=bank.questions, TOPICS=bank.topics;
+function BankPage({bank}: {bank?: BankContent}) {
+  const experienced = bank === undefined;
+  const {questions: QUESTIONS, topics: TOPICS} = bank ?? emptyBankContent;
   const TOPIC_NAME=useMemo<Record<string,string>>(()=>Object.fromEntries(TOPICS.map(t=>[t.code,t.name])),[TOPICS]);
   const navigate = useNavigate();
   const { toast } = useAppState();
@@ -89,7 +110,8 @@ function BankPage({bank}:{bank:BankContent}) {
   const [showFilters, setShowFilters] = useState(false);
   const [page, setPage] = useState(0);
   const [bankLoading, setBankLoading] = useState(true);
-  const [detail, setDetail] = useState<Row | null>(null);
+  const [detail, setDetail] = useState<ReferenceQuestion | null>(null);
+  const generalDetail = detail && 'source_type' in detail ? detail : null;
   const [zoomSvg, setZoomSvg] = useState<string | null>(null);
   const answerRef = useRef<HTMLDivElement>(null);
   const toggleQA = (open: boolean) => {
@@ -99,25 +121,32 @@ function BankPage({bank}:{bank:BankContent}) {
   const [mappingQuestion, setMappingQuestion] = useState<{ id: number; title: string } | null>(null);
   const [mergeQ, setMergeQ] = useState<Row | null>(null);
   const [practiceBusy,setPracticeBusy] = useState<string|null>(null);
+  const [practiceError, setPracticeError] = useState<{id: string; message: string} | null>(null);
   const practiceAttempts = useRef(new Map<string,string>());
-  const startPractice = async (row:Row) => {
+  const startPractice = async (row: PracticeQuestion) => {
     setPracticeBusy(row.id);
+    setPracticeError(null);
     try {
       const questionId=row.numericQuestionId ?? (await api.get<QuestionDetail>(`/bank/${encodeURIComponent(row.id)}`)).id;
       const key=practiceAttempts.current.get(row.id) || crypto.randomUUID();
       practiceAttempts.current.set(row.id,key);
       const exam=await beginQuestionPractice(questionId,key,api);
       practiceAttempts.current.delete(row.id);
-      navigate(`/exam/diagnosis?id=${exam.id}`);
-    } catch(e:any) {toast('⚠️',`无法开始练习：${e.message || e}`);}
+      navigate(experienced ? experiencedPracticePath(exam.id, new URLSearchParams(location.search)) : `/exam/diagnosis?id=${exam.id}`);
+    } catch (error) {
+      const message = `无法开始练习：${error instanceof Error ? error.message : String(error)}`;
+      if (experienced) setPracticeError({id: row.id, message});
+      else toast('⚠️', message);
+    }
     finally {setPracticeBusy(null);}
   };
-  const [importOpen, setImportOpen] = useState(window.location.search.includes('import=1'));
+  const [importOpen, setImportOpen] = useState(() => new URLSearchParams(location.search).get('import') === '1');
 
   // v3.1 M1: 在考试与面经 Tab 容器下, ?import=1 需要响应式触发
   useEffect(() => {
-    if (location.search.includes('import=1')) setImportOpen(true);
-    if (new URLSearchParams(location.search).get('review') === '1') setScope('pending');
+    const query = new URLSearchParams(location.search);
+    if (query.get('import') === '1') setImportOpen(true);
+    if (query.get('review') === '1') setScope('pending');
     else setScope(previous => previous === 'pending' ? 'bank' : previous);
   }, [location.search]);
   const [stage, setStage] = useState<ImportStage>('upload');
@@ -167,6 +196,7 @@ function BankPage({bank}:{bank:BankContent}) {
   const [detailErr, setDetailErr] = useState<string | null>(null);
 
   useEffect(() => {
+    if (experienced) return;
     let alive = true;
     const params = new URLSearchParams({limit: String(pageSize), offset: String(page * pageSize)});
     for (const [facet, choices] of Object.entries(facets)) for (const choice of choices) params.append(facet, choice);
@@ -177,9 +207,10 @@ function BankPage({bank}:{bank:BankContent}) {
       .catch((e) => { if (alive) { setApiErr(String(e.message || e)); setApiData(null); } })
       .finally(() => { if (alive) setBankLoading(false); });
     return () => { alive = false; };
-  }, [facets, q, reload, page]);
+  }, [experienced, facets, q, reload, page]);
 
   useEffect(() => {
+    if (experienced) return;
     let alive = true;
     api.get<{items:InterviewSet[]}>('/bank/interview-sets').then(data => {
       if (alive) {
@@ -194,7 +225,7 @@ function BankPage({bank}:{bank:BankContent}) {
       }
     }).catch((error: Error) => { if (alive) setSetsError(error.message); });
     return () => { alive = false; };
-  }, [reload, location.search]);
+  }, [experienced, reload, location.search]);
 
   useEffect(() => {
     if (stage !== 'review' || !importOpen) return;
@@ -419,12 +450,12 @@ function BankPage({bank}:{bank:BankContent}) {
   }, []);
 
   /** 打开题目详情: 拉真实答案(私有题无静态 html) */
-  const openDetail = async (r: Row) => {
+  const openDetail = async (r: ReferenceQuestion) => {
     const request=++detailRequest.current;
     setDetail(r);setDetailHtml(null);setDetailErr(null);setDetailLoading(true);
     try {
       const d = await api.get<QuestionDetail>(`/bank/${encodeURIComponent(r.id)}`);
-      if(request===detailRequest.current)setDetailHtml(d.answer_html || r.html || null);
+      if(request===detailRequest.current)setDetailHtml(d.answer_html || ('html' in r ? r.html : null) || null);
     } catch(e) {
       if(request===detailRequest.current)setDetailErr(`参考读取失败：${e instanceof Error?e.message:String(e)}。辅助记录未确认，暂不展示参考内容。`);
     } finally {if(request===detailRequest.current)setDetailLoading(false);}
@@ -432,13 +463,13 @@ function BankPage({bank}:{bank:BankContent}) {
 
   /** 为题库题补生成答案 */
   const genAnswer = async () => {
-    if (!detail) return;
+    if (!generalDetail) return;
     const request=detailRequest.current;
     setDetailBusy(true);
     setDetailErr(null);
     try {
       const r = await api.post<{ answer_html: string; generated: boolean; source: string }>(
-        `/bank/questions/${encodeURIComponent(detail.id)}/answer?force=false`,
+        `/bank/questions/${encodeURIComponent(generalDetail.id)}/answer?force=false`,
       );
       if(request!==detailRequest.current)return;
       setDetailHtml(r.answer_html);
@@ -453,15 +484,26 @@ function BankPage({bank}:{bank:BankContent}) {
 
   return (
     <div className="bank-page">
-      <PageHead
+      {experienced && (
+        <ExperiencedBank
+          practiceBusy={practiceBusy}
+          practiceError={practiceError}
+          onPractice={question => startPractice({id: question.short_code, numericQuestionId: question.id})}
+          onReference={(question, domainName) => openDetail({
+            id: question.short_code, numericQuestionId: question.id, title: question.title, level: question.level, domainName,
+          })}
+        />
+      )}
+      {!experienced && <PageHead
         title="面经库"
         sub={scope === 'pending' ? '核对题目、答案草稿和评分要点后决定是否入库。' : '按原帖整理一套面经，也可以跨面经查找通用题。'}
       >
+        <Link className="btn btn-primary" to={EXPERIENCED_BANK_PATH}>社招专项</Link>
         {scope === 'pending' && <button className="btn btn-outline" onClick={openUpload}>导入面经</button>}
         <button className="btn btn-outline" onClick={() => navigate('/exam')}>用面经组卷</button>
         <button className="btn btn-outline" onClick={() => navigate('/bank/workshop')}>项目面经与智能补题</button>
-      </PageHead>
-      <div className="bank-workspace">
+      </PageHead>}
+      {!experienced && <div className="bank-workspace">
         {scope !== 'pending' && <section className="card bank-section">
           <p className="hint">我的面经集</p>
           <h2>{sets[0]?.title ?? '整理你的第一套项目面经'}</h2>
@@ -559,27 +601,36 @@ function BankPage({bank}:{bank:BankContent}) {
           </div>
         </div>
         </>}
-      </div>
+      </div>}
 
       {/* —— 题目详情(全屏最大化) —— */}
       {detail && (
-        <Modal title={`${detail.id} · 题目详情`} size="xl" onClose={() => {++detailRequest.current;setDetail(null);}}
+        <Modal title={generalDetail ? `${detail.id} · 题目详情` : '查看参考'} size="xl" onClose={() => {++detailRequest.current;setDetail(null);}}
           footer={
             <>
-              <button className="btn btn-outline" disabled={!bankSourcePresentation(detail).editable} title={bankSourcePresentation(detail).editable?'编辑个人题目信息':'共享题库只读，可导入面经后整理为个人题目'} onClick={() => { setDetail(null); setEditQ(detail); }}>{bankSourcePresentation(detail).editable?'编辑':'共享题只读'}</button>
-              <StudyEntryButton kind="question" id={detail.numericQuestionId} bankKey={detail.id}/>
-              <button className="btn btn-primary" disabled={practiceBusy!==null} onClick={() => startPractice(detail)}>{practiceBusy?'准备考试…':'开始练这题'}</button>
+              {generalDetail && <>
+                <button className="btn btn-outline" disabled={!bankSourcePresentation(generalDetail).editable} title={bankSourcePresentation(generalDetail).editable?'编辑个人题目信息':'共享题库只读，可导入面经后整理为个人题目'} onClick={() => { setDetail(null); setEditQ(generalDetail); }}>{bankSourcePresentation(generalDetail).editable?'编辑':'共享题只读'}</button>
+                <StudyEntryButton kind="question" id={generalDetail.numericQuestionId} bankKey={generalDetail.id}/>
+              </>}
+              <button className="btn btn-primary" disabled={practiceBusy!==null} onClick={() => startPractice(detail)}>{practiceBusy?'准备考试…':practiceError?.id === detail.id ? '重试练习' : '开始练这题'}</button>
             </>
           }>
           <div className="q-meta" style={{ marginBottom: 14 }}>
-            <span className="chip chip-slate">{TOPIC_NAME[detail.topic] ?? detail.topic}</span>
-            <span>{detail.company}</span>
-            <Stars n={detail.difficulty} />
+            {'domainName' in detail ? <>
+              <span className="chip chip-slate">{detail.domainName}</span>
+              <span className="chip chip-slate">{EXPERIENCE_LABELS[detail.level]}</span>
+              <span>{ORIGINAL_SCENARIO_LABEL} · 共享题库 · 只读</span>
+            </> : <>
+              <span className="chip chip-slate">{TOPIC_NAME[detail.topic] ?? detail.topic}</span>
+              <span>{detail.company}</span>
+              <Stars n={detail.difficulty} />
+            </>}
           </div>
-          <h3 style={{ fontSize: 17, fontWeight: 650, marginBottom: 14 }}>{detail.title}</h3>
-          <p className="hint">{bankSourcePresentation(detail).isPrivate ? `个人题库 · ${bankSourcePresentation(detail).label}`:'共享题库只读；需要结合项目改写时，可在面经工作台导入并审核为个人题目。'}</p>
-          {detailErr && <div className="demo-banner demo-banner-err" style={{ marginBottom: 10 }}>{detailErr}</div>}
-          <p className="hint">查看参考后，该题族不再用于未辅助独立复测；仍可用于带辅助的学习和练习。</p>
+          <h3 className={generalDetail ? undefined : 'experienced-prompt'} style={{ fontSize: 17, fontWeight: 650, marginBottom: 14 }}>{detail.title}</h3>
+          {generalDetail && <p className="hint">{bankSourcePresentation(generalDetail).isPrivate ? `个人题库 · ${bankSourcePresentation(generalDetail).label}`:'共享题库只读；需要结合项目改写时，可在面经工作台导入并审核为个人题目。'}</p>}
+          {detailErr && <div role="alert" className="demo-banner demo-banner-err" style={{ marginBottom: 10 }}>{detailErr}</div>}
+          {practiceError?.id === detail.id && <p role="alert">{practiceError.message}</p>}
+          <p className="hint">{generalDetail ? '查看参考后，该题族不再用于未辅助独立复测；仍可用于带辅助的学习和练习。' : '读取参考会记录这道题的辅助条件。建议先作答，再对照参考。'}</p>
           {detailLoading?<p role="status">正在记录辅助条件并读取参考…</p>:detailErr?<button className="btn btn-outline" onClick={()=>openDetail(detail)}>重新读取参考</button>:detailHtml ? (
             <>
               {detailHtml.includes('<details') && (
@@ -596,12 +647,12 @@ function BankPage({bank}:{bank:BankContent}) {
                   const svg = (e.target as HTMLElement).closest('svg.sdiagram') as SVGSVGElement | null;
                   if (svg) setZoomSvg(svg.outerHTML);
                 }}
-                dangerouslySetInnerHTML={{ __html: detailHtml === detail.html
+                dangerouslySetInnerHTML={{ __html: detailHtml === generalDetail?.html
                   ? SD_MARKER_DEFS + transformAnswer(detailHtml)
                   : sanitizeReviewAnswer(transformAnswer(detailHtml)) }}
               />
             </>
-          ) : (
+          ) : !generalDetail ? <p>这道题暂未发布参考内容。</p> : (
             <div className="ans-empty">
               <p>这道题还没有答案内容。</p>
               <p className="hint">可以让系统生成一份结构化的详细解答（一句话回答 / 通俗类比 / 面试官考什么 / 具体怎么做 / 常见坑 / 追问 / 评分要点）。</p>

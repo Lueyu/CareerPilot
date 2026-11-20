@@ -1,3 +1,60 @@
+.experienced-guide { border-inline-start: 3px solid var(--primary); }
+.experienced-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 250px) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+.experienced-domains { padding: 16px; }
+.experienced-domains h2 { font-size: 16px; }
+.experienced-domain-list { display: grid; gap: 4px; }
+.experienced-domain {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  min-height: 44px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text);
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.experienced-domain .chip { flex: none; }
+.experienced-domain:hover { background: var(--hover); }
+.experienced-domain[aria-pressed="true"] {
+  background: var(--primary-50);
+  border-color: var(--primary-200);
+  font-weight: 650;
+}
+.experienced-domain:focus-visible { outline: 2px solid var(--primary); }
+.experienced-questions { min-width: 0; }
+.experienced-prompt { white-space: pre-wrap; overflow-wrap: anywhere; }
+.experienced-question-list { list-style: none; padding: 0; margin: 0; }
+.experienced-question {
+  display: grid;
+  gap: 10px;
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+}
+.experienced-question:last-child { padding-bottom: 0; }
+.experienced-question h3 { font-size: 16px; line-height: 1.6; }
+.experienced-question .q-meta { margin-top: 6px; }
+.experienced-question-code { overflow-wrap: anywhere; }
+.experienced-question [role="alert"] { color: var(--red); overflow-wrap: anywhere; }
+
+@media (max-width: 760px) {
+  .experienced-layout { grid-template-columns: minmax(0, 1fr); }
+  .experienced-quiz-top { flex-wrap: wrap; }
+  .experienced-domain-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .experienced-guide, .experienced-questions { padding: 14px 16px; }
+  .experienced-question .btn { min-height: 40px; }
+}
+
 .bank-workspace { display: grid; gap: 16px; }
 .bank-section { display: grid; gap: 10px; padding: 18px 24px; border-radius: 14px; }
 .bank-section h2, .bank-section h3, .bank-section p { margin: 0; }

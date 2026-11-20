@@ -20,6 +20,7 @@ from app.db import SessionLocal, get_session
 from app.models import Exam, ImportItem, ImportSession, Project, Question, Skill, Trace, Workspace
 from app.services.answer_gen import generate_answer
 from app.services import bank_review_actions as review_actions
+from app.services.experienced_bank import is_owned_question, list_installed_pack, owned_question_clause
 from app.services.interview_rewrite import rewrite_interview_questions
 from app.services.llm import AgentAdapter
 from app.services.project_context import PROFILE_LABELS, project_profile
@@ -155,6 +156,13 @@ async def list_interview_sets(
     return {"items": [entry for imported in imports for entry in reversed((imported.meta or {}).get('interview_sets', []))]}
 
 
+@router.get("/bank/experienced")
+async def list_experienced_bank(
+    _ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session),
+):
+    return await list_installed_pack(session)
+
+
 @router.get("/bank/{short_code}")
 async def bank_detail(
     short_code: str,
@@ -168,7 +176,8 @@ async def bank_detail(
             .where(
                 Question.short_code == short_code,
                 (Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id),
-                Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY'),
+                (Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY')
+                 | owned_question_clause()),
             )
         )
     ).scalar_one_or_none()
@@ -978,6 +987,8 @@ async def generate_question_answer(
     if question is None:
         raise HTTPException(status_code=404, detail="question not found")
 
+    if force and is_owned_question(question):
+        raise HTTPException(403, "社招专项题库为只读")
     if question.generation_meta and force:
         raise HTTPException(409, "此题来自项目补题工作台，请创建新批次以保留资料与来源")
     if (question.answer_html or "").strip() and not force:
