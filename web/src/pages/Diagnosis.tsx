@@ -5,7 +5,7 @@ import { api, ExamDetail, ScoringTaskAck } from '../api/client';
 import { loadOrCreateExam, clearExamCreation, submitExam } from '../lib/coreLoop';
 import {useExamDraft,clearSavedDraft} from '../lib/useExamDraft';
 import { useSpeechRecognition } from '../lib/speech';
-import { experiencedBankFilters, experiencedBankPath, isExperiencedPractice } from '../lib/experiencedBankPath';
+import { experiencedBankPath, experiencedReportPath, hasExperiencedBankOrigin } from '../lib/experiencedBankPath';
 
 type Phase = 'loading' | 'quiz' | 'scoring' | 'uncertain' | 'closed' | 'error';
 
@@ -20,16 +20,18 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
   const [retry, setRetry] = useState(0);
   const [phase, setPhase] = useState<Phase>('loading');
   const [exam, setExam] = useState<ExamDetail | null>(null);
-  const experiencedPractice = !studyMode && (exam ? isExperiencedPractice(exam, params) : params.get('track') === 'experienced');
-  const bankReturn = experiencedPractice ? experiencedBankPath(params) : null;
+  const currentExam = exam && (!requestedId || String(exam.id) === requestedId) ? exam : null;
+  const experiencedPractice = !studyMode && currentExam?.experienced_bank_practice === true;
+  const openingBankPractice = !studyMode && !!requestedId && !currentExam && hasExperiencedBankOrigin(params);
+  const bankReturn = experiencedPractice || openingBankPractice ? experiencedBankPath(params) : null;
   const returnPath = bankReturn ?? (studyMode ? '/study/notes?tab=review' : '/exam');
   const returnLabel = bankReturn ? '返回题库' : studyMode ? '返回复习与练习' : '返回考试中心';
-  const diagnosisTitle = experiencedPractice ? '题库练习' : studyMode ? '新情境复测' : '独立诊断';
+  const diagnosisTitle = bankReturn ? '题库练习' : studyMode ? '新情境复测' : '独立诊断';
   const reportPath = (id: number, source = exam) => {
-    const filters = !studyMode && source && isExperiencedPractice(source, params) ? experiencedBankFilters(params) : {};
-    const query = new URLSearchParams({ id: String(id), ...filters });
-    if (validReturnTask) query.set('return_task_id', validReturnTask);
-    return `${studyMode ? '/study/retest' : '/exam/diagnosis'}/report?${query}`;
+    const path = !studyMode && source?.experienced_bank_practice === true
+      ? experiencedReportPath(id, params)
+      : `${studyMode ? '/study/retest' : '/exam/diagnosis'}/report?id=${id}`;
+    return validReturnTask ? `${path}&return_task_id=${validReturnTask}` : path;
   };
   const [createErr, setCreateErr] = useState<string | null>(null);
   const [idx, setIdx] = useState(0);
@@ -52,8 +54,8 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
         navigate(reportPath(d.id, d), { replace: true });
         return;
       }
-      if (!d.questions.length) throw new Error('本次考试没有可用题目');
       setExam(d);
+      if (!d.questions.length) throw new Error('本次考试没有可用题目');
       setIdx(0);
       const elapsed = d.started_at ? (Date.now() - new Date(d.started_at).getTime()) / 1000 : 0;
       setSecs(Math.max(0, Math.round(d.duration_minutes * 60 - elapsed)));
@@ -137,7 +139,7 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
       const current=await api.get<ExamDetail>(`/exams/${exam.id}`);
       if(current.status==='ACTIVE'){draft.reconcile(current);locked.current=false;setPhase('quiz');}
       else if(['ABORTED','EXPIRED'].includes(current.status)){setExam(current);setPhase('closed');}
-      else {clearExamCreation();clearSavedDraft(exam.id);navigate(reportPath(exam.id),{replace:true});}
+      else {clearExamCreation();clearSavedDraft(exam.id);navigate(reportPath(exam.id,current),{replace:true});}
     }catch(e){setActionError(`暂时无法确认提交状态：${e instanceof Error?e.message:String(e)}。答卷保持只读，本地输入仍保留。`);setPhase('uncertain');}
     finally{setBusy(false);}
   };
@@ -158,7 +160,7 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
     } finally { setBusy(false); }
   };
 
-  if (phase === 'error') return <div className="card"><h2>{experiencedPractice ? '无法加载本次练习' : '无法加载本次考试'}</h2><p role="alert">{createErr}</p><button className="btn btn-primary" onClick={() => setRetry(x => x + 1)}>重试</button><button className="btn btn-outline" onClick={() => navigate(returnPath)}>{returnLabel}</button></div>;
+  if (phase === 'error') return <div className="card"><h2>{bankReturn ? '无法加载本次练习' : '无法加载本次考试'}</h2><p role="alert">{createErr}</p><button className="btn btn-primary" onClick={() => setRetry(x => x + 1)}>重试</button><button className="btn btn-outline" onClick={() => navigate(returnPath)}>{returnLabel}</button></div>;
   if(phase==='uncertain')return <div className="card"><h2>正在核对本次提交状态</h2><p role="alert">{actionError}</p><p>确认服务器状态前保持答卷只读，避免修改已经冻结的答案。</p><button className="btn btn-primary" disabled={busy} onClick={checkSubmission}>重新核对本次状态</button></div>;
   if(phase==='closed')return <div className="card"><h2>{experiencedPractice ? '本次练习' : '本次考试'}{exam?.status === 'EXPIRED' ? '已超时' : '已放弃'}</h2><p>已保存的作答保留，本次没有有效成绩。当前不能继续修改或提交。</p><button className="btn btn-outline" onClick={() => navigate(returnPath)}>{returnLabel}</button></div>;
 
@@ -168,7 +170,7 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
         <div className="quiz-top">
           <div>
             <div className="page-title" style={{ fontSize: 22 }}>{diagnosisTitle}</div>
-            <div className="page-sub">{studyMode || experiencedPractice ? '正在读取本场试题…' : '正在生成自适应试卷…'}</div>
+            <div className="page-sub">{studyMode || bankReturn ? '正在读取本场试题…' : '正在生成自适应试卷…'}</div>
           </div>
         </div>
         <div className="score-box">
@@ -178,10 +180,10 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
               <circle className="ring-spin" cx="55" cy="55" r="46" fill="none" stroke="var(--primary)" strokeWidth="8" strokeLinecap="round"
                 strokeDasharray="289" strokeDashoffset="80" transform="rotate(-90 55 55)" />
             </svg>
-            <div className="ring-label">{studyMode || experiencedPractice ? '读取中' : '选题中'}</div>
+            <div className="ring-label">{studyMode || bankReturn ? '读取中' : '选题中'}</div>
           </div>
-          <h3 style={{ fontSize: 18, fontWeight: 650, marginTop: 18 }}>{experiencedPractice ? '正在打开练习' : studyMode ? '正在打开复测' : '自适应选题引擎运行中…'}</h3>
-          <p className="hint" style={{ textAlign: 'center' }}>{studyMode || experiencedPractice ? '沿用出卷时保存的题目和评价标准' : '优先覆盖状态未知 / 待验证 / 低于目标的能力域'}</p>
+          <h3 style={{ fontSize: 18, fontWeight: 650, marginTop: 18 }}>{bankReturn ? '正在打开练习' : studyMode ? '正在打开复测' : '自适应选题引擎运行中…'}</h3>
+          <p className="hint" style={{ textAlign: 'center' }}>{studyMode || bankReturn ? '沿用出卷时保存的题目和评价标准' : '优先覆盖状态未知 / 待验证 / 低于目标的能力域'}</p>
         </div>
       </div>
     );

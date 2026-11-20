@@ -2,11 +2,8 @@ import { getWorkspace } from '../api/client';
 
 export const EXPERIENCED_BANK_PATH = '/bank';
 
-export function isExperiencedPractice(
-  exam: { kind?: string; experienced_bank_practice?: boolean },
-  params: URLSearchParams,
-): boolean {
-  return exam.experienced_bank_practice ?? (exam.kind === 'practice' && params.get('track') === 'experienced');
+export function hasExperiencedBankOrigin(params: URLSearchParams): boolean {
+  return params.get('from') === 'bank' || params.get('track') === 'experienced';
 }
 
 export function experiencedBankFilters(params: URLSearchParams): Record<string, string> {
@@ -52,10 +49,18 @@ export function experiencedHistoryPath(id: number, report: boolean): string {
   } catch {
     // History links also work without saved filters.
   }
-  const query = new URLSearchParams({ id: String(id), ...experiencedBankFilters(filters) });
+  return experiencedExamPath(id, filters, report);
+}
+
+function experiencedExamPath(id: number, params: URLSearchParams, report: boolean): string {
+  const query = new URLSearchParams({ id: String(id), from: 'bank', ...experiencedBankFilters(params) });
   return `/exam/diagnosis${report ? '/report' : ''}?${query}`;
 }
 
 export function experiencedPracticePath(id: number, params: URLSearchParams): string {
-  return `/exam/diagnosis?${new URLSearchParams({ id: String(id), ...experiencedBankFilters(params) })}`;
+  return experiencedExamPath(id, params, false);
+}
+
+export function experiencedReportPath(id: number, params: URLSearchParams): string {
+  return experiencedExamPath(id, params, true);
 }
