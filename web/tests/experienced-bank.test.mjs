@@ -195,7 +195,7 @@ test('practice starts with the DB ID, retries with the same request key and neve
   assert.ok(calls[1].body.idempotency_key);
   assert.equal(calls[1].body.experienced_bank, true);
   assert.deepEqual(calls[1].body, calls[2].body);
-  assert.equal(location().pathname + location().search, '/exam/diagnosis?id=87');
+  assert.equal(location().pathname + location().search, '/exam/diagnosis?id=87&from=bank');
 });
 
 test('reference opens on explicit request and only shows the server answer after a successful read', async t => {
@@ -237,7 +237,7 @@ test('returning to the filtered list saves the draft and resumes the same practi
   assert.equal(location().pathname + location().search, '/bank?level=senior&domain=tools&source=authored&q=%E9%87%8D%E5%A4%8D&company=Example+AI');
   assert.ok(rendered(tree).includes(senior.title));
   const resume = tree.root.findAllByType('a').find(node => labelOf(node) === '继续本次练习');
-  assert.equal(resume?.props.href, '/exam/diagnosis?id=87&level=senior&domain=tools&source=authored&q=%E9%87%8D%E5%A4%8D&company=Example+AI');
+  assert.equal(resume?.props.href, '/exam/diagnosis?id=87&from=bank&level=senior&domain=tools&source=authored&q=%E9%87%8D%E5%A4%8D&company=Example+AI');
   await act(async () => { resume.props.onClick({ button: 0, preventDefault() {} }); await flush(); });
   assert.equal(tree.root.findByType('textarea').props.value, answer);
   assert.equal(calls.filter(call => call.endpoint === '/exams' && call.method === 'POST').length, 1);
@@ -294,7 +294,7 @@ test('legacy reference retains diagrams and followups after exposure, then pract
   const practice = calls.find(call => call.endpoint === '/exams');
   assert.equal(practice.body.experienced_bank, true);
   assert.deepEqual(practice.body.question_ids, [legacy.id]);
-  const practiceSearch = '?id=87&level=mid&domain=tools&source=legacy';
+  const practiceSearch = '?id=87&from=bank&level=mid&domain=tools&source=legacy';
   assert.equal(location().search, practiceSearch);
   await act(async () => { navigate('/exam'); await flush(); });
   await click(tree, '继续练习');
