@@ -61,9 +61,9 @@ export const ITEM_LABELS: Record<string, string> = {DRAFT:'待审核', APPROVED:
 export const QUESTION_LABELS = {general:'通用题', project:'项目题', needs_context:'待补项目资料'};
 export function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 
-export async function beginQuestionPractice(questionId:number,requestKey:string,transport:{post:<T=any>(path:string,body?:unknown)=>Promise<T>}) {
+export async function beginQuestionPractice(questionId:number,requestKey:string,transport:{post:<T=any>(path:string,body?:unknown)=>Promise<T>}, experiencedBank = false) {
   if (!Number.isInteger(questionId) || questionId<=0) throw new Error('题目尚未正式入库，不能开始考试');
-  return transport.post<{id:number}>('/exams',{kind:'bank_exam',question_ids:[questionId],question_count:1,duration_minutes:20,idempotency_key:requestKey});
+  return transport.post<{id:number}>('/exams',{kind:'bank_exam',question_ids:[questionId],question_count:1,duration_minutes:20,idempotency_key:requestKey,...(experiencedBank ? {experienced_bank:true} : {})});
 }
 
 export function assessedBatchQuestionIds(rows:WorkshopRow[]):number[] {

@@ -23,7 +23,7 @@ from app.models import (
     Evidence, Exam, ExamAnswer, ExamQuestion, LearningTask, Question, Skill, SkillState, Workspace,
 )
 from app.services.competency import recompute_skill_states
-from app.services.experienced_bank import is_owned_question
+from app.services.experienced_bank import catalog_questions, is_owned_question, load_catalog
 from app.services.followup import suggest_followups
 from app.services.llm import adapter as llm_adapter
 from app.services.llm_judge import judge_open_answer
@@ -47,6 +47,7 @@ class CreateExamReq(BaseModel):
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=120)
     question_ids: list[int] = Field(default_factory=list, max_length=20)
     project_generation_id: int | None = None
+    experienced_bank: bool = False
 
 
 class SaveAnswerReq(BaseModel):
@@ -133,6 +134,11 @@ async def create_exam(
 
 
 async def issue_exam(req, ws, session, *, study_practice=None, interview_set=None):
+    if req.experienced_bank and (
+        req.kind != Exam.KIND_BANK or not req.question_ids or req.retest_task_id is not None
+        or req.project_generation_id is not None or interview_set is not None or study_practice is not None
+    ):
+        raise HTTPException(422, "社招专项题库须单独发起练习并指定题目")
     if req.kind not in EXAM_KINDS:
         raise HTTPException(status_code=400, detail=f"unknown exam kind '{req.kind}'")
     if req.question_ids and (req.retest_task_id or req.kind != Exam.KIND_BANK):
@@ -141,11 +147,26 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
         raise HTTPException(422, '项目批次考核需要选择该批次已审核题目')
     # Serialize retries and concurrent creates in the workspace transaction.
     await session.execute(select(Workspace.id).where(Workspace.id == ws.id).with_for_update())
+    experienced_rows = None
+    if req.experienced_bank:
+        experienced_rows = (await session.scalars(
+            select(Question).where(Question.id.in_(req.question_ids))
+        )).all()
+        catalog = catalog_questions(load_catalog(), experienced_rows)
+        catalog_ids = {entry["id"] for entries in catalog.values() for entry in entries}
+        if catalog_ids != set(req.question_ids):
+            raise HTTPException(422, "指定题目不属于社招专项题库")
+
     if req.idempotency_key:
         existing = (await session.execute(select(Exam).where(
             Exam.workspace_id == ws.id, Exam.idempotency_key == req.idempotency_key,
         ))).scalar_one_or_none()
         if existing:
+            if req.experienced_bank and (
+                not _is_experienced_practice(existing)
+                or {question.question_id for question in existing.questions} != catalog_ids
+            ):
+                raise HTTPException(409, "重复请求与已创建的社招专项练习不一致")
             await session.commit()
             return await _exam_detail(session, ws, existing.id)
     skill_key = req.skill_key
@@ -200,13 +221,18 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
     selected = None
     experienced_practice = False
     if req.question_ids:
-        rows = (await session.scalars(select(Question).where(Question.id.in_(req.question_ids), (Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id)))).all()
+        rows = experienced_rows
+        if rows is None:
+            rows = (await session.scalars(select(Question).where(
+                Question.id.in_(req.question_ids),
+                (Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id),
+            ))).all()
         by_id = {q.id: q for q in rows}
         if set(by_id) != set(req.question_ids):
             raise HTTPException(404, "指定题目不存在或不属于当前工作空间")
         experienced_ids = {q.id for q in rows if is_owned_question(q)}
-        experienced_practice = bool(experienced_ids)
-        if experienced_practice and (
+        experienced_practice = req.experienced_bank or bool(experienced_ids)
+        if not req.experienced_bank and experienced_practice and (
             experienced_ids != set(by_id) or req.project_generation_id is not None or interview_set or study_practice
         ):
             raise HTTPException(422, "社招专项题库须单独发起练习")

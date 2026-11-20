@@ -1,0 +1,46 @@
+{
+  "engineering": {
+    "mid": ["sys-005", "biz-008", "biz-009"],
+    "senior": ["rag-002", "harness-003", "sys-001", "sys-006", "sys-008", "sys-009"]
+  },
+  "models": {
+    "mid": ["infer-003", "infer-005", "algo-007", "algo-018", "algo-019", "algo-025", "algo-028", "algo-029", "algo-030", "algo-034"],
+    "senior": ["infer-001", "infer-002", "sys-003", "algo-013", "algo-037"]
+  },
+  "context": {
+    "mid": ["harness-005", "harness-006", "harness-012", "harness-020", "ctx-002", "ctx-004", "ctx-007", "biz-005", "biz-018"],
+    "senior": ["harness-007", "harness-015", "harness-027", "harness-029", "ctx-001", "ctx-003", "ctx-005", "ctx-006", "ctx-008", "algo-015"]
+  },
+  "tools": {
+    "mid": ["harness-008", "harness-022", "harness-026", "algo-005", "algo-006"],
+    "senior": ["harness-010", "harness-023"]
+  },
+  "rag": {
+    "mid": ["rag-006", "rag-007", "rag-008", "infer-004", "algo-032", "biz-007"],
+    "senior": ["rag-001", "rag-003", "rag-004", "rag-009", "rag-010", "rag-011", "rag-012", "biz-004", "biz-011"]
+  },
+  "orchestration": {
+    "mid": ["harness-004", "harness-009", "harness-013", "biz-015", "biz-020"],
+    "senior": ["harness-001", "harness-002", "harness-019", "harness-024", "harness-028", "sys-010", "biz-003", "biz-006", "biz-016"]
+  },
+  "production": {
+    "mid": ["harness-017", "harness-018", "harness-021", "harness-025", "harness-030", "sys-004"],
+    "senior": ["rag-005", "harness-011", "infer-006", "infer-007", "eval-004", "sys-007", "biz-001", "biz-002"]
+  },
+  "evaluation": {
+    "mid": ["eval-006", "eval-007", "eval-011", "eval-012", "eval-015", "eval-020", "eval-021", "eval-022", "eval-023", "eval-025", "eval-027", "eval-029", "algo-026"],
+    "senior": ["eval-001", "eval-002", "eval-003", "eval-005", "eval-008", "eval-009", "eval-010", "eval-014", "eval-016", "eval-017", "eval-018", "eval-024", "eval-026", "eval-030", "biz-010"]
+  },
+  "governance": {
+    "mid": ["eval-028", "biz-012", "biz-013"],
+    "senior": ["harness-014", "sys-002", "biz-017", "biz-019", "biz-025"]
+  },
+  "delivery": {
+    "mid": ["harness-016", "harness-031", "harness-032", "biz-021", "biz-022", "biz-023", "biz-024"],
+    "senior": ["biz-014"]
+  },
+  "training": {
+    "mid": ["algo-002", "algo-003", "algo-021", "algo-022", "algo-023", "algo-024", "algo-027", "algo-031", "algo-033", "algo-036"],
+    "senior": ["eval-013", "eval-019", "algo-001", "algo-004", "algo-008", "algo-009", "algo-010", "algo-011", "algo-012", "algo-014", "algo-016", "algo-017", "algo-020", "algo-035"]
+  }
+}

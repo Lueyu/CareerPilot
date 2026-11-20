@@ -9,9 +9,9 @@ import BankQuestionEditor from '../components/BankQuestionEditor';
 import BankReviewQueue, { sanitizeReviewAnswer } from './BankReviewQueue';
 import RetestMappingReview from '../components/RetestMappingReview';
 import {beginQuestionPractice} from '../lib/questionWorkshop';
-import {bankSourcePresentation, ORIGINAL_SCENARIO_LABEL} from '../lib/bankSource';
-import ExperiencedBank, { EXPERIENCE_LABELS, type ExperiencedQuestion } from './ExperiencedBank';
-import { EXPERIENCED_BANK_PATH, experiencedPracticePath } from '../lib/experiencedBankPath';
+import {bankSourcePresentation} from '../lib/bankSource';
+import ExperiencedBank, { EXPERIENCED_SOURCE_LABELS, experiencedLevelLabel, type ExperiencedQuestion } from './ExperiencedBank';
+import { EXPERIENCED_BANK_PATH, experiencedPracticePath, rememberExperiencedFilters } from '../lib/experiencedBankPath';
 const bankUrl = new URL('../data/bank.json', import.meta.url).href;
 
 interface BankQ {
@@ -81,6 +81,7 @@ type ExperiencedReference = {
   title: string;
   domainName: string;
   level: ExperiencedQuestion['level'];
+  source?: ExperiencedQuestion['source'];
 };
 type ReferenceQuestion = Row | ExperiencedReference;
 
@@ -115,7 +116,7 @@ function BankPage({bank}: {bank?: BankContent}) {
   const [zoomSvg, setZoomSvg] = useState<string | null>(null);
   const answerRef = useRef<HTMLDivElement>(null);
   const toggleQA = (open: boolean) => {
-    answerRef.current?.querySelectorAll('details.qa').forEach((d) => { (d as HTMLDetailsElement).open = open; });
+    answerRef.current?.querySelectorAll('details').forEach((d) => { (d as HTMLDetailsElement).open = open; });
   };
   const [editQ, setEditQ] = useState<Row | null>(null);
   const [mappingQuestion, setMappingQuestion] = useState<{ id: number; title: string } | null>(null);
@@ -130,9 +131,13 @@ function BankPage({bank}: {bank?: BankContent}) {
       const questionId=row.numericQuestionId ?? (await api.get<QuestionDetail>(`/bank/${encodeURIComponent(row.id)}`)).id;
       const key=practiceAttempts.current.get(row.id) || crypto.randomUUID();
       practiceAttempts.current.set(row.id,key);
-      const exam=await beginQuestionPractice(questionId,key,api);
+      const exam=await beginQuestionPractice(questionId,key,api,experienced);
       practiceAttempts.current.delete(row.id);
-      navigate(experienced ? experiencedPracticePath(exam.id, new URLSearchParams(location.search)) : `/exam/diagnosis?id=${exam.id}`);
+      if (experienced) {
+        const filters = new URLSearchParams(location.search);
+        rememberExperiencedFilters(exam.id, filters);
+        navigate(experiencedPracticePath(exam.id, filters));
+      } else navigate(`/exam/diagnosis?id=${exam.id}`);
     } catch (error) {
       const message = `无法开始练习：${error instanceof Error ? error.message : String(error)}`;
       if (experienced) setPracticeError({id: row.id, message});
@@ -190,6 +195,7 @@ function BankPage({bank}: {bank?: BankContent}) {
 
   // 题目详情(真实答案)
   const [detailHtml, setDetailHtml] = useState<string | null>(null);
+  const [trustedDetail, setTrustedDetail] = useState(false);
   const [detailLoading,setDetailLoading]=useState(false);
   const detailRequest=useRef(0);
   const [detailBusy, setDetailBusy] = useState(false);
@@ -452,10 +458,22 @@ function BankPage({bank}: {bank?: BankContent}) {
   /** 打开题目详情: 拉真实答案(私有题无静态 html) */
   const openDetail = async (r: ReferenceQuestion) => {
     const request=++detailRequest.current;
-    setDetail(r);setDetailHtml(null);setDetailErr(null);setDetailLoading(true);
+    setDetail(r);setDetailHtml(null);setTrustedDetail(false);setDetailErr(null);setDetailLoading(true);
     try {
       const d = await api.get<QuestionDetail>(`/bank/${encodeURIComponent(r.id)}`);
-      if(request===detailRequest.current)setDetailHtml(d.answer_html || ('html' in r ? r.html : null) || null);
+      const answer = d.answer_html || ('html' in r ? r.html : null) || null;
+      if (request !== detailRequest.current) return;
+      // The existing bundled copy lets seeded diagrams retain SVG without trusting arbitrary API HTML.
+      const bundled = 'domainName' in r && r.source === 'legacy' && answer
+        ? await fetch(bankUrl).then(async response => {
+          if (!response.ok) return undefined;
+          const content: BankContent = await response.json();
+          return content.questions.find(question => question.id === r.id)?.html;
+        }).catch(() => undefined)
+        : undefined;
+      if (request !== detailRequest.current) return;
+      setTrustedDetail(answer === bundled || ('html' in r && answer === r.html));
+      setDetailHtml(answer);
     } catch(e) {
       if(request===detailRequest.current)setDetailErr(`参考读取失败：${e instanceof Error?e.message:String(e)}。辅助记录未确认，暂不展示参考内容。`);
     } finally {if(request===detailRequest.current)setDetailLoading(false);}
@@ -472,6 +490,7 @@ function BankPage({bank}: {bank?: BankContent}) {
         `/bank/questions/${encodeURIComponent(generalDetail.id)}/answer?force=false`,
       );
       if(request!==detailRequest.current)return;
+      setTrustedDetail(r.answer_html === generalDetail.html);
       setDetailHtml(r.answer_html);
       toast('✨', r.generated ? '已生成详细解答' : '该题已有答案');
       setReload((x) => x + 1);
@@ -490,7 +509,7 @@ function BankPage({bank}: {bank?: BankContent}) {
           practiceError={practiceError}
           onPractice={question => startPractice({id: question.short_code, numericQuestionId: question.id})}
           onReference={(question, domainName) => openDetail({
-            id: question.short_code, numericQuestionId: question.id, title: question.title, level: question.level, domainName,
+            id: question.short_code, numericQuestionId: question.id, title: question.title, level: question.level, source: question.source, domainName,
           })}
         />
       )}
@@ -618,8 +637,8 @@ function BankPage({bank}: {bank?: BankContent}) {
           <div className="q-meta" style={{ marginBottom: 14 }}>
             {'domainName' in detail ? <>
               <span className="chip chip-slate">{detail.domainName}</span>
-              <span className="chip chip-slate">{EXPERIENCE_LABELS[detail.level]}</span>
-              <span>{ORIGINAL_SCENARIO_LABEL} · 共享题库 · 只读</span>
+              <span className="chip chip-slate">{experiencedLevelLabel(detail)}</span>
+              <span>{EXPERIENCED_SOURCE_LABELS[detail.source ?? 'authored']} · 共享题库 · 只读</span>
             </> : <>
               <span className="chip chip-slate">{TOPIC_NAME[detail.topic] ?? detail.topic}</span>
               <span>{detail.company}</span>
@@ -647,7 +666,7 @@ function BankPage({bank}: {bank?: BankContent}) {
                   const svg = (e.target as HTMLElement).closest('svg.sdiagram') as SVGSVGElement | null;
                   if (svg) setZoomSvg(svg.outerHTML);
                 }}
-                dangerouslySetInnerHTML={{ __html: detailHtml === generalDetail?.html
+                dangerouslySetInnerHTML={{ __html: trustedDetail
                   ? SD_MARKER_DEFS + transformAnswer(detailHtml)
                   : sanitizeReviewAnswer(transformAnswer(detailHtml)) }}
               />

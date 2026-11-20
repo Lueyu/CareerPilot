@@ -2,7 +2,7 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { DemoBanner, PageHead } from '../components/ui';
 import { api, useApi, ExamsData } from '../api/client';
-import { EXPERIENCED_BANK_PATH } from '../lib/experiencedBankPath';
+import { EXPERIENCED_BANK_PATH, experiencedHistoryPath } from '../lib/experiencedBankPath';
 
 
 const STATUS_CLS: Record<string, string> = {
@@ -121,9 +121,9 @@ export default function ExamCenter() {
                   <td className="num">{h.time || '—'}</td>
                   <td className="right">
                     {h.report ? (
-                      <button className="btn btn-ghost btn-sm" onClick={() => navigate(`/exam/diagnosis/report?id=${h.id}`)}>{h.status==='COMPLETED'?'查看报告':'查看本次状态'}</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => navigate(h.experienced ? experiencedHistoryPath(h.id, true) : `/exam/diagnosis/report?id=${h.id}`)}>{h.status==='COMPLETED'?'查看报告':'查看本次状态'}</button>
                     ) : (
-                      h.status === 'ACTIVE' ? <button className="btn btn-ghost btn-sm" onClick={() => navigate(`/exam/diagnosis?id=${h.id}`)}>{h.experienced ? '继续练习' : '继续考试'}</button> : <span>—</span>
+                      h.status === 'ACTIVE' ? <button className="btn btn-ghost btn-sm" onClick={() => navigate(h.experienced ? experiencedHistoryPath(h.id, false) : `/exam/diagnosis?id=${h.id}`)}>{h.experienced ? '继续练习' : '继续考试'}</button> : <span>—</span>
                     )}
                   </td>
                 </tr>
