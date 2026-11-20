@@ -230,7 +230,7 @@ def catalog_questions(
 def _catalog_entry(row: Question, level: Literal["mid", "senior"], source: Literal["authored", "legacy"]) -> dict:
     return {
         "id": row.id, "short_code": row.short_code, "title": row.title,
-        "level": level, "tags": row.tags or [], "source": source,
+        "level": level, "tags": row.tags or [], "source": source, "company": row.company,
     }
 
 
@@ -245,7 +245,7 @@ async def list_installed_pack(session: AsyncSession) -> dict:
     rows = (await session.scalars(select(Question).options(
         load_only(
             Question.id, Question.short_code, Question.title, Question.tags, Question.topic,
-            Question.qtype, Question.generation_meta, Question.workspace_id,
+            Question.company, Question.qtype, Question.generation_meta, Question.workspace_id,
             Question.canonical_question_id, Question.is_demo, Question.source_type,
             raiseload=True,
         ),

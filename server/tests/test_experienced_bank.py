@@ -2,6 +2,7 @@
 import asyncio
 import json
 from collections import Counter
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -201,6 +202,7 @@ async def test_catalog_listing_exposure_and_practice_scoring(isolated_seed, monk
         await session.flush()
         first = await by_code(session, "EXP-Z")
         second = await by_code(session, "EXP-A")
+        second.company = "Fixture Company"
         third = await by_code(session, "EXP-M")
         legacy = await by_code(session, "LEGACY-Q1")
         foreign_q = other_question("EXP-FOREIGN", first.skill_id, workspace_id=foreign.id, meta=first.generation_meta)
@@ -231,13 +233,13 @@ async def test_catalog_listing_exposure_and_practice_scoring(isolated_seed, monk
         assert response.status_code == 200
         assert response.json() == {"domains": [
             {"key": "reliability", "name": "可靠性", "order": 1, "focus": "检查失败时的行为", "questions": [
-                {"id": first.id, "short_code": "EXP-Z", "level": "mid", "title": first.title, "tags": ["超时", "重试"], "source": "authored"},
-                {"id": second.id, "short_code": "EXP-A", "level": "mid", "title": second.title, "tags": ["超时", "重试"], "source": "authored"},
+                {"id": first.id, "short_code": "EXP-Z", "level": "mid", "title": first.title, "tags": ["超时", "重试"], "source": "authored", "company": None},
+                {"id": second.id, "short_code": "EXP-A", "level": "mid", "title": second.title, "tags": ["超时", "重试"], "source": "authored", "company": "Fixture Company"},
                 {"id": legacy.id, "short_code": "LEGACY-Q1", "level": "senior",
-                 "title": legacy.title, "tags": [], "source": "legacy"},
+                 "title": legacy.title, "tags": [], "source": "legacy", "company": None},
             ]},
             {"key": "delivery", "name": "交付", "order": 2, "focus": "检查失败时的行为", "questions": [
-                {"id": third.id, "short_code": "EXP-M", "level": "senior", "title": third.title, "tags": ["超时", "重试"], "source": "authored"},
+                {"id": third.id, "short_code": "EXP-M", "level": "senior", "title": third.title, "tags": ["超时", "重试"], "source": "authored", "company": None},
             ]},
         ]}
         async with factory() as session:
@@ -293,7 +295,7 @@ async def test_catalog_listing_exposure_and_practice_scoring(isolated_seed, monk
         assert response.status_code == 200, response.text
         practice = response.json()
         assert practice["kind"] == "practice" and practice["experienced_bank_practice"] is True
-        assert practice["title"] == "社招专项"
+        assert practice["title"] == "题库练习"
         assert [row["short_code"] for row in practice["questions"]] == ["EXP-Z", "EXP-M", "LEGACY-Q1"]
         assert "原始参考" not in response.text and all(c not in response.text for c in CRITERIA)
         url = f"/exams/{practice['id']}"
@@ -401,3 +403,78 @@ def test_legacy_catalog_ignores_collisions(monkeypatch, tmp_path, replacement):
         **replacement,
     })
     assert experienced_bank.catalog_questions([domain], [row]) == {"reliability": []}
+
+@pytest.mark.asyncio
+async def test_shipped_default_bank_and_workspace_scope(isolated_seed, monkeypatch):
+    factory, _ = isolated_seed
+    server = Path(seed.__file__).resolve().parents[1]
+    data = server / "app" / "data"
+    monkeypatch.setattr(seed, "BANK_PATH", server.parent / "web" / "src" / "data" / "bank.json")
+    monkeypatch.setattr(experienced_bank, "CATALOG_PATH", data / "experienced_bank")
+    monkeypatch.setattr(experienced_bank, "LEGACY_DOMAINS_PATH", data / "legacy_domains.json")
+    await seed.seed()
+    async with factory() as session:
+        personal = await session.scalar(select(Workspace).where(Workspace.slug == "personal"))
+        foreign = Workspace(slug="foreign-scope", name="Foreign fixture", is_demo=False)
+        session.add(foreign)
+        await session.flush()
+        skill = await session.scalar(select(Skill).where(Skill.key == "rag"))
+        mine = other_question("SCOPE-MINE", skill.id, workspace_id=personal.id)
+        second = other_question("SCOPE-SECOND", skill.id, workspace_id=personal.id)
+        public = other_question("SCOPE-PUBLIC", skill.id)
+        other = other_question("SCOPE-FOREIGN", skill.id, workspace_id=foreign.id)
+        practice_only = other_question("SCOPE-PRACTICE", skill.id, workspace_id=personal.id,
+                                       meta={"assessment_use": "PRACTICE_ONLY"})
+        for row, company in [(mine, "Mine"), (second, "Mine"), (public, "Public"), (other, "Foreign")]:
+            row.company = company
+        other.topic = "foreign-topic"
+        public.source_type = "PUBLIC_LICENSED"
+        for row in (mine, second, other, practice_only):
+            row.source_type = "USER_PRIVATE"
+        session.add_all([mine, second, public, other, practice_only])
+        await session.flush()
+        variant = other_question("SCOPE-VARIANT", skill.id, workspace_id=personal.id)
+        variant.canonical_question_id = mine.id
+        session.add(variant)
+        await session.commit()
+
+    async def session_dependency():
+        async with factory() as session:
+            yield session
+
+    app = FastAPI()
+    app.include_router(bank.router)
+    app.dependency_overrides[get_session] = session_dependency
+    app.dependency_overrides[require_auth] = lambda: None
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        pack = await client.get("/bank/experienced")
+        assert pack.status_code == 200
+        domains = pack.json()["domains"]
+        assert len(domains) == 11
+        codes = {row["short_code"] for domain in domains for row in domain["questions"]}
+        expected = {q.code for domain in experienced_bank.load_catalog() for q in domain.questions}
+        expected.update(q["id"] for q in json.loads(seed.BANK_PATH.read_text(encoding="utf-8"))["questions"])
+        assert codes == expected
+        assert sum(len(domain["questions"]) for domain in domains) == len(codes) == 227
+
+        generic = (await client.get("/bank", params={"q": "SCOPE-"})).json()
+        assert generic["total"] == 3
+        assert {row["id"] for row in generic["items"]} == {mine.id, second.id, public.id}
+        params = {"scope": "mine", "q": "SCOPE-", "skill": "rag", "limit": 1}
+        first = (await client.get("/bank", params=params)).json()
+        next_page = (await client.get("/bank", params={**params, "offset": 1})).json()
+        assert first["total"] == next_page["total"] == 2
+        assert [page["items"][0]["id"] for page in (first, next_page)] == [mine.id, second.id]
+        assert first["facets"] == next_page["facets"] == {
+            "companies": [{"name": "Mine", "count": 2}],
+            "topics": [{"name": "rag", "count": 2}],
+            "sources": [{"name": "USER_PRIVATE", "count": 2}],
+        }
+        filtered = await client.get("/bank", params={
+            **params, "company": "min", "topic": "rag", "sources": ["USER_PRIVATE"],
+        })
+        assert filtered.json() == first
+        foreign_page = (await client.get("/bank", params={"scope": "mine", "q": "SCOPE-"},
+                                         headers={"X-Workspace": "foreign-scope"})).json()
+        assert foreign_page["total"] == 1
+        assert [row["id"] for row in foreign_page["items"]] == [other.id]

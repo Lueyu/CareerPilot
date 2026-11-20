@@ -71,12 +71,16 @@ async def list_bank(
     sources: Annotated[list[str] | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=5000)] = 60,
     offset: Annotated[int, Query(ge=0)] = 0,
+    scope: str | None = None,
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    """公共题库(161 迁移题) + 本工作空间私有题。status=pending 时列待审核导入项。"""
+    """List public and workspace questions, or only workspace questions with scope=mine."""
+    workspace_filter = Question.workspace_id == ws.id
+    if scope != "mine":
+        workspace_filter = Question.workspace_id.is_(None) | workspace_filter
     base = select(Question).where(
-        (Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id),
+        workspace_filter,
         Question.canonical_question_id.is_(None),  # 变体不单独列出
         Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY'),
     )
@@ -988,7 +992,7 @@ async def generate_question_answer(
         raise HTTPException(status_code=404, detail="question not found")
 
     if force and is_owned_question(question):
-        raise HTTPException(403, "社招专项题库为只读")
+        raise HTTPException(403, "默认题库为只读")
     if question.generation_meta and force:
         raise HTTPException(409, "此题来自项目补题工作台，请创建新批次以保留资料与来源")
     if (question.answer_html or "").strip() and not force:

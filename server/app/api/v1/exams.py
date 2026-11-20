@@ -138,7 +138,7 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
         req.kind != Exam.KIND_BANK or not req.question_ids or req.retest_task_id is not None
         or req.project_generation_id is not None or interview_set is not None or study_practice is not None
     ):
-        raise HTTPException(422, "社招专项题库须单独发起练习并指定题目")
+        raise HTTPException(422, "默认题库须单独发起练习并指定题目")
     if req.kind not in EXAM_KINDS:
         raise HTTPException(status_code=400, detail=f"unknown exam kind '{req.kind}'")
     if req.question_ids and (req.retest_task_id or req.kind != Exam.KIND_BANK):
@@ -155,7 +155,7 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
         catalog = catalog_questions(load_catalog(), experienced_rows)
         catalog_ids = {entry["id"] for entries in catalog.values() for entry in entries}
         if catalog_ids != set(req.question_ids):
-            raise HTTPException(422, "指定题目不属于社招专项题库")
+            raise HTTPException(422, "指定题目不属于默认题库")
 
     if req.idempotency_key:
         existing = (await session.execute(select(Exam).where(
@@ -166,7 +166,7 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
                 not _is_experienced_practice(existing)
                 or {question.question_id for question in existing.questions} != catalog_ids
             ):
-                raise HTTPException(409, "重复请求与已创建的社招专项练习不一致")
+                raise HTTPException(409, "重复请求与已创建的题库练习不一致")
             await session.commit()
             return await _exam_detail(session, ws, existing.id)
     skill_key = req.skill_key
@@ -235,7 +235,7 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
         if not req.experienced_bank and experienced_practice and (
             experienced_ids != set(by_id) or req.project_generation_id is not None or interview_set or study_practice
         ):
-            raise HTTPException(422, "社招专项题库须单独发起练习")
+            raise HTTPException(422, "默认题库须单独发起练习")
         selected, seen = [], set()
         for qid in req.question_ids:
             q = by_id[qid]
@@ -261,7 +261,7 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
 
     exam = Exam(
         workspace_id=ws.id,
-        title=("社招专项" if experienced_practice
+        title=("题库练习" if experienced_practice
                else interview_set['title'] if interview_set else meta["title"]),
         kind='practice' if experienced_practice else req.kind,
         status=Exam.STATUS_ACTIVE,
@@ -315,7 +315,7 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
             'scope_note':'未配置岗位目标标准；本次评分仅记录作答表现，不能判断是否达到岗位要求。'}
     snapshots = [question_snapshot(q, standard_snapshot) for q in questions]
     if experienced_practice:
-        reason = "来自社招专项题库，练习评分不更新能力画像。"
+        reason = "来自默认题库，练习评分不更新能力画像。"
         for snapshot in snapshots:
             snapshot.update(experienced_bank_practice=True, assessment_mode='PRACTICE')
             snapshot['question_version'] = digest({k: v for k, v in snapshot.items() if k != 'question_version'})
@@ -908,7 +908,7 @@ async def exam_report_deep(
     """生成(并缓存) LLM 深度诊断。失败时诚实报错, 不造假数据。"""
     exam = await _get_own_exam(session, ws, exam_id)
     if _is_experienced_practice(exam):
-        raise HTTPException(409, '社招专项练习报告不进行能力诊断')
+        raise HTTPException(409, '题库练习报告不进行能力诊断')
     if exam.status != Exam.STATUS_COMPLETED:
         raise HTTPException(status_code=409, detail="exam not completed yet")
 
