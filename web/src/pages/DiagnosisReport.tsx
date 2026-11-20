@@ -49,8 +49,8 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
   const experiencedPractice = !studyMode && (report && String(report.id) === reportId
     ? isExperiencedPractice(report, params)
     : params.get('track') === 'experienced');
-  const reportTitle = '社招专项练习报告';
-  const bankReturn = experiencedPractice ? <Link className="btn btn-outline" to={experiencedBankPath(params)}>返回社招题单</Link> : null;
+  const reportTitle = '题库练习报告';
+  const bankReturn = experiencedPractice ? <Link className="btn btn-outline" to={experiencedBankPath(params)}>返回题库</Link> : null;
   const retryPending=useRef(false);
   const toggle = (i: number) =>
     setOpen((o) => (o.includes(i) ? o.filter((x) => x !== i) : [...o, i]));
@@ -142,7 +142,7 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
       : '评分来源见逐题结果';
     return (
       <div>
-        <PageHead title={experiencedPractice ? reportTitle : r.title?.trim() || reportTitles[r.kind || ''] || '本次答题报告'} sub={`${experiencedPractice ? '练习' : '考试'} #${r.id} · ${STATUS_LABELS[r.status] || r.status} · ${r.completed_at ? new Date(r.completed_at).toLocaleString('zh-CN', { hour12: false }) : '—'}`}>
+        <PageHead title={experiencedPractice ? reportTitle : (r.title === '社招专项' ? '题库练习' : r.title?.trim()) || reportTitles[r.kind || ''] || '本次答题报告'} sub={`${experiencedPractice ? '练习' : '考试'} #${r.id} · ${STATUS_LABELS[r.status] || r.status} · ${r.completed_at ? new Date(r.completed_at).toLocaleString('zh-CN', { hour12: false }) : '—'}`}>
           {bankReturn ?? <button className="btn btn-outline" onClick={() => navigate('/exam')}>返回考试中心</button>}
           {!degraded && !experiencedPractice && <button className="btn btn-primary" onClick={() => navigate('/learning')}>查看今日任务</button>}
           {returnLink}
@@ -170,7 +170,7 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
 
         <div className="report-hero">
           <div>
-            <div className="hero-label">{experiencedPractice ? '本次练习得分' : `本次得分 · ${r.title}`}</div>
+            <div className="hero-label">{experiencedPractice ? '本次练习得分' : `本次得分 · ${r.title === '社招专项' ? '题库练习' : r.title}`}</div>
             <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>
               {!degraded && r.score != null ? `${r.score} 分` : '评分未完成'}
               <span className="hero-chip" style={{ marginLeft: 10 }}>{r.questions.length} 题 · {!degraded?r.gained_points??'—':'—'}/{totalPoints} 分</span>

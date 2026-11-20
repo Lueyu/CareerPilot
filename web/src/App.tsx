@@ -14,7 +14,8 @@ import Onboarding from './pages/Onboarding';
 import Dashboard from './pages/Dashboard';
 import CompetencyTabs from './pages/CompetencyTabs';
 import ProfileDetail from './pages/ProfileDetail';
-import ExamTabs from './pages/ExamTabs';
+import ExamCenter from './pages/ExamCenter';
+import Bank from './pages/Bank';
 import Diagnosis from './pages/Diagnosis';
 import DiagnosisReport from './pages/DiagnosisReport';
 import Learning from './pages/Learning';
@@ -85,8 +86,8 @@ export default function App() {
         <Route path="/benchmark" element={<CompetencyTabs />} />
         <Route path="/profile" element={<CompetencyTabs />} />
         <Route path="/profile/:domain" element={<ProfileDetail />} />
-        <Route path="/exam" element={<ExamTabs />} />
-        <Route path="/bank" element={<ExamTabs />} />
+        <Route path="/exam" element={<ExamCenter />} />
+        <Route path="/bank" element={<Bank />} />
         <Route path="/bank/workshop" element={<QuestionWorkshop />} />
         <Route path="/exam/diagnosis" element={<Diagnosis />} />
         <Route path="/exam/diagnosis/report" element={<DiagnosisReport />} />

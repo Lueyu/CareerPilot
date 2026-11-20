@@ -1,6 +1,6 @@
 import { getWorkspace } from '../api/client';
 
-export const EXPERIENCED_BANK_PATH = '/bank?track=experienced';
+export const EXPERIENCED_BANK_PATH = '/bank';
 
 export function isExperiencedPractice(
   exam: { kind?: string; experienced_bank_practice?: boolean },
@@ -10,18 +10,27 @@ export function isExperiencedPractice(
 }
 
 export function experiencedBankFilters(params: URLSearchParams): Record<string, string> {
-  const filters: Record<string, string> = { track: 'experienced' };
+  const filters: Record<string, string> = {};
   const level = params.get('level');
   const domain = params.get('domain');
   const source = params.get('source');
   if (level === 'mid' || level === 'senior') filters.level = level;
   if (domain) filters.domain = domain;
   if (source === 'legacy' || source === 'authored') filters.source = source;
+  for (const key of ['q', 'company']) {
+    const value = params.get(key)?.trim();
+    if (value) filters[key] = value;
+  }
+  const page = params.get('page');
+  if (page && /^\d+$/.test(page) && Number.isSafeInteger(Number(page)) && Number(page) > 1) {
+    filters.page = String(Number(page));
+  }
   return filters;
 }
 
 export function experiencedBankPath(params: URLSearchParams): string {
-  return `/bank?${new URLSearchParams(experiencedBankFilters(params))}`;
+  const query = new URLSearchParams(experiencedBankFilters(params)).toString();
+  return query ? EXPERIENCED_BANK_PATH + '?' + query : EXPERIENCED_BANK_PATH;
 }
 
 function practiceFiltersKey(id: number) {

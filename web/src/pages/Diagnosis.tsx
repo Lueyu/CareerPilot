@@ -23,8 +23,8 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
   const experiencedPractice = !studyMode && (exam ? isExperiencedPractice(exam, params) : params.get('track') === 'experienced');
   const bankReturn = experiencedPractice ? experiencedBankPath(params) : null;
   const returnPath = bankReturn ?? (studyMode ? '/study/notes?tab=review' : '/exam');
-  const returnLabel = bankReturn ? '返回社招题单' : studyMode ? '返回复习与练习' : '返回考试中心';
-  const diagnosisTitle = experiencedPractice ? '社招专项练习' : studyMode ? '新情境复测' : '独立诊断';
+  const returnLabel = bankReturn ? '返回题库' : studyMode ? '返回复习与练习' : '返回考试中心';
+  const diagnosisTitle = experiencedPractice ? '题库练习' : studyMode ? '新情境复测' : '独立诊断';
   const reportPath = (id: number, source = exam) => {
     const filters = !studyMode && source && isExperiencedPractice(source, params) ? experiencedBankFilters(params) : {};
     const query = new URLSearchParams({ id: String(id), ...filters });
