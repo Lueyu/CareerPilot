@@ -1,3 +1,5 @@
+import { getWorkspace } from '../api/client';
+
 export const EXPERIENCED_BANK_PATH = '/bank?track=experienced';
 
 export function isExperiencedPractice(
@@ -11,13 +13,38 @@ export function experiencedBankFilters(params: URLSearchParams): Record<string, 
   const filters: Record<string, string> = { track: 'experienced' };
   const level = params.get('level');
   const domain = params.get('domain');
+  const source = params.get('source');
   if (level === 'mid' || level === 'senior') filters.level = level;
   if (domain) filters.domain = domain;
+  if (source === 'legacy' || source === 'authored') filters.source = source;
   return filters;
 }
 
 export function experiencedBankPath(params: URLSearchParams): string {
   return `/bank?${new URLSearchParams(experiencedBankFilters(params))}`;
+}
+
+function practiceFiltersKey(id: number) {
+  return `cp-experienced-filters:${getWorkspace()}:${id}`;
+}
+
+export function rememberExperiencedFilters(id: number, params: URLSearchParams) {
+  try {
+    localStorage.setItem(practiceFiltersKey(id), new URLSearchParams(experiencedBankFilters(params)).toString());
+  } catch {
+    // The in-flow URLs still carry the filters when storage is unavailable.
+  }
+}
+
+export function experiencedHistoryPath(id: number, report: boolean): string {
+  let filters = new URLSearchParams();
+  try {
+    filters = new URLSearchParams(localStorage.getItem(practiceFiltersKey(id)) ?? '');
+  } catch {
+    // History links also work without saved filters.
+  }
+  const query = new URLSearchParams({ id: String(id), ...experiencedBankFilters(filters) });
+  return `/exam/diagnosis${report ? '/report' : ''}?${query}`;
 }
 
 export function experiencedPracticePath(id: number, params: URLSearchParams): string {

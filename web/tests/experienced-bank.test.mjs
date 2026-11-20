@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import React from 'react';
 import { act, create } from 'react-test-renderer';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import Bank from '../src/pages/Bank.tsx';
 import ExamCenter from '../src/pages/ExamCenter.tsx';
 import Diagnosis from '../src/pages/Diagnosis.tsx';
@@ -14,7 +14,9 @@ const asset = new URL('../src/data/bank.json', import.meta.url);
 const generalBank = JSON.parse(await readFile(asset, 'utf8'));
 const mid = { id: 3101, short_code: 'EX-TOOLS-M', title: '如何设计工具失败重试？', level: 'mid', tags: ['tools'] };
 const senior = { id: 3102, short_code: 'EX-TOOLS-S', title: '如何避免跨服务重试造成重复执行？', level: 'senior', tags: ['tools'] };
-const toolsDomain = { key: 'tools', name: '工具调用', order: 1, focus: '考察失败分类、超时和幂等。', questions: [mid, senior] };
+const original = generalBank.questions.find(question => question.html?.includes('class="sdiagram"') && question.html.includes('<details'));
+const legacy = { id: 161, short_code: original.id, title: original.title, level: 'mid', tags: [], source: 'legacy' };
+const toolsDomain = { key: 'tools', name: '工具调用', order: 1, focus: '考察失败分类、超时和幂等。', questions: [mid, senior, legacy] };
 const trainingDomain = { key: 'training', name: '算法与模型训练（选修）', order: 11, focus: '考察训练数据与评价指标。', questions: [] };
 const otherDomains = Array.from({ length: 9 }, (_, index) => ({
   key: `domain-${index}`, name: `能力域 ${index + 2}`, order: index + 2, focus: '考察工程判断。', questions: [],
@@ -80,8 +82,10 @@ async function mount(t, path, respond) {
 
   let tree;
   let location;
+  let navigate;
   function RouterObserver() {
     location = useLocation();
+    navigate = useNavigate();
     return null;
   }
   t.after(async () => {
@@ -104,7 +108,7 @@ async function mount(t, path, respond) {
     )));
     await flush();
   });
-  return { tree, calls, location: () => location };
+  return { tree, calls, location: () => location, navigate: path => navigate(path) };
 }
 
 test('the exam center opens the experienced question catalog directly', async t => {
@@ -125,6 +129,15 @@ test('the experienced deep link uses only the server catalog and filters questio
   assert.equal(domains.at(-1).findByType('span').children.join(''), trainingDomain.name);
   assert.match(rendered(tree), /考察失败分类、超时和幂等。/);
   assert.match(rendered(tree), /原创情景题/);
+  assert.ok(rendered(tree).includes(legacy.title));
+  assert.match(rendered(tree), /建议 · 2–4 年/);
+  assert.ok(button(tree, '全部 · 3 题').props['aria-pressed']);
+  assert.ok(domains[0].findByType('small').children.join('').includes('2'));
+  await click(tree, '原题库 · 1 题');
+  assert.ok(rendered(tree).includes(legacy.title));
+  assert.ok(!rendered(tree).includes(mid.title));
+  await click(tree, '原创情景题 · 2 题');
+  assert.ok(!rendered(tree).includes(legacy.title));
   assert.ok(rendered(tree).includes(mid.title));
   assert.ok(rendered(tree).includes(mid.short_code));
   assert.ok(!rendered(tree).includes(senior.title));
@@ -133,7 +146,7 @@ test('the experienced deep link uses only the server catalog and filters questio
   assert.ok(!rendered(tree).includes(mid.title));
   await act(async () => domains.at(-1).props.onClick());
   assert.match(rendered(tree), /考察训练数据与评价指标。/);
-  assert.match(rendered(tree), /这个能力域暂未收录该年限的题目/);
+  assert.match(rendered(tree), /这个能力域没有符合筛选条件的题目/);
   assert.deepEqual(calls.map(({endpoint}) => endpoint), ['/bank/experienced']);
 });
 
@@ -167,6 +180,7 @@ test('practice starts with the DB ID, retries with the same request key and neve
   assert.deepEqual(calls.map(({endpoint}) => endpoint), ['/bank/experienced', '/exams', '/exams', '/exams/87']);
   assert.deepEqual(calls[1].body.question_ids, [mid.id]);
   assert.ok(calls[1].body.idempotency_key);
+  assert.equal(calls[1].body.experienced_bank, true);
   assert.deepEqual(calls[1].body, calls[2].body);
   assert.equal(location().pathname + location().search, '/exam/diagnosis?id=87&track=experienced');
 });
@@ -189,7 +203,7 @@ test('reference opens on explicit request and only shows the server answer after
 
 test('returning to the filtered list saves the draft and resumes the same practice without creating another exam', async t => {
   let saved = null;
-  const { tree, calls, location } = await mount(t, '/bank?track=experienced&level=senior&domain=tools', (endpoint, body) => {
+  const { tree, calls, location } = await mount(t, '/bank?track=experienced&level=senior&domain=tools&source=authored', (endpoint, body) => {
     if (endpoint === '/exams') return Response.json({ id: activeExam.id });
     if (endpoint === '/exams/87/answers') {
       saved = body.text_answer;
@@ -207,10 +221,10 @@ test('returning to the filtered list saves the draft and resumes the same practi
   await act(async () => tree.root.findByType('textarea').props.onChange({ target: { value: answer } }));
   await click(tree, '保存并返回题单');
   assert.equal(saved, answer);
-  assert.equal(location().pathname + location().search, '/bank?track=experienced&level=senior&domain=tools');
+  assert.equal(location().pathname + location().search, '/bank?track=experienced&level=senior&domain=tools&source=authored');
   assert.ok(rendered(tree).includes(senior.title));
   const resume = tree.root.findAllByType('a').find(node => labelOf(node) === '继续本次练习');
-  assert.equal(resume?.props.href, '/exam/diagnosis?id=87&track=experienced&level=senior&domain=tools');
+  assert.equal(resume?.props.href, '/exam/diagnosis?id=87&track=experienced&level=senior&domain=tools&source=authored');
   await act(async () => { resume.props.onClick({ button: 0, preventDefault() {} }); await flush(); });
   assert.equal(tree.root.findByType('textarea').props.value, answer);
   assert.equal(calls.filter(call => call.endpoint === '/exams' && call.method === 'POST').length, 1);
@@ -247,3 +261,57 @@ for (const [path, expected] of [
     assert.ok(!calls.some(({ endpoint }) => endpoint === '/bank/experienced'));
   });
 }
+
+test('legacy reference retains diagrams and followups after exposure, then practices by original DB ID', async t => {
+  const path = '/bank?track=experienced&level=mid&domain=tools&source=legacy';
+  const { tree, calls, location, navigate } = await mount(t, path, (endpoint, body) => {
+    if (endpoint === `/bank/${legacy.short_code}`) return Response.json({ id: legacy.id, answer_html: original.html });
+    if (endpoint === '/exams') return Response.json(body ? { id: 87 } : { kinds: [], history: [activeExam] });
+  });
+  assert.deepEqual(calls.map(call => call.endpoint), ['/bank/experienced']);
+  assert.ok(!rendered(tree).includes('bank-answer'));
+  await click(tree, '查看参考');
+  const answer = tree.root.findByProps({ className: 'bank-answer' }).props.dangerouslySetInnerHTML.__html;
+  assert.match(answer, /<svg.*class="sdiagram"/);
+  assert.match(answer, /<details/);
+  assert.ok(button(tree, '全部展开'));
+  const modal = tree.root.findByProps({ className: 'modal-body' });
+  assert.match(JSON.stringify(modal.findAllByType('span').map(labelOf)), /原题库 · 共享题库 · 只读/);
+  assert.equal(location().pathname + location().search, path);
+  await click(tree, '开始练这题');
+  const practice = calls.find(call => call.endpoint === '/exams');
+  assert.equal(practice.body.experienced_bank, true);
+  assert.deepEqual(practice.body.question_ids, [legacy.id]);
+  const practiceSearch = '?id=87&track=experienced&level=mid&domain=tools&source=legacy';
+  assert.equal(location().search, practiceSearch);
+  await act(async () => { navigate('/exam'); await flush(); });
+  await click(tree, '继续练习');
+  assert.equal(location().search, practiceSearch);
+  assert.equal(calls.filter(call => call.endpoint === '/exams' && call.method === 'POST').length, 1);
+});
+
+test('a filtered report deep link returns to the same source, level, and domain', async t => {
+  const filters = 'track=experienced&level=mid&domain=tools&source=legacy';
+  const { tree, location } = await mount(t, `/exam/diagnosis/report?id=87&${filters}`);
+  const back = tree.root.findAllByType('a').find(link => labelOf(link) === '返回社招题单');
+  assert.equal(back?.props.href, `/bank?${filters}`);
+  await act(async () => { back.props.onClick({ button: 0, preventDefault() {} }); await flush(); });
+  assert.equal(location().search, `?${filters}`);
+  assert.ok(rendered(tree).includes(legacy.title));
+  assert.ok(!rendered(tree).includes(mid.title));
+});
+
+test('a legacy reference never trusts changed DB HTML or loads the bundle after a failed exposure read', async t => {
+  let attempts = 0;
+  const { tree, calls } = await mount(t, '/bank?track=experienced&source=legacy', endpoint => {
+    if (endpoint !== `/bank/${legacy.short_code}`) return;
+    if (++attempts === 1) return Response.json({ detail: 'exposure unavailable' }, { status: 503 });
+    return Response.json({ id: legacy.id, answer_html: original.html + '<script>unexpected()</script>' });
+  });
+  await click(tree, '查看参考');
+  assert.deepEqual(calls.map(call => call.endpoint), ['/bank/experienced', `/bank/${legacy.short_code}`]);
+  assert.equal(tree.root.findAllByProps({ className: 'bank-answer' }).length, 0);
+  await click(tree, '重新读取参考');
+  const answer = tree.root.findByProps({ className: 'bank-answer' }).props.dangerouslySetInnerHTML.__html;
+  assert.doesNotMatch(answer, /<svg|<script/);
+});

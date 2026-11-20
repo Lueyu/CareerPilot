@@ -8,6 +8,13 @@ import { experiencedPracticePath } from '../lib/experiencedBankPath';
 
 export const EXPERIENCE_LABELS = { mid: '2–4 年', senior: '4 年以上' };
 type ExperiencedLevel = keyof typeof EXPERIENCE_LABELS;
+export const EXPERIENCED_SOURCE_LABELS = { legacy: '原题库', authored: ORIGINAL_SCENARIO_LABEL };
+type ExperiencedSource = keyof typeof EXPERIENCED_SOURCE_LABELS;
+const SOURCES = ['all', 'legacy', 'authored'] as const;
+
+export function experiencedLevelLabel({ level, source }: Pick<ExperiencedQuestion, 'level' | 'source'>) {
+  return source === 'legacy' ? `建议 · ${EXPERIENCE_LABELS[level]}` : EXPERIENCE_LABELS[level];
+}
 const LEVELS: ExperiencedLevel[] = ['mid', 'senior'];
 
 export interface ExperiencedQuestion {
@@ -15,6 +22,7 @@ export interface ExperiencedQuestion {
   short_code: string;
   title: string;
   level: ExperiencedLevel;
+  source?: ExperiencedSource;
   tags: string[];
 }
 interface ExperiencedDomain {
@@ -36,6 +44,7 @@ function isQuestion(value: unknown): value is ExperiencedQuestion {
   return isRecord(value) && typeof value.id === 'number' && Number.isSafeInteger(value.id) && value.id > 0 &&
     typeof value.short_code === 'string' && typeof value.title === 'string' &&
     (value.level === 'mid' || value.level === 'senior') &&
+    (value.source === undefined || value.source === 'legacy' || value.source === 'authored') &&
     Array.isArray(value.tags) && value.tags.every(tag => typeof tag === 'string');
 }
 
@@ -65,14 +74,17 @@ export default function ExperiencedBank({
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const level = params.get('level') === 'senior' ? 'senior' : 'mid';
+  const sourceParam = params.get('source');
+  const source = sourceParam === 'legacy' || sourceParam === 'authored' ? sourceParam : 'all';
   const domainKey = params.get('domain');
   const resumeId = location.state?.experiencedPracticeId;
   const resumePath = typeof resumeId === 'number' && Number.isSafeInteger(resumeId) && resumeId > 0
     ? experiencedPracticePath(resumeId, params)
     : null;
-  const selectFilter = (key: 'level' | 'domain', value: string) => {
+  const selectFilter = (key: 'level' | 'domain' | 'source', value: string) => {
     const next = new URLSearchParams(params);
-    next.set(key, value);
+    if (key === 'source' && value === 'all') next.delete(key);
+    else next.set(key, value);
     setParams(next, { replace: true, state: location.state });
   };
 
@@ -91,7 +103,13 @@ export default function ExperiencedBank({
 
   const domains = catalog.kind === 'ready' ? catalog.domains : [];
   const active = domains.find(domain => domain.key === domainKey) ?? domains[0];
-  const questions = active?.questions.filter(question => question.level === level) ?? [];
+  const allQuestions = domains.flatMap(domain => domain.questions);
+  const legacyCount = allQuestions.filter(question => question.source === 'legacy').length;
+  const totals = { all: allQuestions.length, legacy: legacyCount, authored: allQuestions.length - legacyCount };
+  const selectedByDomain = new Map(domains.map(domain => [domain.key, domain.questions.filter(question =>
+    question.level === level && (source === 'all' || (question.source ?? 'authored') === source),
+  )]));
+  const questions = active ? selectedByDomain.get(active.key) ?? [] : [];
 
   return (
     <>
@@ -100,7 +118,7 @@ export default function ExperiencedBank({
         <Link className="btn btn-outline" to="/bank">返回面经库</Link>
       </PageHead>
       <div className="bank-workspace">
-        <section className="card bank-section experienced-guide" aria-label="练习指南">
+        <section className="card bank-section experienced-guide" aria-label="题单筛选">
           <div className="bank-actions" role="group" aria-label="工作年限">
             {LEVELS.map(option => (
               <button
@@ -111,8 +129,17 @@ export default function ExperiencedBank({
               >{EXPERIENCE_LABELS[option]}</button>
             ))}
           </div>
-          <p>先读能力域的考察重点，再用「开始练习」独立作答。交卷后在报告里复盘评分和失分项。</p>
-          <p className="hint">算法与模型训练可按岗位要求选练。查看参考会记录辅助条件，建议先独立作答。</p>
+          <div className="bank-actions" role="group" aria-label="题目来源">
+            {SOURCES.map(option => (
+              <button
+                key={option}
+                className={`btn ${source === option ? 'btn-primary' : 'btn-outline'}`}
+                aria-pressed={source === option}
+                onClick={() => selectFilter('source', option)}
+              >{option === 'all' ? '全部' : EXPERIENCED_SOURCE_LABELS[option]}{catalog.kind === 'ready' ? ` · ${totals[option]} 题` : ''}</button>
+            ))}
+          </div>
+          <p className="hint">原题库的年限为备考建议。查看参考会记录辅助条件。</p>
         </section>
 
         {catalog.kind === 'loading' && <p role="status" className="card bank-section">正在加载社招专项题单…</p>}
@@ -142,7 +169,9 @@ export default function ExperiencedBank({
                     onClick={() => selectFilter('domain', domain.key)}
                   >
                     <span>{domain.name}</span>
-                    {showElectiveLabel(domain) && <span className="chip chip-slate">选修</span>}
+                    <small className="chip chip-slate">
+                      {showElectiveLabel(domain) && '选修 · '}{selectedByDomain.get(domain.key)?.length ?? 0} 题
+                    </small>
                   </button>
                 ))}
               </div>
@@ -155,15 +184,15 @@ export default function ExperiencedBank({
                 {showElectiveLabel(active) && <span className="chip chip-slate">选修</span>}
               </div>
               <p className="hint experienced-prompt">{active.focus}</p>
-              {questions.length === 0 ? <p>这个能力域暂未收录该年限的题目。</p> : (
+              {questions.length === 0 ? <p>这个能力域没有符合筛选条件的题目。</p> : (
                 <ul className="experienced-question-list">
                   {questions.map(question => (
                     <li key={question.id} className="experienced-question">
                       <div>
                         <h3 id={`experienced-question-${question.id}`} className="experienced-prompt">{question.title}</h3>
                         <div className="q-meta">
-                          <span className="chip chip-slate">{EXPERIENCE_LABELS[question.level]}</span>
-                          <span>{ORIGINAL_SCENARIO_LABEL}</span>
+                          <span className="chip chip-slate">{experiencedLevelLabel(question)}</span>
+                          <span>{EXPERIENCED_SOURCE_LABELS[question.source ?? 'authored']}</span>
                           <span className="experienced-question-code">{question.short_code}</span>
                         </div>
                       </div>
