@@ -1,5 +1,5 @@
 import StudyEntryButton from '../components/StudyEntryButton';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAppState } from '../components/AppState';
 import { DiffLabel, Modal, PageHead, Stars } from '../components/ui';
@@ -100,6 +100,9 @@ export default function Bank() {
   const hasImportLink = query.get('import') === '1';
   const requestedSet = scope === 'sets' ? query.get('set') : null;
   const [pendingCount, setPendingCount] = useState<number | null>(null);
+  const rememberPendingCount = useCallback((count: number | null) => {
+    if (count !== null) setPendingCount(count);
+  }, []);
   const [facets, setFacets] = useState<Facets>(emptyFacets);
   const [showFilters, setShowFilters] = useState(false);
   const [page, setPage] = useState(0);
@@ -504,15 +507,16 @@ export default function Bank() {
           onReference={(question, domainName) => openDetail({
             id: question.short_code, numericQuestionId: question.id, title: question.title, level: question.level, source: question.source, domainName,
           })}
+          onRetestMapping={({ id, title }) => setMappingQuestion({ id, title })}
         />
       )}
       <div className="bank-workspace">
-        {(scope === 'pending' || pendingCount !== null) && <BankReviewQueue
-          requestedKey={new URLSearchParams(location.search).get('item')}
-          visible={scope === 'pending'}
+        {scope === 'pending' && <BankReviewQueue
+          requestedKey={query.get('item')}
+          visible
           reload={reload}
           topicNames={TOPIC_NAME}
-          onCountChange={setPendingCount}
+          onCountChange={rememberPendingCount}
           onLibraryChange={() => setReload(value => value + 1)}
           onOpenImport={openReviewFor}
           onUpload={openUpload}

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigationType, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
+import StudyEntryButton from '../components/StudyEntryButton';
 import { ORIGINAL_SCENARIO_LABEL } from '../lib/bankSource';
 import { messageOf } from '../lib/questionWorkshop';
 import { experiencedPracticePath } from '../lib/experiencedBankPath';
@@ -70,17 +71,42 @@ function companiesOf(company: ExperiencedQuestion['company']): string[] {
 
 const normalizeSearch = (value: string) => value.normalize('NFKC').toLowerCase();
 
+function LegacyQuestionActions({ question, onRetestMapping }: {
+  question: ExperiencedQuestion;
+  onRetestMapping: (question: ExperiencedQuestion) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const actionsId = `experienced-actions-${question.id}`;
+
+  return <>
+    <button
+      type="button"
+      className="btn btn-ghost btn-sm experienced-more"
+      aria-describedby={`experienced-question-${question.id}`}
+      aria-expanded={open}
+      aria-controls={open ? actionsId : undefined}
+      onClick={() => setOpen(value => !value)}
+    >更多操作</button>
+    {open && <div id={actionsId} className="bank-actions experienced-extra-actions">
+      <button type="button" className="btn btn-outline btn-sm" onClick={() => onRetestMapping(question)}>复测映射</button>
+      <StudyEntryButton kind="question" id={question.id} bankKey={question.short_code} />
+    </div>}
+  </>;
+}
+
 export default function ExperiencedBank({
   practiceBusy,
   practiceError,
   onPractice,
   onReference,
+  onRetestMapping,
   onCatalogSummary,
 }: {
   practiceBusy: string | null;
   practiceError: {id: string; message: string} | null;
   onPractice: (question: ExperiencedQuestion) => void;
   onReference: (question: ExperiencedQuestion, domainName: string) => void;
+  onRetestMapping: (question: ExperiencedQuestion) => void;
   onCatalogSummary?: (summary: { questions: number; domains: number }) => void;
 }) {
   const [catalog, setCatalog] = useState<CatalogState>({ kind: 'loading' });
@@ -340,6 +366,7 @@ export default function ExperiencedBank({
                       <button className="btn btn-outline btn-sm" aria-describedby={`experienced-question-${question.id}`} onClick={() => onReference(question, domainName)}>
                         查看参考
                       </button>
+                      {question.source === 'legacy' && <LegacyQuestionActions question={question} onRetestMapping={onRetestMapping} />}
                     </div>
                     {practiceError?.id === question.short_code && <p role="alert">{practiceError.message}</p>}
                   </li>

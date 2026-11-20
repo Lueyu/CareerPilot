@@ -34,14 +34,18 @@ const completedReport = {
 const interviewSet = { id: 'set-001', import_id: 22, title: '隔离验收面经集', project_id: 1, project_name: '测试项目', questions: [] };
 const review = {
   id: 22, short_code: 'IMP-22', status: 'REVIEW',
-  items: [{ id: 19, title: '被深链选中的待审核题', status: 'DRAFT', qtype: 'short_answer', topic: 'rag' }],
+  items: [{
+    id: 19, title: '被深链选中的待审核题', status: 'DRAFT', qtype: 'short_answer', topic: 'rag',
+    draft_answer: '<p>测试私有答案</p>',
+    draft_rubric: { points: [{ title: '测试私有评分项' }] },
+  }],
 };
 
 const rendered = tree => JSON.stringify(tree.toJSON());
 const buttons = tree => tree.root.findAllByType('button');
 const labelOf = node => node.children.filter(child => typeof child === 'string').join('');
 const button = (tree, label) => {
-  const match = buttons(tree).find(node => labelOf(node) === label);
+  const match = buttons(tree).find(node => (node.props['aria-label'] ?? labelOf(node)) === label);
   assert.ok(match, `missing button: ${label}`);
   return match;
 };
@@ -104,6 +108,7 @@ async function mount(t, path, respond) {
         React.createElement(Route, { path: '/bank', element: React.createElement(Bank) }),
         React.createElement(Route, { path: '/exam/diagnosis', element: React.createElement(Diagnosis) }),
         React.createElement(Route, { path: '/exam/diagnosis/report', element: React.createElement(DiagnosisReport) }),
+        React.createElement(Route, { path: '/study/chat/:id', element: React.createElement('div') }),
       ),
     )));
     await flush();
@@ -127,7 +132,9 @@ test('the legacy route canonicalizes and opens all levels, sources and domains b
   assert.equal(location().search, '');
   const domains = tree.root.findAllByProps({ className: 'experienced-domain' });
   assert.equal(domains.length, 12);
-  assert.ok(button(tree, '全部分类').props['aria-pressed']);
+  const allDomains = button(tree, '全部分类');
+  assert.ok(allDomains.props['aria-pressed']);
+  assert.equal(allDomains.findByType('small').children.join(''), '3');
   assert.equal(domains[1].props['aria-label'], toolsDomain.name);
   assert.equal(domains.at(-1).props['aria-label'], trainingDomain.name);
   assert.match(rendered(tree), /题目列表/);
@@ -293,6 +300,64 @@ test('legacy reference retains diagrams and followups after exposure, then pract
   await click(tree, '继续练习');
   assert.equal(location().search, practiceSearch);
   assert.equal(calls.filter(call => call.endpoint === '/exams' && call.method === 'POST').length, 1);
+});
+
+test('legacy actions expand on demand and use the existing mapping and study entry points', async t => {
+  const mappingPath = `/retest-mappings/${legacy.id}`;
+  const { tree, calls, location } = await mount(t, '/bank', endpoint => {
+    if (endpoint === mappingPath) return Response.json({ rubric_version: 'v1', criteria: [], reviewable: true });
+    if (endpoint === '/study/sessions') return Response.json({ id: 51 });
+  });
+  const labels = row => row.findAllByType('button').map(node => node.props['aria-label'] ?? labelOf(node));
+  const [authoredRow, , legacyRow] = tree.root.findAllByProps({ className: 'experienced-question' });
+  assert.deepEqual(labels(authoredRow), ['开始练习', '查看参考']);
+  assert.deepEqual(labels(legacyRow), ['开始练习', '查看参考', '更多操作']);
+  assert.equal(button(tree, '更多操作').props['aria-expanded'], false);
+  await click(tree, '更多操作');
+  const disclosure = button(tree, '更多操作');
+  assert.equal(disclosure.props['aria-expanded'], true);
+  assert.ok(legacyRow.findByProps({ id: disclosure.props['aria-controls'] }));
+  assert.deepEqual(calls.map(call => call.endpoint), ['/bank/experienced']);
+  assert.ok(!rendered(tree).includes('bank-answer'));
+  await click(tree, '更多操作');
+  assert.deepEqual(labels(legacyRow), ['开始练习', '查看参考', '更多操作']);
+  await click(tree, '更多操作');
+  await click(tree, '复测映射');
+  assert.match(rendered(tree), /审核复测映射/);
+  assert.deepEqual(calls.map(call => call.endpoint), ['/bank/experienced', mappingPath]);
+  await click(tree, '✕');
+  await click(tree, '围绕这个问题学习');
+  assert.equal(location().pathname, '/study/chat/51');
+  assert.deepEqual(calls.map(call => call.endpoint), ['/bank/experienced', mappingPath, '/study/sessions']);
+  assert.deepEqual(calls.at(-1).body, { source_type: 'question', source_id: legacy.id });
+});
+
+test('leaving pending review unmounts its drafts and keeps only the last successful count', async t => {
+  let attempt = 0;
+  const { tree, calls } = await mount(t, '/bank?review=1&item=22-19', endpoint => {
+    if (endpoint !== '/bank/imports/pending') return;
+    if (++attempt === 1) return Response.json({ imports: [review] });
+    if (attempt === 2) return Response.json({ detail: 'queue unavailable' }, { status: 503 });
+    return Response.json({ imports: [] });
+  });
+  assert.match(rendered(tree), /测试私有答案/);
+  assert.match(rendered(tree), /测试私有评分项/);
+  assert.ok(button(tree, '待审核 · 1'));
+
+  await click(tree, '全部题目');
+  assert.equal(tree.root.findAllByProps({ className: 'bank-review' }).length, 0);
+  assert.doesNotMatch(rendered(tree), /测试私有答案|测试私有评分项|被深链选中的待审核题/);
+  assert.equal(calls.filter(call => call.endpoint === '/bank/imports/pending').length, 1);
+  assert.ok(button(tree, '待审核 · 1'));
+
+  await click(tree, '待审核 · 1');
+  assert.match(rendered(tree), /queue unavailable/);
+  assert.ok(button(tree, '待审核 · 1'));
+  await click(tree, '全部题目');
+  assert.equal(calls.filter(call => call.endpoint === '/bank/imports/pending').length, 2);
+  await click(tree, '待审核 · 1');
+  assert.ok(button(tree, '待审核'));
+  assert.equal(calls.filter(call => call.endpoint === '/bank/imports/pending').length, 3);
 });
 
 test('a filtered report deep link returns to the same source, level, and domain', async t => {

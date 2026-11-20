@@ -50,6 +50,7 @@ async function mount(t, url, responses = [Response.json({ domains })]) {
       practiceError: null,
       onPractice: question => actions.push(['practice', question.id]),
       onReference: (question, domain) => actions.push(['reference', question.id, domain]),
+      onRetestMapping: question => actions.push(['mapping', question.id]),
     })));
   });
   return { tree, actions, calls, location: () => location, back: () => act(() => navigate(-1)) };
@@ -65,6 +66,9 @@ test('the catalog starts with 227 questions and supports local search, paging, a
   const { tree, calls, location, back } = await mount(t, { pathname: '/bank' });
   assert.equal(count(tree), '共 227 题');
   assert.equal(tree.root.findAllByType('li').length, 10);
+  const visibleButtons = tree.root.findAllByType('li').flatMap(row => row.findAllByType('button'));
+  assert.equal(visibleButtons.filter(node => node.children.join('') === '更多操作').length, 5);
+  assert.ok(visibleButtons.every(node => !['复测映射', '围绕这个问题学习'].includes(node.children.join(''))));
   assert.equal(tree.root.findAllByProps({ className: 'experienced-domain' }).length, 12);
   assert.ok(tree.root.findAllByType('a').some(node => node.props.href?.startsWith('/exam/diagnosis?id=87')));
   click(tree, '下一页');
