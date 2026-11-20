@@ -1,7 +1,8 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { DemoBanner, PageHead } from '../components/ui';
 import { api, useApi, ExamsData } from '../api/client';
+import { EXPERIENCED_BANK_PATH } from '../lib/experiencedBankPath';
 
 
 const STATUS_CLS: Record<string, string> = {
@@ -50,7 +51,8 @@ export default function ExamCenter() {
     : [];
   const history = data?.history
     ? data.history.map((h) => ({
-        id: h.id, name: h.title, type: KIND_NAME[h.kind] || h.kind, count:h.question_count,
+        id: h.id, name: h.title, type: h.experienced_bank_practice ? '社招专项练习' : KIND_NAME[h.kind] || h.kind, count:h.question_count,
+        experienced: h.experienced_bank_practice,
         status: h.status, score: h.score, time: (h.completed_at || h.started_at || '').slice(0, 10),
         report: ['COMPLETED', 'SCORING_FAILED', 'SCORING', 'SCORING_RETRY_WAIT','NEEDS_REVIEW','SUBMITTED','FROZEN','TRANSCRIPT_CONFIRMED'].includes(h.status),
       }))
@@ -63,6 +65,7 @@ export default function ExamCenter() {
         sub="独立诊断与学习任务新题验证，记录每次真实作答"
       >
         <button className="btn btn-outline" onClick={() => navigate('/bank')}>查看题库</button>
+        <Link className="btn btn-outline" to={EXPERIENCED_BANK_PATH}>社招专项题库</Link>
         <button className="btn btn-primary" onClick={() => navigate('/exam/diagnosis')}>开始独立诊断</button>
       </PageHead>
       <DemoBanner />
@@ -120,7 +123,7 @@ export default function ExamCenter() {
                     {h.report ? (
                       <button className="btn btn-ghost btn-sm" onClick={() => navigate(`/exam/diagnosis/report?id=${h.id}`)}>{h.status==='COMPLETED'?'查看报告':'查看本次状态'}</button>
                     ) : (
-                      h.status === 'ACTIVE' ? <button className="btn btn-ghost btn-sm" onClick={() => navigate(`/exam/diagnosis?id=${h.id}`)}>继续考试</button> : <span>—</span>
+                      h.status === 'ACTIVE' ? <button className="btn btn-ghost btn-sm" onClick={() => navigate(`/exam/diagnosis?id=${h.id}`)}>{h.experienced ? '继续练习' : '继续考试'}</button> : <span>—</span>
                     )}
                   </td>
                 </tr>

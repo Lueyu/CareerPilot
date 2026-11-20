@@ -18,7 +18,8 @@ import json
 import sys
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.dialects.postgresql import insert
 
 from app.db import SessionLocal, engine
 from app.models import (
@@ -27,6 +28,7 @@ from app.models import (
     TraceSpan, User, Workspace, WorkspaceMember,
 )
 from app.services.competency import recompute_skill_states
+from app.services.experienced_bank import install_pack
 from app.services.planner import plan_tasks_for_workspace
 from app.services.tracing import add_span, finish_trace, start_trace
 from app.services.workspaces import ensure_personal_workspace
@@ -78,10 +80,10 @@ DEMO_MEMORIES = [
 
 
 async def seed(*, include_demo: bool = False) -> None:
-    async with engine.begin() as conn:
+    async with engine.begin() as conn, SessionLocal(bind=conn) as session:
+        # Serialize bootstrap as well as pack installation on a fresh database.
+        await conn.execute(text('SELECT pg_advisory_xact_lock(20261120, 1)'))
         await conn.run_sync(Base.metadata.create_all)
-
-    async with SessionLocal() as session:
         personal = await ensure_personal_workspace(session)
         print(f"[seed] personal workspace ready: {personal.slug} (no sample evidence/tasks)")
         # ---------- 1) 能力域 + 岗位标准 ----------
@@ -149,10 +151,14 @@ async def seed(*, include_demo: bool = False) -> None:
             await session.flush()
 
         # ---------- 3) 161 道公开题 ----------
-        n_q = (await session.execute(select(func.count(Question.id)))).scalar() or 0
-        if n_q == 0 and BANK_PATH.exists():
+        if BANK_PATH.exists():
             bank = json.loads(BANK_PATH.read_text(encoding="utf-8"))
+            codes = [q["id"] for q in bank["questions"]]
+            existing_codes = set(await session.scalars(select(Question.short_code).where(Question.short_code.in_(codes))))
+            missing = []
             for q in bank["questions"]:
+                if q["id"] in existing_codes:
+                    continue
                 skill_key = TOPIC_SKILL.get(q["topic"], "agent")
                 tags = q.get("tags") or []
                 kw_tokens = (q.get("kw") or "").split()
@@ -160,8 +166,8 @@ async def seed(*, include_demo: bool = False) -> None:
                     {"title": f"要点: {tag}", "keywords": [tag] + kw_tokens[:2]}
                     for tag in tags[:3]
                 ] or [{"title": "要点: 核心概念", "keywords": kw_tokens[:3] or [q["title"][:6]]}]
-                session.add(
-                    Question(
+                missing.append(
+                    dict(
                         short_code=q["id"],
                         workspace_id=None,  # 公共题库
                         title=q["title"],
@@ -179,10 +185,13 @@ async def seed(*, include_demo: bool = False) -> None:
                         is_demo=False,
                     )
                 )
-            await session.flush()
-            print(f"[seed] questions: {len(bank['questions'])} imported from bank.json")
-        else:
-            print(f"[seed] questions: skip ({n_q} already exist)")
+            if missing:
+                await session.execute(insert(Question).values(missing).on_conflict_do_nothing(index_elements=[Question.short_code]))
+
+        created, existing, collisions = await install_pack(session, skills)
+        print(f"[seed] experienced bank: {created} created, {existing} already installed, {len(collisions)} collisions")
+        for code in collisions:
+            print(f"[seed] experienced bank short_code collision: {code!r} (existing row kept)")
 
         if not include_demo:
             await session.commit()
