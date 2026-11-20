@@ -75,11 +75,13 @@ export default function ExperiencedBank({
   practiceError,
   onPractice,
   onReference,
+  onCatalogSummary,
 }: {
   practiceBusy: string | null;
   practiceError: {id: string; message: string} | null;
   onPractice: (question: ExperiencedQuestion) => void;
   onReference: (question: ExperiencedQuestion, domainName: string) => void;
+  onCatalogSummary?: (summary: { questions: number; domains: number }) => void;
 }) {
   const [catalog, setCatalog] = useState<CatalogState>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
@@ -134,6 +136,15 @@ export default function ExperiencedBank({
   }, [attempt]);
 
   const domains = catalog.kind === 'ready' ? catalog.domains : null;
+  useEffect(() => {
+    if (domains && onCatalogSummary) {
+      onCatalogSummary({
+        questions: domains.reduce((total, domain) => total + domain.questions.length, 0),
+        domains: domains.length,
+      });
+    }
+  }, [domains, onCatalogSummary]);
+
   const indexed = useMemo(() => (domains ?? []).map(domain => ({
     ...domain,
     entries: domain.questions.map(question => ({
@@ -155,6 +166,7 @@ export default function ExperiencedBank({
     ),
   }));
   const activeDomain = filtered.find(domain => domain.key === domainKey);
+  const allMatchCount = filtered.reduce((total, domain) => total + domain.matches.length, 0);
   const results = filtered
     .filter(domain => !domainKey || domain.key === domainKey)
     .flatMap(domain => domain.matches.map(({ question }) => ({ question, domainName: domain.name })));
@@ -179,6 +191,10 @@ export default function ExperiencedBank({
           selectFilter('q', query.trim(), editingSearch.current);
           editingSearch.current = false;
         }}>
+          <svg className="experienced-search-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+            <circle cx="10.5" cy="10.5" r="6.5" />
+            <path d="m15.5 15.5 4.5 4.5" strokeLinecap="round" />
+          </svg>
           <input
             className="inp"
             type="search"
@@ -192,16 +208,29 @@ export default function ExperiencedBank({
               editingSearch.current = Boolean(value);
             }}
           />
-          {query && <button className="btn btn-outline" type="button" onClick={() => selectFilter('q', '')}>清空搜索</button>}
+          {query && (
+            <button className="experienced-clear-search" type="button" aria-label="清空搜索" onClick={() => selectFilter('q', '')}>
+              <span aria-hidden="true">×</span>
+            </button>
+          )}
         </form>
         <button
           className="btn btn-outline"
+          aria-label="筛选"
           aria-expanded={filtersOpen}
           aria-controls="bank-catalog-filters"
           onClick={() => setFiltersOpen(value => !value)}
-        >筛选</button>
-        {resumePath && <Link className="btn btn-primary" to={resumePath}>继续本次练习</Link>}
+        >
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
+            <path d="M3 6h18M3 12h18M3 18h18" />
+            <circle cx="8" cy="6" r="2" fill="var(--card)" />
+            <circle cx="16" cy="12" r="2" fill="var(--card)" />
+            <circle cx="10" cy="18" r="2" fill="var(--card)" />
+          </svg>
+          筛选
+        </button>
       </div>
+      {resumePath && <div><Link className="btn btn-primary" to={resumePath}>继续本次练习</Link></div>}
       <div id="bank-catalog-filters" className="experienced-filters" hidden={!filtersOpen}>
         <label>建议年限
           <select className="inp" aria-label="建议年限" value={level} onChange={event => selectFilter('level', event.currentTarget.value)}>
@@ -251,14 +280,16 @@ export default function ExperiencedBank({
       {catalog.kind === 'ready' && (
         <div className="experienced-layout">
           <nav className="card bank-section experienced-domains" aria-label="能力域">
-            <h2>能力域</h2>
             <div className="experienced-domain-list">
+              <h2>能力域</h2>
               <button
                 className="experienced-domain"
+                aria-label="全部分类"
+                aria-describedby="bank-domain-count-all"
                 aria-pressed={!domainKey}
                 onClick={() => selectFilter('domain', '')}
               >
-                全部分类
+                <span>全部分类</span><small id="bank-domain-count-all">{allMatchCount}</small>
               </button>
               {filtered.map(domain => (
                 <button
@@ -269,17 +300,25 @@ export default function ExperiencedBank({
                   aria-pressed={domain.key === domainKey}
                   onClick={() => selectFilter('domain', domain.key)}
                 >
-                  <span>{domain.name}</span><small id={`bank-domain-count-${domain.key}`}>{domain.matches.length} 题</small>
+                  <span>{domain.name}</span><small id={`bank-domain-count-${domain.key}`}>{domain.matches.length}</small>
                 </button>
               ))}
             </div>
+            <label className="experienced-domain-picker">
+              <span>能力域</span>
+              <select aria-label="能力域" value={domainKey} onChange={event => selectFilter('domain', event.currentTarget.value)}>
+                <option value="">全部分类</option>
+                {domainKey && !activeDomain && <option value={domainKey}>{domainKey}</option>}
+                {filtered.map(domain => <option key={domain.key} value={domain.key}>{domain.name}</option>)}
+              </select>
+            </label>
           </nav>
           <section className="card bank-section experienced-questions" aria-labelledby="bank-catalog-title">
-            <div className="bank-actions experienced-list-head">
+            <div className="experienced-list-head">
               <h2 id="bank-catalog-title">题目列表</h2>
-              <span className="hint" role="status">{results.length} 题</span>
+              <span className="hint" role="status">共 {results.length} 题</span>
             </div>
-            {results.length === 0 ? <p>没有符合条件的题目。</p> : (
+            {results.length === 0 ? <p className="experienced-empty">没有符合条件的题目。</p> : (
               <ul className="experienced-question-list">
                 {results.slice(start, start + PAGE_SIZE).map(({ question, domainName }) => (
                   <li key={question.id} className="experienced-question">
@@ -287,7 +326,7 @@ export default function ExperiencedBank({
                       <h3 id={`experienced-question-${question.id}`} className="experienced-prompt">{question.title}</h3>
                       <div className="q-meta">
                         <span>{domainName}</span>
-                        <span className="chip chip-slate">{experiencedLevelLabel(question)}</span>
+                        <span>{experiencedLevelLabel(question)}</span>
                         <span className="experienced-question-code">{question.short_code}</span>
                       </div>
                     </div>

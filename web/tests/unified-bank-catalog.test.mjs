@@ -63,7 +63,7 @@ const count = tree => tree.root.findAllByProps({ role: 'status' })[0].children.j
 
 test('the catalog starts with 227 questions and supports local search, paging, and Back', async t => {
   const { tree, calls, location, back } = await mount(t, { pathname: '/bank' });
-  assert.equal(count(tree), '227 题');
+  assert.equal(count(tree), '共 227 题');
   assert.equal(tree.root.findAllByType('li').length, 10);
   assert.equal(tree.root.findAllByProps({ className: 'experienced-domain' }).length, 12);
   assert.ok(tree.root.findAllByType('a').some(node => node.props.href?.startsWith('/exam/diagnosis?id=87')));
@@ -73,7 +73,7 @@ test('the catalog starts with 227 questions and supports local search, paging, a
   change(input, 'BACK');
   change(input, 'BACKOFF Q-0');
   act(() => tree.root.findByType('form').props.onSubmit({ preventDefault() {} }));
-  assert.equal(count(tree), '1 题');
+  assert.equal(count(tree), '共 1 题');
   assert.equal(tree.root.findByType('h3').children.join(''), '工具题 0-25');
   assert.equal(new URLSearchParams(location().search).get('page'), null);
   back();
@@ -82,11 +82,32 @@ test('the catalog starts with 227 questions and supports local search, paging, a
   assert.deepEqual(calls, ['/api/v1/bank/experienced']);
 });
 
+test('the narrow domain picker and desktop sidebar share the same filters', async t => {
+  const { tree, calls, location } = await mount(t, { pathname: '/bank', search: '?q=工具题&page=2' });
+  const nav = tree.root.findByProps({ 'aria-label': '能力域', className: 'card bank-section experienced-domains' });
+  const picker = nav.findByType('select');
+  const allDomains = button(tree, '全部分类');
+  assert.equal(allDomains.findByType('small').children.join(''), '227');
+  change(picker, 'domain-1');
+  const params = new URLSearchParams(location().search);
+  assert.equal(params.get('q'), '工具题');
+  assert.equal(params.get('domain'), 'domain-1');
+  assert.equal(params.has('page'), false);
+  assert.equal(button(tree, '能力域 2').props['aria-pressed'], true);
+  assert.equal(count(tree), '共 20 题');
+  assert.equal(allDomains.findByType('small').children.join(''), '227');
+  click(tree, '全部分类');
+  assert.equal(picker.props.value, '');
+  assert.equal(new URLSearchParams(location().search).has('domain'), false);
+  assert.equal(count(tree), '共 227 题');
+  assert.deepEqual(calls, ['/api/v1/bank/experienced']);
+});
+
 test('company aliases, old links, action identity, and clearing combined filters', async t => {
   const { tree, calls, actions, location } = await mount(t, {
     pathname: '/bank', search: '?track=experienced&domain=domain-0&level=senior&source=authored&company=阿里&q=tool-validation&page=999',
   });
-  assert.equal(count(tree), '1 题');
+  assert.equal(count(tree), '共 1 题');
   click(tree, '筛选');
   const select = tree.root.findByProps({ 'aria-label': '公司' });
   assert.deepEqual(select.findAllByType('option').map(node => node.props.value).sort(), ['', '字节', '阿里'].sort());
@@ -94,13 +115,13 @@ test('company aliases, old links, action identity, and clearing combined filters
   click(tree, '开始练习');
   assert.deepEqual(actions, [['reference', 2, '能力域 1'], ['practice', 2]]);
   change(select, '字节');
-  assert.equal(count(tree), '1 题');
+  assert.equal(count(tree), '共 1 题');
   assert.equal(new URLSearchParams(location().search).has('track'), false);
   change(tree.root.findByType('input'), 'no matches');
-  assert.equal(count(tree), '0 题');
+  assert.equal(count(tree), '共 0 题');
   click(tree, '清除筛选');
   assert.equal(location().search, '');
-  assert.equal(count(tree), '227 题');
+  assert.equal(count(tree), '共 227 题');
   assert.deepEqual(calls, ['/api/v1/bank/experienced']);
 });
 
@@ -111,6 +132,6 @@ test('a failed catalog request can be retried', async t => {
   ]);
   assert.match(tree.root.findByProps({ role: 'alert' }).children.join(''), /服务暂不可用/);
   await act(async () => button(tree, '重试加载题库').props.onClick());
-  assert.equal(count(tree), '227 题');
+  assert.equal(count(tree), '共 227 题');
   assert.equal(calls.length, 2);
 });
