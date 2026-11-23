@@ -31,6 +31,10 @@ from app.services.project_autopilot_config import CONSENT_VERSION
 
 SERVER = Path(__file__).resolve().parents[1]
 ROOT = SERVER.parent
+# Windows test children can spend several seconds starting or waiting on local
+# scheduling and database I/O on shared development hosts.
+PROCESS_CONDITION_TIMEOUT = 75 if os.name == 'nt' else 25
+API_STARTUP_TIMEOUT = 45 if os.name == 'nt' else 18
 
 HARNESS = r'''
 import asyncio,json,os,sys,time
@@ -77,7 +81,9 @@ async def execute(stage,inputs,runtime):
 analysis.plan_steps=plan
 analysis.execute_stage=execute
 from app import project_worker
-asyncio.run(project_worker.serve(poll_seconds=.05,lease_seconds=1.2,heartbeat_seconds=.2))
+lease_seconds = 10 if os.name == 'nt' else 1.2
+heartbeat_seconds = .5 if os.name == 'nt' else .2
+asyncio.run(project_worker.serve(poll_seconds=.05, lease_seconds=lease_seconds, heartbeat_seconds=heartbeat_seconds))
 '''
 
 
@@ -124,7 +130,7 @@ class Fixture:
                 'lease_expires_at': s.lease_expires_at} for s in steps},
                 'heartbeats': {b.pid: b.last_seen_at for b in beats}}
 
-    async def until(self, predicate, timeout=25):
+    async def until(self, predicate, timeout=PROCESS_CONDITION_TIMEOUT):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             result = await self.state()
@@ -233,7 +239,7 @@ async def test_one_module_timeout_retries_without_replaying_completed_modules(pr
 
 
 async def api_ready(process, port):
-    deadline = time.monotonic() + 18
+    deadline = time.monotonic() + API_STARTUP_TIMEOUT
     async with httpx.AsyncClient(trust_env=False) as client:
         while time.monotonic() < deadline:
             assert process.poll() is None, 'Isolated real API exited during startup'

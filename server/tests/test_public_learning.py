@@ -26,7 +26,7 @@ def question(workspace_id, role="Backend", *, source=SOURCE_PRIVATE, demo=False)
 
 
 @pytest.mark.asyncio
-async def test_registered_plan_scopes_questions_and_preserves_evidence(db_session, monkeypatch):
+async def test_registered_plan_scopes_questions_and_preserves_evidence(db_session, monkeypatch, track_public_question):
     monkeypatch.setenv("SEED_PUBLIC_ORIGIN", ORIGIN)
     monkeypatch.setenv("SEED_SESSION_SECRET", token_urlsafe(48))
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False, autoflush=False)
@@ -61,7 +61,7 @@ async def test_registered_plan_scopes_questions_and_preserves_evidence(db_sessio
         first, second, third = question(owner), question(owner, source=SOURCE_GENERATED), question(owner)
         other_role = question(owner, "Design")
         db_session.add_all([
-            first, second, third, other_role, question(None), question(owner, demo=True),
+            first, second, third, other_role, track_public_question(question(None)), question(owner, demo=True),
             question(owner, source=SOURCE_VERIFIED),
         ])
         await db_session.commit()

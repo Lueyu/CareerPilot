@@ -294,6 +294,7 @@ async def test_failed_generation_retries_and_result_stays_private_reference(chat
 
     outcomes.extend([outage, wrong_shape, injected_text])
     before = await db_session.scalar(select(func.count()).select_from(Evidence))
+    other_bank_before = (await client.get("/bank", headers=other)).json()["items"]
     for _ in range(2):
         failure = await client.post(path, headers=owner)
         assert failure.status_code == 502, failure.text
@@ -314,7 +315,7 @@ async def test_failed_generation_retries_and_result_stays_private_reference(chat
     assert detail.status_code == 200 and detail.json()["review_only"] is True
     assert detail.json()["answer_html"] == saved["answer_html"]
     assert (await client.get("/bank", headers=other, params={"scope": "mine"})).json()["items"] == []
-    assert (await client.get("/bank", headers=other)).json()["items"] == []
+    assert (await client.get("/bank", headers=other)).json()["items"] == other_bank_before
     assert (await client.get(uri, headers=other)).status_code == 404
 
     pick = {"kind": "bank_exam", "question_ids": [saved["id"]]}
