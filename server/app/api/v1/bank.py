@@ -18,6 +18,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
 from app.models import Exam, ImportItem, ImportSession, Project, Question, Skill, Trace, Workspace
+from app.models.question import STUDY_CHAT_REVIEW_META
 from app.services.answer_gen import generate_answer
 from app.services.answer_guides import for_question as teaching_guide_for
 from app.services import bank_review_actions as review_actions
@@ -60,6 +61,10 @@ async def _skill_map(session: AsyncSession) -> dict[str, Skill]:
     return {s.key: s for s in skills}
 
 
+def _study_review_clause(workspace_id: int):
+    return (Question.workspace_id == workspace_id) & Question.generation_meta.contains(STUDY_CHAT_REVIEW_META)
+
+
 @router.get("/bank")
 async def list_bank(
     status: str = "all",
@@ -83,7 +88,8 @@ async def list_bank(
     base = select(Question).where(
         workspace_filter,
         Question.canonical_question_id.is_(None),  # 变体不单独列出
-        Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY'),
+        (Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY')
+         | _study_review_clause(ws.id)),
     )
     company_filter = (Question.company.in_(companies) if companies else
                       Question.company.icontains(company, autoescape=True) if company else True)
@@ -137,6 +143,7 @@ async def list_bank(
                 "difficulty": r.difficulty,
                 "company": r.company,
                 "source_type": r.source_type,
+                "review_only": r.is_study_chat_review,
                 "tags": r.tags or [],
                 "occurred_on": r.occurred_on.isoformat() if r.occurred_on else None,
             }
@@ -182,7 +189,7 @@ async def bank_detail(
                 Question.short_code == short_code,
                 (Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id),
                 (Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY')
-                 | owned_question_clause()),
+                 | owned_question_clause() | _study_review_clause(ws.id)),
             )
         )
     ).scalar_one_or_none()
@@ -210,6 +217,7 @@ async def bank_detail(
         "level": question.level,
         "occurred_on": question.occurred_on.isoformat() if question.occurred_on else None,
         "source_type": question.source_type,
+        "review_only": question.is_study_chat_review,
         "tags": question.tags or [],
         "keywords": question.keywords or [],
         "generation_meta": question.generation_meta,
@@ -1202,6 +1210,8 @@ async def _own_question(session: AsyncSession, ws: Workspace, short_code: str) -
         raise HTTPException(status_code=403, detail="无权访问其他工作空间的私有题目")
     if (q.generation_meta or {}).get("interview_set_id"):
         raise HTTPException(status_code=409, detail="面经集题目随原帖与项目依据保存，不能从通用题库修改")
+    if q.is_study_chat_review:
+        raise HTTPException(409, "学习聊天复习题随对话快照保存，请在学习聊天中重新生成")
     return q
 
 

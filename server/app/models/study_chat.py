@@ -24,6 +24,17 @@ class StudySession(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class StudyInterviewQuestion(Base):
+    __tablename__ = "study_interview_questions"
+    __table_args__ = (
+        UniqueConstraint("session_id", "snapshot_hash", name="uq_study_interview_question_snapshot"),
+    )
+
+    question_id: Mapped[int] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"), primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("study_sessions.id", ondelete="CASCADE"))
+    snapshot_hash: Mapped[str] = mapped_column(String(64))
+
+
 class StudyMessage(Base):
     __tablename__ = "study_messages"
     __table_args__ = (

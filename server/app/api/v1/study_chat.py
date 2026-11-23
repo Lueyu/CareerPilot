@@ -16,6 +16,7 @@ from app.services.answer_guides import for_question as teaching_guide_for
 from app.services.learning_exposure import record_reference_exposure
 from app.services.study_chat import expire_generations, generate_reply, lease_deadline, teaching_action
 from app.services.study_chat_context import current_skill_sources, entry_context, excerpt, project_sources, topic_skills, visible_question
+from app.services.study_interview_questions import InterviewQuestionResult, generate_question, saved_result
 
 
 router = APIRouter(prefix="/study/sessions", tags=["学习聊天"])
@@ -46,6 +47,10 @@ class EditSession(Input):
     mode: Mode | None = None
     title: str | None = Field(default=None, min_length=1, max_length=160)
     status: Literal["active", "ended"] | None = None
+
+
+class InterviewQuestionRequest(Input):
+    pass
 
 
 class NewMessage(Input):
@@ -145,6 +150,20 @@ async def edit(session_id: int, body: EditSession, session: Db, ws: Owner):
     row.updated_at = datetime.now(timezone.utc)
     await session.commit()
     return session_item(row)
+
+
+@router.get("/{session_id}/interview-question")
+async def get_interview_question(session_id: int, session: Db, ws: Owner) -> InterviewQuestionResult | None:
+    await owned(session, ws.id, session_id)
+    return await saved_result(session, ws.id, session_id)
+
+
+@router.post("/{session_id}/interview-question")
+async def create_interview_question(
+    session_id: int, session: Db, ws: Owner, body: InterviewQuestionRequest | None = None,
+) -> InterviewQuestionResult:
+    await owned(session, ws.id, session_id)
+    return await generate_question(session, ws.id, session_id)
 
 
 @router.delete("/{session_id}")
