@@ -89,6 +89,8 @@ export interface MessageStreamEvent {
   attempt: number;
   error: string | null;
   stage: string | null;
+  /** 推理模型的实时思考文本; 仅流式期间存在, 不落库。 */
+  reasoning?: string | null;
 }
 
 /** 用 fetch 消费 SSE(text/event-stream): EventSource 无法携带 X-Api-Token/X-Workspace 头。 */

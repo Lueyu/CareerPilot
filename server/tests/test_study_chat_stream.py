@@ -1,10 +1,11 @@
 """SSE streaming endpoint, lease expiry and relaxed timeout defaults for study chat."""
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import BackgroundTasks, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy import delete, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.v1 import study_chat as api
@@ -86,6 +87,38 @@ async def test_message_stream_emits_snapshot_then_terminates(worker_session, db_
         async for frame in worker.message_stream(rid):
             frames.append(frame)
         assert frames and '"status": "completed"' in frames[0] and "完成内容" in frames[0]
+    finally:
+        api.mark_help = saved
+
+
+@pytest.mark.asyncio
+async def test_message_stream_forwards_live_reasoning_frames(worker_session, db_session, test_workspace):
+    """推理增量走进程内队列实时下发, 且不落库(数据库仍只有最终文本)。"""
+    db, ws = db_session, test_workspace
+
+    async def no_open_practice(session, owner, row, question_text):
+        pass
+
+    api.mark_help, saved = no_open_practice, api.mark_help
+    try:
+        sid = (await api.create(api.StartSession(topic="SSE"), db, ws))["id"]
+        body = api.NewMessage(content="实时推理帧", request_id="stream-live")
+        queue = BackgroundTasks()
+        ticket = await api.send(sid, body, queue, db, ws)
+        rid = ticket["assistant_message_id"]
+
+        stream = worker.message_stream(rid)
+        first_task = asyncio.create_task(stream.__anext__())
+        await asyncio.sleep(0)  # 让生成器订阅队列并挂起在 queue.get()
+        live = {"id": rid, "status": "generating", "content": "", "model": None,
+                "attempt": 1, "error": None, "stage": "generating", "reasoning": "先想清楚幂等键的语义"}
+        worker._publish_live(rid, live)
+        frame = await asyncio.wait_for(first_task, timeout=2)
+        assert '"reasoning": "先想清楚幂等键的语义"' in frame
+        await stream.aclose()
+        # 推理只是瞬时展示, 不写数据库
+        row = await db.scalar(select(StudyMessage).where(StudyMessage.id == rid))
+        assert row.content == ""
     finally:
         api.mark_help = saved
 

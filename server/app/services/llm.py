@@ -96,7 +96,7 @@ class AgentAdapter:
                         timeout: float = 60.0, trace: Any = None, session: Any = None,
                         span_name: str | None = None, reasoning_effort: str | None = None,
                         *, stream: bool = False, total_timeout: float | None = None,
-                        on_content=None) -> dict[str, Any] | None:
+                        on_content=None, on_reasoning=None) -> dict[str, Any] | None:
         """用给定配置调用一次 chat; 失败返回 None(降级信号)。
 
         trace+session 同时提供时, 记录 Agent Run span(provider/model/duration/tokens/cost/retry) 到观测台。
@@ -204,7 +204,7 @@ class AgentAdapter:
                             async with client.stream('POST', f"{cfg['base_url'].rstrip('/')}/chat/completions",
                                 headers=headers, json=payload, extensions={'trace': record_transport_event}) as resp:
                                 resp.raise_for_status()
-                                stream_result = await reader.read(resp, on_content) if on_content else await reader.read(resp)
+                                stream_result = await reader.read(resp, on_content, on_reasoning) if (on_content or on_reasoning) else await reader.read(resp)
                     result = stream_result
                     return result
                 finally:

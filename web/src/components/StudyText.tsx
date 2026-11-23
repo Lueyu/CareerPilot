@@ -18,7 +18,8 @@ const markdownComponents={pre:Code,table:({children}:{children?:ReactNode})=><di
 export default function StudyText({text,blocks=[],sources=[],streaming=false}:{text:string;blocks?:unknown[]|null;sources?:Evidence[]|null;streaming?:boolean}){
  const fence=streaming?/(?:^|\n)```study-blocks\s*(?:\n|$)/.exec(text):null;
  const displayed=fence?text.slice(0,fence.index):text;
- return <div className="study-prose"><LocalFallback fallback={<pre>{displayed}</pre>}><Markdown skipHtml remarkPlugins={[gfm,math]} rehypePlugins={[[katex,{trust:false,strict:'ignore',maxExpand:100,maxSize:12}],[highlight,{detect:false}]]} components={markdownComponents}>{displayed}</Markdown></LocalFallback>
+ // 流式期间用纯文本渲染, 避免每帧整段 markdown 重解析(卡顿主因); 完成后一次性渲染富文本。
+ return <div className="study-prose"><LocalFallback fallback={<pre>{displayed}</pre>}>{streaming?<pre className="study-plain-text">{displayed}</pre>:<Markdown skipHtml remarkPlugins={[gfm,math]} rehypePlugins={[[katex,{trust:false,strict:'ignore',maxExpand:100,maxSize:12}],[highlight,{detect:false}]]} components={markdownComponents}>{displayed}</Markdown>}</LocalFallback>
  {fence&&<small role="status">正在接收图解数据…</small>}
  {(blocks??[]).map((item,i)=>{const b=item as Artifact;if(!b||typeof b!=='object')return null;const fallback=<p>{String(b.summary??'此产物无法展示。')}</p>;return <LocalFallback key={`${b.id}-${i}`} fallback={fallback}><StudyArtifact b={b} sources={sources??[]}/></LocalFallback>;})}</div>;
 }

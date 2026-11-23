@@ -104,6 +104,32 @@ async def test_stream_allows_realistic_long_reasoning_without_retaining_it(monke
     assert 'SECRET_REASONING' not in json.dumps(vars(adapter))
 
 @pytest.mark.asyncio
+async def test_stream_reasoning_deltas_surface_via_callback_but_are_never_retained(monkeypatch):
+    raw=(frame(role='assistant')+frame(reasoning_content='SECRET')+frame(reasoning_content='_REASONING')+
+         frame('ok')+frame(finish='stop')+DONE)
+    body=Body([raw[i:i+1] for i in range(len(raw))]);install(monkeypatch,body);adapter=AgentAdapter()
+    reasoning=[];contents=[]
+    async def on_reasoning(part):reasoning.append(part)
+    async def on_content(part):contents.append(part)
+    result=await adapter.chat_with(CONFIG,'s','u',stream=True,on_reasoning=on_reasoning,on_content=on_content)
+    assert result=={'content':'ok'}
+    assert reasoning==['SECRET','_REASONING'] and contents==['ok']
+    meta=adapter.last_response_meta
+    assert meta['first_reasoning_ms']<=meta['first_content_ms']<=meta['stream_done_ms']
+    assert meta['reasoning_chars']==len('SECRET_REASONING')
+    assert 'SECRET' not in json.dumps({'meta':meta,'error':adapter.last_error})
+
+@pytest.mark.asyncio
+async def test_stream_reasoning_callback_still_bounded_and_absent_without_opt_in(monkeypatch):
+    from app.services import llm_stream
+    monkeypatch.setattr(llm_stream,'DEFAULT_LIMITS',replace(llm_stream.DEFAULT_LIMITS,content_bytes=32))
+    raw=(frame(reasoning_content='x'*40)+frame('ok')+frame(finish='stop')+DONE)
+    body=Body([raw]);install(monkeypatch,body);adapter=AgentAdapter()
+    assert await adapter.chat_with(CONFIG,'s','u',stream=True) is None
+    assert adapter.last_response_meta['stream_error']=='content_limit'
+    assert adapter.last_response_meta.get('first_reasoning_ms') is None
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('before_headers',[False,True])
 async def test_adapter_total_deadline_bounds_stream_without_external_wait_for(monkeypatch,before_headers):
     body=Body([frame(reasoning_content='SECRET_REASONING')],stall=True)

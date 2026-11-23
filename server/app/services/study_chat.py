@@ -20,6 +20,42 @@ PROJECT_EVIDENCE_TIMEOUT_SECONDS = 120
 # SSE 流式推送: 数据库快照轮询间隔与心跳帧周期(秒)。
 STREAM_POLL_SECONDS = 0.5
 STREAM_HEARTBEAT_SECONDS = 15.0
+# 生成任务把 reasoning/content 增量推给同一事件循环里的 SSE 订阅者,
+# 只有订阅者存在时才推送; 数据库仍是持久化与断线恢复的唯一真相。
+STREAM_LIVE_PUSH_SECONDS = 0.06
+
+_STREAM_SUBSCRIBERS: dict[int, set[asyncio.Queue]] = {}
+
+
+def _subscribe_live(message_id):
+    queue: asyncio.Queue = asyncio.Queue(maxsize=256)
+    _STREAM_SUBSCRIBERS.setdefault(message_id, set()).add(queue)
+    return queue
+
+
+def _unsubscribe_live(message_id, queue):
+    queues = _STREAM_SUBSCRIBERS.get(message_id)
+    if not queues:
+        return
+    queues.discard(queue)
+    if not queues:
+        _STREAM_SUBSCRIBERS.pop(message_id, None)
+
+
+def _publish_live(message_id, snapshot):
+    queues = _STREAM_SUBSCRIBERS.get(message_id)
+    if not queues:
+        return
+    for queue in list(queues):
+        if queue.full():
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+        try:
+            queue.put_nowait(snapshot)
+        except asyncio.QueueFull:
+            pass
 
 
 def lease_deadline():
@@ -273,7 +309,8 @@ async def _generate(turn, settings, deadline, trace, save, fail):
         # UTF-8 bytes provide a conservative upper bound for these text inputs.
         request = fit_request(request_data, question, instruction, capacity)
         available = capacity - len((instruction+request).encode("utf-8")) - 64
-        allowance = min(budget, available, 4500 if selected == "strong" else 2300)
+        tier_allowance = settings.study_strong_output_tokens if selected == "strong" else settings.study_flash_output_tokens
+        allowance = min(budget, available, tier_allowance)
         if allowance < 128:
             await fail("budget", "本轮内容超过配置预算，可缩小问题范围后重试")
             return
@@ -290,8 +327,22 @@ async def _generate(turn, settings, deadline, trace, save, fail):
             trace["reason"] += "；使用深度档重新生成"
         await save("generating", model=model, content="")
         fragments = []
+        reasoning_parts = []
         last_publish = 0.0
+        last_push = 0.0
         started = time.monotonic()
+
+        def live_snapshot():
+            # noqa: B023 -- 每次档位迭代重建；live_snapshot 只在该次生成期间被调用
+            return {"id": message_id, "status": "generating", "content": "".join(fragments),  # noqa: B023
+                    "model": model, "attempt": attempt, "error": None, "stage": "generating",  # noqa: B023
+                    "reasoning": "".join(reasoning_parts) or None}  # noqa: B023
+
+        def push_live(now):
+            nonlocal last_push
+            if now - last_push >= STREAM_LIVE_PUSH_SECONDS:
+                _publish_live(message_id, live_snapshot())
+                last_push = now
 
         async def partial(text):
             nonlocal last_publish
@@ -300,9 +351,16 @@ async def _generate(turn, settings, deadline, trace, save, fail):
             if now - last_publish >= 0.5:
                 await save("generating", content="".join(fragments))  # noqa: B023
                 last_publish = now
+            push_live(now)
+
+        async def thinking(text):
+            # Reasoning 只用于实时展示, 不落库、不进 trace, 进程重启后由数据库最终状态收敛。
+            reasoning_parts.append(text)  # noqa: B023
+            push_live(time.monotonic())
 
         operation = asyncio.create_task(adapter.chat_with({**cfg, "output_limit":allowance, "report_usage":True},
-            instruction, request, stream=True, on_content=partial, timeout=remaining, total_timeout=remaining))
+            instruction, request, stream=True, on_content=partial, on_reasoning=thinking,
+            timeout=remaining, total_timeout=remaining))
         try:
             while not operation.done():
                 done, _ = await asyncio.wait({operation}, timeout=1.0)
@@ -319,7 +377,9 @@ async def _generate(turn, settings, deadline, trace, save, fail):
                 operation.cancel()
                 await asyncio.gather(operation, return_exceptions=True)
         call.update(elapsed_ms=int((time.monotonic()-started)*1000), usage=adapter.last_usage,
-                    reported_model=adapter.last_response_meta.get("reported_model"))
+                    reported_model=adapter.last_response_meta.get("reported_model"),
+                    first_reasoning_ms=adapter.last_response_meta.get("first_reasoning_ms"),
+                    first_token_ms=adapter.last_response_meta.get("first_content_ms"))
         budget -= min(allowance, (adapter.last_usage or {}).get("completion_tokens", allowance))
         if result and result.get("content", "").strip():
             content, blocks = extract_blocks(result["content"], sources)
@@ -379,6 +439,13 @@ async def generate_reply(message_id: int, attempt: int):
         trace["stage"] = stage
         if not await publish(message_id, attempt, coach=coach, **values):
             raise InterruptedError
+        status = values.get("status")
+        if status is not None and status != "generating":
+            # 终态立即广播给实时订阅者, 避免他们多等一个轮询周期。
+            async with SessionLocal() as live_session:
+                row = await live_session.scalar(select(StudyMessage).where(StudyMessage.id == message_id))
+            if row is not None:
+                _publish_live(message_id, stream_snapshot(row))
 
     async def fail(kind, message):
         trace["error_kind"] = kind
@@ -416,6 +483,7 @@ def stream_snapshot(row):
         "attempt": row.attempt,
         "error": row.error,
         "stage": trace.get("stage"),
+        "reasoning": None,
     }
 
 
@@ -433,26 +501,41 @@ async def expire_message_if_stale(message_id):
 async def message_stream(message_id):
     """SSE payloads for one reply until a terminal state or lease expiry.
 
-    Every frame mirrors the persisted row, so a client can reconnect at any point
-    and rebuild the exact saved text. Emits on change, then finishes once the
-    message reaches completed/failed/interrupted (or disappears).
+    The generating task publishes live frames (reasoning and content deltas) to an
+    in-process queue; we prefer those for real-time rendering. Every frame also mirrors
+    the persisted row, so a client can reconnect at any point and rebuild the exact
+    saved text. Emits on change, then finishes once the message reaches
+    completed/failed/interrupted (or disappears).
     """
+    queue = _subscribe_live(message_id)
     previous = None
     last_heartbeat = time.monotonic()
-    while True:
-        await expire_message_if_stale(message_id)
-        async with SessionLocal() as session:
-            row = await session.scalar(select(StudyMessage).where(StudyMessage.id == message_id))
-        if row is None:
-            return
-        snapshot = stream_snapshot(row)
-        if snapshot != previous:
-            yield "data: " + json.dumps(snapshot, ensure_ascii=False) + "\n\n"
-            previous = snapshot
-        if row.status != "generating":
-            return
-        now = time.monotonic()
-        if now - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
-            yield ": keep-alive\n\n"
-            last_heartbeat = now
-        await asyncio.sleep(STREAM_POLL_SECONDS)
+    try:
+        while True:
+            try:
+                latest = await asyncio.wait_for(queue.get(), timeout=STREAM_POLL_SECONDS)
+                if latest != previous:
+                    yield "data: " + json.dumps(latest, ensure_ascii=False) + "\n\n"
+                    previous = latest
+                if latest.get("status") != "generating":
+                    return
+                continue
+            except asyncio.TimeoutError:
+                pass  # No live traffic yet; fall back to the durable row below.
+            await expire_message_if_stale(message_id)
+            async with SessionLocal() as session:
+                row = await session.scalar(select(StudyMessage).where(StudyMessage.id == message_id))
+            if row is None:
+                return
+            snapshot = stream_snapshot(row)
+            if snapshot != previous:
+                yield "data: " + json.dumps(snapshot, ensure_ascii=False) + "\n\n"
+                previous = snapshot
+            if row.status != "generating":
+                return
+            now = time.monotonic()
+            if now - last_heartbeat >= STREAM_HEARTBEAT_SECONDS:
+                yield ": keep-alive\n\n"
+                last_heartbeat = now
+    finally:
+        _unsubscribe_live(message_id, queue)

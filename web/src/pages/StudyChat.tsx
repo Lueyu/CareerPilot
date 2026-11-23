@@ -61,6 +61,8 @@ function SessionView({id}:{id:number}) {
   const [choosingNote,setChoosingNote]=useState(false);
   const keys=useRef(new Map<string,string>());
   const version=useRef(0);
+  const liveLatest=useRef<MessageStreamEvent|null>(null);
+  const liveTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
   const speech=useSpeechRecognition(delta=>setContent(prev=>prev+delta));
   async function load(){
     const current=++version.current;
@@ -80,17 +82,33 @@ function SessionView({id}:{id:number}) {
     if(!generatingMessage)return;
     setLive(null);
     setStreamFailed(false);
+    if(liveTimer.current){clearTimeout(liveTimer.current);liveTimer.current=null}
+    liveLatest.current=null;
     let live=true;
     const controller=new AbortController();
-    readMessageStream(path+'/messages/'+generatingMessage.id+'/stream',controller.signal,event=>{
-      if(!live)return;
+    const flush=()=>{
+      liveTimer.current=null;
+      const event=liveLatest.current;
+      liveLatest.current=null;
+      if(!live||!event)return;
       setLive(event);
       if(event.status!=='generating'){
         live=false;
         load().catch(e=>{if(live)setLoadError((e as Error).message)});
       }
+    };
+    readMessageStream(path+'/messages/'+generatingMessage.id+'/stream',controller.signal,event=>{
+      if(!live)return;
+      if(event.status!=='generating'){
+        liveLatest.current=event;
+        if(liveTimer.current){clearTimeout(liveTimer.current);liveTimer.current=null}
+        flush();
+        return;
+      }
+      liveLatest.current=event;
+      if(liveTimer.current===null)liveTimer.current=setTimeout(flush,80);
     }).catch(()=>{if(live){setStreamFailed(true);setLive(null)}});
-    return ()=>{live=false;controller.abort()};
+    return ()=>{live=false;controller.abort();if(liveTimer.current){clearTimeout(liveTimer.current);liveTimer.current=null}};
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[path,generatingMessage?.id]);
   // 兜底: SSE 不可用时退回轮询; 笔记整理任务仍按 1s 轮询。
@@ -199,6 +217,7 @@ function SessionView({id}:{id:number}) {
       const error=stream?.error||m.error;
       return <article className={'study-turn '+m.role+(target===String(m.id)?' is-focused':'')} key={m.id} id={'study-message-'+m.id} tabIndex={-1}>
       <h4>{m.role==='user'?'我':'学习助手'} <small>#{m.id} · {({completed:'已保存',generating:'生成中',failed:'失败',interrupted:'已中断'} as Record<string,string>)[status]||status}{m.trace?.tier?' · '+String(m.trace.tier):''}{status==='generating'&&stage?' · '+(stages[String(stage)]||String(stage)):''}</small></h4>
+      {m.role==='assistant'&&status==='generating'&&(stream?.reasoning?<details className="coach-reasoning" open><summary>思考中…（{stream.reasoning.length} 字）</summary><pre>{stream.reasoning}</pre></details>:!content?<p className="coach-reasoning-hint">正在思考…</p>:null)}
       {m.role==='assistant'?<StudyText {...{text:content,blocks:m.blocks,sources:m.sources,streaming:status==='generating'}}/>:<div className="study-content">{content}</div>}{m.role==='assistant'&&<Sources items={m.sources}/>}
       {error&&<p role="alert">{error}</p>}{status==='generating'&&<button className="btn btn-outline" disabled={busy} onClick={()=>perform('stop',async()=>{await api.post(path+'/messages/'+m.id+'/interrupt')})}>中断回复</button>}
       {['interrupted','failed'].includes(status)&&!ended&&<button className="btn btn-outline" disabled={busy||generating} onClick={()=>perform('retry',async()=>{await api.post(path+'/messages/'+m.id+'/retry')})}>重试回复</button>}

@@ -37,6 +37,9 @@ class ChatCompletionStream:
         self.reported_model = None
         self.parts: list[str] = []
         self.content_bytes = 0
+        self.reasoning_parts: list[str] = []
+        self.reasoning_bytes = 0
+        self.reasoning_chars = 0
         self.finish = None
         self.done = False
         self.meta.update(transport_mode='sse-v1', stream_done=False, sse_event_count=0,
@@ -49,6 +52,7 @@ class ChatCompletionStream:
     def fail(self, code):
         self.meta['stream_error'] = code
         self.parts.clear()
+        self.reasoning_parts.clear()
         raise StreamFailure(code)
 
     def dispatch(self, lines: list[bytes], event_type: bytes | None):
@@ -138,7 +142,22 @@ class ChatCompletionStream:
                 else:
                     self.meta['last_sse_before_content_ms'] = previous_event_ms
             self.meta.setdefault('first_content_ms', self.elapsed())
-        # All other fields, including reasoning/reasoning_content, are discarded.
+        reasoning = delta.get('reasoning_content')
+        if reasoning is not None and not isinstance(reasoning, str):
+            self.fail('invalid_content')
+        if reasoning:
+            try:
+                size = len(reasoning.encode('utf-8'))
+            except UnicodeEncodeError:
+                self.fail('invalid_content')
+            if self.reasoning_bytes + size > self.limits.content_bytes:
+                self.fail('content_limit')
+            self.reasoning_bytes += size
+            self.reasoning_chars += len(reasoning)
+            self.reasoning_parts.append(reasoning)
+            self.meta['reasoning_chars'] = self.reasoning_chars
+            self.meta.setdefault('first_reasoning_ms', self.elapsed())
+        # Reasoning content is surfaced live via on_reasoning, never persisted.
         finish = choice.get('finish_reason')
         if finish is not None:
             if finish in ('stop', 'length', 'content_filter', 'tool_calls', 'function_call'):
@@ -150,7 +169,7 @@ class ChatCompletionStream:
             self.finish = finish
             self.meta['stream_finish_ms'] = self.elapsed()
 
-    async def read(self, response: httpx.Response, on_content=None):
+    async def read(self, response: httpx.Response, on_content=None, on_reasoning=None):
         if response.headers.get('content-type', '').split(';', 1)[0].strip().lower() != 'text/event-stream':
             self.fail('unsupported_content_type')
         line = bytearray()
@@ -183,9 +202,12 @@ class ChatCompletionStream:
                         part = part[:-1]
                     if not part:
                         previous_parts = len(self.parts)
+                        previous_reasoning = len(self.reasoning_parts)
                         self.dispatch(data_lines, event_type)
                         if on_content and len(self.parts) > previous_parts:
                             await on_content(self.parts[-1])
+                        if on_reasoning and len(self.reasoning_parts) > previous_reasoning:
+                            await on_reasoning(self.reasoning_parts[-1])
                         data_lines.clear()
                         event_type, event_bytes = None, 0
                         if self.done:
@@ -207,3 +229,4 @@ class ChatCompletionStream:
             self.fail('missing_done')
         finally:
             self.parts.clear()
+            self.reasoning_parts.clear()
