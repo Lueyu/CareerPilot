@@ -21,6 +21,7 @@ from app.api.v1 import bank, exams
 from app.db import get_session
 from app.models import CompetencySnapshot, Event, Evidence, Exam, ExamQuestion, LearningTask, Question, ScoringRun, Skill, Workspace
 from app.services import assessment_jobs, assessment_worker, experienced_bank
+from app.services.answer_guides import for_question, published_guides
 from app.services.learning_exposure import EVENT_KIND
 from test_assessment_reliability import result_for
 
@@ -37,6 +38,24 @@ def test_shipped_domains_cover_both_experience_levels():
         for level in ("mid", "senior"):
             assert sum(q.level == level for q in domain.questions) >= 3, domain.key
         assert all(q.skill in skills for q in domain.questions)
+
+
+def test_tutorials_are_bound_to_the_published_question():
+    authored = {q.code for domain in experienced_bank.load_catalog() for q in domain.questions}
+    originals = experienced_bank.original_identities()
+    guides = published_guides()
+    assert authored <= guides.keys() <= authored | originals.keys()
+    assert {g.project.name for g in guides.values()} == {"AIDR", "Squabble", "CareerPilot"}
+    code = "rag-001"
+    title, topic = originals[code]
+    row = Question(short_code=code, title=title, topic=topic, qtype="open",
+                   source_type="PUBLIC_LICENSED", is_demo=False)
+    assert for_question(row) == guides[code]
+    row.workspace_id = 7
+    assert for_question(row) is None
+    row.workspace_id = None
+    row.title = "An unrelated question"
+    assert for_question(row) is None
 
 
 def test_shipped_legacy_mapping_covers_each_original_once():
