@@ -34,4 +34,3 @@ export default function AccountSettings({ user, signedOut }: { user: AccountInfo
       </form></details>
     {error && <p role="alert" className="error">{error}</p>}</section>;
 }
-
