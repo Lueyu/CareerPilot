@@ -8,6 +8,7 @@ import httpx
 import pytest
 from test_llm_stream_transport import CONFIG, DONE, Body, frame, install
 
+from app.config import MAX_STUDY_TIMEOUT_SECONDS
 from app.services.llm import AgentAdapter
 
 
@@ -98,7 +99,7 @@ async def test_continuous_stream_activity_cannot_extend_default_or_explicit_tota
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('stream,total',[(True,0),(True,-1),(True,float('inf')),(True,float('-inf')),(True,float('nan')),
-    (True,600.01),(True,True),(True,'300'),(True,10**1000),(False,300),(False,.5)],
+    (True,MAX_STUDY_TIMEOUT_SECONDS + 0.01),(True,True),(True,'300'),(True,10**1000),(False,300),(False,.5)],
     ids=['zero','negative','infinity','negative-infinity','nan','over-cap','boolean','string','huge-int','nonstream-long','nonstream-short'])
 async def test_invalid_explicit_total_is_rejected_before_any_post(monkeypatch,stream,total):
     requests=install(monkeypatch,Body([frame('ok')+frame(finish='stop')+DONE]));adapter=AgentAdapter()

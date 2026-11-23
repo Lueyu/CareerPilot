@@ -8,6 +8,10 @@ from functools import lru_cache
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# 单轮学习聊天的硬上限(秒)。配置项、租约和 LLM 适配层的超时守卫共用同一上限,
+# 避免三处各自钳位导致语义漂移。放宽到 30 分钟, 让长文/图解/多轮追问能自然完成。
+MAX_STUDY_TIMEOUT_SECONDS = 1800
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -40,7 +44,8 @@ class Settings(BaseSettings):
     study_strong_api_key: str = ""
     study_strong_provider: str = ""
     study_output_budget: int = 6000
-    study_timeout_seconds: int = 120
+    # 用户可调; 默认给足 30 分钟(上限 MAX_STUDY_TIMEOUT_SECONDS)。
+    study_timeout_seconds: int = Field(default=MAX_STUDY_TIMEOUT_SECONDS, ge=1, le=MAX_STUDY_TIMEOUT_SECONDS)
     study_flash_context: int = 24000
     study_strong_context: int = 48000
     # Explicit deployment capabilities. Chat uses text SSE and bounded local tools.

@@ -78,6 +78,60 @@ export const api = {
   upload: <T = any>(path: string, form: FormData) => reqForm<T>(path, form),
 };
 
+// ---------- SSE 流式读取(学习聊天) ----------
+
+/** 一条学习回复的流式快照, 与后端 study_chat.message_stream 的 data 帧对应。 */
+export interface MessageStreamEvent {
+  id: number;
+  status: string;
+  content: string;
+  model: string | null;
+  attempt: number;
+  error: string | null;
+  stage: string | null;
+}
+
+/** 用 fetch 消费 SSE(text/event-stream): EventSource 无法携带 X-Api-Token/X-Workspace 头。 */
+export async function readMessageStream(
+  path: string,
+  signal: AbortSignal,
+  onEvent: (event: MessageStreamEvent) => void,
+): Promise<void> {
+  const res = await fetch(`${BASE}${path}`, { headers: apiHeaders(), signal, cache: 'no-store' });
+  if (!res.ok) {
+    let detail = `${res.status}`;
+    try {
+      const j = await res.json();
+      detail = typeof j.detail==='string'?j.detail:typeof j.detail?.message==='string'?j.detail.message:JSON.stringify(j.detail ?? j).slice(0,500);
+    } catch { /* ignore */ }
+    throw new ApiError(res.status, detail);
+  }
+  if (!res.body) throw new ApiError(0, '当前浏览器不支持流式读取');
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let cut = buffer.indexOf('\n\n');
+      while (cut >= 0) {
+        const block = buffer.slice(0, cut);
+        buffer = buffer.slice(cut + 2);
+        const payload = block.split('\n').filter(line => line.startsWith('data:'))
+          .map(line => line.slice(5).trim()).join('\n');
+        if (payload) {
+          try { onEvent(JSON.parse(payload) as MessageStreamEvent); } catch { /* skip malformed frame */ }
+        }
+        cut = buffer.indexOf('\n\n');
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 // ---------- 类型(与后端响应对应, 仅声明用到字段) ----------
 
 export interface DashboardData {

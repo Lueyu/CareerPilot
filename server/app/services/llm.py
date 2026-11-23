@@ -21,7 +21,7 @@ from typing import Any
 import httpx
 from sqlalchemy import select
 
-from app.config import get_settings
+from app.config import MAX_STUDY_TIMEOUT_SECONDS, get_settings
 from app.services.llm_stream import ChatCompletionStream, StreamFailure
 
 # 生效配置缓存(TTL 内不再查库; 设置页保存后立即 refresh)
@@ -109,7 +109,7 @@ class AgentAdapter:
             self.last_error = {"kind": "configuration"}
             return None
         if total_timeout is not None and (not stream or type(total_timeout) not in (int, float)
-                or not 0 < total_timeout <= 600 or not math.isfinite(total_timeout)):
+                or not 0 < total_timeout <= MAX_STUDY_TIMEOUT_SECONDS or not math.isfinite(total_timeout)):
             self.last_error = {"kind": "configuration"}
             return None
         headers = {"Authorization": f"Bearer {cfg['api_key']}"}

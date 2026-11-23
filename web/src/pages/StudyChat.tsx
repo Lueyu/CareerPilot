@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { api } from '../api/client';
+import { api, readMessageStream, type MessageStreamEvent } from '../api/client';
 import StudyShell, { draftKey, stored, remember, submitKey } from '../components/StudyShell';
 import StudyText from '../components/StudyText';
 import StudyPracticePanel, { type PracticeRequest } from '../components/StudyPracticePanel';
@@ -18,7 +18,7 @@ function RunDetails({trace}:{trace:Record<string,unknown>}){
   return <details><summary>模型与运行记录{trace.tier?' · '+String(trace.tier):''}</summary><p>{String(trace.reason||'未记录路由原因')}</p>{!!trace.error_kind&&<p>异常：{String(trace.error_kind)}</p>}{calls.map((call,i)=><dl className="coach-trace" key={i}><dt>调用 {i+1}{call.escalation ? " · 已升级" : ""}</dt><dd>提供商：{call.provider||'未知'} · 请求：{call.requested_model||'未知'} · 实际报告：{call.reported_model||'未验证'}</dd><dd>耗时：{typeof call.elapsed_ms==='number'?call.elapsed_ms+' ms':'未知'} · 用量：{call.usage?JSON.stringify(call.usage):'未知'} · 费用：{call.cost!=null?JSON.stringify(call.cost):'未知'}</dd>{call.error&&<dd>错误：{String(call.error)}</dd>}</dl>)}</details>;
 }
 function SourceMeta({source:s}:{source:Source}){if(!s.revision&&!s.path&&!s.provenance)return null;return <div className="coach-source-meta"><code>{s.path||s.label}{s.line_start?':'+s.line_start+(s.line_end?'–'+s.line_end:''):''} {s.symbol}</code><small>版本：{s.revision||'未验证'} · {s.provenance||'来源材料'}</small></div>}
-const stages:Record<string,string>={starting:'等待生成',retrieving:'正在检索项目代码',routing:'正在选择模型',escalating:'正在升级模型重新生成',generating:'正在生成回复',completed:'已保存',failed:'生成失败'};
+const stages:Record<string,string>={queued:'等待生成',starting:'等待生成',retrieving:'正在检索项目代码',routing:'正在选择模型',escalating:'正在升级模型重新生成',repairing:'正在修补图解',generating:'正在生成回复',completed:'已保存',failed:'生成失败',interrupted:'已中断'};
 function Sources({items}:{items:Source[]}) {
   if(!items?.length)return null;
   return <details><summary>本次读取的材料（{items.length}）</summary>{items.map((s,i)=><div key={i}><strong>{s.label} #{s.id}</strong><SourceMeta source={s}/><p className="study-content">{s.text}</p></div>)}</details>;
@@ -51,6 +51,8 @@ function SessionView({id}:{id:number}) {
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string>(location.state?.error || '');
   const [loadError,setLoadError]=useState('');
+  const [live,setLive]=useState<MessageStreamEvent|null>(null);
+  const [streamFailed,setStreamFailed]=useState(false);
   const [cardJob,setCardJob]=useState(()=>Number(stored(draftKey(id)+':cards'))||0);
   const [cardState,setCardState]=useState('');
   const [cardRetry,setCardRetry]=useState(0);
@@ -72,14 +74,35 @@ function SessionView({id}:{id:number}) {
   const generating=data?.messages.some(m=>m.status==='generating');
   const job=jobs[0];
   const ongoing=job && ['QUEUED','RUNNING'].includes(job.status);
+  const generatingMessage=data?.messages.filter(m=>m.status==='generating').pop();
+  // 流式读取最新一条生成中的回复; 完成后重新载入持久化快照。
   useEffect(()=>{
-    if(!generating&&!ongoing)return;
+    if(!generatingMessage)return;
+    setLive(null);
+    setStreamFailed(false);
     let live=true;
+    const controller=new AbortController();
+    readMessageStream(path+'/messages/'+generatingMessage.id+'/stream',controller.signal,event=>{
+      if(!live)return;
+      setLive(event);
+      if(event.status!=='generating'){
+        live=false;
+        load().catch(e=>{if(live)setLoadError((e as Error).message)});
+      }
+    }).catch(()=>{if(live){setStreamFailed(true);setLive(null)}});
+    return ()=>{live=false;controller.abort()};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[path,generatingMessage?.id]);
+  // 兜底: SSE 不可用时退回轮询; 笔记整理任务仍按 1s 轮询。
+  useEffect(()=>{
+    if(!((generating&&streamFailed)||ongoing))return;
+    let active=true;
     let timer:ReturnType<typeof setTimeout>;
-    const poll=async()=>{try{await load()}catch(e){if(live)setLoadError((e as Error).message)}if(live)timer=setTimeout(poll,1000)};
+    const poll=async()=>{try{await load()}catch(e){if(active)setLoadError((e as Error).message)}if(active)timer=setTimeout(poll,1000)};
     timer=setTimeout(poll,650);
-    return ()=>{live=false;clearTimeout(timer)};
-  },[generating,ongoing,path]);
+    return ()=>{active=false;clearTimeout(timer)};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[generating,ongoing,streamFailed,path]);
   useEffect(()=>{const sync=()=>load().catch(e=>setLoadError(e.message));window.addEventListener('online',sync);window.addEventListener('study-history-changed',sync);return()=>{window.removeEventListener('online',sync);window.removeEventListener('study-history-changed',sync)}},[id]);
   const target=params.get('message');
   const ready=!!data;
@@ -168,20 +191,26 @@ function SessionView({id}:{id:number}) {
     <div ref={scroll} className="coach-scroll" onScroll={e=>{const el=e.currentTarget;follow.current=el.scrollHeight-el.scrollTop-el.clientHeight<60;setAway(!follow.current)}}><div className="coach-inner">
     <Sources items={data.context.sources}/>{!data.messages.length&&<p className="coach-empty">输入一个问题，开始这次学习。</p>}
     {loadError && <p role="alert">同步失败：{loadError}</p>}
-    <section className="study-thread" aria-label="聊天记录">{data.messages.map(m=><article className={'study-turn '+m.role+(target===String(m.id)?' is-focused':'')} key={m.id} id={'study-message-'+m.id} tabIndex={-1}>
-      <h4>{m.role==='user'?'我':'学习助手'} <small>#{m.id} · {({completed:'已保存',generating:'生成中',failed:'失败',interrupted:'已中断'} as Record<string,string>)[m.status]||m.status}{m.trace?.tier?' · '+String(m.trace.tier):''}{m.status==='generating'&&m.trace?.stage?' · '+(stages[String(m.trace.stage)]||String(m.trace.stage)):''}</small></h4>
-      {m.role==='assistant'?<StudyText {...{text:m.content,blocks:m.blocks,sources:m.sources,streaming:m.status==='generating'}}/>:<div className="study-content">{m.content}</div>}{m.role==='assistant'&&<Sources items={m.sources}/>}
-      {m.error&&<p role="alert">{m.error}</p>}{m.status==='generating'&&<button className="btn btn-outline" disabled={busy} onClick={()=>perform('stop',async()=>{await api.post(path+'/messages/'+m.id+'/interrupt')})}>中断回复</button>}
-      {['interrupted','failed'].includes(m.status)&&!ended&&<button className="btn btn-outline" disabled={busy||generating} onClick={()=>perform('retry',async()=>{await api.post(path+'/messages/'+m.id+'/retry')})}>重试回复</button>}
+    <section className="study-thread" aria-label="聊天记录">{data.messages.map(m=>{
+      const stream=live&&live.id===m.id?live:null;
+      const status=stream?.status||m.status;
+      const content=stream?.content??m.content;
+      const stage=stream?.stage||m.trace?.stage;
+      const error=stream?.error||m.error;
+      return <article className={'study-turn '+m.role+(target===String(m.id)?' is-focused':'')} key={m.id} id={'study-message-'+m.id} tabIndex={-1}>
+      <h4>{m.role==='user'?'我':'学习助手'} <small>#{m.id} · {({completed:'已保存',generating:'生成中',failed:'失败',interrupted:'已中断'} as Record<string,string>)[status]||status}{m.trace?.tier?' · '+String(m.trace.tier):''}{status==='generating'&&stage?' · '+(stages[String(stage)]||String(stage)):''}</small></h4>
+      {m.role==='assistant'?<StudyText {...{text:content,blocks:m.blocks,sources:m.sources,streaming:status==='generating'}}/>:<div className="study-content">{content}</div>}{m.role==='assistant'&&<Sources items={m.sources}/>}
+      {error&&<p role="alert">{error}</p>}{status==='generating'&&<button className="btn btn-outline" disabled={busy} onClick={()=>perform('stop',async()=>{await api.post(path+'/messages/'+m.id+'/interrupt')})}>中断回复</button>}
+      {['interrupted','failed'].includes(status)&&!ended&&<button className="btn btn-outline" disabled={busy||generating} onClick={()=>perform('retry',async()=>{await api.post(path+'/messages/'+m.id+'/retry')})}>重试回复</button>}
       {m.revision_of&&<small>本版源自消息 #{m.revision_of} · 原文保留</small>}
-      {m.role==='assistant'&&m.status==='completed'&&<div className={'coach-note-bridge'+(m.id===savedReply?.id?' is-latest':'')}>
+      {m.role==='assistant'&&status==='completed'&&<div className={'coach-note-bridge'+(m.id===savedReply?.id?' is-latest':'')}>
         <div className="study-actions"><button className={'btn '+(m.id===savedReply?.id?'btn-primary':'btn-outline')} disabled={!canOrganize} onClick={()=>organize(false,false,m.id)}>整理这条回复</button>
         {!ended&&<button className="btn btn-outline" disabled={busy||generating} onClick={()=>requestPractice('explain',m.id)}>试着解释</button>}</div>
         {successfulJob?.message_ids.includes(m.id)&&<div className="study-actions coach-note-result"><small>{successfulJob.conflict?'更新草稿包含这条回复':'笔记已收录这条回复'}</small><Link to={'/study/notes/'+successfulJob.note_id} state={{sourceSession:id,sourceMessage:m.id}}>打开笔记</Link>{!successfulJob.conflict&&<Link to={comparePath(successfulJob.note_id,m.id)}>对照原聊</Link>}</div>}
       </div>}
       {m.trace&&Object.keys(m.trace).length>0&&<RunDetails trace={m.trace}/>}
-      <div className="coach-turn-actions"><button onClick={async()=>{try{await navigator.clipboard.writeText(m.content);setCopied(m.id)}catch{setError('复制失败，可以手动选择消息文字。')}}}>{copied===m.id?'已复制':'复制'}</button>{!ended&&m.status==='completed'&&<><button onClick={()=>setContext(m)}>围绕这条追问</button>{m.role==='user'?<button onClick={()=>setContext(m,true)}>编辑并重新发送</button>:<button disabled={busy||generating} onClick={()=>{const original=data.messages.find(x=>x.role==='user'&&x.request_id===m.request_id);if(original)send(original.action||'explain',original.content,original.id,m.id)}}>重新生成</button>}</>}</div>
-    </article>)}</section>
+      <div className="coach-turn-actions"><button onClick={async()=>{try{await navigator.clipboard.writeText(content);setCopied(m.id)}catch{setError('复制失败，可以手动选择消息文字。')}}}>{copied===m.id?'已复制':'复制'}</button>{!ended&&status==='completed'&&<><button onClick={()=>setContext(m)}>围绕这条追问</button>{m.role==='user'?<button onClick={()=>setContext(m,true)}>编辑并重新发送</button>:<button disabled={busy||generating} onClick={()=>{const original=data.messages.find(x=>x.role==='user'&&x.request_id===m.request_id);if(original)send(original.action||'explain',original.content,original.id,m.id)}}>重新生成</button>}</>}</div>
+    </article>})}</section>
     <StudyInterviewQuestion sessionId={id} canOrganize={!!savedReply && !busy && !generating} />
     </div></div>
     <footer className="coach-compose">

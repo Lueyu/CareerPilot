@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +16,7 @@ from app.models.study_chat import StudyMessage, StudySession
 from app.services.answer_guides import example_for
 from app.services.answer_guides import for_question as teaching_guide_for
 from app.services.learning_exposure import record_reference_exposure
-from app.services.study_chat import expire_generations, generate_reply, lease_deadline, teaching_action
+from app.services.study_chat import expire_generations, generate_reply, lease_deadline, message_stream, teaching_action
 from app.services.study_chat_context import (
     current_skill_sources,
     entry_context,
@@ -338,3 +339,24 @@ async def retry(session_id: int, message_id: int, tasks: BackgroundTasks, sessio
     await session.commit()
     tasks.add_task(generate_reply, reply.id, reply.attempt)
     return ticket(user_id, reply)
+
+
+@router.get("/{session_id}/messages/{message_id}/stream")
+async def stream(session_id: int, message_id: int, session: Db, ws: Owner):
+    """Server-sent events of one assistant reply until it reaches a terminal state.
+
+    The reply is re-read from the durable row on every tick, so reconnect at any
+    point rebuilds the exact saved text. Ownership is checked once up front;
+    generation progress itself is written by the background task, not here.
+    """
+    row = await owned(session, ws.id, session_id)
+    reply = await session.scalar(select(StudyMessage).where(StudyMessage.id == message_id,
+        StudyMessage.session_id == row.id, StudyMessage.role == "assistant"))
+    if reply is None:
+        raise HTTPException(404, "回复不存在")
+    # 流式期间逐帧使用独立短会话(message_stream 内部 SessionLocal),
+    # 这里提前归还请求会话, 避免一条长流(最长约 30 分钟)长期占用连接池。
+    await session.close()
+    return StreamingResponse(message_stream(message_id), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive",
+    })
