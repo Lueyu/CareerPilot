@@ -19,18 +19,7 @@
   font-weight: 700;
 }
 
-.bank-page:has(> .experienced-catalog) {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-.experienced-catalog.bank-workspace {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  gap: 16px;
-}
+.experienced-catalog.bank-workspace { gap: 16px; }
 .experienced-controls {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -86,19 +75,11 @@
 
 .experienced-layout {
   display: grid;
-  flex: 1;
-  min-height: 14rem;
   grid-template-columns: clamp(200px, 24%, 266px) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
+  align-items: start;
   gap: 18px;
 }
-.experienced-layout .experienced-domains {
-  align-self: start;
-  max-height: 100%;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-  padding: 12px;
-}
+.experienced-layout .experienced-domains { padding: 12px; }
 .experienced-layout .experienced-domains h2 { font-size: 15px; }
 .experienced-domain-list { display: grid; gap: 3px; }
 .experienced-domain-list h2 { padding: 0 2px 3px; }
@@ -130,17 +111,9 @@
 .experienced-domain:focus-visible,
 .experienced-domain-picker select:focus-visible { outline: 2px solid var(--primary); }
 
-.experienced-layout .experienced-questions {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-  gap: 0;
-  padding: 0;
-}
+.experienced-layout .experienced-questions { min-width: 0; gap: 0; padding: 0; }
 .experienced-list-head {
   display: flex;
-  flex: none;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
@@ -149,15 +122,7 @@
 .experienced-layout .experienced-list-head h2 { font-size: 17px; }
 .experienced-list-head [role="status"] { white-space: nowrap; }
 .experienced-prompt { white-space: pre-wrap; overflow-wrap: anywhere; }
-.experienced-question-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-  scrollbar-color: var(--scroll) transparent;
-}
-.experienced-question-list:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.experienced-question-list { list-style: none; padding: 0; margin: 0; }
 .experienced-question {
   display: grid;
   gap: 6px;
@@ -183,14 +148,11 @@
   padding: 12px 16px;
   border-top: 1px solid var(--border);
 }
-.experienced-pagination { flex: none; justify-content: flex-end; }
+.experienced-pagination { justify-content: flex-end; }
 
 @media (max-width: 760px) {
   .experienced-catalog.bank-workspace, .experienced-layout { gap: 14px; }
-  .experienced-layout {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
-  }
+  .experienced-layout { grid-template-columns: minmax(0, 1fr); }
   .experienced-quiz-top { flex-wrap: wrap; }
   .experienced-domain-list { display: none; }
   .experienced-layout .experienced-domains { padding: 0 12px; }
