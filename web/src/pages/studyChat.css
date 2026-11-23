@@ -43,6 +43,10 @@
 .coach-note-bridge { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px 16px; margin:16px 0 8px; }
 .coach-note-bridge.is-latest { padding:12px; border:1px solid var(--border); border-radius:12px; background:var(--primary-50); }
 .coach-note-result { font-size:13px; }
+.coach-interview-question { margin-top:16px; min-width:0; overflow-wrap:anywhere; }
+.coach-interview-question > p, .coach-interview-question > details { margin-block:10px; }
+.coach-interview-question > details > summary { cursor:pointer; font-weight:600; }
+.coach-interview-question .bank-answer { margin-top:10px; }
 .coach-card-review { width:min(100%,50rem); padding:24px 16px; }
 .coach-card-review h1 { margin:12px 0 4px; }
 .coach-card-review header p { margin:0; color:var(--text-3); }

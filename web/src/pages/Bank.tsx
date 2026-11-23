@@ -611,8 +611,8 @@ export default function Bank() {
             <>
               {generalDetail && <>
                 <button className="btn btn-outline" disabled={!bankSourcePresentation(generalDetail).editable} title={bankSourcePresentation(generalDetail).editable?'编辑个人题目信息':'共享题库只读，可导入面经后整理为个人题目'} onClick={() => { setDetail(null); setEditQ(generalDetail); }}>{bankSourcePresentation(generalDetail).editable?'编辑':'共享题只读'}</button>
-                <StudyEntryButton kind="question" id={generalDetail.numericQuestionId} bankKey={generalDetail.id}/>
               </>}
+              <StudyEntryButton key={detail.id} kind="question" id={detail.numericQuestionId} bankKey={detail.id}/>
               <button className="btn btn-primary" disabled={practiceBusy!==null} onClick={() => startPractice(detail, !generalDetail)}>{practiceBusy?'准备考试…':practiceError?.id === detail.id ? '重试练习' : '开始练习'}</button>
             </>
           }>
@@ -725,6 +725,7 @@ export default function Bank() {
           {activeSet.questions.map((item, index) => <article className="bank-set-question" key={item.id}>
             <h3>{String(index + 1).padStart(2, '0')}　{item.rewrite_method === 'model' || (!item.rewrite_method && item.evidence) ? '项目题' : '条件式追问'}</h3>
             <p className="bank-question-text">{item.rewrite_method === 'model' ? item.title : item.title.split('\n\n').slice(1).join('\n\n') || item.title}</p>
+            <StudyEntryButton kind="question" id={item.id}/>
             <details><summary>查看原文与依据</summary>
               <p>原问：{item.original_title}</p>
               {item.extracted_title !== item.original_title && <p>识别文字：{item.extracted_title}</p>}

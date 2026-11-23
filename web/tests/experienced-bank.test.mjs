@@ -12,8 +12,8 @@ import { AppStateProvider } from '../src/components/AppState.tsx';
 
 const asset = new URL('../src/data/bank.json', import.meta.url);
 const generalBank = JSON.parse(await readFile(asset, 'utf8'));
-const mid = { id: 3101, short_code: 'EX-TOOLS-M', title: '如何设计工具失败重试？', level: 'mid', tags: ['tools'] };
-const senior = { id: 3102, short_code: 'EX-TOOLS-S', title: '如何避免跨服务重试造成重复执行？', level: 'senior', tags: ['tools'], company: 'Example AI' };
+const mid = { id: 3101, short_code: 'EX-TOOLS-M', title: '如何设计工具失败重试？', level: 'mid', tags: ['tools'], source: 'authored' };
+const senior = { id: 3102, short_code: 'EX-TOOLS-S', title: '如何避免跨服务重试造成重复执行？', level: 'senior', tags: ['tools'], company: 'Example AI', source: 'authored' };
 const original = generalBank.questions.find(question => question.html?.includes('class="sdiagram"') && question.html.includes('<details'));
 const legacy = { id: 161, short_code: original.id, title: original.title, level: 'mid', tags: [], source: 'legacy' };
 const toolsDomain = { key: 'tools', name: '工具调用', order: 1, focus: '考察失败分类、超时和幂等。', questions: [mid, senior, legacy] };
@@ -310,18 +310,20 @@ test('legacy actions expand on demand and use the existing mapping and study ent
   });
   const labels = row => row.findAllByType('button').map(node => node.props['aria-label'] ?? labelOf(node));
   const [authoredRow, , legacyRow] = tree.root.findAllByProps({ className: 'experienced-question' });
-  assert.deepEqual(labels(authoredRow), ['开始练习', '查看参考']);
+  const more = row => row.findAllByType('button').find(node => labelOf(node) === '更多操作');
+  const toggleLegacy = () => act(async () => more(legacyRow).props.onClick());
+  assert.deepEqual(labels(authoredRow), ['开始练习', '查看参考', '更多操作']);
   assert.deepEqual(labels(legacyRow), ['开始练习', '查看参考', '更多操作']);
-  assert.equal(button(tree, '更多操作').props['aria-expanded'], false);
-  await click(tree, '更多操作');
-  const disclosure = button(tree, '更多操作');
+  assert.equal(more(legacyRow).props['aria-expanded'], false);
+  await toggleLegacy();
+  const disclosure = more(legacyRow);
   assert.equal(disclosure.props['aria-expanded'], true);
   assert.ok(legacyRow.findByProps({ id: disclosure.props['aria-controls'] }));
   assert.deepEqual(calls.map(call => call.endpoint), ['/bank/experienced']);
   assert.ok(!rendered(tree).includes('bank-answer'));
-  await click(tree, '更多操作');
+  await toggleLegacy();
   assert.deepEqual(labels(legacyRow), ['开始练习', '查看参考', '更多操作']);
-  await click(tree, '更多操作');
+  await toggleLegacy();
   await click(tree, '复测映射');
   assert.match(rendered(tree), /审核复测映射/);
   assert.deepEqual(calls.map(call => call.endpoint), ['/bank/experienced', mappingPath]);
@@ -330,6 +332,43 @@ test('legacy actions expand on demand and use the existing mapping and study ent
   assert.equal(location().pathname, '/study/chat/51');
   assert.deepEqual(calls.map(call => call.endpoint), ['/bank/experienced', mappingPath, '/study/sessions']);
   assert.deepEqual(calls.at(-1).body, { source_type: 'question', source_id: legacy.id });
+});
+
+test('new social-hire questions open study from their own list and reference actions', async t => {
+  const { tree, calls, location, navigate } = await mount(t, '/bank?source=authored', endpoint => {
+    if (endpoint === '/study/sessions') return Response.json({ id: 52 });
+    if (endpoint === `/bank/${mid.short_code}`) return Response.json({ id: mid.id, answer_html: '<p>参考答案</p>' });
+  });
+  await click(tree, '更多操作');
+  assert.ok(button(tree, '围绕这个问题学习'));
+  assert.ok(!buttons(tree).some(node => labelOf(node) === '复测映射'));
+  await click(tree, '围绕这个问题学习');
+  assert.equal(location().pathname, '/study/chat/52');
+  assert.deepEqual(calls.at(-1).body, { source_type: 'question', source_id: mid.id });
+
+  await act(async () => { navigate('/bank?source=authored'); await flush(); });
+  await click(tree, '查看参考');
+  const footer = tree.root.findByProps({ className: 'modal-foot' });
+  const study = footer.findAllByType('button').find(node => labelOf(node) === '围绕这个问题学习');
+  assert.ok(study);
+  await act(async () => study.props.onClick());
+  assert.equal(location().pathname, '/study/chat/52');
+  assert.deepEqual(calls.at(-1).body, { source_type: 'question', source_id: mid.id });
+});
+
+test('interview set study uses its saved question ID without starting an exam', async t => {
+  const question = {
+    id: 3901, title: '项目中如何验证重试？', source_item_id: 71, original_title: '如何验证重试？',
+    extracted_title: '如何验证重试？', source_files: [], evidence: null, rewrite_method: 'model',
+  };
+  const { tree, calls, location } = await mount(t, '/bank?set=set-001', endpoint => {
+    if (endpoint === '/bank/interview-sets') return Response.json({ items: [{ ...interviewSet, questions: [question] }] });
+    if (endpoint === '/study/sessions') return Response.json({ id: 53 });
+  });
+  await click(tree, '围绕这个问题学习');
+  assert.equal(location().pathname, '/study/chat/53');
+  assert.deepEqual(calls.map(call => call.endpoint), ['/bank/interview-sets', '/study/sessions']);
+  assert.deepEqual(calls.at(-1).body, { source_type: 'question', source_id: question.id });
 });
 
 test('leaving pending review unmounts its drafts and keeps only the last successful count', async t => {

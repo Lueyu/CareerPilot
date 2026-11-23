@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import StudyShell, { draftKey, stored, remember, submitKey } from '../components/StudyShell';
 import StudyText from '../components/StudyText';
 import StudyPracticePanel, { type PracticeRequest } from '../components/StudyPracticePanel';
+import StudyInterviewQuestion from '../components/StudyInterviewQuestion';
 import { useSpeechRecognition } from '../lib/speech';
 import './studyChat.css';
 
@@ -181,6 +182,7 @@ function SessionView({id}:{id:number}) {
       {m.trace&&Object.keys(m.trace).length>0&&<RunDetails trace={m.trace}/>}
       <div className="coach-turn-actions"><button onClick={async()=>{try{await navigator.clipboard.writeText(m.content);setCopied(m.id)}catch{setError('复制失败，可以手动选择消息文字。')}}}>{copied===m.id?'已复制':'复制'}</button>{!ended&&m.status==='completed'&&<><button onClick={()=>setContext(m)}>围绕这条追问</button>{m.role==='user'?<button onClick={()=>setContext(m,true)}>编辑并重新发送</button>:<button disabled={busy||generating} onClick={()=>{const original=data.messages.find(x=>x.role==='user'&&x.request_id===m.request_id);if(original)send(original.action||'explain',original.content,original.id,m.id)}}>重新生成</button>}</>}</div>
     </article>)}</section>
+    <StudyInterviewQuestion sessionId={id} canOrganize={!!savedReply && !busy && !generating} />
     </div></div>
     <footer className="coach-compose">
     {away&&<button className="coach-latest" onClick={()=>{follow.current=true;if(scroll.current)scroll.current.scrollTop=scroll.current.scrollHeight;setAway(false)}}>↓ 回到最新消息</button>}
