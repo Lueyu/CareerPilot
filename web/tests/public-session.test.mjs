@@ -2,7 +2,9 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { createElement } from 'react';
 import { act, create } from 'react-test-renderer';
-import App from '../src/seed/App.tsx';
+import { MemoryRouter } from 'react-router-dom';
+import RegisteredSession from '../src/seed/RegisteredSession.tsx';
+import Memory from '../src/seed/Memory.tsx';
 import { sessionChangeKey } from '../src/seed/api.ts';
 
 const first = { username: 'first_tab', workspace_id: 11 };
@@ -64,7 +66,7 @@ function browser(t, initialUser, intercept = () => undefined) {
     focus() { window.dispatchEvent(new Event('focus')); },
     notify() { window.dispatchEvent(Object.assign(new Event('storage'), { key: sessionChangeKey })); },
     async render() {
-      await act(async () => { view = create(createElement(App)); });
+      await act(async () => { view = create(createElement(MemoryRouter, {}, createElement(RegisteredSession, {}, () => createElement(Memory)))); });
       return view.root;
     },
   };

@@ -12,3 +12,5 @@
 !app/services/text_extract.py
 !app/services/public_*.py
 !app/services/note_store.py
+!app/services/daily_learning_plan.py
+!app/services/task_memory.py

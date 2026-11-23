@@ -71,7 +71,7 @@ export default function Dashboard() {
     ? { to: '/onboarding', label: '设置目标岗位' }
     : next
       ? { to: threadLink(next), label: next.mode === 'interview' ? '继续面试' : '继续学习' }
-      : { to: '/learning', label: '查看学习计划' };
+      : data.question_count ? { to: '/learning', label: '查看学习计划' } : { to: '/bank', label: '准备第一道题' };
 
   return (
     <div>

@@ -35,17 +35,17 @@ function RecoveryCode({ code, onContinue }: { code: string; onContinue: () => vo
   }
 
   return (
-    <section className="panel stack" aria-labelledby={titleId}>
+    <section className="card account-card" aria-labelledby={titleId}>
       <h2 ref={heading} id={titleId} tabIndex={-1}>
         保存你的恢复码
       </h2>
       <p>恢复码只显示这一次。忘记密码时，可凭用户名和恢复码重置密码。每个恢复码只能用一次。</p>
       <code style={{ overflowWrap: 'anywhere' }}>{code}</code>
-      <div className="actions">
-        <button className="secondary" type="button" onClick={copyCode}>
+      <div className="account-actions">
+        <button className="btn btn-outline" type="button" onClick={copyCode}>
           复制恢复码
         </button>
-        <button className="primary" type="button" onClick={onContinue}>
+        <button className="btn btn-primary" type="button" onClick={onContinue}>
           我已保存，继续
         </button>
       </div>
@@ -111,14 +111,14 @@ export default function Account({ onStart, onFinish }: { onStart: () => void; on
   }
 
   return (
-    <section className="panel stack" aria-labelledby={titleId}>
-      <h2 id={titleId}>CareerPilot 账号</h2>
-      <div className="row" role="group" aria-label="账号操作">
+    <section className="card account-card" aria-labelledby={titleId}>
+      <h2 id={titleId}>{mode === 'register' ? '创建 CareerPilot 账号' : mode === 'recover' ? '找回 CareerPilot 账号' : '登录 CareerPilot'}</h2>
+      <div className="account-modes" role="group" aria-label="账号操作">
         {modes.map(({ mode: candidate, label }) => (
           <button
             key={candidate}
             type="button"
-            className={mode === candidate ? 'primary' : 'secondary'}
+            className={mode === candidate ? 'btn btn-primary' : 'btn btn-outline'}
             aria-pressed={mode === candidate}
             disabled={pending}
             onClick={() => {
@@ -130,11 +130,12 @@ export default function Account({ onStart, onFinish }: { onStart: () => void; on
           </button>
         ))}
       </div>
-      <form key={mode} className="stack" onSubmit={submit} aria-busy={pending}>
-        <label className="stack">
+      <form key={mode} className="account-form" onSubmit={submit} aria-busy={pending}>
+        <label className="account-form">
           用户名
           <input
             name="username"
+            placeholder={mode === 'register' ? '3 到 32 位英文字母、数字或下划线' : undefined}
             autoComplete="username"
             autoCapitalize="none"
             spellCheck={false}
@@ -146,10 +147,10 @@ export default function Account({ onStart, onFinish }: { onStart: () => void; on
           />
         </label>
         {mode === 'register' && (
-          <small id={usernameHint} className="muted">3 到 32 位英文字母、数字或下划线。</small>
+          <small id={usernameHint} className="account-input-hint">3 到 32 位英文字母、数字或下划线。</small>
         )}
         {mode === 'recover' && (
-          <label className="stack">
+          <label className="account-form">
             恢复码
             <input
               name="recovery_code"
@@ -161,11 +162,12 @@ export default function Account({ onStart, onFinish }: { onStart: () => void; on
             />
           </label>
         )}
-        <label className="stack">
+        <label className="account-form">
           {mode === 'recover' ? '新密码' : '密码'}
           <input
             type="password"
             name="password"
+            placeholder={mode !== 'login' ? '至少 12 个字符' : undefined}
             autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             minLength={mode === 'login' ? undefined : 12}
             maxLength={128}
@@ -175,11 +177,11 @@ export default function Account({ onStart, onFinish }: { onStart: () => void; on
           />
         </label>
         {mode !== 'login' && (
-          <small id={passwordHint} className="muted">至少 12 个字符。</small>
+          <small id={passwordHint} className="account-input-hint">至少 12 个字符。</small>
         )}
         {error && <p className="error" role="alert">{error}</p>}
-        <div className="actions">
-          <button type="submit" className="primary" disabled={pending}>
+        <div className="account-actions">
+          <button type="submit" className="btn btn-primary" disabled={pending}>
             {pending ? '处理中…' : submitLabels[mode]}
           </button>
         </div>

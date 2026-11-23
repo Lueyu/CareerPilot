@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NotebookFields, NotebookList, type NotebookSummary, type NotebookText } from '../components/NotebookPresentation';
-import { useWorkspaceApi } from './api';
+import { SeedApiError, useWorkspaceApi } from './api';
 import '../pages/studyNotebook.css';
 import './study.css';
 
@@ -17,6 +17,7 @@ function NoteEditor({ id }: { id: number }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [conflict, setConflict] = useState(false);
   const [revision, setRevision] = useState(0);
   const path = notesPath + '/' + id;
 
@@ -43,9 +44,14 @@ function NoteEditor({ id }: { id: number }) {
       });
       setNote(saved);
       setDraft(null);
+      setConflict(false);
       setNotice('笔记已保存。');
     } catch (error) {
       setError(error instanceof Error ? error.message : '保存失败，编辑内容已保留。');
+      if (error instanceof SeedApiError && error.status === 409) {
+        setConflict(true);
+        setRevision(value => value + 1);
+      }
     } finally {
       setBusy(false);
     }
@@ -63,25 +69,30 @@ function NoteEditor({ id }: { id: number }) {
     }
   }
 
-  return <section className="study-notebook-paper study-notebook-panel stack">
+  return <section className="study-notebook-paper study-notebook-panel">
     <div className="study-notebook-actions">
       <h2>{note?.title ?? '笔记编辑'}</h2>
-      <button type="button" disabled={loading || busy || !!draft} onClick={() => setRevision(value => value + 1)}>刷新笔记</button>
+      <button type="button" className="btn btn-outline" disabled={loading || busy || (!!draft && !conflict)} onClick={() => setRevision(value => value + 1)}>刷新笔记</button>
     </div>
     {loading && <p role="status">正在读取笔记…</p>}
     {error && <p role="alert">{error}</p>}
     {notice && <p role="status">{notice}</p>}
-    {note && <form className="stack" onSubmit={event => { event.preventDefault(); void save(); }}>
+    {conflict && note && !loading && !error && <section className="card">
+      <h3>这条笔记有新版本</h3>
+      <p>下方保留了你的草稿。核对最新内容后，可以合并修改并保存。</p>
+      <strong>{note.title}</strong><p style={{ whiteSpace: 'pre-wrap' }}>{note.body}</p>
+    </section>}
+    {note && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <NotebookFields text={draft ?? note} disabled={loading || busy} onChange={setDraft} />
-      <div className="actions">
-        <button disabled={!draft?.title.trim() || !draft.body.trim() || loading || busy}>保存笔记</button>
-        {draft && <button type="button" disabled={busy} onClick={() => setDraft(null)}>放弃修改</button>}
+      <div className="study-notebook-actions">
+        <button className="btn btn-primary" disabled={!draft?.title.trim() || !draft.body.trim() || loading || busy || (conflict && !!error)}>保存笔记</button>
+        {draft && <button type="button" className="btn btn-outline" disabled={busy} onClick={() => { setDraft(null); setConflict(false); }}>放弃修改</button>}
       </div>
     </form>}
     {!!note?.versions.length && <details className="study-notebook-details">
       <summary>版本历史（{note.versions.length}）</summary>
       <ul className="study-notebook-list">{note.versions.map(item => <li key={item.id}>
-        <button type="button" disabled={busy} onClick={() => void inspect(item.id)}>查看版本 {item.id}</button>
+        <button type="button" className="btn btn-outline" disabled={busy} onClick={() => void inspect(item.id)}>查看版本 {item.id}</button>
       </li>)}</ul>
       {version && <><h3>{version.title}</h3><p className="study-notebook-text">{version.body}</p></>}
     </details>}
@@ -112,13 +123,13 @@ function NotesList({ onChat }: Pick<Props, 'onChat'>) {
       <input className="inp" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="输入关键词" />
     </label>
     {loading && <p role="status">正在搜索笔记…</p>}
-    {error && <p role="alert">{error} <button type="button" onClick={() => setRevision(value => value + 1)}>重试</button></p>}
+    {error && <p role="alert">{error} <button type="button" className="btn btn-outline" onClick={() => setRevision(value => value + 1)}>重试</button></p>}
     {!loading && !error && !notes.length && <div className="study-notebook-empty">
       <p>{query.trim() ? '没有匹配的笔记。' : '还没有学习笔记。可以在学习聊天中保存助手的回复。'}</p>
-      {query.trim() ? <button type="button" onClick={() => setQuery('')}>清除搜索</button>
-        : onChat && <button type="button" onClick={onChat}>去学习聊天 →</button>}
+      {query.trim() ? <button type="button" className="btn btn-outline" onClick={() => setQuery('')}>清除搜索</button>
+        : onChat && <button type="button" className="btn btn-outline" onClick={onChat}>去学习聊天 →</button>}
     </div>}
-    {!loading && !error && <NotebookList notes={notes} renderLink={(note, content) => <a href={'/study/notes?note=' + note.id}>{content}</a>} />}
+    {!loading && !error && <NotebookList notes={notes} renderLink={(note, content) => <a href={'/study/notes/' + note.id}>{content}</a>} />}
   </section>;
 }
 

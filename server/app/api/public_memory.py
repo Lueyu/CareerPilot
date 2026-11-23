@@ -112,10 +112,12 @@ async def submit_feedback(body: Feedback, db: Db, ws: Owner):
 async def download_export(db: Db, ws: Owner):
     from app.api.public_coach import export_coach
     from app.api.public_library import export_library
+    from app.services.daily_learning_plan import PREFERENCE_KEY
 
     feedback = await db.scalars(select(Event).where(
         Event.workspace_id == ws.id, Event.kind == "seed.question_feedback").order_by(Event.id))
     return {"format_version": 1, "exported_at": datetime.now(timezone.utc),
             "target_role": ws.target_role, "library": await export_library(db, ws.id),
+            "learning_plans": (ws.preferences or {}).get(PREFERENCE_KEY, {}).get("roles", {}),
             "coach": await export_coach(db, ws.id), "memories": await memories(db, ws),
             "feedback": [{"question_id": item.ref_id, "text": item.payload["text"]} for item in feedback]}

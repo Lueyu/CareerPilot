@@ -3,12 +3,13 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import make_url
 
-from app.api import public_auth, public_coach, public_library, public_memory
+from app.api import public_auth, public_coach, public_dashboard, public_learning, public_library, public_memory
 from app.db import Base, engine
 
 
@@ -43,7 +44,8 @@ async def lifespan(application):
 
 app = FastAPI(title="CareerPilot", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.middleware("http")(public_auth.public_origin_guard)
-for routes in (public_auth.router, public_library.router, public_coach.router, public_memory.router):
+for routes in (public_auth.router, public_library.router, public_coach.router, public_memory.router,
+               public_dashboard.router, public_learning.router):
     app.include_router(routes, prefix="/api/v1")
 
 
@@ -67,4 +69,11 @@ if static_dir := os.environ.get("SEED_STATIC_DIR"):
     directory = Path(static_dir).resolve()
     if not (directory / "index.html").is_file():
         raise RuntimeError("Build the public web entry before setting SEED_STATIC_DIR")
-    app.mount("/", StaticFiles(directory=directory, html=True), name="public-web")
+    app.mount("/assets", StaticFiles(directory=directory / "assets"), name="web-assets")
+
+    @app.get("/{page:path}", include_in_schema=False)
+    async def workspace_page(page: str):
+        # Match browser navigation without serving index.html for missing API or asset requests.
+        if page.split("/", 1)[0] not in {"", "bank", "study", "exam", "memory", "learning", "settings", "onboarding"}:
+            raise HTTPException(404)
+        return FileResponse(directory / "index.html", headers={"Cache-Control": "no-cache"})

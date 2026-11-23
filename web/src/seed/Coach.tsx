@@ -10,7 +10,8 @@ type CoachProps = {
   onLibrary: () => void;
   threadId?: number;
   onNote?: (noteId: number) => void;
-  onThreadChange?: (threadId: number) => void;
+  onNotebook?: () => void;
+  onThreadChange?: (threadId: number, replace?: boolean) => void;
 };
 type Action = 'chat' | 'generate' | 'hint' | 'answer' | 'followup_answer' | 'finish';
 type Status = 'generating' | 'completed' | 'failed';
@@ -151,7 +152,7 @@ function Transcript({
             {turn.assisted !== null && <small className="muted">{turn.assisted ? '已获提示' : '独立作答'}</small>}
           </div>
           <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{turn.user_text}</p>
-          <button type="button" className="secondary" onClick={() => onMemory(turn.user_text ?? '')}>
+          <button type="button" className="btn btn-outline" onClick={() => onMemory(turn.user_text ?? '')}>
             选作项目经历
           </button>
         </StudyTurn>
@@ -163,13 +164,13 @@ function Transcript({
           {turn.reply && <ReplyText text={turn.reply} streaming={turn.status === 'generating'} />}
           {turn.action === 'finish' && turn.result && <ReviewFeedback feedback={turn.result} />}
           {onNote && turn.status === 'completed' && turn.reply && (
-            <button type="button" className="secondary" disabled={pending} onClick={onNote}>保存为笔记</button>
+            <button type="button" className="btn btn-outline" disabled={pending} onClick={onNote}>保存为笔记</button>
           )}
           {turn.status === 'generating' && <p className="muted" role="status">正在生成回复…</p>}
           {turn.status === 'failed' && (
             <div className="actions">
               <p className="error" role="alert">{turn.error ?? '回复未完成'}</p>
-              {canRetry && <button type="button" className="secondary" disabled={pending} onClick={onRetry}>重试这轮</button>}
+              {canRetry && <button type="button" className="btn btn-outline" disabled={pending} onClick={onRetry}>重试这轮</button>}
             </div>
           )}
         </StudyTurn>
@@ -209,14 +210,14 @@ function MemoryReview({ initial, onClose }: { initial: string; onClose: (saved: 
       </label>
       {error && <p className="error" role="alert">{error}</p>}
       <div className="actions">
-        <button className="primary" disabled={pending || length === 0 || length > limit}>确认并保存</button>
-        <button type="button" className="secondary" disabled={pending} onClick={() => onClose(false)}>取消</button>
+        <button className="btn btn-primary" disabled={pending || length === 0 || length > limit}>确认并保存</button>
+        <button type="button" className="btn btn-outline" disabled={pending} onClick={() => onClose(false)}>取消</button>
       </div>
     </form>
   );
 }
 
-function CoachSession({ question, mode, onLibrary, threadId, onThreadChange, onNote }: CoachProps) {
+function CoachSession({ question, mode, onLibrary, threadId, onThreadChange, onNote, onNotebook }: CoachProps) {
   const { request, send, events } = useWorkspaceApi();
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
@@ -250,6 +251,10 @@ function CoachSession({ question, mode, onLibrary, threadId, onThreadChange, onN
   const latest = active?.turns[active.turns.length - 1];
   const streamingId = latest?.status === 'generating' ? latest.id : null;
   const streamingAttempt = latest?.status === 'generating' ? latest.attempt : null;
+
+  useEffect(() => {
+    if (active && threadId === undefined) onThreadChange?.(active.id, true);
+  }, [active, threadId, onThreadChange]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -521,7 +526,8 @@ function CoachSession({ question, mode, onLibrary, threadId, onThreadChange, onN
     <section className="panel stack public-study">
       <div className="row">
         <h2>{study ? '学习助手' : '模拟面试'}</h2>
-        <button type="button" className="secondary" onClick={onLibrary}>回到我的题库</button>
+        {study && onNotebook && <button type="button" className="btn btn-outline" onClick={onNotebook}>我的笔记</button>}
+        <button type="button" className="btn btn-outline" onClick={onLibrary}>回到我的题库</button>
       </div>
       {question && !active && <p>{question.title}</p>}
       <div className="public-study-layout">
@@ -540,9 +546,9 @@ function CoachSession({ question, mode, onLibrary, threadId, onThreadChange, onN
             {!historyLoading && !visibleThreads.length && <p className="muted">{historySearch ? '没有匹配的会话' : '还没有历史记录'}</p>}
           </nav>
           {nextOffset !== null &&
-            <button type="button" className="secondary" disabled={pending} onClick={() => void loadOlder()}>更早的记录</button>}
+            <button type="button" className="btn btn-outline" disabled={pending} onClick={() => void loadOlder()}>更早的记录</button>}
           {canStart && (question || active) && (
-            <button type="button" className="secondary" disabled={pending || historyLoading} onClick={() => {
+            <button type="button" className="btn btn-outline" disabled={pending || historyLoading} onClick={() => {
               if (study && !question) setNewStudy(value => !value);
               else void start();
             }}>
@@ -555,7 +561,7 @@ function CoachSession({ question, mode, onLibrary, threadId, onThreadChange, onN
           <div className="actions">
             <p className="error" role="alert">{error}</p>
             {!active && !historyLoading && (
-              <button type="button" className="secondary" onClick={() => {
+              <button type="button" className="btn btn-outline" onClick={() => {
                 setError('');
                 if (selected === null) {
                   setHistoryLoading(true);
@@ -576,7 +582,7 @@ function CoachSession({ question, mode, onLibrary, threadId, onThreadChange, onN
               <input value={direction} maxLength={64} onChange={event => setDirection(event.target.value)}
                 placeholder="留空沿用题库中选中的方向" />
             </label>
-            <button className="primary" disabled={pending}>开始学习对话</button>
+            <button className="btn btn-primary" disabled={pending}>开始学习对话</button>
           </form>
         )}
         {!canStart && !active && !historyLoading && <p className="muted">从题库选一道题，开始独立作答。</p>}
@@ -627,18 +633,18 @@ function CoachSession({ question, mode, onLibrary, threadId, onThreadChange, onN
                     placeholder={study && studyAction !== 'chat' ? '例如，出三道活动复盘题，或把第二题换成实习场景' : undefined} />
                 </label>
                 <div className="actions">
-                  <button className="primary" disabled={pending || !input.trim()}>
+                  <button className="btn btn-primary" disabled={pending || !input.trim()}>
                     {study ? '发送' : '提交作答'}
                   </button>
-                  {revision !== null && <button type="button" className="secondary" onClick={() => setRevision(null)}>取消指定题号</button>}
+                  {revision !== null && <button type="button" className="btn btn-outline" onClick={() => setRevision(null)}>取消指定题号</button>}
                 </div>
               </form>
             )}
             {!study && (active.actions.includes('hint') || active.actions.includes('finish')) && (
               <div className="actions">
-                {active.actions.includes('hint') && <button type="button" className="secondary" disabled={pending}
+                {active.actions.includes('hint') && <button type="button" className="btn btn-outline" disabled={pending}
                   onClick={() => void submitTurn({ action: 'hint' })}>给我一条提示</button>}
-                {active.actions.includes('finish') && <button type="button" className="primary" disabled={pending}
+                {active.actions.includes('finish') && <button type="button" className="btn btn-primary" disabled={pending}
                   onClick={() => void submitTurn({ action: 'finish' })}>
                   {active.actions.includes('followup_answer') ? '跳过追问并查看点评' : '结束并查看点评'}
                 </button>}
@@ -659,9 +665,9 @@ function CoachSession({ question, mode, onLibrary, threadId, onThreadChange, onN
                       )}
                       <div className="actions">
                         {candidate.question_id ? <span className="muted">已收藏</span>
-                          : <button type="button" className="primary" disabled={collecting !== null}
+                          : <button type="button" className="btn btn-primary" disabled={collecting !== null}
                             onClick={() => void collect(candidate)}>收藏第 {candidate.number} 题</button>}
-                        <button type="button" className="secondary" disabled={streamingId !== null || pending}
+                        <button type="button" className="btn btn-outline" disabled={streamingId !== null || pending}
                           onClick={() => {
                             setStudyAction('generate');
                             setRevision(candidate.number);

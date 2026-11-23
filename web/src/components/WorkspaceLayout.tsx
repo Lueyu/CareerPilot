@@ -77,7 +77,7 @@ export function WorkspaceLayout({ workspace, overlays }: WorkspaceLayoutProps) {
           )}
         />
         <div className={study ? 'app-body app-body-study' : 'app-body'}>
-          <Outlet />
+          <React.Suspense fallback={<p role="status">正在打开页面…</p>}><Outlet /></React.Suspense>
         </div>
       </div>
       {overlays}

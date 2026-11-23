@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { PageHead } from "../components/PageHead";
 import { BankQuestionRow, BankSearch, BankUploadPicker } from "../components/BankPresentation";
 import "../styles/bank-presentation.css";
 import { useWorkspaceApi } from "./api";
@@ -11,6 +12,7 @@ type PracticeQuestion = { id: number; title: string };
 type Props = {
   onPractice: (question: PracticeQuestion, mode: Mode) => void;
   onCoach: () => void;
+  openImport?: boolean;
 };
 
 type Question = PracticeQuestion & {
@@ -91,10 +93,10 @@ function QuestionCard({
         {question.filename && <small>来源 · {question.filename}</small>}
       </>}
       actions={<>
-        <button type="button" className="primary" onClick={() => onPractice(question, "study")}>
+        <button type="button" className="btn btn-primary" onClick={() => onPractice(question, "study")}>
           学习
         </button>
-        <button type="button" className="secondary" onClick={() => onPractice(question, "interview")}>
+        <button type="button" className="btn btn-outline" onClick={() => onPractice(question, "interview")}>
           面试
         </button>
       </>}
@@ -118,7 +120,7 @@ function QuestionCard({
             />
           </label>
           <small className="muted">反馈会附上这道题和你填写的文字。</small>
-          <button type="submit" className="secondary" disabled={sending}>
+          <button type="submit" className="btn btn-outline" disabled={sending}>
             {sending ? "发送中…" : "发送反馈"}
           </button>
           {error && (
@@ -195,7 +197,7 @@ function QuestionList({
           {error}{" "}
           <button
             type="button"
-            className="secondary"
+            className="btn btn-outline"
             onClick={() => setRetry((count) => count + 1)}
           >
             重试
@@ -213,7 +215,7 @@ function QuestionList({
             {page.next_before !== null && (
               <button
                 type="button"
-                className="secondary"
+                className="btn btn-outline"
                 disabled={loading}
                 onClick={() => {
                   if (page.next_before !== null) void more(page.next_before);
@@ -386,7 +388,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
           暂时无法确认资料处理信息。
           <button
             type="button"
-            className="secondary"
+            className="btn btn-outline"
             onClick={() => setPrivacyRetry((count) => count + 1)}
           >
             重试
@@ -415,7 +417,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
           />
           {file && <p className="muted">{file.name}</p>}
           <div className="actions">
-            <button type="submit" className="primary" disabled={!privacy || !file || !!busy}>
+            <button type="submit" className="btn btn-primary" disabled={!privacy || !file || !!busy}>
               上传并预览
             </button>
           </div>
@@ -430,7 +432,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
           {!history && (
             <button
               type="button"
-              className="secondary"
+              className="btn btn-outline"
               onClick={() => setHistoryRetry((count) => count + 1)}
             >
               重试加载
@@ -446,7 +448,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
             <h3>{draft.filename}</h3>
             <button
               type="button"
-              className="secondary"
+              className="btn btn-outline"
               disabled={!!busy}
               onClick={() => setDraft(undefined)}
             >
@@ -480,7 +482,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
             <div className="actions">
               <button
                 type="button"
-                className="secondary"
+                className="btn btn-outline"
                 disabled={!privacy || !!busy}
                 onClick={() => suggest(draft)}
               >
@@ -563,7 +565,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
                 <div className="actions">
                   <button
                     type="button"
-                    className="secondary"
+                    className="btn btn-outline"
                     disabled={!!busy}
                     onClick={() => save(false)}
                   >
@@ -571,7 +573,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
                   </button>
                   <button
                     type="submit"
-                    className="primary"
+                    className="btn btn-primary"
                     disabled={
                       !!busy ||
                       !draft.items.some((item) => item.status === "DRAFT" && item.selected)
@@ -598,7 +600,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
               </div>
               <button
                 type="button"
-                className="secondary"
+                className="btn btn-outline"
                 disabled={!!busy}
                 onClick={() =>
                   void operate("正在打开记录…", async () =>
@@ -613,7 +615,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
           {history.next_before !== null && (
             <button
               type="button"
-              className="secondary"
+              className="btn btn-outline"
               disabled={!!busy}
               onClick={() =>
                 void operate(messages.load, async () => {
@@ -636,7 +638,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
   );
 }
 
-export default function Library({ onPractice, onCoach }: Props) {
+export default function Library({ onPractice, onCoach, openImport = false }: Props) {
   const { send } = useWorkspaceApi();
   const {
     roles, roleInput, setRoleInput, jd, setJd, busy, error, status, setStatus, setRetry,
@@ -646,19 +648,24 @@ export default function Library({ onPractice, onCoach }: Props) {
   const [revision, setRevision] = useState(0);
   const [query, setQuery] = useState("");
 
+  useEffect(() => {
+    if (openImport && roles) document.getElementById("registered-import")?.scrollIntoView();
+  }, [openImport, roles?.selected_role]);
+
   return (
     <div className="registered-bank stack">
-      <section className="panel stack" aria-labelledby="library-role-heading">
-        <div>
-          <p className="eyebrow">练习计划</p>
-          <h2 id="library-role-heading">按目标岗位练习</h2>
-          <p className="muted">选一个岗位，再挑今天想练的方向。</p>
-        </div>
+      <PageHead title="面试题库" sub={active ? [active.role, direction?.name].filter(Boolean).join(" · ") : "管理自己的面试题与面经"}>
+        <button type="button" className="btn btn-outline" onClick={() => document.getElementById("registered-import")?.scrollIntoView()}>导入面经</button>
+        <button type="button" className="btn btn-primary" onClick={onCoach}>打开学习助手</button>
+      </PageHead>
+      <details className="card bank-role-options">
+        <summary>调整岗位与练习方向</summary>
+        <div className="stack" role="region" aria-label="按目标岗位练习">
         {!roles &&
           (error ? (
             <button
               type="button"
-              className="secondary"
+              className="btn btn-outline"
               onClick={() => setRetry((count) => count + 1)}
             >
               重新加载岗位
@@ -723,14 +730,9 @@ export default function Library({ onPractice, onCoach }: Props) {
                 />
               </label>
               <div className="actions">
-                <button type="submit" className="primary" disabled={!!busy || !roleInput.trim()}>
+                <button type="submit" className="btn btn-primary" disabled={!!busy || !roleInput.trim()}>
                   保存岗位
                 </button>
-                {active && (
-                  <button type="button" className="secondary" disabled={!!busy} onClick={onCoach}>
-                    打开学习助手
-                  </button>
-                )}
               </div>
             </form>
           </>
@@ -752,7 +754,7 @@ export default function Library({ onPractice, onCoach }: Props) {
                   <p>{item.example}</p>
                   <button
                     type="button"
-                    className={item.name === active.selected_topic ? "primary" : "secondary"}
+                    className={item.name === active.selected_topic ? "btn btn-primary" : "btn btn-outline"}
                     aria-pressed={item.name === active.selected_topic}
                     disabled={!!busy}
                     onClick={() => void selectDirection(item.name, () => setShowAll(false))}
@@ -765,7 +767,7 @@ export default function Library({ onPractice, onCoach }: Props) {
             <div className="actions">
               <button
                 type="button"
-                className="secondary"
+                className="btn btn-outline"
                 disabled={
                   !!busy || roleInput.trim() !== active.role || jd.trim() !== (active.jd ?? "")
                 }
@@ -786,6 +788,8 @@ export default function Library({ onPractice, onCoach }: Props) {
             </div>
           </>
         )}
+        </div>
+      </details>
         {busy && <p role="status">{busy}</p>}
         {error && (
           <p role="alert" className="error">
@@ -797,7 +801,7 @@ export default function Library({ onPractice, onCoach }: Props) {
           <div className="actions">
             <button
               type="button"
-              className="primary"
+              className="btn btn-primary"
               disabled={!!busy}
               onClick={() =>
                 void operate("正在打开例题…", async () => {
@@ -811,7 +815,7 @@ export default function Library({ onPractice, onCoach }: Props) {
             </button>
             <button
               type="button"
-              className="secondary"
+              className="btn btn-outline"
               disabled={!!busy}
               onClick={() =>
                 void operate("正在生成起步题…", async () => {
@@ -825,7 +829,6 @@ export default function Library({ onPractice, onCoach }: Props) {
             </button>
           </div>
         )}
-      </section>
       {active && (
         <section className="panel stack" aria-labelledby="library-questions-heading">
           <div className="row">
@@ -838,7 +841,7 @@ export default function Library({ onPractice, onCoach }: Props) {
             {direction && (
               <button
                 type="button"
-                className="secondary"
+                className="btn btn-outline"
                 onClick={() => setShowAll((value) => !value)}
               >
                 {showAll ? "只看当前方向" : "查看全部方向"}
@@ -855,7 +858,7 @@ export default function Library({ onPractice, onCoach }: Props) {
           />
         </section>
       )}
-      <Imports selection={selection} onSaved={() => setRevision((count) => count + 1)} />
+      <div id="registered-import"><Imports selection={selection} onSaved={() => setRevision((count) => count + 1)} /></div>
     </div>
   );
 }

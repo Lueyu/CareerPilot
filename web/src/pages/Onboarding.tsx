@@ -1,3 +1,4 @@
+import OnboardingBrand from '../components/OnboardingBrand';
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getWorkspace, useApi, workspaceLogin } from '../api/client';
@@ -32,13 +33,7 @@ export default function Onboarding() {
     <div className="ob-page">
       <div className="ob-glow" />
       <div className="ob-glow2" />
-      <div className="ob-brand">
-        <div className="brand-logo">CP</div>
-        <div>
-          <div className="ob-brand-name">CareerPilot</div>
-          <div className="ob-brand-sub">CAREER INTELLIGENCE</div>
-        </div>
-      </div>
+      <OnboardingBrand />
       <div className="ob-hero">
         <h1 className="ob-title">
           从一次诊断，开始你的<span className="grad">职业进阶</span>

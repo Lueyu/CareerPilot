@@ -1,0 +1,63 @@
+.account-entry {
+  min-height: 100%;
+  padding: 38px 48px 64px;
+  background: var(--bg);
+}
+.account-entry .ob-brand { gap: 10px; margin: 0; }
+.account-entry .brand-logo { width: 38px; height: 38px; font-size: 15px; }
+.account-entry .ob-brand-name { font-size: 18px; }
+.account-entry .ob-brand-sub { font-size: 9px; letter-spacing: .12em; color: var(--text-3); }
+.account-entry-content {
+  display: grid;
+  justify-items: center;
+  align-items: start;
+  margin: 56px auto 0;
+}
+.account-card, .account-form, .account-section, .account-settings {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+.account-card { width: min(496px, 100%); padding: 24px; }
+.account-card h2 { font-size: 24px; line-height: 1.4; }
+.account-card > p, .account-card small, .account-section > p { color: var(--text-2); }
+.account-card code { padding: 12px; border-radius: 8px; background: var(--surface-2); user-select: all; }
+.account-modes, .account-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.account-card .account-actions { align-items: stretch; flex-direction: column; }
+.account-card .account-actions .btn-outline { align-self: flex-start; }
+.account-form label { display: grid; gap: 6px; font-weight: 600; }
+.account-form input, .registered-bank :is(input:not([type=checkbox]), textarea, select) {
+  width: 100%; min-width: 0; border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text); padding: 10px 12px; border-radius: var(--radius-sm); font: inherit;
+}
+.account-input-hint { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.account-form input { min-height: 44px; }
+.account-form .btn-primary, .account-card .account-actions .btn-primary { min-height: 44px; text-align: center; justify-content: center; }
+.account-settings { max-width: 760px; gap: 24px; }
+.account-section { padding: 24px; gap: 12px; }
+.account-section h2, .account-section summary { font-size: 16px; font-weight: 650; }
+.account-section summary { cursor: pointer; }
+.account-section[open] summary { margin-bottom: 12px; }
+.account-section .account-form { margin-top: 16px; }
+.account-danger, .account-entry [role=alert], .account-settings [role=alert], .registered-bank [role=alert] { color: var(--red); }
+
+.registered-bank :is(.stack,.page-heading) { display: grid; align-content: start; gap: 14px; min-width: 0; }
+.registered-bank .stack > * { min-width: 0; }
+.registered-bank.stack { display: grid; gap: 16px; align-content: start; }
+.bank-role-options summary { cursor: pointer; font-weight: 600; }
+.bank-role-options[open] summary { margin-bottom: 16px; }
+.registered-bank .panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+.registered-bank :is(.row,.actions) { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.registered-bank .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,220px),1fr)); gap: 12px; }
+.registered-bank :is(.muted,small) { color: var(--text-3); }
+.registered-bank :is(.secondary,.primary):disabled { opacity: .5; }
+.registered-bank label { min-width: 0; }
+.registered-bank fieldset { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.registered-bank textarea { resize: vertical; }
+.registered-bank :is(p,h2,h3,small) { overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  .account-entry { padding: 24px 16px 40px; }
+  .account-entry-content { margin-top: 42px; }
+  .account-card, .account-section { padding: 20px; }
+  .registered-bank .panel { padding: 14px; }
+}
