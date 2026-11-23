@@ -22,7 +22,7 @@ STREAM_POLL_SECONDS = 0.5
 STREAM_HEARTBEAT_SECONDS = 15.0
 # 生成任务把 reasoning/content 增量推给同一事件循环里的 SSE 订阅者,
 # 只有订阅者存在时才推送; 数据库仍是持久化与断线恢复的唯一真相。
-STREAM_LIVE_PUSH_SECONDS = 0.06
+STREAM_LIVE_PUSH_SECONDS = 0.03
 
 _STREAM_SUBSCRIBERS: dict[int, set[asyncio.Queue]] = {}
 
