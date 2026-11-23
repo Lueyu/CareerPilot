@@ -64,10 +64,10 @@ async def enqueue(session, ws, exam, *, mode='OFFICIAL'):
                     'canonical_question_id': base.get('canonical_question_id'),
                     'reason': '面经集试卷用于练习，不计入独立验证',
                 })
-            elif mode == 'OFFICIAL':
+            elif mode == 'OFFICIAL' or base.get('experienced_bank_practice'):
                 from app.services.learning_exposure import independence_snapshot
                 independence, assistance = await independence_snapshot(session, ws.id, exam, eq, base)
-                base.update(independence=independence, assistance=assistance, assessment_mode='OFFICIAL')
+                base.update(independence=independence, assistance=assistance, assessment_mode=mode)
             eq.frozen_snapshot={**base,'submitted_answer':deepcopy(revision.payload),
                 'answer_revision_id':revision.id,'answer_revision':revision.revision,'answer_hash':revision.content_hash}
         frozen=deepcopy(eq.frozen_snapshot)

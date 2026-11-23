@@ -17,7 +17,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_workspace
@@ -26,6 +26,7 @@ from app.models import (
     Evidence, Exam, ExamAnswer, ExamQuestion, LearningTask, Question, Skill, SkillState, Workspace,
 )
 from app.services.competency import recompute_skill_states
+from app.services.experienced_bank import catalog_questions, is_owned_question, load_catalog
 from app.services.followup import suggest_followups
 from app.services.llm import adapter as llm_adapter
 from app.services.llm_judge import judge_open_answer
@@ -49,6 +50,7 @@ class CreateExamReq(BaseModel):
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=120)
     question_ids: list[int] = Field(default_factory=list, max_length=20)
     project_generation_id: int | None = None
+    experienced_bank: bool = False
 
 
 class SaveAnswerReq(BaseModel):
@@ -72,16 +74,31 @@ EXAM_KINDS = {
 EXAM_HISTORY_PAGE_SIZE = 20
 
 
+def _is_experienced_practice(exam: Exam) -> bool:
+    return exam.kind == 'practice' and any(
+        (question.creation_snapshot or {}).get('experienced_bank_practice') is True
+        for question in exam.questions
+    )
+
+
+def _experienced_practice_filter():
+    return (Exam.kind == "practice") & Exam.questions.any(
+        ExamQuestion.creation_snapshot.contains({"experienced_bank_practice": True})
+    )
+
+
 @router.get("/exams")
 async def list_exams(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    history = (
-        await session.execute(
-            _exam_history_query(ws).limit(EXAM_HISTORY_PAGE_SIZE)
-        )
-    ).scalars().all()
+    recent_ids = select(Exam.id).where(Exam.workspace_id == ws.id).order_by(Exam.id.desc()).correlate(None)
+    recent_exams = recent_ids.where(Exam.kind != "practice").limit(EXAM_HISTORY_PAGE_SIZE)
+    recent_practice = recent_ids.where(_experienced_practice_filter()).limit(EXAM_HISTORY_PAGE_SIZE)
+    active_diagnosis = recent_ids.where(Exam.kind == Exam.KIND_DIAGNOSIS, Exam.status == Exam.STATUS_ACTIVE).limit(1)
+    history = (await session.scalars(select(Exam).where(
+        Exam.id.in_(recent_exams) | Exam.id.in_(recent_practice) | Exam.id.in_(active_diagnosis)
+    ).order_by(Exam.id.desc()))).all()
     return _exam_list_data(history, Counter(exam.kind for exam in history))
 
 
@@ -108,7 +125,7 @@ async def list_exam_history(
 
 
 def _exam_history_scope(ws: Workspace):
-    return Exam.workspace_id == ws.id, Exam.kind != "practice"
+    return Exam.workspace_id == ws.id, or_(Exam.kind != "practice", _experienced_practice_filter())
 
 
 def _exam_history_query(ws: Workspace):
@@ -132,10 +149,12 @@ def _exam_list_data(history: Sequence[Exam], counts: dict[str, int]) -> dict:
                 "id": e.id,
                 "title": e.title,
                 "kind": e.kind,
+                "experienced_bank_practice": _is_experienced_practice(e),
                 "status": e.status,
                 "question_count": len(e.questions),
                 "score": e.score,
                 "created_at": e.created_at.isoformat(),
+                "started_at": e.started_at.isoformat() if e.started_at else None,
                 "completed_at": e.completed_at.isoformat() if e.completed_at else None,
             }
             for e in history
@@ -153,6 +172,11 @@ async def create_exam(
 
 
 async def issue_exam(req, ws, session, *, study_practice=None, interview_set=None):
+    if req.experienced_bank and (
+        req.kind != Exam.KIND_BANK or not req.question_ids or req.retest_task_id is not None
+        or req.project_generation_id is not None or interview_set is not None or study_practice is not None
+    ):
+        raise HTTPException(422, "默认题库须单独发起练习并指定题目")
     if req.kind not in EXAM_KINDS:
         raise HTTPException(status_code=400, detail=f"unknown exam kind '{req.kind}'")
     if req.question_ids and (req.retest_task_id or req.kind != Exam.KIND_BANK):
@@ -161,11 +185,26 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
         raise HTTPException(422, '项目批次考核需要选择该批次已审核题目')
     # Serialize retries and concurrent creates in the workspace transaction.
     await session.execute(select(Workspace.id).where(Workspace.id == ws.id).with_for_update())
+    experienced_rows = None
+    if req.experienced_bank:
+        experienced_rows = (await session.scalars(
+            select(Question).where(Question.id.in_(req.question_ids))
+        )).all()
+        catalog = catalog_questions(load_catalog(), experienced_rows)
+        catalog_ids = {entry["id"] for entries in catalog.values() for entry in entries}
+        if catalog_ids != set(req.question_ids):
+            raise HTTPException(422, "指定题目不属于默认题库")
+
     if req.idempotency_key:
         existing = (await session.execute(select(Exam).where(
             Exam.workspace_id == ws.id, Exam.idempotency_key == req.idempotency_key,
         ))).scalar_one_or_none()
         if existing:
+            if req.experienced_bank and (
+                not _is_experienced_practice(existing)
+                or {question.question_id for question in existing.questions} != catalog_ids
+            ):
+                raise HTTPException(409, "重复请求与已创建的题库练习不一致")
             await session.commit()
             return await _exam_detail(session, ws, existing.id)
     skill_key = req.skill_key
@@ -218,16 +257,29 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
         excluded.extend(attempted)
         retest_plan = await load_retest_plan(session, ws, task)
     selected = None
+    experienced_practice = False
     if req.question_ids:
-        rows = (await session.scalars(select(Question).where(Question.id.in_(req.question_ids), (Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id)))).all()
+        rows = experienced_rows
+        if rows is None:
+            rows = (await session.scalars(select(Question).where(
+                Question.id.in_(req.question_ids),
+                (Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id),
+            ))).all()
         by_id = {q.id: q for q in rows}
         if set(by_id) != set(req.question_ids):
             raise HTTPException(404, "指定题目不存在或不属于当前工作空间")
+        experienced_ids = {q.id for q in rows if is_owned_question(q)}
+        experienced_practice = req.experienced_bank or bool(experienced_ids)
+        if not req.experienced_bank and experienced_practice and (
+            experienced_ids != set(by_id) or req.project_generation_id is not None or interview_set or study_practice
+        ):
+            raise HTTPException(422, "默认题库须单独发起练习")
         selected, seen = [], set()
         for qid in req.question_ids:
             q = by_id[qid]
             if (q.generation_meta or {}).get('assessment_use') == 'PRACTICE_ONLY' and (
-                not interview_set or q.generation_meta.get('interview_set_id') != interview_set['id']
+                not experienced_practice
+                and (not interview_set or q.generation_meta.get('interview_set_id') != interview_set['id'])
             ):
                 raise HTTPException(409, '学习练习题已曝光，不能作为正式独立考题')
             if q.qtype not in ("open", "mcq") or (skill_key and (not q.skill or q.skill.key != skill_key)):
@@ -247,8 +299,9 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
 
     exam = Exam(
         workspace_id=ws.id,
-        title=interview_set['title'] if interview_set else meta["title"],
-        kind=req.kind,
+        title=("题库练习" if experienced_practice
+               else interview_set['title'] if interview_set else meta["title"]),
+        kind='practice' if experienced_practice else req.kind,
         status=Exam.STATUS_ACTIVE,
         duration_minutes=req.duration_minutes or meta["default_minutes"],
         started_at=dt.datetime.now(dt.timezone.utc),
@@ -260,7 +313,8 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
 
     # 选题 + trace
     t0 = time.perf_counter()
-    trace = await start_trace(session, ws.id, "exam_creation", f"创建考试: {meta['title']}", short_code=f"TR-E{exam.id}")
+    trace_title = f"创建练习: {exam.title}" if experienced_practice else f"创建考试: {meta['title']}"
+    trace = await start_trace(session, ws.id, "exam_creation", trace_title, short_code=f"TR-E{exam.id}")
     if selected is not None:
         questions, reason = selected, "用户选择已入库题目进行真实作答练习；同源变体只计一道独立题，阅读答案不构成能力证明。"
     else:
@@ -298,6 +352,11 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
             'status':'NOT_CONFIGURED','calibration_status':'UNCALIBRATED','targets':[],
             'scope_note':'未配置岗位目标标准；本次评分仅记录作答表现，不能判断是否达到岗位要求。'}
     snapshots = [question_snapshot(q, standard_snapshot) for q in questions]
+    if experienced_practice:
+        reason = "来自默认题库，练习评分不更新能力画像。"
+        for snapshot in snapshots:
+            snapshot.update(experienced_bank_practice=True, assessment_mode='PRACTICE')
+            snapshot['question_version'] = digest({k: v for k, v in snapshot.items() if k != 'question_version'})
     if interview_set:
         reason = f"来自「{interview_set['project_name']}」的独立套题；仅用于项目面试练习。"
         for snapshot, question in zip(snapshots, questions):
@@ -323,7 +382,7 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
     for i, (q, snapshot) in enumerate(zip(questions, snapshots), start=1):
         session.add(ExamQuestion(exam_id=exam.id, question_id=q.id, order_no=i,
             creation_snapshot=snapshot))
-    await emit_event(session, ws.id, "exam.created", {"exam_id": exam.id, "kind": req.kind}, "exam", exam.id)
+    await emit_event(session, ws.id, "exam.created", {"exam_id": exam.id, "kind": exam.kind}, "exam", exam.id)
     await session.commit()
 
     return await _exam_detail(session, ws, exam.id)
@@ -625,7 +684,7 @@ async def submit_exam(
         for item in req.answers:
             if item.order_no not in by_order:raise HTTPException(404,'题号不属于本场考试')
             await save_revision(session,by_order[item.order_no],item)
-    run=await jobs.enqueue(session,ws,exam)
+    run=await jobs.enqueue(session,ws,exam,mode='PRACTICE' if _is_experienced_practice(exam) else 'OFFICIAL')
     await session.commit()
     return jobs.ack(run)
 
@@ -706,6 +765,7 @@ async def _exam_detail(session: AsyncSession, ws: Workspace, exam_id: int) -> di
         "id": exam.id,
         "title": exam.title,
         "kind": exam.kind,
+        "experienced_bank_practice": _is_experienced_practice(exam),
         "status": exam.status,
         "duration_minutes": exam.duration_minutes,
         "selection_reason": exam.selection_reason,
@@ -895,6 +955,8 @@ async def exam_report_deep(
 ):
     """生成(并缓存) LLM 深度诊断。失败时诚实报错, 不造假数据。"""
     exam = await _get_own_exam(session, ws, exam_id)
+    if _is_experienced_practice(exam):
+        raise HTTPException(409, '题库练习报告不进行能力诊断')
     if exam.status != Exam.STATUS_COMPLETED:
         raise HTTPException(status_code=409, detail="exam not completed yet")
 
@@ -1017,10 +1079,12 @@ async def _exam_report(session: AsyncSession, ws: Workspace, exam_id: int) -> di
     scoring_task=await scoring_view(session,exam.active_scoring_run_id)
     breakdown = _skill_breakdown(exam.questions)
     states_map = await _states_map(session, ws, breakdown)
+    experienced_practice = _is_experienced_practice(exam)
     return {
         "id": exam.id,
         "title": exam.title,
         "kind": exam.kind,
+        "experienced_bank_practice": experienced_practice,
         "status": exam.status,
         "scoring_failed": ([q['order_no'] for q in scoring_task['questions'] if q['status'] in ('FAILED','RETRY_WAIT')] if scoring_task else summary.get("scoring_failed")) if degraded else None,
         "scoring_task":scoring_task,
@@ -1032,7 +1096,7 @@ async def _exam_report(session: AsyncSession, ws: Workspace, exam_id: int) -> di
         "learning_tasks": summary.get("learning_tasks", []),
         "observations": summary.get("observations", []),
         "skill_breakdown": breakdown,
-        "overall": None if degraded else _overall_diagnosis(breakdown, exam, states_map),
+        "overall": None if degraded or experienced_practice else _overall_diagnosis(breakdown, exam, states_map),
         "diagnosis_deep": deep,
         "has_deep": bool(deep),
         "completed_at": exam.completed_at.isoformat() if exam.completed_at else None,

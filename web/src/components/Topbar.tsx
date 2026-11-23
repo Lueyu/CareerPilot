@@ -12,7 +12,7 @@ const PAGE_NAMES: Record<string, string> = {
   '/study/chat': '学习聊天',
   '/study/notes': '我的笔记 / 复习',
   '/learning': '学习计划',
-  '/bank': '考试与面经 · 面经库',
+  '/bank': '面试题库',
   '/assets': '项目与简历',
   '/memory': '记忆中心',
   '/observatory': '系统观测台',

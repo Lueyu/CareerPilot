@@ -217,14 +217,14 @@ export default function Dashboard() {
           <div className="card">
             <div className="card-head">
               <span className="card-title">待审核面经 <span className="chip chip-amber" style={{ marginLeft: 6 }}>{pendingImports.length}</span></span>
-              <Link to="/bank" className="link">去审核 →</Link>
+              <Link to="/bank?review=1" className="link">去审核 →</Link>
             </div>
             {pendingImports.length === 0 && (
               <div className="list-row">
                 <div className="list-ic">✅</div>
                 <div className="list-main">
                   <div className="list-title">没有待审核的导入</div>
-                  <div className="list-sub">从面经库页导入新的面经</div>
+                  <div className="list-sub">从面试题库导入新的面经</div>
                 </div>
               </div>
             )}
@@ -235,7 +235,7 @@ export default function Dashboard() {
                   <div className="list-title">{p.title}</div>
                   <div className="list-sub">{p.id} · {p.items} 题 · {p.time}</div>
                 </div>
-                <button className="btn btn-primary btn-sm" onClick={() => navigate('/bank')}>审核</button>
+                <button className="btn btn-primary btn-sm" onClick={() => navigate('/bank?review=1')}>审核</button>
               </div>
             ))}
           </div>

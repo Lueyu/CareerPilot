@@ -5,6 +5,7 @@ import { api, ExamDetail, ScoringTaskAck } from '../api/client';
 import { loadOrCreateExam, clearExamCreation, submitExam } from '../lib/coreLoop';
 import {useExamDraft,clearSavedDraft} from '../lib/useExamDraft';
 import { useSpeechRecognition } from '../lib/speech';
+import { experiencedBankPath, experiencedReportPath, hasExperiencedBankOrigin } from '../lib/experiencedBankPath';
 
 type Phase = 'loading' | 'quiz' | 'scoring' | 'uncertain' | 'closed' | 'error';
 
@@ -14,12 +15,24 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
   const requestedId = params.get('id');
   const returnTask=params.get('return_task_id');
   const validReturnTask=returnTask && /^[1-9]\d*$/.test(returnTask) && Number.isSafeInteger(Number(returnTask))?returnTask:null;
-  const reportPath=(id:number)=>`${studyMode ? '/study/retest' : '/exam/diagnosis'}/report?id=${id}${validReturnTask?`&return_task_id=${validReturnTask}`:''}`;
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
   const [phase, setPhase] = useState<Phase>('loading');
   const [exam, setExam] = useState<ExamDetail | null>(null);
+  const currentExam = exam && (!requestedId || String(exam.id) === requestedId) ? exam : null;
+  const experiencedPractice = !studyMode && currentExam?.experienced_bank_practice === true;
+  const openingBankPractice = !studyMode && !!requestedId && !currentExam && hasExperiencedBankOrigin(params);
+  const bankReturn = experiencedPractice || openingBankPractice ? experiencedBankPath(params) : null;
+  const returnPath = bankReturn ?? (studyMode ? '/study/notes?tab=review' : '/exam');
+  const returnLabel = bankReturn ? '返回题库' : studyMode ? '返回复习与练习' : '返回考试中心';
+  const diagnosisTitle = bankReturn ? '题库练习' : studyMode ? '新情境复测' : '独立诊断';
+  const reportPath = (id: number, source = exam) => {
+    const path = !studyMode && source?.experienced_bank_practice === true
+      ? experiencedReportPath(id, params)
+      : `${studyMode ? '/study/retest' : '/exam/diagnosis'}/report?id=${id}`;
+    return validReturnTask ? `${path}&return_task_id=${validReturnTask}` : path;
+  };
   const [createErr, setCreateErr] = useState<string | null>(null);
   const [idx, setIdx] = useState(0);
   const locked=useRef(false);
@@ -38,11 +51,11 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
       if (d.status !== 'ACTIVE') {
         clearExamCreation();
         if(['ABORTED','EXPIRED'].includes(d.status)){setExam(d);setPhase('closed');return;}
-        navigate(reportPath(d.id), { replace: true });
+        navigate(reportPath(d.id, d), { replace: true });
         return;
       }
-      if (!d.questions.length) throw new Error('本次考试没有可用题目');
       setExam(d);
+      if (!d.questions.length) throw new Error('本次考试没有可用题目');
       setIdx(0);
       const elapsed = d.started_at ? (Date.now() - new Date(d.started_at).getTime()) / 1000 : 0;
       setSecs(Math.max(0, Math.round(d.duration_minutes * 60 - elapsed)));
@@ -80,7 +93,7 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
     const server=draft.serverExam;if(!server || server.id!==exam?.id || server.status==='ACTIVE')return;
     locked.current=true;stopSpeech();
     if(['EXPIRED','ABORTED'].includes(server.status)){setExam(server);setPhase('closed');}
-    else navigate(reportPath(server.id),{replace:true});
+    else navigate(reportPath(server.id, server),{replace:true});
   },[draft.serverExam,exam?.id,navigate,stopSpeech]);
 
   const changeQuestion = async (nextIndex: number) => {
@@ -92,12 +105,29 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
     finally { locked.current=false;setBusy(false); }
   };
 
+  const returnToBank = async () => {
+    if (!bankReturn || !exam || busy || locked.current || listening || interim) return;
+    locked.current = true;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await draft.flush();
+      if (draft.getEntries().some(entry => entry.conflict)) throw new Error('请先处理答案版本冲突');
+      navigate(bankReturn, { state: { experiencedPracticeId: exam.id } });
+    } catch (error) {
+      setActionError(`保存失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      locked.current = false;
+      setBusy(false);
+    }
+  };
+
   const doAbort = async () => {
     if (!exam || busy) return;
     setAbortOpen(false); setBusy(true); setActionError(null);
     try {
       await api.post(`/exams/${exam.id}/abort`);
-      clearExamCreation(); clearSavedDraft(exam.id); navigate(studyMode ? '/study/notes?tab=review' : '/exam');
+      clearExamCreation(); clearSavedDraft(exam.id); navigate(returnPath);
     } catch (e: any) { setActionError(`放弃失败：${e.message || e}。考试仍保留。`); }
     finally { setBusy(false); }
   };
@@ -109,7 +139,7 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
       const current=await api.get<ExamDetail>(`/exams/${exam.id}`);
       if(current.status==='ACTIVE'){draft.reconcile(current);locked.current=false;setPhase('quiz');}
       else if(['ABORTED','EXPIRED'].includes(current.status)){setExam(current);setPhase('closed');}
-      else {clearExamCreation();clearSavedDraft(exam.id);navigate(reportPath(exam.id),{replace:true});}
+      else {clearExamCreation();clearSavedDraft(exam.id);navigate(reportPath(exam.id,current),{replace:true});}
     }catch(e){setActionError(`暂时无法确认提交状态：${e instanceof Error?e.message:String(e)}。答卷保持只读，本地输入仍保留。`);setPhase('uncertain');}
     finally{setBusy(false);}
   };
@@ -130,17 +160,17 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
     } finally { setBusy(false); }
   };
 
-  if (phase === 'error') return <div className="card"><h2>无法加载本次考试</h2><p role="alert">{createErr}</p><button className="btn btn-primary" onClick={() => setRetry(x => x + 1)}>重试</button><button className="btn btn-outline" onClick={() => navigate(studyMode ? '/study/notes?tab=review' : '/exam')}>{studyMode ? '返回复习与练习' : '返回考试中心'}</button></div>;
+  if (phase === 'error') return <div className="card"><h2>{bankReturn ? '无法加载本次练习' : '无法加载本次考试'}</h2><p role="alert">{createErr}</p><button className="btn btn-primary" onClick={() => setRetry(x => x + 1)}>重试</button><button className="btn btn-outline" onClick={() => navigate(returnPath)}>{returnLabel}</button></div>;
   if(phase==='uncertain')return <div className="card"><h2>正在核对本次提交状态</h2><p role="alert">{actionError}</p><p>确认服务器状态前保持答卷只读，避免修改已经冻结的答案。</p><button className="btn btn-primary" disabled={busy} onClick={checkSubmission}>重新核对本次状态</button></div>;
-  if(phase==='closed')return <div className="card"><h2>{exam?.status==='EXPIRED'?'本次考试已超时':'本次考试已放弃'}</h2><p>已保存的作答保留，本次没有有效成绩。当前不能继续修改或提交。</p><button className="btn btn-outline" onClick={()=>navigate(studyMode ? '/study/notes?tab=review' : '/exam')}>{studyMode ? '返回复习与练习' : '返回考试中心'}</button></div>;
+  if(phase==='closed')return <div className="card"><h2>{experiencedPractice ? '本次练习' : '本次考试'}{exam?.status === 'EXPIRED' ? '已超时' : '已放弃'}</h2><p>已保存的作答保留，本次没有有效成绩。当前不能继续修改或提交。</p><button className="btn btn-outline" onClick={() => navigate(returnPath)}>{returnLabel}</button></div>;
 
   if (phase === 'loading') {
     return (
       <div>
         <div className="quiz-top">
           <div>
-            <div className="page-title" style={{ fontSize: 22 }}>{studyMode ? '新情境复测' : '独立诊断'}</div>
-            <div className="page-sub">{studyMode ? '正在读取本场试题…' : '正在生成自适应试卷…'}</div>
+            <div className="page-title" style={{ fontSize: 22 }}>{diagnosisTitle}</div>
+            <div className="page-sub">{studyMode || bankReturn ? '正在读取本场试题…' : '正在生成自适应试卷…'}</div>
           </div>
         </div>
         <div className="score-box">
@@ -150,10 +180,10 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
               <circle className="ring-spin" cx="55" cy="55" r="46" fill="none" stroke="var(--primary)" strokeWidth="8" strokeLinecap="round"
                 strokeDasharray="289" strokeDashoffset="80" transform="rotate(-90 55 55)" />
             </svg>
-            <div className="ring-label">{studyMode ? '读取中' : '选题中'}</div>
+            <div className="ring-label">{studyMode || bankReturn ? '读取中' : '选题中'}</div>
           </div>
-          <h3 style={{ fontSize: 18, fontWeight: 650, marginTop: 18 }}>{studyMode ? '正在打开复测' : '自适应选题引擎运行中…'}</h3>
-          <p className="hint" style={{ textAlign: 'center' }}>{studyMode ? '沿用出卷时保存的题目和评价标准' : '优先覆盖状态未知 / 待验证 / 低于目标的能力域'}</p>
+          <h3 style={{ fontSize: 18, fontWeight: 650, marginTop: 18 }}>{bankReturn ? '正在打开练习' : studyMode ? '正在打开复测' : '自适应选题引擎运行中…'}</h3>
+          <p className="hint" style={{ textAlign: 'center' }}>{studyMode || bankReturn ? '沿用出卷时保存的题目和评价标准' : '优先覆盖状态未知 / 待验证 / 低于目标的能力域'}</p>
         </div>
       </div>
     );
@@ -164,7 +194,7 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
       <div>
         <div className="quiz-top">
           <div>
-            <div className="page-title" style={{ fontSize: 22 }}>{studyMode ? '新情境复测' : '独立诊断'}</div>
+            <div className="page-title" style={{ fontSize: 22 }}>{diagnosisTitle}</div>
             <div className="page-sub">正在保存并冻结本次答卷…</div>
           </div>
         </div>
@@ -196,27 +226,28 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
 
   return (
     <div>
-      <div className="quiz-top">
+      <div className={experiencedPractice ? 'quiz-top experienced-quiz-top' : 'quiz-top'}>
         <div>
-          <div className="page-title" style={{ fontSize: 22 }}>{interviewSetId ? '练习这套面经' : studyMode ? '新情境复测' : '独立诊断'}</div>
+          <div className="page-title" style={{ fontSize: 22 }}>{interviewSetId ? '练习这套面经' : diagnosisTitle}</div>
           <div className="page-sub">
             {interviewSetId ? `来源：${exam.title} · 题目版本已冻结` : <>题 {idx + 1}/{qs.length} · {q.skill || q.title.slice(0, 24)}<span className="chip chip-green" style={{ marginLeft: 8 }}>真实选题</span></>}
 
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', flexWrap: experiencedPractice ? 'wrap' : undefined, alignItems: 'center', gap: 12 }}>
           <div className="quiz-timer">
             <span className="timer-ic">⏱</span>
             <b>{mm}:{ss}</b>
             <span className="chip chip-purple">剩余时间</span>
           </div>
-          <button className="btn btn-outline btn-sm" onClick={() => setAbortOpen(true)}>放弃考试</button>
+          {bankReturn && <button className="btn btn-outline btn-sm" disabled={busy || listening || !!interim} onClick={returnToBank}>保存并返回题单</button>}
+          <button className="btn btn-outline btn-sm" onClick={() => setAbortOpen(true)}>{experiencedPractice ? '放弃练习' : '放弃考试'}</button>
         </div>
       </div>
       {!interviewSetId && <DemoBanner />}
 
       {actionError && <div role="alert" className="demo-banner demo-banner-err">{actionError}<button className="btn btn-outline btn-sm" onClick={() => navigate(reportPath(exam.id))}>查看本次状态</button></div>}
-      <div role="status" className="hint">{draft.saving?'正在保存到服务器…':draft.entries.some(e=>e.dirty)?'有尚未保存到服务器的编辑，浏览器草稿已保留。':'已保存到服务器。关闭页面后可从考试中心继续。'}</div>
+      <div role="status" className="hint">{draft.saving?'正在保存到服务器…':draft.entries.some(e=>e.dirty)?'有尚未保存到服务器的编辑，浏览器草稿已保留。':experiencedPractice?'已保存到服务器。可用当前链接继续练习。':'已保存到服务器。关闭页面后可从考试中心继续。'}</div>
       {draft.saveError && <div role="alert" className="demo-banner demo-banner-err">{draft.saveError}<button className="btn btn-outline btn-sm" disabled={busy || draft.saving} onClick={()=>void draft.flush().catch(()=>{})}>重试保存</button></div>}
       {draft.entries.map((entry,i)=>entry.conflict && <div role="alert" className="demo-banner" key={i}>第 {i+1} 题服务器已有不同版本，本地编辑未被覆盖。<p>服务器答案：{String(entry.serverValue??'未作答')}</p><button className="btn btn-outline btn-sm" onClick={()=>draft.resolveConflict(i,false)}>使用服务器答案</button><button className="btn btn-outline btn-sm" onClick={()=>draft.resolveConflict(i,true)}>按最新版本保存我的编辑</button></div>)}
       <div className="quiz-card">
@@ -302,7 +333,7 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
       </div>
 
       {abortOpen && (
-        <Modal title="放弃考试" onClose={() => setAbortOpen(false)} size="sm"
+        <Modal title={experiencedPractice ? '放弃练习' : '放弃考试'} onClose={() => setAbortOpen(false)} size="sm"
           footer={
             <>
               <button className="btn btn-outline" onClick={() => setAbortOpen(false)}>继续作答</button>
@@ -310,9 +341,9 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
             </>
           }>
           <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.7 }}>
-            放弃后本场考试标记为「已放弃」，已作答内容不会计入能力证据，也不会生成报告。
+            {experiencedPractice ? '放弃后，本次练习结束。想暂停时，可以保存并返回题单。' : '放弃后本场考试标记为「已放弃」，已作答内容不会计入能力证据，也不会生成报告。'}
           </p>
-          <p className="hint" style={{ marginTop: 6 }}>关闭页面后可从考试中心继续，未成功保存的输入保留在本浏览器会话。</p>
+          {!experiencedPractice && <p className="hint" style={{ marginTop: 6 }}>关闭页面后可从考试中心继续，未成功保存的输入保留在本浏览器会话。</p>}
         </Modal>
       )}
       {confirmOpen && (
@@ -325,7 +356,7 @@ export default function Diagnosis({ studyMode = false }: { studyMode?: boolean }
           }>
           <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.7 }}>
             共 <b>{qs.length}</b> 题，本次编辑会一并保存并冻结；版本冲突会阻止提交并保留输入。
-            冻结后不能修改原答，后台评分全部完成后才会形成有效成绩、表现证据和对应学习任务。
+            {experiencedPractice ? '后台评分完成后可查看本题的练习得分和复盘反馈。' : '冻结后不能修改原答，后台评分全部完成后才会形成有效成绩、表现证据和对应学习任务。'}
           </p>
           <div className="steps" style={{ marginTop: 16 }}>
             {qs.map((_, i) => (
