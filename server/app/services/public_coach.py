@@ -283,10 +283,11 @@ class TurnContext:
                 (item for item in self.candidates if not item.superseded),
                 key=lambda item: (item.number != self.turn.target_number, item.number),
             )
-            context["当前候选题"] = _fit_context(
+            shortlisted = _fit_context(
                 ({"题号": item.number, "题干": item.title} for item in active),
                 12_000,
             )
+            context["当前候选题"] = sorted(shortlisted, key=lambda item: item["题号"])
             context["明确指定的修改题号"] = self.turn.target_number
         return [
             {"role": "system", "content": f"{_SYSTEM}\n{_TASKS[self.turn.action]}"},
