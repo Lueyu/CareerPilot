@@ -111,7 +111,7 @@ def example_for(question: Question) -> str | None:
 def _corrected_references() -> dict[str, str]:
     from app.seed import BANK_PATH
 
-    questions = json.loads(BANK_PATH.read_text(encoding="utf-8"))["questions"]
+    questions = json.loads(BANK_PATH.read_text(encoding="utf-8"))["questions"] if BANK_PATH.is_file() else []
     html = {q["id"]: q["html"] for q in questions if q["id"] in PREVIOUS_REFERENCE_DIGESTS}
     html.update({q.code: render_answer_html(q) for domain in load_catalog() for q in domain.questions
                  if q.code in PREVIOUS_REFERENCE_DIGESTS})

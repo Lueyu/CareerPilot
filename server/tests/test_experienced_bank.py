@@ -81,6 +81,24 @@ def test_reference_corrections_only_apply_to_unedited_shared_originals(monkeypat
     assert answer_guides.current_reference(row) == row.answer_html
 
 
+def test_authored_reference_update_can_run_without_optional_frontend_bank(tmp_path, monkeypatch):
+    code = "xp-production-03"
+    domain, authored = next((d, q) for d in experienced_bank.load_catalog() for q in d.questions if q.code == code)
+    row = Question(short_code=code, title=authored.title, qtype="open", source_type="PUBLIC_LICENSED",
+                   is_demo=False, answer_html="<p>Prior authored reference</p>", generation_meta={
+                       "pack": experienced_bank.PACK, "origin": experienced_bank.ORIGIN,
+                       "assessment_use": experienced_bank.PRACTICE_ONLY, "domain_key": domain.key,
+                   })
+    from hashlib import sha256
+    monkeypatch.setitem(answer_guides.PREVIOUS_REFERENCE_DIGESTS, code, sha256(row.answer_html.encode()).hexdigest())
+    monkeypatch.setattr(seed, "BANK_PATH", tmp_path / "absent.json")
+    answer_guides._corrected_references.cache_clear()
+    try:
+        assert answer_guides.current_reference(row) == experienced_bank.render_answer_html(authored)
+    finally:
+        answer_guides._corrected_references.cache_clear()
+
+
 def test_shipped_legacy_mapping_covers_each_original_once():
     mapping = json.loads(experienced_bank.LEGACY_DOMAINS_PATH.read_text(encoding="utf-8"))
     originals = json.loads(seed.BANK_PATH.read_text(encoding="utf-8"))["questions"]
