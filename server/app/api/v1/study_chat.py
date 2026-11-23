@@ -12,9 +12,10 @@ from app.db import get_session
 from app.models import Workspace
 from app.models.project import Project
 from app.models.study_chat import StudyMessage, StudySession
+from app.services.answer_guides import for_question as teaching_guide_for
 from app.services.learning_exposure import record_reference_exposure
 from app.services.study_chat import expire_generations, generate_reply, lease_deadline, teaching_action
-from app.services.study_chat_context import current_skill_sources, entry_context, project_sources, topic_skills, visible_question
+from app.services.study_chat_context import current_skill_sources, entry_context, excerpt, project_sources, topic_skills, visible_question
 
 
 router = APIRouter(prefix="/study/sessions", tags=["学习聊天"])
@@ -168,6 +169,12 @@ async def mark_help(session, ws, row, question_text):
         question = await visible_question(session, ws.id, row.context["question_id"])
         if question:
             await record_reference_exposure(session, ws, question, source="study_chat_explanation")
+            guide = teaching_guide_for(question)
+            if guide:
+                return excerpt("teaching_guide", question.id, "本题导读与教学示例", {
+                    "白话": guide.plain, "流程": guide.flow, "例子": guide.example,
+                    "提议的项目练习": guide.project.model_dump(),
+                }, "teaching_material")
 
 
 @router.post("/{session_id}/messages", status_code=202)
@@ -227,7 +234,9 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
     else:
         anchor = parent.id if parent else None
     mode = body.mode or row.context.get("mode", "auto")
-    await mark_help(session, ws, row, body.content)
+    guide_source = await mark_help(session, ws, row, body.content)
+    if guide_source:
+        sources.append(guide_source)
     if not row.context["topic"]:
         row.context = {**row.context, "topic": body.content, "skill_ids": skills}
         if row.title == "新的学习会话":
