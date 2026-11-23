@@ -3,10 +3,6 @@
 import asyncio
 import io
 import json
-import sys
-from importlib import import_module
-from importlib.util import find_spec
-from types import ModuleType
 from uuid import uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -16,33 +12,15 @@ import pytest_asyncio
 from fastapi import Depends, FastAPI, Header, HTTPException
 from sqlalchemy import delete, select
 
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from app.api import public_library as library
 from app.db import get_session
 from app.models import Question, Workspace
 
 
-async def _missing_boundary(*args, **kwargs):
-    raise AssertionError("the acceptance fixture must override the boundary")
-
-
-@pytest.fixture
-def library(monkeypatch):
-    missing = False
-    for name, entry in (
-        ("app.api.public_auth", "current_workspace"),
-        ("app.services.public_model", "complete_text"),
-    ):
-        if find_spec(name) is None:
-            shim = ModuleType(name)
-            setattr(shim, entry, _missing_boundary)
-            monkeypatch.setitem(sys.modules, name, shim)
-            missing = True
-    yield import_module("app.api.public_library")
-    if missing:
-        sys.modules.pop("app.api.public_library", None)
-
-
 @pytest_asyncio.fixture
-async def browser(library, db_session, test_workspace, monkeypatch):
+async def browser(db_session, test_workspace, monkeypatch):
     other = Workspace(slug=f"library-other-{uuid4().hex}", name="Other workspace", target_role="")
     legacy = Question(short_code=f"legacy-{uuid4().hex[:20]}", title="旧版公共题", topic="legacy")
     db_session.add_all([other, legacy])
@@ -81,6 +59,13 @@ async def browser(library, db_session, test_workspace, monkeypatch):
             raise HTTPException(401)
         return await db.get(Workspace, x_test_space)
 
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False, autoflush=False)
+
+    async def database():
+        async with factory() as db:
+            yield db
+
+    app.dependency_overrides[get_session] = database
     app.dependency_overrides[library.current_workspace] = current_workspace
     monkeypatch.setattr(library, "complete_text", fake_model)
     transport = httpx.ASGITransport(app=app)
@@ -95,9 +80,6 @@ async def browser(library, db_session, test_workspace, monkeypatch):
         await db_session.execute(delete(Question).where(Question.id == legacy_id))
         await db_session.execute(delete(Workspace).where(Workspace.id == other_id))
         await db_session.commit()
-        from app.db import engine
-
-        await engine.dispose()
 
 
 async def _role(client, role="产品运营", topic="用户增长", **body):
@@ -245,7 +227,7 @@ async def test_upload_edit_reopen_approve_and_retry(browser, filename, make_byte
 
 
 @pytest.mark.asyncio
-async def test_model_provenance_export_and_parse_failure(browser, db_session, library):
+async def test_model_provenance_export_and_parse_failure(browser, db_session):
     owner, peer, calls, owner_id, other_id = browser
     selection = await _role(owner)
     failed = (await _upload(owner, selection, "扫描版.pdf", _pdf([]))).json()
@@ -282,7 +264,7 @@ async def test_model_provenance_export_and_parse_failure(browser, db_session, li
 
 
 @pytest.mark.asyncio
-async def test_upload_caps_and_wrong_format(browser, library):
+async def test_upload_caps_and_wrong_format(browser):
     owner, _, calls, _, _ = browser
     selection = await _role(owner)
     assert (await _upload(owner, selection, "bad.txt", b"plaintext")).status_code == 415

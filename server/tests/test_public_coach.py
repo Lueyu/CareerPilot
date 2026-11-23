@@ -1,10 +1,7 @@
 """Public coach API tests with isolated PostgreSQL and scripted model responses."""
 
 import asyncio
-import importlib
 import json
-import sys
-from types import ModuleType
 from uuid import uuid4
 
 import pytest
@@ -14,9 +11,10 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.api import public_coach as api, public_memory
 from app.db import get_session
 from app.models import Question, Workspace
-from app.models.public_coach import CoachThread  # noqa: F401
+from app.services import public_coach as service
 
 pytestmark = pytest.mark.asyncio
 
@@ -37,24 +35,6 @@ async def coach(monkeypatch, db_session):
 
     async def confirmed(db, workspace_id):
         return memories.get(workspace_id, [])
-
-    # Keep cross-seat stand-ins in this fixture. Integrated runs use the actual modules.
-    contracts = {
-        "app.api.public_auth": {"current_workspace": identity},
-        "app.api.public_memory": {"confirmed_context": confirmed},
-        "app.services.public_model": {"complete_text": unavailable, "stream_text": unavailable},
-    }
-    standalone = False
-    for name, attributes in contracts.items():
-        if importlib.util.find_spec(name) is None:
-            standalone = True
-            module = ModuleType(name)
-            module.__dict__.update(attributes)
-            monkeypatch.setitem(sys.modules, name, module)
-
-    service = importlib.import_module("app.services.public_coach")
-    api = importlib.import_module("app.api.public_coach")
-    from app.api import public_memory
 
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False, autoflush=False)
     monkeypatch.setattr(service, "SessionLocal", factory)
@@ -77,24 +57,19 @@ async def coach(monkeypatch, db_session):
     ]
     db_session.add_all(workspaces)
     await db_session.commit()
-    try:
-        async with (
-            AsyncClient(
-                transport=ASGITransport(app=app),
-                base_url="http://test/api/v1",
-                headers={"X-Test-Workspace": str(workspaces[0].id)},
-            ) as owner,
-            AsyncClient(
-                transport=ASGITransport(app=app),
-                base_url="http://test/api/v1",
-                headers={"X-Test-Workspace": str(workspaces[1].id)},
-            ) as other,
-        ):
-            yield owner, other, service, api, workspaces, memories
-    finally:
-        if standalone:
-            sys.modules.pop("app.api.public_coach", None)
-            sys.modules.pop("app.services.public_coach", None)
+    async with (
+        AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test/api/v1",
+            headers={"X-Test-Workspace": str(workspaces[0].id)},
+        ) as owner,
+        AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test/api/v1",
+            headers={"X-Test-Workspace": str(workspaces[1].id)},
+        ) as other,
+    ):
+        yield owner, other, service, api, workspaces, memories
 
 
 async def make_thread(client, **body):
