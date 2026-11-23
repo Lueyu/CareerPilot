@@ -60,5 +60,6 @@ vite-dev.log
 /.playwright-cli/
 /output/
 /exports/
+web/dist-seed/
 /debug.log
 pytest-of-*/
