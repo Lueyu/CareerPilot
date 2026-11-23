@@ -15,3 +15,6 @@
 .teaching-guide .guide-source { color: var(--text-2); font-size: .82rem; }
 .teaching-guide summary { cursor: pointer; font-weight: 600; }
 .teaching-guide details p { margin-top: .4rem; }
+.bank-answer ol.answer-flow { display: grid; list-style: decimal inside; gap: .5rem; padding-inline-start: 0; }
+.bank-answer ol.answer-flow > li { padding: .55rem .8rem; border-inline-start: 3px solid var(--primary); background: var(--primary-50); }
+.bank-answer ol.answer-flow p { margin: .2rem 0 0; }

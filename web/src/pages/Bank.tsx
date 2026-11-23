@@ -55,6 +55,8 @@ interface Row {
   difficulty: number;
   tags: string[];
   source_type: string;
+  reviewOnly?: boolean;
+  studySessionId?: number | null;
   status: string;
 }
 
@@ -251,6 +253,8 @@ export default function Bank() {
     difficulty: item.difficulty ?? 3,
     tags: item.tags ?? [],
     source_type: item.source_type,
+    reviewOnly: item.review_only,
+    studySessionId: item.study_session_id,
     status: item.status || '已收录',
   })), [apiData]);
   const resultCount = apiData?.total ?? 0;
@@ -578,11 +582,15 @@ export default function Bank() {
                     <span className="chip chip-slate">{TOPIC_NAME[r.topic] ?? r.topic}</span>
                     <span style={{ fontSize: 12 }}><Stars n={r.difficulty} /></span>
                     {bankSourcePresentation(r).isPrivate && <span className="chip chip-purple">私有</span>}
-                    <span className="chip chip-slate">{bankSourcePresentation(r).label}</span>
+                    <span className="chip chip-slate">{r.reviewOnly ? '学习聊天整理' : bankSourcePresentation(r).label}</span>
                     {r.tags?.slice(0, 2).map((t) => <span key={t} className="chip chip-slate">#{t}</span>)}
                   </div>
                 </div>
                 <div className="q-actions">
+                  {r.reviewOnly ? <>
+                    {r.studySessionId && <Link className="btn btn-outline btn-sm" to={`/study/chat/${r.studySessionId}`}>回看学习聊天</Link>}
+                    <button className="btn btn-outline btn-sm" onClick={() => openDetail(r)}>查看参考</button>
+                  </> : <>
                   <button className="btn btn-outline btn-sm" disabled={!bankSourcePresentation(r).editable} title={bankSourcePresentation(r).editable?'编辑个人题目信息':'共享题库只读，可导入面经后整理为个人题目'} onClick={() => setEditQ(r)}>{bankSourcePresentation(r).editable?'编辑':'共享题只读'}</button>
                   {r.numericQuestionId != null && <button className="btn btn-outline btn-sm" onClick={() => {
                     if (r.numericQuestionId != null) setMappingQuestion({ id: r.numericQuestionId, title: r.title });
@@ -591,6 +599,7 @@ export default function Bank() {
                   <button className="btn btn-outline btn-sm" disabled={practiceBusy!==null} onClick={() => startPractice(r)}>{practiceBusy===r.id?'准备考试…':'开始练习'}</button>
                   <button className="btn btn-outline btn-sm" onClick={() => openDetail(r)}>查看参考</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => setMergeQ(r)}>合并重复</button>
+                  </>}
                 </div>
               </div>
             ))
@@ -609,11 +618,12 @@ export default function Bank() {
         <Modal title={generalDetail ? `${detail.id} · 题目详情` : '查看参考'} size="xl" onClose={() => {++detailRequest.current;setDetail(null);}}
           footer={
             <>
-              {generalDetail && <>
+              {generalDetail && !generalDetail.reviewOnly && <>
                 <button className="btn btn-outline" disabled={!bankSourcePresentation(generalDetail).editable} title={bankSourcePresentation(generalDetail).editable?'编辑个人题目信息':'共享题库只读，可导入面经后整理为个人题目'} onClick={() => { setDetail(null); setEditQ(generalDetail); }}>{bankSourcePresentation(generalDetail).editable?'编辑':'共享题只读'}</button>
               </>}
-              <StudyEntryButton key={detail.id} kind="question" id={detail.numericQuestionId} bankKey={detail.id}/>
-              <button className="btn btn-primary" disabled={practiceBusy!==null} onClick={() => startPractice(detail, !generalDetail)}>{practiceBusy?'准备考试…':practiceError?.id === detail.id ? '重试练习' : '开始练习'}</button>
+              {generalDetail?.reviewOnly && generalDetail.studySessionId && <Link className="btn btn-outline" to={`/study/chat/${generalDetail.studySessionId}`}>回看学习聊天</Link>}
+              {!generalDetail?.reviewOnly && <><StudyEntryButton key={detail.id} kind="question" id={detail.numericQuestionId} bankKey={detail.id}/>
+              <button className="btn btn-primary" disabled={practiceBusy!==null} onClick={() => startPractice(detail, !generalDetail)}>{practiceBusy?'准备考试…':practiceError?.id === detail.id ? '重试练习' : '开始练习'}</button></>}
             </>
           }>
           <div className="q-meta" style={{ marginBottom: 14 }}>
@@ -628,7 +638,7 @@ export default function Bank() {
             </>}
           </div>
           <h3 className={generalDetail ? undefined : 'experienced-prompt'} style={{ fontSize: 17, fontWeight: 650, marginBottom: 14 }}>{detail.title}</h3>
-          {generalDetail && <p className="hint">{bankSourcePresentation(generalDetail).isPrivate ? `个人题库 · ${bankSourcePresentation(generalDetail).label}`:'共享题库只读；需要结合项目改写时，可在面经工作台导入并审核为个人题目。'}</p>}
+          {generalDetail && <p className="hint">{generalDetail.reviewOnly ? '个人复习题 · 来自学习聊天' : bankSourcePresentation(generalDetail).isPrivate ? `个人题库 · ${bankSourcePresentation(generalDetail).label}`:'共享题库只读；需要结合项目改写时，可在面经工作台导入并审核为个人题目。'}</p>}
           {detailErr && <div role="alert" className="demo-banner demo-banner-err" style={{ marginBottom: 10 }}>{detailErr}</div>}
           {practiceError?.id === detail.id && <p role="alert">{practiceError.message}</p>}
           {guide && <AnswerGuide guide={guide} />}

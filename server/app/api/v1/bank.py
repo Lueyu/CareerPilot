@@ -144,6 +144,7 @@ async def list_bank(
                 "company": r.company,
                 "source_type": r.source_type,
                 "review_only": r.is_study_chat_review,
+                "study_session_id": (r.generation_meta or {}).get("study_session_id") if r.is_study_chat_review else None,
                 "tags": r.tags or [],
                 "occurred_on": r.occurred_on.isoformat() if r.occurred_on else None,
             }

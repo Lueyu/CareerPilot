@@ -295,6 +295,7 @@ export interface BankData {
   items: {
     id: number; short_code: string; title: string; qtype: string; topic: string;
     difficulty: number; company?: string | null; source_type: string;
+    review_only?: boolean; study_session_id?: number | null;
     skill_key?: string | null; skill?: string | null; tags?: string[]; status?: string;
   }[];
   facets?: Record<string, Record<string, number>>;

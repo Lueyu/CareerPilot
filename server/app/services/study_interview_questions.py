@@ -185,7 +185,7 @@ async def generate_question(db, workspace_id, session_id):
 
     question = Question(workspace_id=workspace_id, short_code="sc-" + uuid4().hex[:29],
                         title=guide.title, topic="study", source_type=SOURCE_GENERATED,
-                        answer_html=answer_html, generation_meta=dict(STUDY_CHAT_REVIEW_META))
+                        answer_html=answer_html, generation_meta={**STUDY_CHAT_REVIEW_META, "study_session_id": session_id})
     db.add(question)
     await db.flush()
     db.add(StudyInterviewQuestion(question_id=question.id, session_id=session_id, snapshot_hash=snapshot_hash))
