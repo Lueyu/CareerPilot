@@ -142,6 +142,8 @@ class ChatCompletionStream:
                 else:
                     self.meta['last_sse_before_content_ms'] = previous_event_ms
             self.meta.setdefault('first_content_ms', self.elapsed())
+            if 'first_nonwhitespace_content_ms' not in self.meta and content.strip():
+                self.meta['first_nonwhitespace_content_ms'] = event_ms
         reasoning = delta.get('reasoning_content')
         if reasoning is not None and not isinstance(reasoning, str):
             self.fail('invalid_content')

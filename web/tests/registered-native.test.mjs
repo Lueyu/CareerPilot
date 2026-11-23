@@ -28,7 +28,7 @@ test('bound owner enters a native project deep link with cookie-only transport',
     if (path.endsWith('/access')) return Response.json({ personal_owner: true });
     if (path.endsWith('/settings/export')) return new Response('fixture export');
     if (path.endsWith('/bank/legacy-data')) return Response.json({ questions: [{ id: 'fixture' }] });
-    if (path.endsWith('/fixture/stream')) return new Response('data: {"id":1}\n\n');
+    if (path.endsWith('/fixture/stream')) return new Response('data: {"id":1,"status":"completed","content":"ok"}\n\n');
     if (path.endsWith('/fixture/upload')) {
       assert.ok(options.body instanceof FormData);
       assert.equal(options.headers.has('Content-Type'), false);
@@ -56,7 +56,7 @@ test('bound owner enters a native project deep link with cookie-only transport',
   assert.equal(await (await downloadWorkspaceExport()).text(), 'fixture export');
   const messages = [];
   await readMessageStream('/fixture/stream', new AbortController().signal, event => messages.push(event));
-  assert.deepEqual(messages, [{ id: 1 }]);
+  assert.deepEqual(messages, [{ id: 1, status: 'completed', content: 'ok' }]);
   assert.deepEqual(await api.upload('/fixture/upload', new FormData()), { accepted: true });
 });
 

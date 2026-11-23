@@ -277,19 +277,27 @@ def _model_upstream() -> dict[str, str]:
         "MODEL_UPSTREAM_API_KEY": os.environ.get("SEED_MODEL_KEY", "").strip(),
         "MODEL_UPSTREAM_MODEL": os.environ.get("SEED_MODEL_NAME", "").strip(),
     }
-    if not any(config.values()):
+    optional = {
+        "MODEL_" + key: os.environ.get("SEED_STUDY_" + key, "").strip()
+        for key in ("FLASH_MODEL", "STRONG_MODEL", "STRONG_BASE_URL", "STRONG_API_KEY")
+    }
+    if not any(config.values()) and not any(optional.values()):
         return {}
     if not all(config.values()):
         raise RuntimeError("Tenant model relay requires all three SEED_MODEL settings")
-    return config
+    if optional["MODEL_STRONG_BASE_URL"] or optional["MODEL_STRONG_API_KEY"]:
+        if not all(optional[key] for key in ("MODEL_STRONG_MODEL", "MODEL_STRONG_BASE_URL", "MODEL_STRONG_API_KEY")):
+            raise RuntimeError("A separate Strong connection needs its model, URL and key")
+    return {**config, **{key: value for key, value in optional.items() if value}}
 
 
 def _compose(
     slug: str, display_role: str, token: str, password: str,
     subnets: dict[str, str], upstream: dict[str, str], model_token: str, repo_token: str,
 ) -> dict:
+    image = (os.environ.get("TENANT_NATIVE_IMAGE") or "").strip() or IMAGE
     native = {
-        "image": IMAGE,
+        "image": image,
         "environment": {
             "DATABASE_URL": f"postgresql+asyncpg://careerpilot:{password}@postgres:5432/careerpilot",
             "DEFAULT_WORKSPACE_SLUG": slug,
@@ -371,7 +379,7 @@ def _compose(
     })
     compose["services"]["repo-relay"] = _relay_service(
         "repo_relay", "repo_egress", repo_ip, 8081,
-        {"REPO_RELAY_BIND_IP": repo_ip, "REPO_RELAY_TOKEN": repo_token},
+        {"REPO_RELAY_BIND_IP": repo_ip, "REPO_RELAY_TOKEN": repo_token}, image=image,
     )
     if upstream:
         model_ip = str(private.broadcast_address - 1)
@@ -380,7 +388,16 @@ def _compose(
             "LLM_API_KEY": model_token,
             "LLM_BASE_URL": f"http://{model_ip}:8080/v1",
             "LLM_MODEL": upstream["MODEL_UPSTREAM_MODEL"].replace("$", "$$"),
+            "STUDY_FLASH_MODEL": upstream.get("MODEL_FLASH_MODEL", "").replace("$", "$$"),
+            "STUDY_FLASH_THINKING": os.environ.get("SEED_STUDY_FLASH_THINKING", ""),
+            "STUDY_STRONG_MODEL": upstream.get("MODEL_STRONG_MODEL", "").replace("$", "$$"),
         })
+        if upstream.get("MODEL_STRONG_BASE_URL"):
+            native["environment"].update({
+                "STUDY_STRONG_BASE_URL": f"http://{model_ip}:8080/strong/v1",
+                "STUDY_STRONG_API_KEY": model_token,
+                "STUDY_STRONG_PROVIDER": "compatible",
+            })
         compose["services"]["model-relay"] = _relay_service(
             "model_relay", "egress", model_ip, 8080,
             {
@@ -388,6 +405,7 @@ def _compose(
                 "MODEL_RELAY_BIND_IP": model_ip,
                 "MODEL_RELAY_TOKEN": model_token,
             },
+            image=image,
         )
 
     for name, subnet in subnets.items():
@@ -399,9 +417,9 @@ def _compose(
     return compose
 
 
-def _relay_service(module: str, egress: str, address: str, port: int, environment: dict[str, str]) -> dict:
+def _relay_service(module: str, egress: str, address: str, port: int, environment: dict[str, str], *, image: str) -> dict:
     return {
-        "image": IMAGE,
+        "image": image,
         "command": ["python", "-m", f"deploy.tenant.{module}"],
         "environment": environment,
         "networks": {"private": {"ipv4_address": address}, egress: {}},

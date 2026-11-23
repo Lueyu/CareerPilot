@@ -13,16 +13,6 @@ from app.config import get_settings
 from app.models.project import Project
 from app.models.study_chat import StudyMessage
 from app.services import study_chat as engine
-from app.services.study_routing import decide
-
-
-def test_router_uses_history_and_scope():
-    prior = SimpleNamespace(role="assistant", action="explain", coach={"trace":{"tier":"strong"}})
-    assert decide("auto", "explain", "什么是 RAG", [], [])[0] == "flash"
-    assert decide("auto", "explain", "checkpoint 和外部副作用", [], [])[0] == "strong"
-    assert decide("auto", "why", "这一步为什么会重复", [prior], [])[0] == "strong"
-    assert decide("flash", "why", "这一步为什么会重复", [prior], [])[0] == "flash"
-    assert decide("auto", "explain", "解释", [], [{"path":"a.py"},{"path":"b.py"}])[0] == "strong"
 
 
 @pytest.mark.asyncio

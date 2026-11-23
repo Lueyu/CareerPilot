@@ -2,6 +2,7 @@
 from app.config import get_settings
 from app.models import AppSetting
 from app.services import study_routing
+from app.services.llm_endpoint_config import resolve_llm_config
 from app.services.project_jobs import fingerprint
 from app.services.repository_credentials import repository_credentials
 
@@ -21,9 +22,8 @@ async def runtime_config(session,workspace_id,require_consent=True):
     env=get_settings()
     # Source-transfer consent governs model use. Repository access has its own boundary.
     row=await session.get(AppSetting,f'llm:{workspace_id}') or await session.get(AppSetting,'llm')
-    config={'provider':env.llm_provider or '', 'api_key':env.llm_api_key or '',
-        'base_url':env.llm_base_url or '', 'model':env.llm_model or ''}
-    if row:config.update({k:v for k,v in row.value.items() if k in config and v})
+    config = resolve_llm_config(env, row.value if row else None)
+    config.pop("source")
     config['auto_profiles'] = {tier: study_routing.profile(config, tier) for tier in ('flash', 'strong')}
     credentials=await repository_credentials(session,workspace_id)
     return config,credentials,consent

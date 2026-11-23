@@ -1,5 +1,6 @@
 """Workspace-owned tutoring sessions. A committed turn survives a lost browser connection."""
 from datetime import datetime, timezone
+import time
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
@@ -16,7 +17,9 @@ from app.models.study_chat import StudyMessage, StudySession
 from app.services.answer_guides import example_for
 from app.services.answer_guides import for_question as teaching_guide_for
 from app.services.learning_exposure import record_reference_exposure
-from app.services.study_chat import expire_generations, generate_reply, lease_deadline, message_stream, teaching_action
+from app.services.study_chat import (
+    expire_generations, generate_reply, interrupt_content, lease_deadline, message_stream, notify_stream, teaching_action,
+)
 from app.services.study_chat_context import (
     current_skill_sources,
     entry_context,
@@ -186,7 +189,8 @@ async def archive(session_id: int, session: Db, ws: Owner):
 
 
 def ticket(user_id, reply):
-    return {"user_message_id": user_id, "assistant_message_id": reply.id, "status": reply.status}
+    return {"user_message_id": user_id, "assistant_message_id": reply.id, "status": reply.status,
+            "attempt": reply.attempt}
 
 
 async def mark_help(session, ws, row, question_text):
@@ -210,6 +214,7 @@ async def mark_help(session, ws, row, question_text):
 
 @router.post("/{session_id}/messages", status_code=202)
 async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, session: Db, ws: Owner):
+    submitted_at = time.monotonic()
     await workspace_lock(session, ws)
     row = await owned(session, ws.id, session_id, lock=True)
     await expire_generations(session, row.id)
@@ -285,7 +290,7 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
                                 "trace": {"stage": "queued", "calls": []}})
     session.add(reply)
     await session.commit()
-    tasks.add_task(generate_reply, reply.id, reply.attempt)
+    tasks.add_task(generate_reply, reply.id, reply.attempt, submitted_at=submitted_at, accepted_at=time.monotonic())
     return ticket(user.id, reply)
 
 
@@ -304,14 +309,17 @@ async def interrupt(session_id: int, message_id: int, session: Db, ws: Owner):
     row = await owned(session, ws.id, session_id, lock=True)
     user_id, reply = await owned_reply(session, row, message_id)
     if reply.status == "generating":
+        reply.content = interrupt_content(reply)
         reply.coach = {**reply.coach, "trace": {**reply.coach.get("trace", {}), "stage": "interrupted", "error_kind": "cancelled"}}
         reply.status, reply.expires_at, reply.error = "interrupted", None, "已暂停生成，可重试"
     await session.commit()
+    notify_stream(reply)
     return ticket(user_id, reply)
 
 
 @router.post("/{session_id}/messages/{message_id}/retry", status_code=202)
 async def retry(session_id: int, message_id: int, tasks: BackgroundTasks, session: Db, ws: Owner):
+    submitted_at = time.monotonic()
     await workspace_lock(session, ws)
     row = await owned(session, ws.id, session_id, lock=True)
     await expire_generations(session, row.id)
@@ -331,13 +339,15 @@ async def retry(session_id: int, message_id: int, tasks: BackgroundTasks, sessio
     calls = list(previous_trace.get("calls", []))
     if calls and reply.content:
         calls[-1] = {**calls[-1], "saved_output": reply.content[:16000], "error": calls[-1].get("error") or reply.error}
+    previous_trace.pop("latency", None)
     reply.coach = {**reply.coach, "trace": {**previous_trace, "calls": calls, "stage": "queued", "error_kind": None}}
     reply.attempt += 1
     reply.status, reply.content, reply.error, reply.model = "generating", "", None, None
     reply.expires_at = lease_deadline()
     row.updated_at = datetime.now(timezone.utc)
     await session.commit()
-    tasks.add_task(generate_reply, reply.id, reply.attempt)
+    notify_stream(reply)
+    tasks.add_task(generate_reply, reply.id, reply.attempt, submitted_at=submitted_at, accepted_at=time.monotonic())
     return ticket(user_id, reply)
 
 
@@ -345,12 +355,11 @@ async def retry(session_id: int, message_id: int, tasks: BackgroundTasks, sessio
 async def stream(session_id: int, message_id: int, session: Db, ws: Owner):
     """Server-sent events of one assistant reply until it reaches a terminal state.
 
-    The reply is re-read from the durable row on every tick, so reconnect at any
-    point rebuilds the exact saved text. Ownership is checked once up front;
-    generation progress itself is written by the background task, not here.
+    Ownership is checked up front. Each connection reads current durable state
+    on arrival and follows newer live snapshots from the background task.
     """
     row = await owned(session, ws.id, session_id)
-    reply = await session.scalar(select(StudyMessage).where(StudyMessage.id == message_id,
+    reply = await session.scalar(select(StudyMessage.id).where(StudyMessage.id == message_id,
         StudyMessage.session_id == row.id, StudyMessage.role == "assistant"))
     if reply is None:
         raise HTTPException(404, "回复不存在")

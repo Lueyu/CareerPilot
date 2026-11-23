@@ -164,21 +164,27 @@ export async function readMessageStream(
     for (;;) {
       const { done, value } = await reader.read();
       access?.signal.throwIfAborted();
-      if (done) break;
+      if (done) throw new ApiError(0, '回复流提前结束');
       buffer += decoder.decode(value, { stream: true });
-      let cut = buffer.indexOf('\n\n');
-      while (cut >= 0) {
-        const block = buffer.slice(0, cut);
-        buffer = buffer.slice(cut + 2);
-        const payload = block.split('\n').filter(line => line.startsWith('data:'))
+      let separator: RegExpExecArray | null;
+      while ((separator = /\r?\n\r?\n/.exec(buffer))) {
+        const block = buffer.slice(0, separator.index);
+        buffer = buffer.slice(separator.index + separator[0].length);
+        const payload = block.split(/\r?\n/).filter(line => line.startsWith('data:'))
           .map(line => line.slice(5).trim()).join('\n');
         if (payload) {
-          try { onEvent(JSON.parse(payload) as MessageStreamEvent); } catch { /* skip malformed frame */ }
+          const event: MessageStreamEvent = JSON.parse(payload);
+          if (!Number.isSafeInteger(event?.id) || typeof event.content !== 'string' ||
+              !['generating', 'completed', 'failed', 'interrupted'].includes(event.status)) {
+            throw new ApiError(0, '无法识别回复状态');
+          }
+          onEvent(event);
+          if (event.status !== 'generating') return;
         }
-        cut = buffer.indexOf('\n\n');
       }
     }
   } finally {
+    void reader.cancel().catch(() => {});
     reader.releaseLock();
   }
 }

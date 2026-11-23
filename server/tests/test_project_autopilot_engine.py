@@ -639,3 +639,28 @@ async def test_project_stage_uses_coach_auto_tier_and_traces_dispatched_model(mo
     _, _, meta = await api._ask(task, {}, api.CandidateResponse, rt)
     assert calls == [expected + '-fixture']
     assert (meta['routing_mode'], meta['tier'], meta['model']) == ('auto', expected, calls[0])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(('task', 'repair', 'missing', 'preferred', 'served'), [
+    ('plan_modules', None, 'flash', 'flash', 'strong'),
+    ('verify_cross_module', None, 'strong', 'strong', 'flash'),
+    ('plan_modules', 'INVALID_SCHEMA', None, 'strong', 'strong'),
+])
+async def test_project_auto_repair_and_missing_profile(monkeypatch, task, repair, missing, preferred, served):
+    api = engine()
+    rt = runtime(api)
+    rt.repair_diagnostic = repair
+    base = dict(rt.llm_config)
+    rt.llm_config['auto_profiles'] = {
+        tier: {**base, 'model': tier, 'api_key': '' if tier == missing else 'fixture'}
+        for tier in ('flash', 'strong')
+    }
+
+    async def answer(self, config, *args, **kwargs):
+        assert config['model'] == served
+        return {'content': '{"candidates":[]}'}
+
+    monkeypatch.setattr(api.AgentAdapter, 'chat_with', answer)
+    _, _, meta = await api._ask(task, {}, api.CandidateResponse, rt)
+    assert (meta['requested_tier'], meta['tier'], meta['routing_policy']) == (preferred, served, 'project-stage-v2')

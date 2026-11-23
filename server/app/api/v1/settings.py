@@ -51,6 +51,7 @@ from app.models import (
 )
 from app.services.github_publish import get_github_token, set_github_token_cache
 from app.services.llm import adapter, get_llm_config, set_llm_config_cache
+from app.services.llm_endpoint_config import endpoint, resolve_llm_config
 from app.services.workspaces import ensure_personal_workspace
 
 router = APIRouter()
@@ -398,6 +399,14 @@ class LlmTest(BaseModel):
     model: str | None = None
 
 
+def _endpoint_key_error(previous: dict, proposed: dict, new_key: str) -> str | None:
+    if endpoint(previous) != endpoint(proposed) and not new_key:
+        return "更改模型服务商或接口地址时，请填写新端点对应的 API 密钥。"
+    if new_key and not all(proposed[field].strip() for field in ("provider", "base_url")):
+        return "请填写模型服务商和接口地址，再配置对应的 API 密钥。"
+    return None
+
+
 def _hint(key: str) -> str | None:
     return f"****{key[-4:]}" if key else None
 
@@ -439,21 +448,25 @@ async def update_llm(
     body: LlmUpdate,
     session: AsyncSession = Depends(get_session),
 ):
-    row = (await session.execute(select(AppSetting).where(AppSetting.key == "llm"))).scalar_one_or_none()
-    existing = dict(row.value) if (row and isinstance(row.value, dict)) else {}
-    if not row:
-        row = AppSetting(key="llm", value={})
-        session.add(row)
     data = body.model_dump(exclude_none=True)
     if not data:
         raise HTTPException(status_code=422, detail="没有要更新的字段")
-    # api_key 为空字符串 = 保留现有密钥(不覆盖)
-    if data.get("api_key") == "":
-        data.pop("api_key")
-    existing.update(data)
-    # 清理空值字段, 保留结构
-    existing = {k: v for k, v in existing.items() if v}
-    row.value = existing
+    statement = select(AppSetting).where(AppSetting.key == "llm").with_for_update()
+    row = (await session.execute(statement)).scalar_one_or_none()
+    existing = row.value if row and isinstance(row.value, dict) else {}
+    env = get_settings()
+    new_key = data.pop("api_key", "").strip()
+    updated = {k: v for k, v in {**existing, **data}.items() if v}
+    proposed = resolve_llm_config(env, updated)
+    error = _endpoint_key_error(resolve_llm_config(env, existing), proposed, new_key)
+    if error:
+        raise HTTPException(422, error)
+    if new_key:
+        updated.update(api_key=new_key, provider=proposed["provider"], base_url=proposed["base_url"])
+    if row:
+        row.value = updated
+    else:
+        session.add(AppSetting(key="llm", value=updated))
     await session.commit()
     set_llm_config_cache(None)  # 立即重新解析(下次 get_llm_config 查库)
     return await _llm_payload()
@@ -471,10 +484,16 @@ async def reset_llm(session: AsyncSession = Depends(get_session)):
 @router.post("/settings/llm/test", dependencies=[Depends(require_local_owner)])
 async def test_llm(body: LlmTest):
     """用「生效配置 + 请求覆盖」真实调用一次 chat, 验证连通性。"""
-    cfgv = dict(await get_llm_config())
-    for k, v in body.model_dump(exclude_none=True).items():
-        if v:
-            cfgv[k] = v
+    current = await get_llm_config()
+    data = {k: v for k, v in body.model_dump(exclude_none=True).items() if v.strip()}
+    new_key = data.pop("api_key", "").strip()
+    cfgv = {**current, **data}
+    error = _endpoint_key_error(current, cfgv, new_key)
+    cfgv["api_key"] = new_key or current["api_key"]
+    if not cfgv["api_key"]:
+        error = error or "请为当前模型服务商和接口地址填写对应的 API 密钥，再测试连接。"
+    if error:
+        return {"ok": False, "latency_ms": 0, "model": cfgv.get("model"), "error": error}
     t0 = time.monotonic()
     result = await adapter.chat_with(cfgv, "你是连接测试助手。", "请只回复两个字符: OK", timeout=30.0)
     latency_ms = int((time.monotonic() - t0) * 1000)

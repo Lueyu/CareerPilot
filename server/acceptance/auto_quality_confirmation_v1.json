@@ -1,0 +1,199 @@
+{
+  "format": 1,
+  "routing": [
+    {
+      "id": "CF-01",
+      "stratum": "operations",
+      "language": "zh",
+      "role": "餐饮门店运营",
+      "expected": "flash",
+      "content": "交接班本上写的‘待盘点’是什么意思？用一句话给新店员说明。"
+    },
+    {
+      "id": "CF-02",
+      "stratum": "operations",
+      "language": "mixed",
+      "role": "Warehouse operations",
+      "expected": "flash",
+      "content": "Dock schedule 里 ETA 和 check-in time 各指什么？各给一个短定义。"
+    },
+    {
+      "id": "CF-03",
+      "stratum": "operations",
+      "language": "zh",
+      "role": "区域门店运营",
+      "expected": "strong",
+      "content": "暴雨让两家门店同时缺货，调拨车只能跑一趟。老店有稳定客流，新店明早有预售，库存还有一部分过期风险。你会先核对哪些数据，怎么分货？请给一个会改变分配结果的反例。"
+    },
+    {
+      "id": "CF-04",
+      "stratum": "operations",
+      "language": "mixed",
+      "role": "Fleet operations",
+      "expected": "strong",
+      "content": "Three depots share a relief driver and two vehicles are due for inspection. How would you build a contingency schedule if the last delivery window cannot move? Compare the trade-offs and name a trigger for switching plans."
+    },
+    {
+      "id": "CF-05",
+      "stratum": "product",
+      "language": "zh",
+      "role": "产品经理",
+      "expected": "flash",
+      "content": "面试里被问到‘灰度名单’是什么意思，给我一句能口头说的解释。"
+    },
+    {
+      "id": "CF-06",
+      "stratum": "product",
+      "language": "mixed",
+      "role": "Consumer product",
+      "expected": "flash",
+      "content": "PRD 里的 out of scope 用在什么地方？给一条适合订票功能的例句。"
+    },
+    {
+      "id": "CF-07",
+      "stratum": "product",
+      "language": "zh",
+      "role": "无障碍产品负责人",
+      "expected": "strong",
+      "content": "线下租赁要取消纸质回执，但一部分老年用户没有智能手机，门店也不能多招人。请设计过渡方案，分别处理首次办理、遗失凭证和争议，给出暂停推广的条件。"
+    },
+    {
+      "id": "CF-08",
+      "stratum": "product",
+      "language": "mixed",
+      "role": "Marketplace PM",
+      "expected": "strong",
+      "content": "A seller can change the return window after an order is placed. Design buyer-facing rules for pending orders, gifts, and partial returns. Compare two policies and name the evidence that would change your decision."
+    },
+    {
+      "id": "CF-09",
+      "stratum": "finance",
+      "language": "zh",
+      "role": "财务分析",
+      "expected": "flash",
+      "content": "用一句话解释预付费用，举一个办公场景的小例子。"
+    },
+    {
+      "id": "CF-10",
+      "stratum": "finance",
+      "language": "mixed",
+      "role": "FP&A analyst",
+      "expected": "flash",
+      "content": "Run-rate 和 actual 在月度表里的差别是什么？两句以内。"
+    },
+    {
+      "id": "CF-11",
+      "stratum": "finance",
+      "language": "zh",
+      "role": "制造业财务计划",
+      "expected": "strong",
+      "content": "下季度的模具定金、外币采购和一笔不确定的回款撞在同一周。请说明怎么做滚动现金预测，给三种情景，并写明在哪个条件下需要提前融资。"
+    },
+    {
+      "id": "CF-12",
+      "stratum": "finance",
+      "language": "mixed",
+      "role": "Finance business partner",
+      "expected": "strong",
+      "content": "A supplier offers a discount for prepayment, but the contract has a refund cap and demand is seasonal. Compare the cash and downside scenarios, and state which assumptions would reverse your recommendation."
+    },
+    {
+      "id": "CF-13",
+      "stratum": "design",
+      "language": "zh",
+      "role": "服务设计师",
+      "expected": "flash",
+      "content": "什么是服务蓝图里的前台动作？给我一个图书馆借书的例子。"
+    },
+    {
+      "id": "CF-14",
+      "stratum": "design",
+      "language": "mixed",
+      "role": "Visual designer",
+      "expected": "flash",
+      "content": "字号的 optical size 是什么？给一段初学者能懂的短解释。"
+    },
+    {
+      "id": "CF-15",
+      "stratum": "design",
+      "language": "zh",
+      "role": "公共服务交互设计",
+      "expected": "strong",
+      "content": "社区中心要替换取号机。大厅嘈杂，有人看不清触屏，有人不愿公开自己的办事类型。请设计两种取号流程，说明排错队、临时离席和隐私冲突如何处理，再列出现场验证方法。"
+    },
+    {
+      "id": "CF-16",
+      "stratum": "design",
+      "language": "mixed",
+      "role": "Design researcher",
+      "expected": "strong",
+      "content": "A museum offers an audio tour through shared devices. Design research for visitors with hearing differences and families who share a device. Reconcile accessibility, hygiene, and throughput, and specify what would invalidate your preferred design."
+    },
+    {
+      "id": "CF-17",
+      "stratum": "recruiting",
+      "language": "zh",
+      "role": "招聘运营",
+      "expected": "flash",
+      "content": "什么是候选人撤回申请？帮我写一句适合内部词汇表的解释。"
+    },
+    {
+      "id": "CF-18",
+      "stratum": "recruiting",
+      "language": "mixed",
+      "role": "Recruiter",
+      "expected": "flash",
+      "content": "Recruiting funnel 里的 onsite 和 debrief 分别指哪个环节？各用一句话。"
+    },
+    {
+      "id": "CF-19",
+      "stratum": "recruiting",
+      "language": "zh",
+      "role": "招聘团队负责人",
+      "expected": "strong",
+      "content": "三个部门合用同一组面试官，其中一个部门有入职截止日，另两个已经给候选人承诺了反馈时间。请设计排班和升级规则，处理面试官临时缺席，并说明什么结果会要求调整优先顺序。"
+    },
+    {
+      "id": "CF-20",
+      "stratum": "recruiting",
+      "language": "mixed",
+      "role": "Talent acquisition",
+      "expected": "strong",
+      "content": "Two interview teams disagree about whether a work sample shows ownership. Design a calibration process that handles missing evidence and candidates who had different access to the assignment, and name a sign that the rubric needs revision."
+    },
+    {
+      "id": "CF-21",
+      "stratum": "backend",
+      "language": "zh",
+      "role": "后端工程师",
+      "expected": "flash",
+      "content": "数据库索引里的‘覆盖索引’是什么意思？只给一句定义和一个小例子。"
+    },
+    {
+      "id": "CF-22",
+      "stratum": "backend",
+      "language": "mixed",
+      "role": "API engineer",
+      "expected": "flash",
+      "content": "Path parameter 和 query parameter 分别是什么？各举一个 URL 片段。"
+    },
+    {
+      "id": "CF-23",
+      "stratum": "backend",
+      "language": "zh",
+      "role": "数据服务后端",
+      "expected": "strong",
+      "content": "市政开放数据允许按日期浏览，订阅方会下载整个月。旧记录可能补录，也可能出于隐私删除。推演游标分页和版本化导出时订阅方会看到什么，并指出每种方案的重建成本。"
+    },
+    {
+      "id": "CF-24",
+      "stratum": "backend",
+      "language": "mixed",
+      "role": "Backend platform",
+      "expected": "strong",
+      "content": "An API exports gigabyte files through signed object URLs. Compare designs for range resume, URL expiry during a download, and revoked access. Give failure scenarios and a way to audit what clients actually received."
+    }
+  ],
+  "retrieval": [],
+  "projects": {}
+}

@@ -10,13 +10,31 @@ import { useSpeechRecognition } from '../lib/speech';
 import './studyChat.css';
 
 interface Source {kind:string;id:number;label:string;text:string;revision?:string;path?:string;line_start?:number;line_end?:number;symbol?:string;provenance?:string}
-interface Message {id:number;role:string;content:string;status:string;error?:string;sources:Source[];action?:string;model?:string;request_id?:string;revision_of?:number;parent_message_id?:number;blocks?:any[];trace?:Record<string,unknown>}
+interface Message {id:number;role:string;content:string;status:string;attempt?:number;error?:string;sources:Source[];action?:string;model?:string;request_id?:string;revision_of?:number;parent_message_id?:number;blocks?:any[];trace?:Record<string,unknown>}
 interface Session {mode?:string;project_id?:number;id:number;title:string;status:string;context:{topic:string;source_type:string;sources:Source[]};messages:Message[]}
 interface Job {id:number;status:string;note_id:number;version_id?:number;message_ids:number[];conflict:boolean;error?:string}
+interface TurnTicket {user_message_id:number;assistant_message_id:number;status:string;attempt?:number}
 const actions=[['simplify','讲得直白一点'],['example','换个例子'],['project','结合我的项目'],['mechanism','讲实现机制'],['why','讲设计缘由'],['diagram','画图讲解'],['demo','交互演示'],['interview','面试官追问'],['critique','点评我的表达'],['jd','对照岗位 JD'],['improve','项目补强建议']] as const;
 function RunDetails({trace}:{trace:Record<string,unknown>}){
   const calls=Array.isArray(trace.calls)?trace.calls:[];
-  return <details><summary>模型与运行记录{trace.tier?' · '+String(trace.tier):''}</summary><p>{String(trace.reason||'未记录路由原因')}</p>{!!trace.error_kind&&<p>异常：{String(trace.error_kind)}</p>}{calls.map((call,i)=><dl className="coach-trace" key={i}><dt>调用 {i+1}{call.escalation ? " · 已升级" : ""}</dt><dd>提供商：{call.provider||'未知'} · 请求：{call.requested_model||'未知'} · 实际报告：{call.reported_model||'未验证'}</dd><dd>耗时：{typeof call.elapsed_ms==='number'?call.elapsed_ms+' ms':'未知'} · 用量：{call.usage?JSON.stringify(call.usage):'未知'} · 费用：{call.cost!=null?JSON.stringify(call.cost):'未知'}</dd>{call.error&&<dd>错误：{String(call.error)}</dd>}</dl>)}</details>;
+  return <details>
+    <summary>模型与运行记录{trace.tier ? ' · '+String(trace.tier) : ''}</summary>
+    <p>{String(trace.reason || '未记录路由原因')}</p>
+    {!!trace.policy_version && <p>策略 {String(trace.policy_version)}
+      {!!trace.preferred_tier && <> · 首选 {String(trace.preferred_tier)}</>}
+      {!!trace.initial_tier && <> · 首次调用 {String(trace.initial_tier)}</>}
+    </p>}
+    {!!trace.error_kind && <p>异常：{String(trace.error_kind)}</p>}
+    {calls.map((call,i) => <dl className="coach-trace" key={i}>
+      <dt>调用 {i+1}{call.tier && ' · '+call.tier}{call.escalation ? ' · 已升级' : ''}</dt>
+      <dd>提供商：{call.provider || '未知'} · 请求：{call.requested_model || '未知'} · 实际报告：{call.reported_model || '未验证'}</dd>
+      {typeof call.first_reasoning_ms === 'number' && <dd>收到首段推理：{Math.round(call.first_reasoning_ms)} ms</dd>}
+      {typeof call.first_nonwhitespace_content_ms === 'number' && <dd>收到首段非空正文：{Math.round(call.first_nonwhitespace_content_ms)} ms</dd>}
+      {typeof call.first_visible_body_ms === 'number' && <dd>服务端发出首段正文：{Math.round(call.first_visible_body_ms)} ms</dd>}
+      <dd>调用耗时：{typeof call.elapsed_ms === 'number' ? call.elapsed_ms+' ms' : '未知'} · 用量：{call.usage ? JSON.stringify(call.usage) : '未知'} · 费用：{call.cost != null ? JSON.stringify(call.cost) : '未知'}</dd>
+      {call.error && <dd>错误：{String(call.error)}</dd>}
+    </dl>)}
+  </details>;
 }
 const MemoRunDetails=memo(RunDetails);
 function SourceMeta({source:s}:{source:Source}){if(!s.revision&&!s.path&&!s.provenance)return null;return <div className="coach-source-meta"><code>{s.path||s.label}{s.line_start?':'+s.line_start+(s.line_end?'–'+s.line_end:''):''} {s.symbol}</code><small>版本：{s.revision||'未验证'} · {s.provenance||'来源材料'}</small></div>}
@@ -67,7 +85,7 @@ function SessionView({id}:{id:number}) {
   const [error,setError]=useState<string>(location.state?.error || '');
   const [loadError,setLoadError]=useState('');
   const [live,setLive]=useState<MessageStreamEvent|null>(null);
-  const [streamFailed,setStreamFailed]=useState(false);
+  const [pollReply,setPollReply]=useState(false);
   const [cardJob,setCardJob]=useState(()=>Number(stored(draftKey(id)+':cards'))||0);
   const [cardState,setCardState]=useState('');
   const [cardRetry,setCardRetry]=useState(0);
@@ -82,8 +100,13 @@ function SessionView({id}:{id:number}) {
   const speech=useSpeechRecognition(delta=>setContent(prev=>prev+delta));
   async function load(){
     const current=++version.current;
-    const [s,j]=await Promise.all([api.get<Session>(path),api.get<{items:Job[]}>(path+'/note-jobs')]);
-    if(current===version.current){setData(s);setJobs(j.items);setLoadError('');try{const pending=JSON.parse(stored(draftKey(id)+':pending')||'null');const accepted=pending&&s.messages.find(m=>m.role==='user'&&m.request_id===pending.ticket);if(accepted){remember(draftKey(id)+':pending','');setContent(prev=>prev.trim()===accepted.content?'':prev)}}catch{/* Storage may be unavailable. */}}
+    const sessionRequest=api.get<Session>(path);
+    void api.get<{items:Job[]}>(path+'/note-jobs').then(
+      j=>{if(current===version.current)setJobs(j.items)},
+      e=>{if(current===version.current)setLoadError(e.message)},
+    );
+    const s=await sessionRequest;
+    if(current===version.current){setData(s);setLoadError('');try{const pending=JSON.parse(stored(draftKey(id)+':pending')||'null');const accepted=pending&&s.messages.find(m=>m.role==='user'&&m.request_id===pending.ticket);if(accepted){remember(draftKey(id)+':pending','');setContent(prev=>prev.trim()===accepted.content?'':prev)}}catch{/* Storage may be unavailable. */}}
   }
   useEffect(()=>{
     load().catch(e=>setLoadError(e.message));
@@ -98,7 +121,7 @@ function SessionView({id}:{id:number}) {
   useEffect(()=>{
     if(!generatingMessage)return;
     setLive(null);
-    setStreamFailed(false);
+    setPollReply(false);
     if(liveFrame.current!==null){cancelAnimationFrame(liveFrame.current);liveFrame.current=null}
     liveLatest.current=null;
     liveStartedAt.current=Date.now();
@@ -112,12 +135,12 @@ function SessionView({id}:{id:number}) {
       setLive(event);
       if(event.status!=='generating'){
         live=false;
-        load().catch(e=>{if(live)setLoadError((e as Error).message)});
+        setPollReply(true);
       }
     };
     const schedule=()=>{if(liveFrame.current===null)liveFrame.current=requestAnimationFrame(flush)};
     const onEvent=(event:MessageStreamEvent)=>{
-      if(!live)return;
+      if(!live||event.id!==generatingMessage.id||event.attempt<(generatingMessage.attempt??1))return;
       if(event.status!=='generating'){
         liveLatest.current=event;
         if(liveFrame.current!==null){cancelAnimationFrame(liveFrame.current);liveFrame.current=null}
@@ -139,23 +162,23 @@ function SessionView({id}:{id:number}) {
           await new Promise(r=>setTimeout(r,400*2**attempt));
           if(live&&!controller.signal.aborted)return connect();
         }
-        setStreamFailed(true);setLive(null);
+        setPollReply(true);setLive(null);
       }
     };
     connect();
     return ()=>{live=false;controller.abort();if(liveFrame.current!==null){cancelAnimationFrame(liveFrame.current);liveFrame.current=null}};
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[path,generatingMessage?.id]);
-  // 兜底: SSE 不可用时退回轮询; 笔记整理任务仍按 1s 轮询。
+  },[path,generatingMessage?.id,generatingMessage?.attempt]);
+  // 收到终态或重连耗尽后读取已存回复；读取失败时继续轮询。
   useEffect(()=>{
-    if(!((generating&&streamFailed)||ongoing))return;
+    if(!((generating&&pollReply)||ongoing))return;
     let active=true;
     let timer:ReturnType<typeof setTimeout>;
     const poll=async()=>{try{await load()}catch(e){if(active)setLoadError((e as Error).message)}if(active)timer=setTimeout(poll,1000)};
-    timer=setTimeout(poll,650);
+    timer=setTimeout(poll,generating&&pollReply?0:650);
     return ()=>{active=false;clearTimeout(timer)};
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[generating,ongoing,streamFailed,path]);
+  },[generating,ongoing,pollReply,path]);
   useEffect(()=>{const sync=()=>load().catch(e=>setLoadError(e.message));window.addEventListener('online',sync);window.addEventListener('study-history-changed',sync);return()=>{window.removeEventListener('online',sync);window.removeEventListener('study-history-changed',sync)}},[id]);
   const target=params.get('message');
   const ready=!!data;
@@ -198,7 +221,16 @@ function SessionView({id}:{id:number}) {
       const pendingKey=draftKey(id)+':pending';let ticket=key;
       try {const pending=JSON.parse(stored(pendingKey)||'null');if(pending?.signature===signature)ticket=pending.ticket}catch{/* A stale local draft is optional. */}
       remember(pendingKey,JSON.stringify({signature,ticket}));
-      await api.post(path+'/messages',{content:q,action,request_id:ticket,mode:data?.mode||'auto',project_id:project?Number(project):undefined,parent_message_id:parent,revision_of:rev});
+      const accepted=await api.post<TurnTicket>(path+'/messages',{content:q,action,request_id:ticket,mode:data?.mode||'auto',project_id:project?Number(project):undefined,parent_message_id:parent,revision_of:rev});
+      if(accepted.status==='generating'){
+        ++version.current;
+        setData(current=>{
+          if(!current||current.messages.some(message=>message.id===accepted.assistant_message_id))return current;
+          const user:Message={id:accepted.user_message_id,role:'user',content:q,status:'completed',sources:[],request_id:ticket,action,parent_message_id:parent,revision_of:rev};
+          const reply:Message={id:accepted.assistant_message_id,role:'assistant',content:'',status:accepted.status,sources:[],attempt:accepted.attempt,parent_message_id:user.id,revision_of:rev};
+          return {...current,messages:[...current.messages,user,reply]};
+        });
+      }
       remember(pendingKey,'');if(content.trim()===q)setContent(prev=>prev.trim()===q?'':prev);setAnchor(undefined);setRevision(undefined);follow.current=true;setAway(false);window.dispatchEvent(new Event('study-history-changed'));
     });
   }
@@ -245,7 +277,7 @@ function SessionView({id}:{id:number}) {
     <MemoSources items={data.context.sources}/>{!data.messages.length&&<p className="coach-empty">输入一个问题，开始这次学习。</p>}
     {loadError && <p role="alert">同步失败：{loadError}</p>}
     <section className="study-thread" aria-label="聊天记录">{data.messages.map(m=>{
-      const stream=live&&live.id===m.id?live:null;
+      const stream=m.status==='generating'&&live?.id===m.id&&live.attempt>=(m.attempt??1)?live:null;
       const status=stream?.status||m.status;
       const content=stream?.content??m.content;
       const stage=stream?.stage||m.trace?.stage;
