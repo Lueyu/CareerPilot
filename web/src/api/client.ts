@@ -346,6 +346,7 @@ export interface ImportReview {
 export interface QuestionDetail {
   teaching_guide?: import('../components/AnswerGuide').TeachingGuide | null;
   beginner_example?: string | null;
+  study_session_id?: number | null;
   id: number; short_code: string; title: string; qtype: string; topic: string;
   skill?: string | null; difficulty: number; options?: string[] | null;
   answer_html?: string | null; rubric?: any;

@@ -13,7 +13,8 @@ from app.config import get_settings
 from app.db import get_session
 from app.main import app
 from app.models import Evidence, Question, Workspace
-from app.models.study_chat import StudyMessage
+from app.models.question import STUDY_CHAT_REVIEW_META
+from app.models.study_chat import StudyInterviewQuestion, StudyMessage
 from app.services import study_interview_questions, study_notes
 
 
@@ -375,7 +376,7 @@ async def test_same_snapshot_concurrent_requests_share_one_saved_question(chat_c
 
 
 @pytest.mark.asyncio
-async def test_archive_during_generation_preserves_saved_question(chat_client, db_session, test_workspace, model):
+async def test_archive_during_generation_preserves_saved_question(chat_client, db_session, model):
     client, owner, _ = chat_client
     _, outcomes = model
     sid = await new_chat(client, owner)
@@ -401,5 +402,48 @@ async def test_archive_during_generation_preserves_saved_question(chat_client, d
         abandoned = await request
     assert abandoned.status_code == 404
     assert (await client.get(path, headers=owner)).status_code == 404
+    assert (await client.get(f"/study/sessions/{sid}", headers=owner)).status_code == 404
     bank = await client.get("/bank", headers=owner, params={"scope": "mine"})
-    assert [question["id"] for question in bank.json()["items"]] == [saved["id"]]
+    assert [(q["id"], q["review_only"], q["study_session_id"]) for q in bank.json()["items"]] == [
+        (saved["id"], True, None),
+    ]
+    detail = await client.get(f"/bank/{saved['short_code']}", headers=owner)
+    assert detail.status_code == 200
+    assert detail.json()["answer_html"] == saved["answer_html"]
+    assert detail.json()["study_session_id"] is None
+    assert (await db_session.get(StudyInterviewQuestion, saved["id"])).session_id == sid
+
+
+@pytest.mark.asyncio
+async def test_bank_links_to_visible_owned_related_chat(chat_client, db_session, test_workspace):
+    client, owner, other = chat_client
+    owned_sid = await new_chat(client, owner)
+    unrelated_sid = await new_chat(client, owner)
+    other_sid = await new_chat(client, other)
+    fixtures = [(owned_sid, unrelated_sid, owned_sid), (other_sid, owned_sid, None), (None, owned_sid, None)]
+    expected = {}
+    for related_sid, metadata_sid, expected_sid in fixtures:
+        question = Question(
+            workspace_id=test_workspace.id, short_code=uuid4().hex, topic="agent", title="Review reference",
+            generation_meta={**STUDY_CHAT_REVIEW_META, "study_session_id": metadata_sid},
+        )
+        db_session.add(question)
+        await db_session.flush()
+        if related_sid is not None:
+            db_session.add(StudyInterviewQuestion(
+                question_id=question.id, session_id=related_sid, snapshot_hash=uuid4().hex,
+            ))
+        expected[question.short_code] = expected_sid
+    await db_session.commit()
+    # Ended chats are still navigable until archived.
+    ended = await client.patch(f"/study/sessions/{owned_sid}", headers=owner, json={"status": "ended"})
+    assert ended.status_code == 200
+
+    bank = await client.get("/bank", headers=owner, params={"scope": "mine"})
+    assert bank.status_code == 200
+    assert {q["short_code"]: q["study_session_id"] for q in bank.json()["items"]} == expected
+    for short_code, expected_sid in expected.items():
+        detail = await client.get(f"/bank/{short_code}", headers=owner)
+        assert detail.status_code == 200
+        assert detail.json()["study_session_id"] == expected_sid
+    assert (await client.get(f"/study/sessions/{owned_sid}", headers=owner)).status_code == 200

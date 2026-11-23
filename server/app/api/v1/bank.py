@@ -17,7 +17,7 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
-from app.models import Exam, ImportItem, ImportSession, Project, Question, Skill, Trace, Workspace
+from app.models import Exam, ImportItem, ImportSession, Project, Question, Skill, StudyInterviewQuestion, StudySession, Trace, Workspace
 from app.models.question import STUDY_CHAT_REVIEW_META
 from app.services.answer_gen import generate_answer
 from app.services.answer_guides import current_reference, example_for, for_question as teaching_guide_for
@@ -65,6 +65,22 @@ def _study_review_clause(workspace_id: int):
     return (Question.workspace_id == workspace_id) & Question.generation_meta.contains(STUDY_CHAT_REVIEW_META)
 
 
+def _with_visible_study_session(query, workspace_id: int):
+    return (
+        query.add_columns(StudySession.id)
+        .outerjoin(
+            StudyInterviewQuestion,
+            (StudyInterviewQuestion.question_id == Question.id) & _study_review_clause(workspace_id),
+        )
+        .outerjoin(
+            StudySession,
+            (StudySession.id == StudyInterviewQuestion.session_id)
+            & (StudySession.workspace_id == workspace_id)
+            & StudySession.hidden_at.is_(None),
+        )
+    )
+
+
 @router.get("/bank")
 async def list_bank(
     status: str = "all",
@@ -105,8 +121,10 @@ async def list_bank(
     filtered = base.where(company_filter, topic_filter, source_filter)
     total = (await session.execute(select(func.count()).select_from(filtered.subquery()))).scalar() or 0
     rows = (
-        await session.execute(filtered.order_by(Question.id).offset(offset).limit(limit))
-    ).scalars().all()
+        await session.execute(
+            _with_visible_study_session(filtered, ws.id).order_by(Question.id).offset(offset).limit(limit)
+        )
+    ).all()
 
     # 公司聚合(左侧过滤栏)
     companies = (
@@ -144,11 +162,11 @@ async def list_bank(
                 "company": r.company,
                 "source_type": r.source_type,
                 "review_only": r.is_study_chat_review,
-                "study_session_id": (r.generation_meta or {}).get("study_session_id") if r.is_study_chat_review else None,
+                "study_session_id": study_session_id,
                 "tags": r.tags or [],
                 "occurred_on": r.occurred_on.isoformat() if r.occurred_on else None,
             }
-            for r in rows
+            for r, study_session_id in rows
         ],
         "facets": {
             "companies": [{"name": c, "count": n} for c, n in companies if c],
@@ -182,9 +200,9 @@ async def bank_detail(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    question = (
+    result = (
         await session.execute(
-            select(Question)
+            _with_visible_study_session(select(Question), ws.id)
             .options(joinedload(Question.skill), selectinload(Question.variants))
             .where(
                 Question.short_code == short_code,
@@ -193,9 +211,10 @@ async def bank_detail(
                  | owned_question_clause() | _study_review_clause(ws.id)),
             )
         )
-    ).scalar_one_or_none()
-    if question is None:
+    ).one_or_none()
+    if result is None:
         raise HTTPException(status_code=404, detail="question not found")
+    question, study_session_id = result
     from app.services.learning_exposure import record_reference_exposure
     teaching_guide = teaching_guide_for(question)
     beginner_example = example_for(question)
@@ -221,6 +240,7 @@ async def bank_detail(
         "occurred_on": question.occurred_on.isoformat() if question.occurred_on else None,
         "source_type": question.source_type,
         "review_only": question.is_study_chat_review,
+        "study_session_id": study_session_id,
         "tags": question.tags or [],
         "keywords": question.keywords or [],
         "generation_meta": question.generation_meta,

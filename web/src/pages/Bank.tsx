@@ -467,6 +467,18 @@ export default function Bank() {
         }).catch(() => undefined)
         : undefined;
       if (request !== detailRequest.current) return;
+      if ('source_type' in r && r.reviewOnly) {
+        const studySessionId = d.study_session_id ?? null;
+        setDetail({ ...r, studySessionId });
+        if (studySessionId !== r.studySessionId) {
+          setApiData(data => data && {
+            ...data,
+            items: data.items.map(item => item.id === d.id && item.study_session_id === r.studySessionId
+              ? { ...item, study_session_id: studySessionId }
+              : item),
+          });
+        }
+      }
       setTrustedDetail(answer === bundled);
       setGuide(d.teaching_guide ?? null);
       setBeginnerExample(d.beginner_example ?? null);
@@ -623,7 +635,7 @@ export default function Bank() {
               {generalDetail && !generalDetail.reviewOnly && <>
                 <button className="btn btn-outline" disabled={!bankSourcePresentation(generalDetail).editable} title={bankSourcePresentation(generalDetail).editable?'编辑个人题目信息':'共享题库只读，可导入面经后整理为个人题目'} onClick={() => { setDetail(null); setEditQ(generalDetail); }}>{bankSourcePresentation(generalDetail).editable?'编辑':'共享题只读'}</button>
               </>}
-              {generalDetail?.reviewOnly && generalDetail.studySessionId && <Link className="btn btn-outline" to={`/study/chat/${generalDetail.studySessionId}`}>回看学习聊天</Link>}
+              {!detailLoading && !detailErr && generalDetail?.reviewOnly && generalDetail.studySessionId && <Link className="btn btn-outline" to={`/study/chat/${generalDetail.studySessionId}`}>回看学习聊天</Link>}
               {!generalDetail?.reviewOnly && <><StudyEntryButton key={detail.id} kind="question" id={detail.numericQuestionId} bankKey={detail.id}/>
               <button className="btn btn-primary" disabled={practiceBusy!==null} onClick={() => startPractice(detail, !generalDetail)}>{practiceBusy?'准备考试…':practiceError?.id === detail.id ? '重试练习' : '开始练习'}</button></>}
             </>
