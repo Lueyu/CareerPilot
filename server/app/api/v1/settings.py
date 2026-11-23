@@ -538,3 +538,38 @@ async def reset_github(session: AsyncSession = Depends(get_session)):
     await session.commit()
     set_github_token_cache(None)
     return {"reset": True}
+
+# GitCode project reads use the selected workspace's credential. The personal
+# installation continues to support its existing GITCODE_TOKEN fallback.
+@router.get("/settings/gitcode")
+async def get_gitcode_read_settings(
+    ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session),
+):
+    row = await session.get(AppSetting, f"gitcode:{ws.id}")
+    return {"active": bool(row), "writes_enabled": False}
+
+
+@router.put("/settings/gitcode")
+async def update_gitcode_read_settings(
+    body: GithubUpdate, ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session),
+):
+    token = body.token.strip()
+    if not token or len(token) > 2048 or any(not 33 <= ord(ch) <= 126 for ch in token):
+        raise HTTPException(422, "GitCode token 格式无效")
+    key = f"gitcode:{ws.id}"
+    row = await session.get(AppSetting, key)
+    if row is None:
+        session.add(AppSetting(key=key, value={"token": token}))
+    else:
+        row.value = {"token": token}
+    await session.commit()
+    return {"active": True, "writes_enabled": False}
+
+
+@router.delete("/settings/gitcode")
+async def reset_gitcode_read_settings(
+    ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session),
+):
+    await session.execute(delete(AppSetting).where(AppSetting.key == f"gitcode:{ws.id}"))
+    await session.commit()
+    return {"active": False, "writes_enabled": False}

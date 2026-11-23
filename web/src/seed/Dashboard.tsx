@@ -29,7 +29,7 @@ type LoadResult =
   | { kind: 'error'; message: string };
 
 function threadLink(thread: Practice) {
-  return thread.mode === 'interview' ? `/exam?thread=${thread.id}` : `/study/chat/${thread.id}`;
+  return thread.mode === 'interview' ? `/beta/exam?thread=${thread.id}` : `/beta/study/chat/${thread.id}`;
 }
 
 export default function Dashboard() {
@@ -71,12 +71,12 @@ export default function Dashboard() {
     ? { to: '/onboarding', label: '设置目标岗位' }
     : next
       ? { to: threadLink(next), label: next.mode === 'interview' ? '继续面试' : '继续学习' }
-      : data.question_count ? { to: '/learning', label: '查看学习计划' } : { to: '/bank', label: '准备第一道题' };
+      : data.question_count ? { to: '/beta/learning', label: '查看学习计划' } : { to: '/beta/bank', label: '准备第一道题' };
 
   return (
     <div>
       <PageHead title="把下一步，变得更清晰" sub={data.selected_role ? `目标 ${data.selected_role}` : undefined}>
-        <Link className="btn btn-outline" to="/bank">打开题库</Link>
+        <Link className="btn btn-outline" to="/beta/bank">打开题库</Link>
         <Link className="btn btn-primary" to={primary.to}>{primary.label}</Link>
       </PageHead>
 
@@ -92,10 +92,10 @@ export default function Dashboard() {
 
       <div className="grid grid-2-1">
         <div className="stack" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <DashboardCard title="继续练习" action={<Link className="link" to="/memory">项目记忆 →</Link>}>
+          <DashboardCard title="继续练习" action={<Link className="link" to="/beta/memory">项目记忆 →</Link>}>
             {([
-              { label: '面试练习', to: '/exam', thread: data.resume_interview },
-              { label: '引导学习', to: '/study/chat', thread: data.resume_study },
+              { label: '面试练习', to: '/beta/exam', thread: data.resume_interview },
+              { label: '引导学习', to: '/beta/study/chat', thread: data.resume_study },
             ]).map(({ label, to, thread }) => (
               <div className="list-row" key={to}>
                 <div className="list-main">
@@ -127,7 +127,7 @@ export default function Dashboard() {
           </DashboardCard>
           <DashboardCard
             title={<>待审核面经 <span className="chip chip-amber" style={{ marginLeft: 6 }}>{data.pending_import_count}</span></>}
-            action={<Link className="link" to="/bank">去题库 →</Link>}
+            action={<Link className="link" to="/beta/bank">去题库 →</Link>}
           >
             {data.pending_imports.length === 0 && <div className="list-row">没有待审核的导入</div>}
             {data.pending_imports.map(batch => (

@@ -35,7 +35,7 @@ test('registered dashboard fetches the scoped summary and links to saved practic
     assert.deepEqual(tree.root.findAllByProps({ className: 'stat-mini-value' }).map(node => node.children.join('')),
       ['2', '57', '4', '8']);
     const destinations = new Set(tree.root.findAllByType('a').map(node => node.props.href));
-    assert.deepEqual(destinations, new Set(['/bank', '/exam?thread=17', '/study/chat/29', '/onboarding', '/settings', '/memory']));
+    assert.deepEqual(destinations, new Set(['/beta/bank', '/beta/exam?thread=17', '/beta/study/chat/29', '/onboarding', '/settings', '/beta/memory']));
   } finally {
     await act(async () => tree?.unmount());
     api.close();

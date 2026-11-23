@@ -9,6 +9,7 @@ from sqlalchemy import select, text
 from app.models import AnalysisStep, Exam, ExamAnswer, ScoringRun, ScoringStep, Workspace
 from app.services.assessment_rubric import JUDGE_VERSION
 from app.services.assessment_versions import digest, ensure_revision, question_snapshot
+from app.services.bank_practice import is_bank_practice_snapshot
 from app.services.llm_judge import JUDGE_PROMPT_VERSION
 from app.services.project_autopilot_config import model_fingerprint, runtime_config
 from app.services.tracing import emit_event, start_trace
@@ -66,7 +67,7 @@ async def enqueue(session, ws, exam, *, mode='OFFICIAL'):
                     'canonical_question_id': base.get('canonical_question_id'),
                     'reason': '面经集试卷用于练习，不计入独立验证',
                 })
-            elif mode == 'OFFICIAL' or base.get('experienced_bank_practice'):
+            elif mode == 'OFFICIAL' or is_bank_practice_snapshot(base):
                 from app.services.learning_exposure import independence_snapshot
                 independence, assistance = await independence_snapshot(session, ws.id, exam, eq, base)
                 base.update(independence=independence, assistance=assistance, assessment_mode=mode)

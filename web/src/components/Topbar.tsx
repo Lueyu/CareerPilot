@@ -1,3 +1,4 @@
+import { workspaceStorageKey } from '../api/client';
 import React, { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
@@ -17,14 +18,23 @@ const PAGE_NAMES: Record<string, string> = {
   '/observatory': '系统观测台',
   '/evolution': '进化实验室',
   '/settings': '设置',
+  '/settings/account': '账户与资料',
+  '/beta': 'Beta 记录',
+  '/beta/bank': 'Beta 题库',
+  '/beta/study/chat': 'Beta 教练',
+  '/beta/study/notes': 'Beta 笔记',
+  '/beta/exam': 'Beta 答题',
+  '/beta/learning': 'Beta 学习日历',
+  '/beta/memory': 'Beta 记忆',
 };
 
 type Theme = 'light' | 'dark';
 
 function currentTheme(): Theme {
   try {
-    const saved = localStorage.getItem('cp-theme');
+    const saved = localStorage.getItem(workspaceStorageKey('cp-theme'));
     if (saved === 'light' || saved === 'dark') return saved;
+    if (workspaceStorageKey('cp-theme') !== 'cp-theme') return 'dark';
   } catch {
     // Theme remains usable when storage is unavailable.
   }
@@ -55,7 +65,7 @@ export default function Topbar({ beforeCrumb, workspaceLabel, actions }: {
   const toggleTheme = () => {
     const next: Theme = theme === 'dark' ? 'light' : 'dark';
     try {
-      localStorage.setItem('cp-theme', next);
+      localStorage.setItem(workspaceStorageKey('cp-theme'), next);
     } catch {
       // The preference still applies to the current view.
     }

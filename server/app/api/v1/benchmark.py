@@ -10,6 +10,7 @@ from app.db import get_session
 from app.models import JdSource, JobStandard, Skill, Workspace
 from app.services.benchmark_jd import build_targets, parse_jd
 from app.services.competency import recompute_skill_states
+from app.services.tenant_standard import tenant_standard, uses_tenant_standard
 from app.services.tracing import add_span, emit_event, finish_trace, start_trace
 
 router = APIRouter()
@@ -23,36 +24,46 @@ NEXT_STEP = {
 }
 
 
+def _standard_note(standard: JobStandard, tenant: bool) -> str:
+    if standard.is_seed:
+        return "种子假设 · 非统计结论"
+    if tenant:
+        return f"参考 {standard.jd_sample_count} 份 JD · 权重仍为种子假设"
+    return f"基于 {standard.jd_sample_count} 份 JD 提炼 · 可回退种子"
+
+
 @router.get("/benchmark")
 async def benchmark(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    states = await recompute_skill_states(session, ws.id)
-    # 优先使用最新的 JD 对标版本(非种子); 没有才回落种子假设
-    standard = (
+    tenant = uses_tenant_standard(ws)
+    standard = await tenant_standard(session, ws, persist_seed=True) if tenant else (
         await session.execute(
             select(JobStandard).order_by(JobStandard.is_seed.asc(), JobStandard.id.desc()).limit(1)
         )
     ).scalar_one_or_none()
 
+    if standard is None:
+        return {"standard": None, "rows": []}
+
+    states = await recompute_skill_states(session, ws.id, standard=standard if tenant else None)
     rows = []
-    if standard:
-        for t in sorted(standard.targets, key=lambda x: -x.weight_pct):
-            state = next((s for s in states if s.skill_id == t.skill_id), None)
-            level = state.estimated_level if state else None
-            rows.append(
-                {
-                    "skill": {"key": t.skill.key, "name": t.skill.name},
-                    "weight_pct": t.weight_pct,
-                    "target_level": t.target_level,
-                    "current_level": level,
-                    "status": state.status if state else "UNKNOWN",
-                    "evidence_coverage": state.evidence_coverage if state else 0,
-                    "confidence": state.confidence if state else 0.0,
-                    "next_step": NEXT_STEP.get(state.status if state else "UNKNOWN", ""),
-                }
-            )
+    for t in sorted(standard.targets, key=lambda x: -x.weight_pct):
+        state = next((s for s in states if s.skill_id == t.skill_id), None)
+        level = state.estimated_level if state else None
+        rows.append(
+            {
+                "skill": {"key": t.skill.key, "name": t.skill.name},
+                "weight_pct": t.weight_pct,
+                "target_level": t.target_level,
+                "current_level": level,
+                "status": state.status if state else "UNKNOWN",
+                "evidence_coverage": state.evidence_coverage if state else 0,
+                "confidence": state.confidence if state else 0.0,
+                "next_step": NEXT_STEP.get(state.status if state else "UNKNOWN", ""),
+            }
+        )
     return {
         "standard": {
             "role": standard.role,
@@ -60,7 +71,7 @@ async def benchmark(
             "version": standard.version,
             "jd_sample_count": standard.jd_sample_count,
             "is_seed": standard.is_seed,
-            "note": "种子假设 · 非统计结论" if standard.is_seed else f"基于 {standard.jd_sample_count} 份 JD 提炼 · 可回退种子",
+            "note": _standard_note(standard, tenant),
         },
         "rows": rows,
     }
@@ -89,7 +100,9 @@ async def import_jd(
 
     trace = await start_trace(session, ws.id, "benchmark_jd", "导入 JD 并生成对标版本", trigger="manual")
     try:
-        skills = (
+        tenant = uses_tenant_standard(ws)
+        base = await tenant_standard(session, ws) if tenant else None
+        skills = [target.skill for target in base.targets] if base else (
             (await session.execute(select(Skill).order_by(Skill.id))).scalars().all()
         )
         parsed = parse_jd(text, [{"key": s.key, "name": s.name} for s in skills])
@@ -98,8 +111,8 @@ async def import_jd(
             workspace_id=ws.id,
             title=body.title or (body.company or "未命名 JD"),
             company=body.company,
-            role=body.role,
-            level=body.level,
+            role=base.role if tenant else body.role,
+            level=base.level if tenant else body.level,
             source_type="paste",
             raw_text=text,
             parsed=parsed,
@@ -111,7 +124,7 @@ async def import_jd(
 
         applied = {"changes": [], "version": None}
         if body.apply:
-            base = (
+            base = base or (
                 await session.execute(
                     select(JobStandard).order_by(JobStandard.is_seed.asc(), JobStandard.id.desc()).limit(1)
                 )
@@ -137,8 +150,8 @@ async def import_jd(
             ).scalar_one_or_none()
             if exists is None:
                 std = JobStandard(
-                    role=body.role or base.role,
-                    level=body.level or base.level,
+                    role=base.role if tenant else (body.role or base.role),
+                    level=base.level if tenant else (body.level or base.level),
                     version=version,
                     jd_sample_count=base.jd_sample_count + 1,
                     is_seed=False,

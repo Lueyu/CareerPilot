@@ -285,7 +285,7 @@ function SessionView({id}:{id:number}) {
     {toolsVisible && <StudyPracticePanel initialRequest={practiceRequest} focusMessageId={practiceRequest?.messageId??anchor} sessionId={id} ended={ended} cardId={practiceRequest?undefined:cardId}/>}
 </div></div>
 }
-export default function StudyChat(){
+export default function StudyChat({ questionBuilderPath }: { questionBuilderPath?: string } = {}){
   const {sessionId}=useParams(); const navigate=useNavigate();
   const [params]=useSearchParams();
   const cardQuiz=!!Number(params.get('card'))&&params.get('practice')==='quiz';
@@ -322,6 +322,7 @@ export default function StudyChat(){
       <div className="coach-welcome-actions"><div>{speech.supported&&<button type="button" className="btn btn-ghost" onClick={speech.listening?speech.stop:speech.start}>{speech.listening?'停止听写':'语音输入'}</button>}</div><button className="btn btn-primary" disabled={!topic.trim()||busy}>{busy?'打开中…':'开始学习'}</button></div>
       {(speech.error||speech.interim)&&<small role={speech.error?'alert':'status'}>{speech.error||speech.interim}</small>}
     </form>
+    {questionBuilderPath && <Link className="btn btn-outline" to={questionBuilderPath}>和教练聊着出题</Link>}
     {latestChat&&<Link className="coach-resume-row" to={'/study/chat/'+latestChat.id}><span><small>最近会话</small><strong>{latestChat.title}</strong></span><span>继续学习 <span aria-hidden="true">→</span></span></Link>}
     {err&&<p role="alert">{err}</p>}</div></StudyShell>
 }

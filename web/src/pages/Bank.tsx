@@ -5,7 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAppState } from '../components/AppState';
 import { Modal, PageHead, Stars } from '../components/ui';
-import { api, BankData, ImportReview, QuestionDetail } from '../api/client';
+import { api, hasOriginalBank, BankData, ImportReview, QuestionDetail } from '../api/client';
 import { trackImport } from '../lib/importTracker';
 import BankQuestionEditor from '../components/BankQuestionEditor';
 import BankReviewQueue, { sanitizeReviewAnswer } from './BankReviewQueue';
@@ -14,7 +14,7 @@ import {beginQuestionPractice} from '../lib/questionWorkshop';
 import {bankSourcePresentation} from '../lib/bankSource';
 import ExperiencedBank, { EXPERIENCED_SOURCE_LABELS, experiencedLevelLabel, type ExperiencedQuestion } from './ExperiencedBank';
 import { experiencedPracticePath, rememberExperiencedFilters } from '../lib/experiencedBankPath';
-const bankUrl = new URL('../data/bank.json', import.meta.url).href;
+import { loadLegacyBank } from './legacyBank';
 
 type ImportStage = 'upload' | 'review';
 type Facet = 'companies' | 'topics' | 'sources';
@@ -93,12 +93,14 @@ function bankScope(query: URLSearchParams): Scope {
   return 'bank';
 }
 
-export default function Bank() {
+export default function Bank({ registered = false }: { registered?: boolean } = {}) {
   const navigate = useNavigate();
   const { toast } = useAppState();
   const location = useLocation();
   const query = new URLSearchParams(location.search);
-  const scope = bankScope(query);
+  const originalBank = hasOriginalBank();
+  const requestedScope = bankScope(query);
+  const scope = requestedScope === 'bank' && !originalBank ? 'mine' : requestedScope;
   const experienced = scope === 'bank';
   const [catalogSummary, setCatalogSummary] = useState<{questions: number; domains: number} | null>(null);
   const hasImportLink = query.get('import') === '1';
@@ -459,9 +461,7 @@ export default function Bank() {
       if (request !== detailRequest.current) return;
       // The existing bundled copy lets seeded diagrams retain SVG without trusting arbitrary API HTML.
       const bundled = 'domainName' in r && r.source === 'legacy' && answer
-        ? await fetch(bankUrl).then(async response => {
-          if (!response.ok) return undefined;
-          const content: {questions: {id: string; html?: string}[]} = await response.json();
+        ? await loadLegacyBank().then(content => {
           return content.questions.find(question => question.id === r.id)?.html;
         }).catch(() => undefined)
         : undefined;
@@ -512,11 +512,13 @@ export default function Bank() {
   return (
     <div className="bank-page">
       <PageHead title="面试题库" sub={experienced && catalogSummary ? `${catalogSummary.questions} 道题 · ${catalogSummary.domains} 个能力域` : undefined}>
+        {registered && <Link className="btn btn-outline" to="/beta/study/chat">和教练聊着出题</Link>}
         <button className="btn btn-primary" onClick={openUpload}>导入面经</button>
       </PageHead>
       <nav className="bank-actions" aria-label="题库工作区">
-        {([['bank', '全部题目'], ['mine', '我的题目'], ['sets', '面经集'], ['pending', pendingCount ? '待审核 · ' + pendingCount : '待审核']] as const).map(([value, label]) =>
+        {([['bank', '全部题目'], ['mine', '我的题目'], ['sets', '面经集'], ['pending', pendingCount ? '待审核 · ' + pendingCount : '待审核']] as const).filter(([value]) => value !== 'bank' || originalBank).map(([value, label]) =>
           <button key={value} className={'btn ' + (scope === value ? 'btn-primary' : 'btn-outline')} aria-pressed={scope === value} onClick={() => selectScope(value)}>{label}</button>)}
+        {registered && <Link className="btn btn-ghost" to="/beta/bank">之前的题库记录</Link>}
       </nav>
       {experienced && (
         <ExperiencedBank

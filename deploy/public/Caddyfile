@@ -15,10 +15,15 @@
 		respond 404
 	}
 
-	handle /assets/* {
+	handle /static-assets/* {
 		root * /srv/seed
 		encode zstd gzip
 		file_server
+	}
+
+	@old_asset path_regexp old_asset ^/assets/[^/]+\.[^/]+$
+	handle @old_asset {
+		respond 404
 	}
 
 	handle {

@@ -17,6 +17,7 @@ from app.models import CompetencySnapshot, ScoringRun, ScoringStep, SkillState, 
 from app.services import assessment_jobs as jobs
 from app.services.assessment_rubric import JUDGE_VERSION, AssessmentJudgeError, Judgement, validate_judgement
 from app.services.assessment_versions import digest
+from app.services.bank_practice import is_bank_practice_snapshot
 from app.services.llm import AgentAdapter
 from app.services.llm_judge import judge_frozen_answer
 from app.services.project_autopilot_config import model_fingerprint, runtime_config
@@ -129,7 +130,7 @@ async def execute_claim(claim,worker_id,factory,lease_seconds=45,heartbeat_secon
         if run.model_fingerprint!=model_fingerprint(cfg) or run.judge_version!=JUDGE_VERSION:
             await jobs.fail_step(session,claim,AssessmentJudgeError('CONFIG_CHANGED','模型或评分器版本已改变，不能混合旧评分；请创建影子复核'))
             return
-        if run.mode == 'PRACTICE' and not claim.payload.get('experienced_bank_practice'):
+        if run.mode == 'PRACTICE' and not is_bank_practice_snapshot(claim.payload):
             from fastapi import HTTPException
 
             from app.models.learning_feedback import LearningGoal, LearningSubmission
@@ -267,9 +268,9 @@ async def _publish(factory,run_id,token):
         exam.gained_points=sum(s.result_json['points'] for s in rows)
         exam.score=round(100*exam.gained_points/exam.total_points,1) if exam.total_points else 0
         ws=await session.get(Workspace,run.workspace_id);trace=await session.get(Trace,run.trace_id)
-        experienced_practice = run.mode == 'PRACTICE' and all(s.input_json.get('experienced_bank_practice') for s in rows)
+        bank_practice = run.mode == 'PRACTICE' and all(is_bank_practice_snapshot(s.input_json) for s in rows)
         if run.mode == 'PRACTICE':
-            if experienced_practice:
+            if bank_practice:
                 exam.status = 'COMPLETED'
                 exam.completed_at = jobs.now()
                 exam.summary = {'mode': 'PRACTICE', 'mastery_updated': False}
@@ -292,7 +293,7 @@ async def _publish(factory,run_id,token):
         await session.flush()
         run.report=({'mode':'PRACTICE','exam_id':exam.id,'mastery_updated':False,
             'submission_id':(exam.summary or {}).get('submission_id'),
-            'questions':[s.result_json for s in rows]} if run.mode == 'PRACTICE' and not experienced_practice
+            'questions':[s.result_json for s in rows]} if run.mode == 'PRACTICE' and not bank_practice
             else deepcopy(await exams._exam_report(session,ws,exam.id)))
         await session.commit()
 

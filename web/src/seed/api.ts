@@ -10,6 +10,12 @@ export class SeedApiError extends Error {
 }
 
 async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetchResponse(path, options);
+  if (response.status === 204) return undefined as T;
+  return response.json() as Promise<T>;
+}
+
+async function fetchResponse(path: string, options: RequestInit) {
   const headers = new Headers(options.headers);
   if (typeof options.body === 'string') headers.set('Content-Type', 'application/json');
   const response = await fetch('/api/v1' + path, { ...options, headers, credentials: 'same-origin', cache: 'no-store' });
@@ -18,8 +24,7 @@ async function requestJson<T>(path: string, options: RequestInit = {}): Promise<
     const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;
     throw new SeedApiError(response.status, detail || (response.status === 422 ? '请检查输入内容后重试。' : '请求未完成，请稍后重试。'), data.detail?.code);
   }
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
+  return response;
 }
 
 type AuthPath = '/auth/me' | '/auth/login' | '/auth/register' | '/auth/recover';
@@ -40,13 +45,13 @@ export function createWorkspaceApi(workspaceId: number, onSessionInvalid: () => 
   const lifetime = new AbortController();
   const expected = String(workspaceId);
 
-  async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  async function response(path: string, options: RequestInit = {}): Promise<Response> {
     const signal = options.signal ? AbortSignal.any([lifetime.signal, options.signal]) : lifetime.signal;
     signal.throwIfAborted();
     const headers = new Headers(options.headers);
     headers.set('X-Expected-Workspace', expected);
     try {
-      const data = await requestJson<T>(path, { ...options, headers, signal });
+      const data = await fetchResponse(path, { ...options, headers, signal });
       signal.throwIfAborted();
       return data;
     } catch (error) {
@@ -59,21 +64,51 @@ export function createWorkspaceApi(workspaceId: number, onSessionInvalid: () => 
     }
   }
 
+  async function request<T>(path: string, options?: RequestInit): Promise<T> {
+    const result = await response(path, options);
+    const data = result.status === 204 ? undefined : await result.json();
+    lifetime.signal.throwIfAborted();
+    options?.signal?.throwIfAborted();
+    return data as T;
+  }
+
   function send<T>(path: string, method: 'POST' | 'PUT', body: unknown) {
     return request<T>(path, { method, body: JSON.stringify(body) });
   }
 
-  function events(path: string, signal: AbortSignal) {
-    const active = AbortSignal.any([lifetime.signal, signal]);
-    if (active.aborted) return null;
-    const url = new URL('/api/v1' + path, window.location.origin);
-    url.searchParams.set('expected_workspace_id', expected);
-    const source = new EventSource(url.pathname + url.search);
-    active.addEventListener('abort', () => source.close(), { once: true });
-    return source;
+  async function events(path: string, signal: AbortSignal, onData: (data: string) => void) {
+    const stream = await response(path, { signal, headers: { Accept: 'text/event-stream' } });
+    if (!stream.body) return;
+    const reader = stream.body.getReader();
+    const active = AbortSignal.any([signal, lifetime.signal]);
+    const cancel = () => { void reader.cancel().catch(() => undefined); };
+    active.addEventListener('abort', cancel, { once: true });
+    if (active.aborted) cancel();
+    const decoder = new TextDecoder();
+    let pending = '';
+    try {
+      while (!active.aborted) {
+        const { done, value } = await reader.read();
+        if (done || active.aborted) break;
+        pending += decoder.decode(value, { stream: true });
+        let frame = /\r?\n\r?\n/.exec(pending);
+        while (frame && !active.aborted) {
+          const lines = pending.slice(0, frame.index).split(/\r?\n/);
+          pending = pending.slice(frame.index + frame[0].length);
+          if (lines.includes('event: unavailable')) return;
+          const data = lines.filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).join('\n');
+          if (data) onData(data);
+          frame = /\r?\n\r?\n/.exec(pending);
+        }
+      }
+    } finally {
+      active.removeEventListener('abort', cancel);
+      if (!active.aborted) cancel();
+      reader.releaseLock();
+    }
   }
 
-  return { request, send, events, close: () => lifetime.abort() };
+  return { request, response, send, events, signal: lifetime.signal, close: () => lifetime.abort() };
 }
 
 type WorkspaceApi = ReturnType<typeof createWorkspaceApi>;

@@ -29,6 +29,7 @@ from app.models import (
 )
 from app.models.question import STUDY_CHAT_REVIEW_META
 from app.services import bank_review_actions as review_actions
+from app.services.bank_practice import private_library_question_clause
 from app.services.answer_gen import generate_answer
 from app.services.answer_guides import current_reference, example_for
 from app.services.answer_guides import for_question as teaching_guide_for
@@ -117,7 +118,7 @@ async def list_bank(
         workspace_filter,
         Question.canonical_question_id.is_(None),  # 变体不单独列出
         (Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY')
-         | _study_review_clause(ws.id)),
+         | _study_review_clause(ws.id) | private_library_question_clause(ws.id)),
     )
     company_filter = (Question.company.in_(companies) if companies else
                       Question.company.icontains(company, autoescape=True) if company else True)
@@ -220,7 +221,7 @@ async def bank_detail(
                 Question.short_code == short_code,
                 (Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id),
                 (Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY')
-                 | owned_question_clause() | _study_review_clause(ws.id)),
+                 | owned_question_clause() | _study_review_clause(ws.id) | private_library_question_clause(ws.id)),
             )
         )
     ).one_or_none()

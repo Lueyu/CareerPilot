@@ -1,5 +1,26 @@
 # CareerPilot 公开种子版运维
 
+## 在本机启动可登录的完整工作台
+
+原个人实例继续提供 5173 页面和 8000 API。注册入口在 18457 验证登录，已绑定的个人账号使用原有工作空间。其他账号使用各自的数据库、文件卷和后台任务，新账号的题库为空。已保存在注册版的私题和笔记会带入该账号的工作台。
+
+在仓库根目录构建网页和独立工作台镜像。使用已经启动的注册数据库，以及首次部署生成的账号环境文件和运行状态目录。
+
+```powershell
+npm.cmd --prefix web ci
+npm.cmd --prefix web run build:seed
+docker build -f deploy/tenant/Dockerfile -t careerpilot-tenant-native:parity-20261124 .
+$accountEnv = Read-Host '现有注册版环境文件路径'
+$runtimeState = Read-Host '保存账号绑定和运行密钥的私有目录'
+$personalServer = Read-Host '原个人实例的 server 目录'
+$ownerName = Read-Host '已核实的个人账号用户名'
+& "$personalServer/.venv/Scripts/python.exe" deploy/tenant/start_local.py --account-env $accountEnv --state-dir $runtimeState --personal-server $personalServer --bind-owner $ownerName --use-personal-model --local-unmetered
+```
+
+首次绑定会记录该账号和工作空间的数据库标识。以后启动时省略 `--bind-owner`，继续使用同一状态目录；备份时一并保存该目录、注册库和租户卷。例子中的模型选项沿用个人配置并打开本机不限额模式。已有安装如果把注册版 Python 依赖装在单独目录，启动时用 `--library-dir` 指向该目录。打开 [本机注册工作台](http://127.0.0.1:18457/)。
+
+下方 Compose 流程用于注册服务、HTTPS 入口和备份演练。云端完整工作台还需要可用的租户运行环境及独立的数据卷备份。
+
 ## 在本机验收
 
 从集成提交的仓库根目录运行。需要 Docker Compose、Bash 和 OpenSSL。Windows 可使用 Git Bash。Compose 使用独立项目和卷，两个端口都绑定到回环地址。模型配置使用不可解析的域名和合成凭据。
@@ -17,13 +38,13 @@ curl --fail --cacert /tmp/careerpilot-seed-ca.crt https://localhost:8443/
 
 Caddy 首次签发本机证书后，CA 文件才会出现。浏览器可在隔离的配置中导入该 CA。测试结束后用同一项目名和配置执行 `bash deploy/public/compose.sh down`。该命令保留验收卷。再次启动时继续用原配置文件和密码。要演练新库，换一个 Compose 项目名和配置文件。
 
-运行 `python deploy/public/test_release.py --config-only` 检查合成配置。去掉 `--config-only` 会额外构建合成镜像、检查回环 HTTPS 流，并用临时数据库和 age 密钥演练恢复。只验收恢复时用 `--restore-only`。完整检查需要 Linux 或带 Docker 的 WSL，以及 age、age-keygen、OpenSSL 和 Bash。先确保当前 daemon 有 `postgres:16-alpine` 镜像。上传环节使用本地副本。
+运行 `python deploy/public/test_release.py --config-only` 检查合成配置。去掉 `--config-only` 会额外构建合成镜像、检查回环 HTTPS、项目深链接、静态资源和 SSE，并用临时数据库和 age 密钥演练恢复。只验收代理和构建隔离时用 `--proxy-only`。只验收恢复时用 `--restore-only`。完整检查需要 Linux 或带 Docker 的 WSL，以及 age、age-keygen、OpenSSL 和 Bash。先确保当前 daemon 有 `postgres:16-alpine` 镜像。上传环节使用本地副本。
 
 运行 `python deploy/public/test_release.py --build-only` 用当前工作树和正式 Docker 允许清单构建 API、前端构建阶段和最终镜像。检查公开 API 可导入、私有源码未进入构建阶段，以及静态产物没有源码映射。该检查无需启动数据库或读取运行配置。
 
 ## 在可信构建机生成镜像
 
-用集成 Git 提交作为镜像标签和运维文件版本。构建上下文分别是 `server/` 和 `web/`。两个 `Dockerfile.seed.dockerignore` 使用允许清单。构建前核对集成后的公开模块和复用依赖均在清单中。公开前端由根目录的 `web/index.html` 和 `web/src/main.tsx` 启动，Vite 将工作区入口指向 `RegisteredApp.tsx`，并关闭源码映射。API 镜像运行 `app.public_main:app`。前端最终镜像只复制 `npm run build:seed` 生成的 `dist-seed/`。
+用集成 Git 提交作为镜像标签和运维文件版本。构建上下文分别是 `server/` 和 `web/`。两个 `Dockerfile.seed.dockerignore` 使用允许清单。构建前核对集成后的公开模块和复用依赖均在清单中。公开前端由根目录的 `web/index.html` 和 `web/src/main.tsx` 启动，Vite 将工作区入口指向 `RegisteredApp.tsx`，登录后复用 `src/App.tsx` 的原生页面。公开构建排除本地 API 传输模块和原题库数据。静态产物位于 `/static-assets/`，`/assets` 和 `/assets/project/:id` 由应用路由处理。源码映射关闭。API 镜像运行 `app.public_main:app`。前端最终镜像只复制 `npm run build:seed` 生成的 `dist-seed/`。
 
 ```bash
 release="$(git rev-parse HEAD)"

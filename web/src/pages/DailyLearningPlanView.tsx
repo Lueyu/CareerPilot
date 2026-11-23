@@ -226,15 +226,15 @@ function MonthCalendar({ plan, days, month, selectedDate, onMonth, onSelect }: {
   </section>;
 }
 
-function QuestionLinks({ questionId }: { questionId: number }) {
+function QuestionLinks({ questionId, registered }: { questionId: number; registered: boolean }) {
   return <>
-    <Link className="btn btn-primary" to={'/study/chat?question=' + questionId}>开始学习</Link>
-    <Link className="btn btn-outline" to={'/exam?question=' + questionId}>开始答题</Link>
+    <Link className="btn btn-primary" to={(registered ? '/beta' : '') + '/study/chat?question=' + questionId}>开始学习</Link>
+    <Link className="btn btn-outline" to={(registered ? '/beta' : '') + '/exam?question=' + questionId}>开始答题</Link>
   </>;
 }
 
-function TaskCard({ item, selectedDate, plan, recommended, focused, onSave, busy, error }: {
-  item: Item; selectedDate: string; plan: Plan; recommended: boolean; focused: boolean;
+function TaskCard({ item, selectedDate, plan, recommended, focused, registered, onSave, busy, error }: {
+  item: Item; selectedDate: string; plan: Plan; recommended: boolean; focused: boolean; registered: boolean;
   onSave: (itemKey: string, note: string) => Promise<boolean>; busy: boolean; error: string;
 }) {
   const [note, setNote] = useState<string | null>(null);
@@ -269,11 +269,11 @@ function TaskCard({ item, selectedDate, plan, recommended, focused, onSave, busy
     </details>}
     {(item.question_id != null || item.task_id !== null || item.study_session_id !== null || mayRecord && note === null) &&
       <div className="daily-plan-actions">
-        {item.question_id != null && <QuestionLinks questionId={item.question_id} />}
+        {item.question_id != null && <QuestionLinks registered={registered} questionId={item.question_id} />}
         {item.task_id !== null && <Link className={'btn ' + (isCompleted ? 'btn-outline' : 'btn-primary')} to={'/learning/task/' + item.task_id}>
           {isCompleted ? '查看任务记录' : isRetest ? '打开复测' : '开始学习'}
         </Link>}
-        {item.study_session_id !== null && <Link className="btn btn-outline" to={'/study/chat/' + item.study_session_id}>打开学习记录</Link>}
+        {item.study_session_id !== null && <Link className="btn btn-outline" to={(registered ? '/beta' : '') + '/study/chat/' + item.study_session_id}>打开学习记录</Link>}
         {mayRecord && note === null && <Button primary={recommended} onClick={() => setNote('')}>记录完成依据</Button>}
       </div>}
     {mayRecord && note !== null && <form className="daily-plan-form" onSubmit={async event => {
@@ -292,8 +292,8 @@ function TaskCard({ item, selectedDate, plan, recommended, focused, onSave, busy
   </article>;
 }
 
-function DayDetails({ plan, days, selectedDate, sourceKey, onReplan, saveEvidence, busy, notice, error }: {
-  plan: Plan; days: Map<string, Day>; selectedDate: string; sourceKey: string | null; onReplan: () => void;
+function DayDetails({ plan, days, selectedDate, sourceKey, registered, onReplan, saveEvidence, busy, notice, error }: {
+  plan: Plan; days: Map<string, Day>; selectedDate: string; sourceKey: string | null; registered: boolean; onReplan: () => void;
   saveEvidence: (key: string, note: string) => Promise<boolean>; busy: boolean; notice: string; error: string;
 }) {
   const selected = days.get(selectedDate);
@@ -323,7 +323,7 @@ function DayDetails({ plan, days, selectedDate, sourceKey, onReplan, saveEvidenc
       {notice && <p className="daily-plan-notice" role="status">{notice}</p>}
       {sourceKey && !items.some(item => item.key === sourceKey) && <p role="status">这项来源练习已不在所选日期的计划中。</p>}
       {items.length ? <div className="daily-plan-task-list">{items.map(item => <TaskCard
-        key={item.key} item={item} selectedDate={selectedDate} plan={plan} focused={sourceKey === item.key}
+        key={item.key} registered={registered} item={item} selectedDate={selectedDate} plan={plan} focused={sourceKey === item.key}
         recommended={nextTask?.key === item.key} busy={busy} error={recording === item.key ? error : ''}
         onSave={(itemKey, note) => { setRecording(itemKey); return saveEvidence(itemKey, note); }}
       />)}</div> : <p className="daily-plan-empty">{selected ? capacity === 0 ? '周末不安排新任务。' : '当天没有安排，可以留作缓冲。' : '请选择日历中有数据的日期。'}</p>}
@@ -423,7 +423,7 @@ function RescheduleDetails({ plan, registered, onEdit, onReplan, busy, error }: 
       <h3>目标日前排不下的 {plan.overflow.length} 项</h3>
       <ul>{plan.overflow.map(item => <li key={item.key}>{item.title}（{item.minutes} 分钟{
         item.moved_from ? '，原安排 ' + shortDate(item.moved_from) : ''
-      }）{item.question_id != null && <div className="daily-plan-actions"><QuestionLinks questionId={item.question_id} /></div>}</li>)}</ul>
+      }）{item.question_id != null && <div className="daily-plan-actions"><QuestionLinks registered={registered} questionId={item.question_id} /></div>}</li>)}</ul>
     </section>}
     {registered && error && <p className="daily-plan-error" role="alert">{error}</p>}
     <div className="daily-plan-actions">
@@ -540,7 +540,7 @@ export default function DailyLearningPlanView({ data, loading, loadError, mode, 
     <div className="daily-plan-layout">
       <MonthCalendar plan={plan} days={days} month={month} selectedDate={selectedDate}
         onMonth={value => setMonthOverride({ selectedDate, month: value })} onSelect={selectDate} />
-      <DayDetails key={selectedDate} plan={plan} days={days} selectedDate={selectedDate} sourceKey={sourceKey}
+      <DayDetails registered={registered} key={selectedDate} plan={plan} days={days} selectedDate={selectedDate} sourceKey={sourceKey}
         onReplan={() => setModal('replan')} busy={busy} error={error} notice={notice}
         saveEvidence={async (itemKey, note) => {
           const ok = await write(() => saveEvidence(itemKey, note, plan));

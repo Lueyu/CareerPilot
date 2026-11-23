@@ -1,6 +1,7 @@
 import React from 'react';
-import { Route, Navigate, useSearchParams } from 'react-router-dom';
+import { Route, Link, Navigate, useSearchParams } from 'react-router-dom';
 import { AppStateProvider, useAppState } from './components/AppState';
+import { Modal } from './components/ui';
 import ImportMonitor from './components/ImportMonitor';
 import { WorkspaceLayout } from './components/WorkspaceLayout';
 import { getWorkspace, useApi, type SettingsOverview } from './api/client';
@@ -30,7 +31,7 @@ import Evolution from './pages/Evolution';
 import Settings from './pages/Settings';
 import QuestionWorkshop from './pages/QuestionWorkshop';
 
-function Layout() {
+function Layout({ accountName }: { accountName?: string }) {
   const { setCmdOpen, setQuickOpen, setNotifOpen, setWsOpen } = useAppState();
   const { data } = useApi<SettingsOverview>('/settings/overview');
   return (
@@ -38,7 +39,7 @@ function Layout() {
       workspace={{
         kind: 'personal',
         label: data?.workspace.is_demo ? '演示工作空间' : '个人工作空间',
-        name: data?.workspace.name || getWorkspace(),
+        name: data?.workspace.name || accountName || getWorkspace(),
         openSwitcher: () => setWsOpen(true),
         actions: {
           search: () => setCmdOpen(true),
@@ -46,9 +47,19 @@ function Layout() {
           notifications: () => setNotifOpen(true),
         },
       }}
-      overlays={<><CommandPalette /><NotificationsPanel /><QuickActionsPanel /><WorkspaceSwitcher /></>}
+      overlays={<><CommandPalette /><NotificationsPanel /><QuickActionsPanel />{accountName === undefined ? <WorkspaceSwitcher /> :
+        <RegisteredWorkspaceSwitcher name={accountName} />}</>}
     />
   );
+}
+
+function RegisteredWorkspaceSwitcher({ name }: { name: string }) {
+  const { wsOpen, setWsOpen } = useAppState();
+  if (!wsOpen) return null;
+  return <Modal title="当前工作空间" onClose={() => setWsOpen(false)} size="sm">
+    <p>{name}</p>
+    <Link to="/settings/account" onClick={() => setWsOpen(false)}>账户与资料</Link>
+  </Modal>;
 }
 
 function StudyRetest({ report = false }: { report?: boolean }) {
@@ -59,12 +70,21 @@ function StudyRetest({ report = false }: { report?: boolean }) {
   </div></StudyShell>;
 }
 
-export default function App() {
+type RegisteredPages = {
+  accountName: string;
+  onboarding: React.ReactElement;
+  chat: React.ReactElement;
+  notes: React.ReactElement;
+  exam: React.ReactElement;
+  routes: React.ReactNode;
+};
+
+export function NativeWorkspace({ registered }: { registered?: RegisteredPages }) {
   return (
-    <WorkspaceLogin><AppStateProvider>
-      <WorkspaceRoutes layout={<Layout />} onboarding={<Onboarding />} home={<Dashboard />}
-        bank={<Bank />} chat={<StudyChat />} notes={<StudyNotebook />} exam={<ExamCenter />}
-        learning={<Learning />} memory={<Memory />} settings={<Settings />}>
+    <AppStateProvider>
+      <WorkspaceRoutes layout={<Layout accountName={registered?.accountName} />} onboarding={registered?.onboarding ?? <Onboarding />} home={<Dashboard />}
+        bank={<Bank registered={!!registered} />} chat={registered?.chat ?? <StudyChat />} notes={registered?.notes ?? <StudyNotebook />} exam={registered?.exam ?? <ExamCenter />}
+        learning={<Learning />} memory={<Memory />} settings={<Settings registered={!!registered} />}>
         <Route path="/study/retest" element={<StudyRetest />} />
         <Route path="/study/retest/report" element={<StudyRetest report />} />
         <Route path="/benchmark" element={<CompetencyTabs />} />
@@ -79,7 +99,12 @@ export default function App() {
         <Route path="/assets/pipeline" element={<Pipeline />} />
         <Route path="/observatory" element={<Observatory />} />
         <Route path="/evolution" element={<Evolution />} />
+        {registered?.routes}
       </WorkspaceRoutes>
-      <ImportMonitor /></AppStateProvider></WorkspaceLogin>
+      <ImportMonitor /></AppStateProvider>
   );
+}
+
+export default function App() {
+  return <WorkspaceLogin><NativeWorkspace /></WorkspaceLogin>;
 }

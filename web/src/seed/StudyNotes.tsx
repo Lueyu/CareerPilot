@@ -129,14 +129,14 @@ function NotesList({ onChat }: Pick<Props, 'onChat'>) {
       {query.trim() ? <button type="button" className="btn btn-outline" onClick={() => setQuery('')}>清除搜索</button>
         : onChat && <button type="button" className="btn btn-outline" onClick={onChat}>去学习聊天 →</button>}
     </div>}
-    {!loading && !error && <NotebookList notes={notes} renderLink={(note, content) => <a href={'/study/notes/' + note.id}>{content}</a>} />}
+    {!loading && !error && <NotebookList notes={notes} renderLink={(note, content) => <a href={'/beta/study/notes/' + note.id}>{content}</a>} />}
   </section>;
 }
 
 export default function PublicStudyNotes({ noteId, onChat }: Props) {
   return <div className="public-notebook study-notebook">
     <header className="study-notebook-header"><div>
-      {noteId && <a href="/study/notes">← 学习笔记</a>}
+      {noteId && <a href="/beta/study/notes">← 学习笔记</a>}
       <h1>{noteId ? '笔记编辑' : '学习笔记'}</h1>
     </div></header>
     {noteId ? <NoteEditor key={noteId} id={noteId} /> : <NotesList onChat={onChat} />}

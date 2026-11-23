@@ -145,12 +145,14 @@ async def _session_account(request: Request, session: Database) -> PublicAccount
 
 
 async def current_workspace(
+    request: Request,
     session: Database,
     account: Annotated[PublicAccount, Depends(_session_account)],
 ) -> Workspace:
     workspace = await session.get(Workspace, account.workspace_id)
     if workspace is None:
         raise _unauthenticated()
+    request.state.registered_workspace_slug = workspace.slug
     return workspace
 
 
@@ -305,8 +307,8 @@ async def delete_account(
         raise HTTPException(status_code=401, detail="密码有误，账号未删除。")
 
     # Imported items and exam questions can reference questions owned by this workspace.
-    workspace_id = await session.scalar(
-        select(Workspace.id)
+    workspace = await session.scalar(
+        select(Workspace)
         .where(
             Workspace.id == account.workspace_id,
             Workspace.is_demo.is_(False),
@@ -314,8 +316,11 @@ async def delete_account(
         )
         .with_for_update()
     )
-    if workspace_id is None:
+    if workspace is None:
         raise HTTPException(status_code=409, detail="该工作空间不能通过公开账号删除。")
+    from app.services.public_native_runtime import remove_native_workspace
+    await remove_native_workspace(workspace)
+    workspace_id = workspace.id
     await session.execute(delete(LearningActivity).where(LearningActivity.workspace_id == workspace_id))
     user_id = account.user_id
     await session.execute(delete(ImportSession).where(ImportSession.workspace_id == workspace_id))

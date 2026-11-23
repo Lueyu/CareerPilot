@@ -9,8 +9,9 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import make_url
 
-from app.api import public_auth, public_coach, public_dashboard, public_learning, public_library, public_memory
+from app.api import public_auth, public_coach, public_dashboard, public_learning, public_library, public_memory, public_native
 from app.db import Base, engine
+from app.services.public_native_runtime import close_native_runtime, invalidate_transfer, validate_native_config
 
 
 async def initialize_public_database():
@@ -35,23 +36,29 @@ async def initialize_public_database():
 @asynccontextmanager
 async def lifespan(application):
     public_auth.validate_auth_config()
+    validate_native_config()
     await initialize_public_database()
     try:
         yield
     finally:
+        await close_native_runtime()
         await engine.dispose()
 
 
 app = FastAPI(title="CareerPilot", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.middleware("http")(public_auth.public_origin_guard)
 for routes in (public_auth.router, public_library.router, public_coach.router, public_memory.router,
-               public_dashboard.router, public_learning.router):
+               public_dashboard.router, public_learning.router, public_native.router):
     app.include_router(routes, prefix="/api/v1")
 
 
 @app.middleware("http")
 async def private_responses(request, call_next):
     response = await call_next(request)
+    slug = getattr(request.state, "registered_workspace_slug", None)
+    if (slug and response.status_code < 300 and request.method in {"POST", "PUT", "PATCH", "DELETE"}
+            and not request.url.path.startswith("/api/v1/native/")):
+        invalidate_transfer(slug)
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "same-origin"
@@ -69,11 +76,13 @@ if static_dir := os.environ.get("SEED_STATIC_DIR"):
     directory = Path(static_dir).resolve()
     if not (directory / "index.html").is_file():
         raise RuntimeError("Build the public web entry before setting SEED_STATIC_DIR")
-    app.mount("/assets", StaticFiles(directory=directory / "assets"), name="web-assets")
+    app.mount("/static-assets", StaticFiles(directory=directory / "static-assets"), name="web-assets")
 
     @app.get("/{page:path}", include_in_schema=False)
     async def workspace_page(page: str):
         # Match browser navigation without serving index.html for missing API or asset requests.
-        if page.split("/", 1)[0] not in {"", "bank", "study", "exam", "memory", "learning", "settings", "onboarding"}:
+        pages = {"", "bank", "study", "exam", "memory", "learning", "settings", "onboarding",
+                 "profile", "benchmark", "assets", "observatory", "evolution", "beta", "account"}
+        if page.split("/", 1)[0] not in pages or page.startswith("assets/") and Path(page).suffix:
             raise HTTPException(404)
         return FileResponse(directory / "index.html", headers={"Cache-Control": "no-cache"})

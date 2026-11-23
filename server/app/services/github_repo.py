@@ -9,6 +9,7 @@ import time
 import httpx
 
 from app.services.github_publish import get_github_token
+from app.services.repo_transport import get_repo
 
 _API = "https://api.github.com"
 
@@ -32,8 +33,7 @@ def _headers(token: str | None, raw: bool = False) -> dict:
 
 
 async def _get(url: str, token: str | None, *, raw: bool = False, params: dict | None = None) -> httpx.Response:
-    async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
-        r = await client.get(url, headers=_headers(token, raw=raw), params=params)
+    r = await get_repo(url, headers=_headers(token, raw=raw), params=params)
     if r.status_code >= 400:
         try:
             msg = r.json().get("message", r.text[:200])

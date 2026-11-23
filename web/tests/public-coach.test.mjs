@@ -12,7 +12,6 @@ function makeFixture(t, request) {
   const sources = [];
   const calls = [];
   const fetchBefore = globalThis.fetch;
-  const eventSourceBefore = globalThis.EventSource;
   const windowBefore = globalThis.window;
   const workspaceId = 11;
   const api = createWorkspaceApi(workspaceId, () => assert.fail('unexpected session invalidation'));
@@ -25,24 +24,25 @@ function makeFixture(t, request) {
     if (method === 'GET' && path.startsWith('/coach/threads?')) {
       return Response.json({ threads: [summary], next_offset: null });
     }
+    if (path.endsWith('/events')) {
+      const body = new ReadableStream({
+        start(controller) {
+          sources.push({
+            path,
+            signal: options.signal,
+            emit(value) { controller.enqueue(new TextEncoder().encode('data: ' + JSON.stringify(value) + '\n\n')); },
+          });
+        },
+      });
+      return new Response(body, { headers: { 'Content-Type': 'text/event-stream' } });
+    }
     return Response.json(await request({ path, method, body }));
   };
   globalThis.window = { setTimeout, clearTimeout, location: { origin: 'https://seed.test' } };
-  globalThis.EventSource = class {
-    constructor(url) {
-      this.url = url;
-      this.closed = false;
-      sources.push(this);
-    }
-    addEventListener() {}
-    close() { this.closed = true; }
-    emit(value) { this.onmessage({ data: JSON.stringify(value) }); }
-  };
   let view;
   t.after(async () => {
     await act(async () => view?.unmount());
     globalThis.fetch = fetchBefore;
-    globalThis.EventSource = eventSourceBefore;
     globalThis.window = windowBefore;
   });
   return {
@@ -86,7 +86,7 @@ test('shows streamed text before completion and confirms a learner message befor
   const root = await fixture.render();
   await submit(root, response.user_text);
   const source = fixture.sources[0];
-  assert.equal(source.url, '/api/v1/coach/threads/1/turns/7/events?expected_workspace_id=11');
+  assert.equal(source.path, '/coach/threads/1/turns/7/events');
   await act(async () => source.emit({ ...response, reply: '先梳理社群目标' }));
   assert.ok(root.findAll(node => node.type === 'div' && node.children.includes('先梳理社群目标')).length);
   assert.ok(root.findAllByProps({ role: 'status' }).some(node => node.children.includes('正在生成回复…')));
@@ -94,7 +94,7 @@ test('shows streamed text before completion and confirms a learner message befor
   const completed = { ...response, status: 'completed', reply: '先梳理社群目标，再说明你负责的部分。' };
   thread = { ...study, turns: [completed] };
   await act(async () => source.emit(completed));
-  assert.equal(source.closed, true);
+  assert.equal(source.signal.aborted, true);
   assert.ok(root.findAllByType('p').some(node => node.children.includes(completed.reply)));
   const memoryButtons = root.findAllByType('button').filter(node => node.children.includes('选作项目经历'));
   assert.equal(memoryButtons.length, 1);

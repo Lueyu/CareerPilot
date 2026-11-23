@@ -58,6 +58,8 @@ test('Back restores the initially displayed study thread and then the preceding 
   globalThis.fetch = async (url, options) => {
     const path = url.slice('/api/v1'.length);
     if (path === '/auth/me') return Response.json({ workspace_id: 11, username: 'tester' });
+    if (path === '/native/access') return Response.json({ personal_owner: false });
+    if (path.startsWith('/native/')) return Response.json({}, { status: 404 });
     if (path === '/library/roles') return Response.json({
       selected_role: 'Engineering', roles: [{ role: 'Engineering', selected_topic: 'Systems' }],
     });
@@ -73,7 +75,7 @@ test('Back restores the initially displayed study thread and then the preceding 
   const router = createMemoryRouter([
     { path: '/previous', element: h('p', null, 'Previous page') },
     { path: '*', element: h(RegisteredApp) },
-  ], { initialEntries: ['/previous', '/study/chat'], initialIndex: 1 });
+  ], { initialEntries: ['/previous', '/beta/study/chat'], initialIndex: 1 });
   let view;
   t.after(() => {
     act(() => view?.unmount());
@@ -83,19 +85,19 @@ test('Back restores the initially displayed study thread and then the preceding 
   await act(async () => { view = create(h(RouterProvider, { router })); });
   // Wait for the registered app's lazy-loaded coach and its first history request.
   const until = Date.now() + 5000;
-  while (router.state.location.pathname === '/study/chat' && Date.now() < until) {
+  while (router.state.location.pathname === '/beta/study/chat' && Date.now() < until) {
     await act(async () => { await delay(10); });
   }
   const { root } = view;
-  assert.equal(router.state.location.pathname, '/study/chat/1');
+  assert.equal(router.state.location.pathname, '/beta/study/chat/1');
   assert.equal(button(root, 'Study 1').props['aria-current'], 'true');
   await act(async () => button(root, '新建学习对话').props.onClick());
   const startForm = root.findAllByType('form').find(form => button(form, '开始学习对话'));
   await act(async () => startForm.props.onSubmit({ preventDefault() {} }));
-  assert.equal(router.state.location.pathname, '/study/chat/2');
+  assert.equal(router.state.location.pathname, '/beta/study/chat/2');
   assert.equal(button(root, 'Study 2').props['aria-current'], 'true');
   await act(async () => { await router.navigate(-1); });
-  assert.equal(router.state.location.pathname, '/study/chat/1');
+  assert.equal(router.state.location.pathname, '/beta/study/chat/1');
   assert.equal(button(root, 'Study 1').props['aria-current'], 'true');
   await act(async () => { await router.navigate(-1); });
   assert.equal(router.state.location.pathname, '/previous');

@@ -7,6 +7,7 @@ from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import Evidence, Workspace
 from app.services.competency import recompute_skill_states
+from app.services.tenant_standard import tenant_standard, uses_tenant_standard
 
 router = APIRouter()
 
@@ -16,7 +17,11 @@ async def profile(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    states = await recompute_skill_states(session, ws.id)
+    standard = await tenant_standard(session, ws, persist_seed=True) if uses_tenant_standard(ws) else None
+    states = await recompute_skill_states(session, ws.id, standard=standard)
+    if standard is not None:
+        active_ids = {target.skill_id for target in standard.targets}
+        states = [state for state in states if state.skill_id in active_ids]
     evidence = (
         await session.execute(
             select(Evidence).where(Evidence.workspace_id == ws.id).order_by(Evidence.id.desc()).limit(20)
@@ -71,7 +76,8 @@ async def skill_detail(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    states = await recompute_skill_states(session, ws.id)
+    standard = await tenant_standard(session, ws, persist_seed=True) if uses_tenant_standard(ws) else None
+    states = await recompute_skill_states(session, ws.id, standard=standard)
     state = next((s for s in states if s.skill.key == skill_key), None)
     if state is None:
         raise HTTPException(status_code=404, detail=f"skill '{skill_key}' not found")

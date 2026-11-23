@@ -72,7 +72,7 @@ def write(path, content):
     path.write_text(content, encoding="utf-8", newline="\n")
 
 
-def check_release(work, config_only, restore_only=False, postgres_image="postgres:16-alpine"):
+def check_release(work, config_only, restore_only=False, postgres_image="postgres:16-alpine", *, proxy_only=False):
     project = f"cp-seed-test-{uuid4().hex[:12]}"
     values = {**SYNTHETIC_ENV, "SEED_RELEASE_TAG": project, "SEED_POSTGRES_IMAGE": postgres_image}
     env_file = work / "runtime.conf"
@@ -116,7 +116,8 @@ def check_release(work, config_only, restore_only=False, postgres_image="postgre
         else:
             compose("up", "--build", "--pull", "never", "--wait", "--wait-timeout", "120")
             check_proxy(compose)
-        check_backup(work, ops, env, run, compose)
+        if not proxy_only:
+            check_backup(work, ops, env, run, compose)
     finally:
         compose("down", "--volumes", "--remove-orphans")
         subprocess.run(
@@ -154,23 +155,34 @@ def fixture_sources(work, ops):
     write(work / "web" / "src" / "data" / "old-bank.json", '{"fixture": "private"}\n')
     write(work / "web" / "index.html", '<script type="module" src="/src/main.tsx"></script>')
     write(work / "web" / "src" / "main.tsx", 'import App from "./workspace-entry";')
-    write(work / "web" / "src" / "seed" / "RegisteredApp.tsx", "export default function App() {}")
+    write(work / "web" / "src" / "seed" / "RegisteredApp.tsx", 'export { NativeWorkspace } from "../App";')
+    write(work / "web" / "src" / "App.tsx", "export function NativeWorkspace() {}")
+    write(work / "web" / "src" / "workspace-entry.ts", 'export { default } from "./App";')
+    write(work / "web" / "src" / "data" / "demo.ts", "export const STATUS_META = {};")
     shutil.copyfile(ROOT / "web" / "vite.seed.config.ts", work / "web" / "vite.seed.config.ts")
     write(work / "web" / "src" / "seed" / "build.ts", """
 const fs = require("node:fs");
 for (const path of [
     ".env", "private.txt", "public/old-bank.json", "src/data/old-bank.json",
-    "seed/index.html", "src/workspace-entry.ts", "src/App.tsx",
+    "seed/index.html", "src/data/bank.json", "src/pages/legacyBank.ts", "src/api/localTransport.ts",
+    "src/seed/fixture.test.ts", "src/seed/fixtures/private.txt",
 ]) {
     if (fs.existsSync(path)) throw new Error("excluded fixture entered build context: " + path);
 }
-fs.mkdirSync("dist-seed");
-for (const path of ["index.html", "src/main.tsx", "src/seed/RegisteredApp.tsx", "vite.seed.config.ts"]) {
+fs.mkdirSync("dist-seed/static-assets", { recursive: true });
+for (const path of [
+    "index.html", "src/main.tsx", "src/App.tsx", "src/workspace-entry.ts",
+    "src/seed/RegisteredApp.tsx", "src/data/demo.ts", "vite.seed.config.ts",
+]) {
     if (!fs.existsSync(path)) throw new Error("missing registered entry: " + path);
 }
 fs.writeFileSync("dist-seed/index.html", "seed fixture");
+fs.writeFileSync("dist-seed/static-assets/fixture.js", "console.log('fixture')");
 """)
-    for path in ("seed/index.html", "src/workspace-entry.ts", "src/App.tsx"):
+    for path in (
+        "seed/index.html", "src/data/bank.json", "src/pages/legacyBank.ts", "src/api/localTransport.ts",
+        "src/seed/fixture.test.ts", "src/seed/fixtures/private.txt",
+    ):
         write(work / "web" / path, "SYNTHETIC_PRIVATE_SENTINEL")
 
 
@@ -194,6 +206,8 @@ from app.public_main import app
 paths = app.openapi()["paths"]
 assert "get" in paths["/api/v1/coach/notes/{note_id}/versions/{version_id}"]
 assert "get" in paths["/api/v1/learning/daily-plan"]
+assert "get" in paths["/api/v1/native/access"]
+assert "get" in paths["/api/v1/native/bank/legacy-data"]
 assert not any(Path(path).exists() for path in (
     ".env", "app/main.py", "app/api/v1", "app/data", "app/services/llm.py",
     "app/services/study_notes.py", "app/services/study_teaching.py",
@@ -201,17 +215,25 @@ assert not any(Path(path).exists() for path in (
 """)
         build("web", builder, "--target", "build")
         docker("run", "--rm", "--network", "none", builder, "sh", "-ec", """
-for path in .env public src/data src/App.tsx src/workspace-entry.ts seed/index.html src/seed/main.tsx; do
+for path in .env public src/data/bank.json src/pages/legacyBank.ts src/api/localTransport.ts seed/index.html; do
     test ! -e "$path"
 done
 test -f src/main.tsx
+test -f src/App.tsx
+test -f src/data/demo.ts
 test -f src/seed/RegisteredApp.tsx
+test -f src/seed/legacyBank.ts
 """)
         build("web", web)
         docker("run", "--rm", "--network", "none", "--entrypoint", "sh", web, "-ec", """
 cd /srv/seed
 test -f index.html
-grep -Eq 'src="/assets/[^"]+[.]js"' index.html
+grep -Eq 'src="/static-assets/[^"]+[.]js"' index.html
+test ! -e assets
+test -z "$(find static-assets -type f -name '*.json' -print)"
+if grep -Eq 'cp-dev-token|X-Api-Token|cp-login-token' static-assets/*.js; then
+    exit 1
+fi
 test -z "$(find . -type f -name '*.map' -print)"
 test ! -e src
 test ! -e public
@@ -246,9 +268,16 @@ def check_proxy(compose):
     first = client()
     second = client()
     try:
-        first.request("GET", "/")
-        assert first.getresponse().read() == b"seed fixture"
-        for missing in ("/api/legacy", "/assets/missing.js"):
+        for route in ("/", "/assets", "/assets/project/42"):
+            first.request("GET", route)
+            response = first.getresponse()
+            assert response.status == 200, route
+            assert response.read() == b"seed fixture", route
+        first.request("GET", "/static-assets/fixture.js")
+        response = first.getresponse()
+        assert response.status == 200
+        assert response.read() == b"console.log('fixture')"
+        for missing in ("/api/legacy", "/static-assets/missing.js"):
             first.request("GET", missing)
             response = first.getresponse()
             assert response.status == 404
@@ -263,7 +292,7 @@ def check_proxy(compose):
     finally:
         first.close()
         second.close()
-    print("Loopback HTTPS, SSE and build-context isolation passed", flush=True)
+    print("Loopback HTTPS, project deep links, static assets, SSE and build-context isolation passed", flush=True)
 
 
 def check_backup(work, ops, env, run, compose):
@@ -319,6 +348,7 @@ if __name__ == "__main__":
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--config-only", action="store_true")
     mode.add_argument("--restore-only", action="store_true")
+    mode.add_argument("--proxy-only", action="store_true")
     mode.add_argument("--build-only", action="store_true")
     parser.add_argument("--postgres-image", default="postgres:16-alpine")
     options = parser.parse_args()
@@ -326,4 +356,5 @@ if __name__ == "__main__":
         check_source_build()
     else:
         with tempfile.TemporaryDirectory(prefix="cp-seed-release-") as workspace:
-            check_release(Path(workspace), options.config_only, options.restore_only, options.postgres_image)
+            check_release(Path(workspace), options.config_only, options.restore_only, options.postgres_image,
+                          proxy_only=options.proxy_only)

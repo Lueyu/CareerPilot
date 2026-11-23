@@ -1,7 +1,10 @@
-import { lazy, useEffect, useState } from 'react';
-import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { WorkspaceRoutes } from '../WorkspaceRoutes';
-import { RegisteredWorkspaceLayout } from '../components/WorkspaceLayout';
+import { lazy, useEffect, useLayoutEffect, useState, type ReactElement } from 'react';
+import { Link, Navigate, Route, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { NativeWorkspace } from '../App';
+import { api, ApiError, bindRegisteredNativeApi } from '../api/client';
+import StudyChat from '../pages/StudyChat';
+import StudyNotebook from '../pages/StudyNotebook';
+import ExamCenter from '../pages/ExamCenter';
 import { AccountFrame } from './AccountFrame';
 import AccountSettings from './AccountSettings';
 import Dashboard from './Dashboard';
@@ -19,7 +22,9 @@ const StudyNotes = lazy(() => import('./StudyNotes'));
 
 type Question = { id: number; title: string };
 type Mode = 'study' | 'interview';
-const previousLocations: Record<string, string> = { '#library': '/bank', '#coach': '/study/chat', '#memories': '/memory', '#settings': '/settings' };
+const previousLocations: Record<string, string> = {
+  '#library': '/beta/bank', '#coach': '/beta/study/chat', '#memories': '/beta/memory', '#settings': '/settings/account',
+};
 
 function QuestionPractice({ mode, id }: { mode: Mode; id: string | null }) {
   const { request } = useWorkspaceApi();
@@ -37,22 +42,22 @@ function QuestionPractice({ mode, id }: { mode: Mode; id: string | null }) {
       .catch(e => { if (!controller.signal.aborted) setError(e.message); });
     return () => controller.abort();
   }, [request, id]);
-  if (error) return <div className="card"><p role="alert">{error}</p><Link to="/bank">返回面试题库</Link></div>;
+  if (error) return <div className="card"><p role="alert">{error}</p><Link to="/beta/bank">返回面试题库</Link></div>;
   if (id !== null && !question) return <p role="status">正在读取题目…</p>;
-  return <Coach mode={mode} question={question} threadId={threadId} onLibrary={() => navigate('/bank')}
-    onNotebook={() => navigate('/study/notes')} onNote={note => navigate('/study/notes/' + note)}
+  return <Coach mode={mode} question={question} threadId={threadId} onLibrary={() => navigate('/beta/bank')}
+    onNotebook={() => navigate('/beta/study/notes')} onNote={note => navigate('/beta/study/notes/' + note)}
     onThreadChange={(next, replace = false) => {
       const query = new URLSearchParams();
       if (id) query.set('question', id);
       if (mode === 'interview') query.set('thread', String(next));
-      navigate({ pathname: mode === 'study' ? '/study/chat/' + next : '/exam', search: query.toString() }, { replace });
+      navigate({ pathname: mode === 'study' ? '/beta/study/chat/' + next : '/beta/exam', search: query.toString() }, { replace });
     }} />;
 }
 
 function NotebookPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  return <StudyNotes noteId={Number(id) || undefined} onChat={() => navigate('/study/chat')} />;
+  return <StudyNotes noteId={Number(id) || undefined} onChat={() => navigate('/beta/study/chat')} />;
 }
 
 function PracticePage({ mode }: { mode: Mode }) {
@@ -61,37 +66,110 @@ function PracticePage({ mode }: { mode: Mode }) {
   return <QuestionPractice key={mode + (id ?? '')} id={id} mode={mode} />;
 }
 
+function CompatibleRecord({ kind, native, beta }: {
+  kind: 'sessions' | 'notes'; native: ReactElement; beta: ReactElement;
+}) {
+  const params = useParams();
+  const id = kind === 'sessions' ? params.sessionId : params.id;
+  if (!id) return native;
+  return <RecordLookup key={kind + id} path={'/study/' + kind + '/' + encodeURIComponent(id)}
+    native={native} beta={beta} />;
+}
+
+function RecordLookup({ path, native, beta }: { path: string; native: ReactElement; beta: ReactElement }) {
+  const [legacy, setLegacy] = useState<boolean>();
+  useEffect(() => {
+    let current = true;
+    api.get(path).then(() => { if (current) setLegacy(false); }).catch(error => {
+      if (current) setLegacy(error instanceof ApiError && error.status === 404);
+    });
+    return () => { current = false; };
+  }, [path]);
+  if (legacy === undefined) return <p role="status">正在读取记录…</p>;
+  return legacy ? beta : native;
+}
+
+function RegisteredChat() {
+  const { sessionId } = useParams();
+  const { search } = useLocation();
+  if (new URLSearchParams(search).has('question')) {
+    return <Navigate replace to={'/beta/study/chat' + (sessionId ? '/' + sessionId : '') + search} />;
+  }
+  return <CompatibleRecord kind="sessions" native={<StudyChat questionBuilderPath="/beta/study/chat" />} beta={<PracticePage mode="study" />} />;
+}
+
+function RegisteredExam() {
+  const { search } = useLocation();
+  const query = new URLSearchParams(search);
+  return query.has('thread') || query.has('question') ? <Navigate replace to={'/beta/exam' + search} /> : <ExamCenter />;
+}
+
 function Workspace({ user, signedOut }: { user: AccountInfo; signedOut: () => void }) {
-  const { request } = useWorkspaceApi();
+  const { request, response, signal } = useWorkspaceApi();
   const location = useLocation();
   const navigate = useNavigate();
-  const [ready, setReady] = useState<boolean>();
+  const [access, setAccess] = useState<{ personal_owner: boolean; ready: boolean }>();
+  const [bound, setBound] = useState(false);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
     setError('');
-    request<LibraryRoles>('/library/roles', { signal: controller.signal })
-      .then(data => setReady(data.roles.some(role => role.role === data.selected_role && !!role.selected_topic)))
-      .catch(e => { if (!controller.signal.aborted) setError(e.message); });
+    async function open() {
+      const { personal_owner } = await request<{ personal_owner: boolean }>('/native/access', { signal: controller.signal });
+      if (typeof personal_owner !== 'boolean') throw new Error('无法确认工作空间访问权限。');
+      const roles = personal_owner ? undefined : await request<LibraryRoles>('/library/roles', { signal: controller.signal });
+      if (!controller.signal.aborted) setAccess({
+        personal_owner,
+        ready: personal_owner || !!roles?.roles.some(role => role.role === roles.selected_role && !!role.selected_topic),
+      });
+    }
+    void open().catch(e => { if (!controller.signal.aborted) setError(e.message); });
     return () => controller.abort();
   }, [request, attempt]);
 
+  const personalOwner = access?.personal_owner;
+  useLayoutEffect(() => {
+    if (personalOwner === undefined) return;
+    const release = bindRegisteredNativeApi({ workspaceId: user.workspace_id, personalOwner, response, signal });
+    setBound(true);
+    return release;
+  }, [personalOwner, response, signal, user.workspace_id]);
+
   if (error) return <AccountFrame><p role="alert">{error}</p><button className="btn btn-outline"
-    onClick={() => setAttempt(n => n + 1)}>重新读取岗位</button></AccountFrame>;
-  if (ready === undefined) return <AccountFrame><p role="status">正在读取工作空间…</p></AccountFrame>;
+    onClick={() => setAttempt(n => n + 1)}>重新读取工作空间</button></AccountFrame>;
+  if (!access || !bound) return <AccountFrame><p role="status">正在读取工作空间…</p></AccountFrame>;
+  if (!access.ready && !['/onboarding', '/settings/account', '/settings'].includes(location.pathname)) {
+    return <Navigate replace to="/onboarding" state={{ returnTo: location.pathname + location.search + location.hash }} />;
+  }
   if (location.pathname === '/' && previousLocations[location.hash]) return <Navigate replace to={previousLocations[location.hash]} />;
-  if (!ready && location.pathname !== '/onboarding' && location.pathname !== '/settings') return <Navigate replace to="/onboarding" />;
+  if (location.pathname === '/onboarding' && access.personal_owner) return <Navigate replace to="/" />;
   const onboarding = <AccountFrame><RegisteredOnboarding onComplete={() => {
-    setReady(true);
-    navigate('/', { replace: true });
+    setAccess({ ...access, ready: true });
+    navigate(location.state?.returnTo ?? '/', { replace: true });
   }} /></AccountFrame>;
-  return <WorkspaceRoutes layout={<RegisteredWorkspaceLayout accountName={user.username} />} onboarding={onboarding}
-    home={<Dashboard />} bank={<Library openImport={new URLSearchParams(location.search).get('import') === '1'} onCoach={() => navigate('/study/chat')}
-      onPractice={(q, mode) => navigate((mode === 'interview' ? '/exam' : '/study/chat') + '?question=' + q.id)} />}
-    chat={<PracticePage mode="study" />} notes={<NotebookPage />} exam={<PracticePage mode="interview" />} learning={<Learning />}
-    memory={<Memory />} settings={<AccountSettings user={user} signedOut={() => { signedOut(); navigate('/', { replace: true }); }} />} />;
+  const account = <><AccountSettings user={user} signedOut={() => { signedOut(); navigate('/', { replace: true }); }} />
+    <Link to="/settings">工作空间设置</Link></>;
+  return <NativeWorkspace registered={{
+    accountName: user.username,
+    onboarding,
+    chat: <RegisteredChat />,
+    notes: <CompatibleRecord kind="notes" native={<StudyNotebook />} beta={<NotebookPage />} />,
+    exam: <RegisteredExam />,
+    routes: <>
+      <Route path="/settings/account" element={account} />
+      <Route path="/beta" element={<Dashboard />} />
+      <Route path="/beta/bank" element={<Library openImport={new URLSearchParams(location.search).get('import') === '1'}
+        onCoach={() => navigate('/beta/study/chat')}
+        onPractice={(q, mode) => navigate((mode === 'interview' ? '/beta/exam' : '/beta/study/chat') + '?question=' + q.id)} />} />
+      <Route path="/beta/study/chat/:sessionId?" element={<PracticePage mode="study" />} />
+      <Route path="/beta/study/notes/:id?" element={<NotebookPage />} />
+      <Route path="/beta/exam" element={<PracticePage mode="interview" />} />
+      <Route path="/beta/learning" element={<Learning />} />
+      <Route path="/beta/memory" element={<Memory />} />
+    </>,
+  }} />;
 }
 
 export default function RegisteredApp() {

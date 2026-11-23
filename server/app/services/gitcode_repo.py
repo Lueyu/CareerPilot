@@ -13,6 +13,7 @@ from urllib.parse import quote
 import httpx
 
 from app.config import get_settings
+from app.services.repo_transport import get_repo
 
 _API = "https://gitcode.com/api/v5"
 _RAW = "https://raw.gitcode.com"
@@ -49,8 +50,7 @@ async def _get(url: str, token: str | None, *, params: dict | None = None) -> ht
     headers = dict(_HEADERS)
     if token:
         headers["PRIVATE-TOKEN"] = token
-    async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
-        r = await client.get(url, headers=headers, params=params or None)
+    r = await get_repo(url, headers=headers, params=params or None)
     if r.status_code >= 400:
         try:
             d = r.json()
@@ -64,8 +64,7 @@ async def _get(url: str, token: str | None, *, params: dict | None = None) -> ht
 async def _get_raw(url: str) -> str | None:
     """raw 服务器直读; 非 200 返回 None(不抛错, README/单文件读失败可降级)。"""
     try:
-        async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
-            r = await client.get(url, headers={"User-Agent": "CareerPilot-Local"})
+        r = await get_repo(url, headers={"User-Agent": "CareerPilot-Local"})
         if r.status_code == 200 and r.text:
             return r.text
     except Exception:  # noqa: BLE001

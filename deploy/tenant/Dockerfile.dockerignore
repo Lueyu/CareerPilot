@@ -1,0 +1,17 @@
+**
+!server/
+!server/requirements.txt
+!server/bootstrap.py
+!server/migrate.py
+!server/migrations/
+!server/migrations/*.sql
+!server/app/
+!server/app/**/
+!server/app/**/*.py
+server/app/data/
+server/app/seed.py
+!deploy/
+!deploy/tenant/
+!deploy/tenant/model_relay.py
+
+!deploy/tenant/repo_relay.py

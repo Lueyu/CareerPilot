@@ -8,7 +8,7 @@
  * 超时放宽: 单次导入追踪上限 15 分钟(此前前端 3 分钟就报错), 到点只提示
  * "稍后可到待审核查看", 不再中断后端流水线(后台任务继续跑完落库)。
  */
-import { api, ImportReview } from '../api/client';
+import { api, ImportReview, workspaceStorageKey } from '../api/client';
 
 export interface TrackedImport {
   id: number;
@@ -40,17 +40,23 @@ const finishCbs = new Set<FinishFn>();
 let timer: ReturnType<typeof setInterval> | null = null;
 
 // sessionStorage 持久化: 页面刷新(F5/整页跳转)后恢复追踪, 不丢后台任务的可视性。
+let generation = 0;
+let restoredKey: string | undefined;
 const STORE_KEY = 'cp-import-tracking-v1';
 
 function persist(): void {
   try {
-    sessionStorage.setItem(STORE_KEY, JSON.stringify([...active.values()]));
+    sessionStorage.setItem(workspaceStorageKey(STORE_KEY), JSON.stringify([...active.values()]));
   } catch { /* 存储不可用时静默降级 */ }
 }
 
 function restore(): void {
+  const key = workspaceStorageKey(STORE_KEY);
+  if (restoredKey === key) return;
+  reset();
+  restoredKey = key;
   try {
-    const raw = sessionStorage.getItem(STORE_KEY);
+    const raw = sessionStorage.getItem(key);
     if (!raw) return;
     const arr = JSON.parse(raw) as TrackedImport[];
     arr.forEach((t) => {
@@ -61,7 +67,14 @@ function restore(): void {
     if (active.size && !timer) timer = setInterval(() => void pollOnce(), 2000);
   } catch { /* 数据损坏时忽略 */ }
 }
-restore();
+
+function reset(): void {
+  generation += 1;
+  restoredKey = undefined;
+  active.clear();
+  if (timer) clearInterval(timer);
+  timer = null;
+}
 
 function notify(): void {
   const list = [...active.values()];
@@ -69,11 +82,13 @@ function notify(): void {
 }
 
 async function pollOnce(): Promise<void> {
+  const current = generation;
   const ids = [...active.keys()];
   if (!ids.length) return;
   const settled = await Promise.allSettled(
     ids.map((id) => api.get<ImportReview>(`/bank/imports/${id}`)),
   );
+  if (current !== generation) return;
   settled.forEach((res, i) => {
     const id = ids[i];
     const t = active.get(id);
@@ -115,6 +130,7 @@ async function pollOnce(): Promise<void> {
 
 /** 注册一次后台导入(POST 成功后立即调用, 用户即可离开当前页面)。 */
 export function trackImport(id: number, shortCode: string): void {
+  restore();
   active.set(id, {
     id,
     shortCode,
@@ -132,9 +148,13 @@ export function trackImport(id: number, shortCode: string): void {
 
 /** 订阅进行中的导入列表(悬浮进度条用)。返回退订函数。 */
 export function subscribeImports(fn: Listener): () => void {
+  restore();
   listeners.add(fn);
   fn([...active.values()]);
-  return () => { listeners.delete(fn); };
+  return () => {
+    listeners.delete(fn);
+    if (!listeners.size) reset();
+  };
 }
 
 /** 订阅导入完成事件(toast/刷新用)。返回退订函数。 */

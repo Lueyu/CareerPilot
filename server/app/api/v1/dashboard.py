@@ -19,6 +19,7 @@ from app.models import (
     Workspace,
 )
 from app.services.competency import recompute_skill_states
+from app.services.tenant_standard import tenant_standard, uses_tenant_standard
 
 router = APIRouter()
 
@@ -29,14 +30,20 @@ async def dashboard(
     session: AsyncSession = Depends(get_session),
 ):
     # 重算能力状态(保证一致性; 规则引擎开销极小)
-    states = await recompute_skill_states(session, ws.id)
+    tenant = await tenant_standard(session, ws, persist_seed=True) if uses_tenant_standard(ws) else None
+    states = await recompute_skill_states(session, ws.id, standard=tenant)
+    if tenant is not None:
+        active_ids = {target.skill_id for target in tenant.targets}
+        active_states = [state for state in states if state.skill_id in active_ids]
+    else:
+        active_states = states
 
     evidence_count = (
         await session.execute(select(func.count(Evidence.id)).where(Evidence.workspace_id == ws.id))
     ).scalar_one()
 
     pending_skills = sum(
-        1 for s in states if s.status in (SkillState.STATUS_UNKNOWN, SkillState.STATUS_NEEDS_VALIDATION)
+        1 for s in active_states if s.status in (SkillState.STATUS_UNKNOWN, SkillState.STATUS_NEEDS_VALIDATION)
     )
 
     today_tasks = (
@@ -91,7 +98,7 @@ async def dashboard(
 
     # 加权差距 = Σ weight×(target-current)/100
     target_map = {s.skill_id: s for s in states}
-    standard = (
+    standard = tenant or (
         await session.execute(
             select(JobStandard).where(JobStandard.is_seed.is_(True),
                 JobStandard.role == 'AI Agent 应用开发工程师').order_by(JobStandard.id.desc()).limit(1)

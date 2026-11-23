@@ -305,9 +305,8 @@ function CoachSession({ question, mode, onLibrary, threadId, onThreadChange, onN
     if (!detailPath || streamingId === null) return;
     const controller = new AbortController();
     let timer: number | undefined;
-    let reconciling = false;
+    const stream = new AbortController();
     const path = detailPath + '/turns/' + streamingId + '/events';
-    const source = typeof EventSource === 'undefined' ? null : events(path, controller.signal);
     async function reconcile() {
       try {
         const current = await request<Thread>(detailPath ?? '', { signal: controller.signal });
@@ -325,35 +324,25 @@ function CoachSession({ question, mode, onLibrary, threadId, onThreadChange, onN
       }
     }
     function reconnect() {
-      if (reconciling) return;
-      reconciling = true;
-      source?.close();
+      if (controller.signal.aborted || stream.signal.aborted) return;
+      stream.abort();
       void reconcile();
     }
-    if (source) {
-      source.onmessage = event => {
-        try {
-          const frame = progressOf(event.data);
-          if (!frame) {
-            reconnect();
-            return;
-          }
-          setThread(current => current ? {
-            ...current,
-            turns: current.turns.map(turn => turn.id === frame.id && turn.attempt === frame.attempt
-              ? { ...turn, reply: frame.reply } : turn),
-          } : current);
-        } catch {
-          reconnect();
-        }
-      };
-      source.onerror = reconnect;
-      source.addEventListener('unavailable', reconnect);
-    } else {
-      void reconcile();
-    }
+    void events(path, stream.signal, data => {
+      const frame = progressOf(data);
+      if (!frame) {
+        reconnect();
+        return;
+      }
+      setThread(current => current ? {
+        ...current,
+        turns: current.turns.map(turn => turn.id === frame.id && turn.attempt === frame.attempt
+          ? { ...turn, reply: frame.reply } : turn),
+      } : current);
+    }).then(reconnect, reconnect);
     return () => {
       controller.abort();
+      stream.abort();
       window.clearTimeout(timer);
     };
   }, [request, events, detailPath, streamingId, streamingAttempt]);

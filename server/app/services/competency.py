@@ -73,17 +73,18 @@ def assessed_observations(evidences: list[Evidence], *, include_assisted: bool =
     return list(latest.values())
 
 
-async def recompute_skill_states(session: AsyncSession, workspace_id: int) -> list[SkillState]:
+async def recompute_skill_states(session: AsyncSession, workspace_id: int, *, standard: JobStandard | None = None) -> list[SkillState]:
     """重算工作空间全部技能状态; 返回最新状态列表。"""
     skills = (await session.execute(select(Skill).order_by(Skill.id))).scalars().all()
-    standard = (
-        await session.execute(
-            select(JobStandard)
-            .where(JobStandard.role == "AI Agent 应用开发工程师", JobStandard.is_seed.is_(True))
-            .order_by(JobStandard.id.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    if standard is None:
+        standard = (
+            await session.execute(
+                select(JobStandard)
+                .where(JobStandard.role == "AI Agent 应用开发工程师", JobStandard.is_seed.is_(True))
+                .order_by(JobStandard.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
 
     targets: dict[int, float] = {}
     if standard:

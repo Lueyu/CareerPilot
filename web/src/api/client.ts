@@ -1,26 +1,72 @@
+import { SeedApiError, type createWorkspaceApi } from '../seed/api';
+
 // CareerPilot API client — 后端 FastAPI (127.0.0.1:8000)
 // 认证: X-Api-Token; 工作空间: X-Workspace (默认 personal)
 
-const env = (import.meta as any).env;
-const localApi = env?.DEV && typeof window !== 'undefined' && env['VITE_DEV_API_' + window.location.port];
-const BASE = localApi || env?.VITE_API_BASE || 'http://127.0.0.1:8000/api/v1';
-export const workspaceLogin = (import.meta as any).env?.VITE_AUTH_MODE === 'workspace';
-const TOKEN = (import.meta as any).env?.VITE_API_TOKEN || 'cp-dev-token';
+import { localFetch, localWorkspace, selectLocalWorkspace, workspaceLogin } from './localTransport';
+
+export { workspaceLogin };
+const registeredBuild = (import.meta as any).env?.VITE_REGISTERED;
+type RegisteredAccess = {
+  workspaceId: number;
+  personalOwner: boolean;
+  signal: AbortSignal;
+  response: ReturnType<typeof createWorkspaceApi>['response'];
+};
+
+let registeredAccess: RegisteredAccess | undefined;
+let hasRegisteredSession = false;
+
+export function bindRegisteredNativeApi(access: RegisteredAccess) {
+  hasRegisteredSession = true;
+  registeredAccess = access;
+  const release = () => {
+    if (registeredAccess === access) registeredAccess = undefined;
+    access.signal.removeEventListener('abort', release);
+  };
+  if (access.signal.aborted) release();
+  else access.signal.addEventListener('abort', release, { once: true });
+  return release;
+}
+
+export function hasOriginalBank() {
+  return registeredAccess?.personalOwner ?? (!hasRegisteredSession && !registeredBuild);
+}
+
+export function workspaceStorageKey(key: string): string {
+  return registeredAccess ? key + ':' + getWorkspace() : key;
+}
+
 export function getWorkspace(): string {
-  if (workspaceLogin) return sessionStorage.getItem('cp-login-workspace') || '';
-  return globalThis.localStorage?.getItem('cp-workspace') || (import.meta as any).env?.VITE_WORKSPACE || 'personal';
+  if (hasRegisteredSession || registeredBuild) return 'registered:' + (registeredAccess?.workspaceId ?? 'unbound');
+  return localWorkspace();
 }
 
 export function selectWorkspace(slug: string) {
-  localStorage.setItem('cp-workspace', slug);
+  if (hasRegisteredSession || registeredBuild) return;
+  selectLocalWorkspace(slug);
 }
 
-export const apiHeaders = () => ({ 'X-Api-Token': workspaceLogin ? sessionStorage.getItem('cp-login-token') || '' : TOKEN, 'X-Workspace': getWorkspace() });
+async function fetchNative(path: string, options: RequestInit = {}, access = registeredAccess) {
+  if (hasRegisteredSession || registeredBuild) {
+    if (!access) throw new ApiError(401, '工作空间会话已关闭');
+    try {
+      return await access.response('/native' + path, options);
+    } catch (error) {
+      if (error instanceof SeedApiError) throw new ApiError(error.status, error.message);
+      throw error;
+    }
+  }
+  return localFetch(path, options);
+}
 
 export async function downloadWorkspaceExport(): Promise<Blob> {
-  const res = await fetch(`${BASE}/settings/export`, { headers: apiHeaders() });
+  const access = registeredAccess;
+  const res = await fetchNative('/settings/export', {}, access);
   if (!res.ok) throw new ApiError(res.status, await res.text());
-  return res.blob();
+  const blob = await res.blob();
+  access?.signal.throwIfAborted();
+  return blob;
 }
 
 export class ApiError extends Error {
@@ -32,14 +78,14 @@ export class ApiError extends Error {
 }
 
 async function req<T = any>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const access = registeredAccess;
+  const res = await fetchNative(path, {
     method,
     headers: {
-      ...apiHeaders(),
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  }, access);
   if (!res.ok) {
     let detail = `${res.status}`;
     try {
@@ -48,16 +94,15 @@ async function req<T = any>(method: string, path: string, body?: unknown): Promi
     } catch { /* ignore */ }
     throw new ApiError(res.status, detail);
   }
-  return res.status === 204 ? undefined as T : res.json() as Promise<T>;
+  const result = res.status === 204 ? undefined : await res.json();
+  access?.signal.throwIfAborted();
+  return result as T;
 }
 
 /** multipart 上传(文件): 不设 Content-Type, 交给浏览器带 boundary。 */
 async function reqForm<T = any>(path: string, form: FormData): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: apiHeaders(),
-    body: form,
-  });
+  const access = registeredAccess;
+  const res = await fetchNative(path, { method: 'POST', body: form }, access);
   if (!res.ok) {
     let detail = `${res.status}`;
     try {
@@ -66,7 +111,9 @@ async function reqForm<T = any>(path: string, form: FormData): Promise<T> {
     } catch { /* ignore */ }
     throw new ApiError(res.status, detail);
   }
-  return res.json() as Promise<T>;
+  const result = await res.json();
+  access?.signal.throwIfAborted();
+  return result as T;
 }
 
 export const api = {
@@ -99,7 +146,8 @@ export async function readMessageStream(
   signal: AbortSignal,
   onEvent: (event: MessageStreamEvent) => void,
 ): Promise<void> {
-  const res = await fetch(`${BASE}${path}`, { headers: apiHeaders(), signal, cache: 'no-store' });
+  const access = registeredAccess;
+  const res = await fetchNative(path, { signal, cache: 'no-store' }, access);
   if (!res.ok) {
     let detail = `${res.status}`;
     try {
@@ -115,6 +163,7 @@ export async function readMessageStream(
   try {
     for (;;) {
       const { done, value } = await reader.read();
+      access?.signal.throwIfAborted();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       let cut = buffer.indexOf('\n\n');

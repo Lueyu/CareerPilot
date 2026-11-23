@@ -29,7 +29,7 @@ def mcq_rubric(raw,options):
     return value
 
 
-def question_snapshot(q, standard=None):
+def question_snapshot(q, standard=None, *, private_library_practice=False):
     from app.services.assessment_rubric import AssessmentJudgeError, compile_rubric
     material={"question_id":q.id,"canonical_question_id":q.canonical_question_id or q.id,
         "short_code":q.short_code,"title":q.title,"qtype":q.qtype,"options":deepcopy(q.options),
@@ -41,6 +41,8 @@ def question_snapshot(q, standard=None):
             'issue_targets':((q.generation_meta or {}).get('input_snapshot') or {}).get('project_issue_targets',[]),
             'fact_refs':((q.generation_meta or {}).get('item') or {}).get('fact_refs',[])})}
     raw=deepcopy(q.rubric or {})
+    if private_library_practice and q.qtype == 'open' and not raw:
+        raw = {'points': [{'title': '作答与论证', 'detail': '直接回答本题，并解释关键理由或可验证的做法。'}]}
     if raw.get('review_required'):
         raise HTTPException(409,'题意或能力映射已修改，评分标准需要复核后才能创建新考试')
     try:

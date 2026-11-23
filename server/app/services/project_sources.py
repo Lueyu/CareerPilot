@@ -17,6 +17,7 @@ from urllib.parse import quote
 import httpx
 
 from app.services import gitcode_repo, github_repo
+from app.services.repo_transport import stream_repo
 
 MAX_DOWNLOAD_BYTES = 768_000
 MAX_TREE_FILES = 4000
@@ -114,28 +115,27 @@ class SourceRepository:
             url = f"{gitcode_repo._RAW}/{owner}/{repo}/raw/{self.revision}/{encoded_path}"
             headers, params = {"User-Agent": "CareerPilot-Local"}, None
         try:
-            async with httpx.AsyncClient(timeout=30.0, trust_env=False, follow_redirects=False) as client:
-                async with client.stream("GET", url, headers=headers, params=params) as response:
-                    if response.status_code != 200:
+            async with stream_repo(url, headers=headers, params=params) as response:
+                if response.status_code != 200:
+                    return None
+                data = bytearray()
+                async for chunk in response.aiter_bytes():
+                    data.extend(chunk)
+                    if len(data) > MAX_DOWNLOAD_BYTES:
                         return None
-                    data = bytearray()
-                    async for chunk in response.aiter_bytes():
-                        data.extend(chunk)
-                        if len(data) > MAX_DOWNLOAD_BYTES:
-                            return None
-                    value = bytes(data).decode("utf-8", errors="strict")
-                    # Some compatible providers still return Contents JSON despite
-                    # raw Accept. Decode only a recognizable API envelope.
-                    if "json" in response.headers.get("content-type", ""):
-                        try:
-                            envelope = json.loads(value)
-                            if (isinstance(envelope, dict) and envelope.get("type") == "file"
-                                    and envelope.get("path") == path and isinstance(envelope.get("sha"), str)
-                                    and envelope.get("encoding") == "base64" and isinstance(envelope.get("content"), str)):
-                                value = base64.b64decode(envelope["content"], validate=False).decode("utf-8", errors="strict")
-                        except (ValueError, UnicodeError):
-                            pass
-                    return value
+                value = bytes(data).decode("utf-8", errors="strict")
+                # Some compatible providers still return Contents JSON despite
+                # raw Accept. Decode only a recognizable API envelope.
+                if "json" in response.headers.get("content-type", ""):
+                    try:
+                        envelope = json.loads(value)
+                        if (isinstance(envelope, dict) and envelope.get("type") == "file"
+                                and envelope.get("path") == path and isinstance(envelope.get("sha"), str)
+                                and envelope.get("encoding") == "base64" and isinstance(envelope.get("content"), str)):
+                            value = base64.b64decode(envelope["content"], validate=False).decode("utf-8", errors="strict")
+                    except (ValueError, UnicodeError):
+                        pass
+                return value
         except (httpx.HTTPError, UnicodeError):
             return None
 

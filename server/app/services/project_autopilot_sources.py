@@ -13,6 +13,7 @@ from urllib.parse import quote
 import httpx
 
 from app.services.project_sources import is_safe_source_path, redact_source
+from app.services.repo_transport import stream_repo
 
 MAX_RESPONSE_BYTES = 16_000_000
 
@@ -62,32 +63,31 @@ def _headers(kind, credentials, raw=False):
 async def _get(kind, path, credentials, *, params=None, raw=False, max_bytes=MAX_RESPONSE_BYTES):
     origin = 'https://api.github.com' if kind == 'github' else 'https://gitcode.com/api/v5'
     try:
-        async with httpx.AsyncClient(timeout=30.0, trust_env=False, follow_redirects=False) as client:
-            async with client.stream('GET', origin + path, headers=_headers(kind, credentials, raw), params=params) as response:
-                if response.status_code != 200:
-                    status = response.status_code
-                    category = ('AUTH_BLOCKED' if status in (401, 403) else 'RATE_LIMITED' if status == 429 else
-                                'PROVIDER_5XX' if status >= 500 else 'SOURCE_UNAVAILABLE')
-                    if status == 403 and (response.headers.get('x-ratelimit-remaining') == '0' or response.headers.get('retry-after')):
-                        category = 'RATE_LIMITED'
-                    retry_after = retry_seconds(response.headers.get('retry-after'))
-                    if category == 'RATE_LIMITED' and retry_after is None:
-                        try:
-                            retry_after = max(0, min(86400, int(response.headers['x-ratelimit-reset']) - int(time.time())))
-                        except (KeyError, ValueError, TypeError):
-                            pass
-                    raise SourceError(category, f'仓库服务返回 HTTP {status}，进度已保存',
-                        retry_after,
-                        safe_request_id(response.headers.get('x-request-id') or response.headers.get('x-github-request-id')))
-                chunks, size = [], 0
-                async for chunk in response.aiter_bytes(chunk_size=min(65536, max_bytes + 1)):
-                    size += len(chunk)
-                    if size > max_bytes:
-                        if max_bytes >= MAX_RESPONSE_BYTES:
-                            raise SourceError('SOURCE_UNAVAILABLE', '单次仓库响应超过安全读取范围，无法完整读取')
-                        raise SourceError('BUDGET_EXHAUSTED', '单份仓库资料超过读取预算，请调整预算后恢复')
-                    chunks.append(chunk)
-                return b''.join(chunks), response.headers
+        async with stream_repo(origin + path, headers=_headers(kind, credentials, raw), params=params) as response:
+            if response.status_code != 200:
+                status = response.status_code
+                category = ('AUTH_BLOCKED' if status in (401, 403) else 'RATE_LIMITED' if status == 429 else
+                            'PROVIDER_5XX' if status >= 500 else 'SOURCE_UNAVAILABLE')
+                if status == 403 and (response.headers.get('x-ratelimit-remaining') == '0' or response.headers.get('retry-after')):
+                    category = 'RATE_LIMITED'
+                retry_after = retry_seconds(response.headers.get('retry-after'))
+                if category == 'RATE_LIMITED' and retry_after is None:
+                    try:
+                        retry_after = max(0, min(86400, int(response.headers['x-ratelimit-reset']) - int(time.time())))
+                    except (KeyError, ValueError, TypeError):
+                        pass
+                raise SourceError(category, f'仓库服务返回 HTTP {status}，进度已保存',
+                    retry_after,
+                    safe_request_id(response.headers.get('x-request-id') or response.headers.get('x-github-request-id')))
+            chunks, size = [], 0
+            async for chunk in response.aiter_bytes(chunk_size=min(65536, max_bytes + 1)):
+                size += len(chunk)
+                if size > max_bytes:
+                    if max_bytes >= MAX_RESPONSE_BYTES:
+                        raise SourceError('SOURCE_UNAVAILABLE', '单次仓库响应超过安全读取范围，无法完整读取')
+                    raise SourceError('BUDGET_EXHAUSTED', '单份仓库资料超过读取预算，请调整预算后恢复')
+                chunks.append(chunk)
+            return b''.join(chunks), response.headers
     except httpx.TimeoutException:
         raise SourceError('REQUEST_TIMEOUT', '仓库读取超时，进度已保存') from None
     except httpx.HTTPError:

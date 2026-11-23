@@ -3,7 +3,7 @@ import { useAppState } from '../components/AppState';
 import { DemoBanner, Modal, PageHead } from '../components/ui';
 import { api, ApiError, downloadWorkspaceExport } from '../api/client';
 import type { AuditItem, PublicationRule, SettingsOverview } from '../api/client';
-import {useSearchParams} from 'react-router-dom';
+import {Link, useSearchParams} from 'react-router-dom';
 import {AutopilotSettingsForm} from '../components/ProjectAutopilot';
 
 const TABS = [
@@ -30,7 +30,7 @@ const ACTION_META: Record<string, { label: string; cls: string }> = {
   VALIDATE: { label: '校验', cls: 'chip-slate' },
 };
 
-export default function Settings() {
+export default function Settings({ registered = false }: { registered?: boolean }) {
   const { toast } = useAppState();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = TABS.find(t => t.key === searchParams.get('tab'))?.key ?? 'workspace';
@@ -60,6 +60,15 @@ export default function Settings() {
   return (
     <div>
       <PageHead title="设置与工作空间" sub="管理账号、模型连接、数据与自动化权限" />
+      {registered && <nav className="bank-actions" aria-label="账户和 Beta 记录">
+        <Link to="/settings/account">账户与资料</Link>
+        <Link to="/beta">Beta 记录</Link>
+        <Link to="/beta/bank?import=1">Beta 导入</Link>
+        <Link to="/beta/study/chat">Beta 教练</Link>
+        <Link to="/beta/study/notes">Beta 笔记</Link>
+        <Link to="/beta/memory">Beta 记忆</Link>
+        <Link to="/beta/learning">Beta 学习日历</Link>
+      </nav>}
       {ov?.workspace.is_demo && <DemoBanner />}
 
       <div className="settings-layout" style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 18, alignItems: 'start' }}>
