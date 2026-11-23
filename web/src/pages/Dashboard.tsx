@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { DemoBanner, PageHead, SegBars, StatusChip, plainLevel } from '../components/ui';
+import { DashboardCard, DashboardHero, DashboardStats } from '../components/DashboardLayout';
 import { useApi, DashboardData } from '../api/client';
 import { DiagnosisModelReadiness } from './Onboarding';
 
@@ -72,32 +73,24 @@ export default function Dashboard() {
       {error && <div className="demo-banner demo-banner-err" style={{ marginBottom: 12 }}>后端不可用（{error}），无法读取当前空间数据，请稍后重试</div>}
       {data?.workspace.is_demo === false && data.recent_activity?.length === 0 && <DiagnosisModelReadiness />}
 
-      {/* 深色 hero 卡: 目标 + 一句通俗状态 + 差距 */}
-      <div className="hero-card" style={{ marginBottom: 16 }}>
-        <div className="hero-top">
-          <div>
-            <div className="hero-label">当前目标 · {wsName}</div>
-            <div className="hero-title">
-              {role}
-              <span className="hero-chip">对标 {level}</span>
-            </div>
-            <div className="hero-plain">{plainStatus}</div>
-          </div>
-          <div className="hero-score">
-            <div className="big">差距 {gap}<span>/5</span></div>
-            <div className="note">加权能力差距</div>
-          </div>
-        </div>
-        <div className="hero-body">
-          <SegBars items={domains.map((d: any) => ({ name: d.name, current: d.level, weight: d.weight_pct }))} />
-        </div>
-        <div className="hero-foot">
+      <DashboardHero
+        label={`当前目标 · ${wsName}`}
+        title={role}
+        badge={`对标 ${level}`}
+        summary={plainStatus}
+        score={<>
+          <div className="big">差距 {gap}<span>/5</span></div>
+          <div className="note">加权能力差距</div>
+        </>}
+        footer={<>
           <span className="note">评估详情：{jdCount} 份 JD · 种子假设 · benchmark {benchVersion}</span>
           <button className="btn btn-outline btn-sm" style={{ background: 'rgba(255,255,255,0.08)', borderColor: 'rgba(255,255,255,0.2)', color: '#fff' }} onClick={() => navigate('/exam/diagnosis')}>
             开始一次独立诊断 →
           </button>
-        </div>
-      </div>
+        </>}
+      >
+        <SegBars items={domains.map((d: any) => ({ name: d.name, current: d.level, weight: d.weight_pct }))} />
+      </DashboardHero>
 
       <div className="grid grid-2-1">
         {/* 左列: 行动聚焦 */}
@@ -181,23 +174,12 @@ export default function Dashboard() {
             ))}
           </div>
 
-          {/* 次级统计行 */}
-          <div className="stat-row">
-            {statCards.map((s) => (
-              <div className="stat-mini" key={s.label}>
-                <div className="stat-mini-label">{s.ic} {s.label}</div>
-                <div className="stat-mini-value">{s.value}{s.delta && <small className="stat-delta delta-up">{s.delta}</small>}</div>
-              </div>
-            ))}
-          </div>
+          <DashboardStats cards={statCards} />
         </div>
 
         {/* 右列: 最近进展 + 待审核 */}
         <div className="stack" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="card">
-            <div className="card-head">
-              <span className="card-title">最近一次进展</span>
-            </div>
+          <DashboardCard title="最近一次进展">
             {timeline[0] ? (
               <div className="tl-item" style={{ padding: '4px 4px 0' }}>
                 <div className="tl-date">{timeline[0].date}</div>
@@ -212,13 +194,12 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
-          </div>
+          </DashboardCard>
 
-          <div className="card">
-            <div className="card-head">
-              <span className="card-title">待审核面经 <span className="chip chip-amber" style={{ marginLeft: 6 }}>{pendingImports.length}</span></span>
-              <Link to="/bank?review=1" className="link">去审核 →</Link>
-            </div>
+          <DashboardCard
+            title={<>待审核面经 <span className="chip chip-amber" style={{ marginLeft: 6 }}>{pendingImports.length}</span></>}
+            action={<Link to="/bank?review=1" className="link">去审核 →</Link>}
+          >
             {pendingImports.length === 0 && (
               <div className="list-row">
                 <div className="list-ic">✅</div>
@@ -238,7 +219,7 @@ export default function Dashboard() {
                 <button className="btn btn-primary btn-sm" onClick={() => navigate('/bank?review=1')}>审核</button>
               </div>
             ))}
-          </div>
+          </DashboardCard>
         </div>
       </div>
     </div>
