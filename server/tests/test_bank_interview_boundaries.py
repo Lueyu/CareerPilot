@@ -4,9 +4,9 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.v1 import bank
-from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.models import ImportItem, ImportSession, Project, Question, Skill, Workspace
 
 

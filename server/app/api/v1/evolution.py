@@ -11,7 +11,7 @@ from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import EvolutionCandidate, EvolutionRun, Workspace
 from app.services import evolution as evo
-from app.services.tracing import finish_trace, start_trace, add_span
+from app.services.tracing import add_span, finish_trace, start_trace
 
 router = APIRouter(prefix="/evolution", tags=["evolution"])
 

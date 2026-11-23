@@ -6,10 +6,11 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
-
-from app.models import Evidence, CompetencySnapshot, LearningTask, SkillState, ScoringRun
-from app.services import assessment_jobs as jobs, assessment_worker as worker
 from test_assessment_reliability import prepared, result_for
+
+from app.models import CompetencySnapshot, Evidence, LearningTask, ScoringRun, SkillState
+from app.services import assessment_jobs as jobs
+from app.services import assessment_worker as worker
 
 
 async def task_with_valid_origin(session, workspace, monkeypatch):
@@ -24,8 +25,8 @@ async def task_with_valid_origin(session, workspace, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_prepare_reuses_goal_and_frozen_source_without_creating_scores(db_session, test_workspace, monkeypatch):
+    from app.models.learning_feedback import LearningActivity, LearningGoal
     from app.services.learning_feedback import prepare_path
-    from app.models.learning_feedback import LearningGoal, LearningActivity
     task = await task_with_valid_origin(db_session, test_workspace, monkeypatch)
     first = await prepare_path(db_session, test_workspace, task.id)
     second = await prepare_path(db_session, test_workspace, task.id)
@@ -41,8 +42,8 @@ async def test_prepare_reuses_goal_and_frozen_source_without_creating_scores(db_
 
 @pytest.mark.asyncio
 async def test_nonempty_practice_submission_is_idempotent_and_never_publishes_mastery(db_session, test_workspace, monkeypatch):
-    from app.services.learning_feedback import prepare_path, submit_activity, submission_view
     from app.models.learning_feedback import LearningActivity, LearningSubmission
+    from app.services.learning_feedback import prepare_path, submission_view, submit_activity
     task = await task_with_valid_origin(db_session, test_workspace, monkeypatch)
     path = await prepare_path(db_session, test_workspace, task.id)
     activity = await db_session.get(LearningActivity, path['activities'][0]['id'])
@@ -92,8 +93,8 @@ async def test_project_validation_failure_retains_known_provider_attempt_metadat
 
 @pytest.mark.asyncio
 async def test_assistance_is_monotonic_and_frozen_into_submission(db_session, test_workspace, monkeypatch):
-    from app.services.learning_feedback import prepare_path, record_assistance, submit_activity
     from app.models.learning_feedback import LearningActivity
+    from app.services.learning_feedback import prepare_path, record_assistance, submit_activity
     task = await task_with_valid_origin(db_session, test_workspace, monkeypatch)
     path = await prepare_path(db_session, test_workspace, task.id)
     activity = await db_session.get(LearningActivity, path['activities'][0]['id'])
@@ -109,9 +110,10 @@ async def test_assistance_is_monotonic_and_frozen_into_submission(db_session, te
 
 @pytest.mark.asyncio
 async def test_invalid_or_mismatched_source_cannot_create_a_goal(db_session, test_workspace, monkeypatch):
-    from app.services.learning_feedback import ensure_goal
-    from app.models.learning_feedback import LearningGoal
     from sqlalchemy import delete
+
+    from app.models.learning_feedback import LearningGoal
+    from app.services.learning_feedback import ensure_goal
     task = await task_with_valid_origin(db_session, test_workspace, monkeypatch)
     await db_session.execute(delete(LearningGoal).where(LearningGoal.workspace_id == test_workspace.id))
     evidence = await db_session.get(Evidence, task.source_evidence_id)
@@ -127,10 +129,11 @@ async def test_invalid_or_mismatched_source_cannot_create_a_goal(db_session, tes
 
 @pytest.mark.asyncio
 async def test_valid_assisted_observation_can_support_learning_but_not_independent_mastery(db_session, test_workspace, monkeypatch):
-    from app.services.learning_feedback import ensure_goal, assert_goal_sources
-    from app.services.competency import assessed_observations
-    from app.models.learning_feedback import LearningGoal
     from sqlalchemy import delete
+
+    from app.models.learning_feedback import LearningGoal
+    from app.services.competency import assessed_observations
+    from app.services.learning_feedback import assert_goal_sources, ensure_goal
     task = await task_with_valid_origin(db_session, test_workspace, monkeypatch)
     await db_session.execute(delete(LearningGoal).where(LearningGoal.workspace_id == test_workspace.id))
     evidence = await db_session.get(Evidence, task.source_evidence_id)
@@ -146,8 +149,8 @@ async def test_valid_assisted_observation_can_support_learning_but_not_independe
 
 @pytest.mark.asyncio
 async def test_old_feedback_is_retained_but_cannot_replace_newer_submission_state(db_session, test_workspace, monkeypatch):
-    from app.services.learning_feedback import prepare_path, submit_activity, submission_view, path_view
-    from app.models.learning_feedback import LearningGoal, LearningActivity
+    from app.models.learning_feedback import LearningActivity, LearningGoal
+    from app.services.learning_feedback import path_view, prepare_path, submission_view, submit_activity
     task = await task_with_valid_origin(db_session, test_workspace, monkeypatch)
     path = await prepare_path(db_session, test_workspace, task.id)
     activity = await db_session.get(LearningActivity, path['activities'][0]['id'])
@@ -175,9 +178,9 @@ async def test_old_feedback_is_retained_but_cannot_replace_newer_submission_stat
 
 @pytest.mark.asyncio
 async def test_practice_questions_cannot_be_used_for_official_exam(db_session, test_workspace, monkeypatch):
-    from app.services.learning_feedback import prepare_path
-    from app.models.learning_feedback import LearningActivity
     from app.api.v1 import exams
+    from app.models.learning_feedback import LearningActivity
+    from app.services.learning_feedback import prepare_path
     from app.services.selection import select_questions_for_exam
     task = await task_with_valid_origin(db_session, test_workspace, monkeypatch)
     path = await prepare_path(db_session, test_workspace, task.id)
@@ -191,8 +194,8 @@ async def test_practice_questions_cannot_be_used_for_official_exam(db_session, t
 
 @pytest.mark.asyncio
 async def test_paused_activity_and_withdrawn_source_block_new_dispatch(db_session, test_workspace, monkeypatch):
-    from app.services.learning_feedback import prepare_path, submit_activity
     from app.models.learning_feedback import LearningActivity
+    from app.services.learning_feedback import prepare_path, submit_activity
     task = await task_with_valid_origin(db_session, test_workspace, monkeypatch)
     path = await prepare_path(db_session, test_workspace, task.id)
     activity = await db_session.get(LearningActivity, path['activities'][0]['id'])
@@ -204,13 +207,13 @@ async def test_paused_activity_and_withdrawn_source_block_new_dispatch(db_sessio
 
 @pytest.mark.asyncio
 async def test_worker_rechecks_source_before_any_external_call(db_session, test_workspace, monkeypatch):
-    from app.services.learning_feedback import prepare_path, submit_activity
-    from app.models.learning_feedback import LearningActivity
     from app.models import ScoringStep
+    from app.models.learning_feedback import LearningActivity
+    from app.services.learning_feedback import prepare_path, submit_activity
     task = await task_with_valid_origin(db_session, test_workspace, monkeypatch)
     path = await prepare_path(db_session, test_workspace, task.id)
     activity = await db_session.get(LearningActivity, path['activities'][0]['id'])
-    submission = await submit_activity(db_session, test_workspace, activity, {'text_answer':'Queued answer.'}, 'queued', activity.version)
+    await submit_activity(db_session, test_workspace, activity, {'text_answer':'Queued answer.'}, 'queued', activity.version)
     await db_session.commit()
     claim = await jobs.claim_step(db_session, 'source-recheck')
     evidence = await db_session.get(Evidence, task.source_evidence_id)

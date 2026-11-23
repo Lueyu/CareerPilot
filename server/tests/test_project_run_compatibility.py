@@ -3,6 +3,7 @@ import importlib.util
 from types import SimpleNamespace
 
 import pytest
+
 from app.services import project_autopilot_engine as engine
 
 

@@ -1,15 +1,15 @@
 """Per-run streaming total budget stays separate from the HTTP I/O deadline."""
 import asyncio
+import json
 from copy import deepcopy
 from dataclasses import fields
-import json
 from types import SimpleNamespace
 
 import pytest
+from test_project_autopilot_engine import runtime
 
 from app import project_worker as worker
 from app.services import project_autopilot_engine as api
-from test_project_autopilot_engine import runtime
 
 REPLY = {'content': json.dumps({'observations': [], 'conflicts': [], 'unknowns': []})}
 
@@ -112,7 +112,7 @@ async def test_explicit_total_still_cancels_incomplete_stream_once(monkeypatch):
 @pytest.mark.asyncio
 async def test_explicit_policy_reaches_stream_adapter_without_changing_wire_payload(monkeypatch):
     import httpx
-    from test_llm_stream_transport import Body, DONE, frame, install
+    from test_llm_stream_transport import DONE, Body, frame, install
     rt = runtime(api);rt.transport_mode = 'sse-v1';rt.stage_timeout = 300
     body = Body([frame(REPLY['content']) + frame(finish='stop') + DONE])
     io_limits = []

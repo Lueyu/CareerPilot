@@ -1,7 +1,9 @@
 import pytest
 from sqlalchemy import select
+from test_project_candidates import prepared, proposal
+
 from app.models import MemoryItem
-from test_project_candidates import prepared,proposal
+
 
 @pytest.mark.asyncio
 async def test_competing_same_fact_candidates_cannot_both_become_active(db_session,test_workspace):

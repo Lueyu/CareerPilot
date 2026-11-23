@@ -12,12 +12,19 @@ from app.db import get_session
 from app.models import Workspace
 from app.models.project import Project
 from app.models.study_chat import StudyMessage, StudySession
-from app.services.answer_guides import example_for, for_question as teaching_guide_for
+from app.services.answer_guides import example_for
+from app.services.answer_guides import for_question as teaching_guide_for
 from app.services.learning_exposure import record_reference_exposure
 from app.services.study_chat import expire_generations, generate_reply, lease_deadline, teaching_action
-from app.services.study_chat_context import current_skill_sources, entry_context, excerpt, project_sources, topic_skills, visible_question
+from app.services.study_chat_context import (
+    current_skill_sources,
+    entry_context,
+    excerpt,
+    project_sources,  # noqa: F401 -- 本路由不直接调用，但 tests/test_study_chat.py 通过 api.project_sources 取证；也是模块命名空间契约的一部分
+    topic_skills,
+    visible_question,
+)
 from app.services.study_interview_questions import InterviewQuestionResult, generate_question, saved_result
-
 
 router = APIRouter(prefix="/study/sessions", tags=["学习聊天"])
 Db = Annotated[AsyncSession, Depends(get_session)]

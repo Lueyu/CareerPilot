@@ -1,15 +1,17 @@
 """Durable grading claims. LLM work must happen after these transactions close."""
+import random
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-import random
+
 from sqlalchemy import select, text
-from app.models import ScoringRun, ScoringStep, Exam, ExamAnswer, AnalysisStep, Workspace
-from app.services.assessment_versions import digest, ensure_revision, question_snapshot
+
+from app.models import AnalysisStep, Exam, ExamAnswer, ScoringRun, ScoringStep, Workspace
 from app.services.assessment_rubric import JUDGE_VERSION
+from app.services.assessment_versions import digest, ensure_revision, question_snapshot
 from app.services.llm_judge import JUDGE_PROMPT_VERSION
-from app.services.project_autopilot_config import runtime_config, model_fingerprint
-from app.services.tracing import start_trace, emit_event
+from app.services.project_autopilot_config import model_fingerprint, runtime_config
+from app.services.tracing import emit_event, start_trace
 
 ACTIVE=('QUEUED','RUNNING','RETRY_WAIT')
 TERMINAL=('COMPLETED','CANCELLED','FAILED','NEEDS_REVIEW')

@@ -12,8 +12,8 @@
 """
 from __future__ import annotations
 
-import asyncio
 import argparse
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -23,13 +23,22 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.db import SessionLocal, engine
 from app.models import (
-    Base, DecisionRecord, Evidence, Event, ImportSession, JobStandard,
-    JobStandardTarget, MemoryItem, Question, Skill, SkillState, Trace,
-    TraceSpan, User, Workspace, WorkspaceMember,
+    Base,
+    DecisionRecord,
+    Evidence,
+    JobStandard,
+    JobStandardTarget,
+    MemoryItem,
+    Question,
+    Skill,
+    Trace,
+    User,
+    Workspace,
+    WorkspaceMember,
 )
+from app.services.answer_guides import update_published_references
 from app.services.competency import recompute_skill_states
 from app.services.experienced_bank import install_pack
-from app.services.answer_guides import update_published_references
 from app.services.planner import plan_tasks_for_workspace
 from app.services.tracing import add_span, finish_trace, start_trace
 from app.services.workspaces import ensure_personal_workspace
@@ -251,7 +260,7 @@ async def seed(*, include_demo: bool = False) -> None:
             # 失败的项目扫描 trace
             t2 = await start_trace(session, ws.id, "project_scan", "[DEMO] 项目扫描: lueyu.github.io", "TR-102")
             add_span(session, t2, "clone", 900, 0.0, detail={"repo": "lueyu.github.io"})
-            span = add_span(session, t2, "extract_evidence", 260, 0.0, detail={"error": "git diff timeout"}, status="ERROR")
+            add_span(session, t2, "extract_evidence", 260, 0.0, detail={"error": "git diff timeout"}, status="ERROR")
             await finish_trace(session, t2, "FAILED", 1160, 0.0, fail_reason="git diff timeout")
             session.add(
                 DecisionRecord(

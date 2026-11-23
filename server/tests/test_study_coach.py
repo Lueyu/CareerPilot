@@ -4,16 +4,16 @@ from uuid import uuid4
 
 import pytest
 from fastapi import BackgroundTasks, HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from test_llm_stream_transport import CONFIG, DONE, Body, frame, install  # noqa: F401 -- 流式 fixture 经导入注册到本模块供 pytest 发现
 
 from app.api.v1 import study_chat as api
+from app.config import get_settings
 from app.models.project import Project
 from app.models.study_chat import StudyMessage
 from app.services import study_chat as engine
 from app.services.study_routing import decide
-from app.config import get_settings
-from test_llm_stream_transport import Body, CONFIG, DONE, frame, install
 
 
 def test_router_uses_history_and_scope():
@@ -101,6 +101,7 @@ async def test_structured_repair_records_each_generation_and_caps_calls(monkeypa
 
 def test_pinned_remote_snapshot_does_not_confuse_changed_or_uncited_code():
     import hashlib
+
     from app.services.study_project_evidence import snapshot_excerpts
     value = "def release_job():\n    return True"
     source = {"content":value,"path":"worker.py","content_sha256":hashlib.sha256(value.encode()).hexdigest(),"source_revision":"a"*40}

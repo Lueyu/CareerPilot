@@ -8,12 +8,12 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from test_core_scoring import db_questions
 
 from app.api.v1 import exams
 from app.main import app
 from app.models import Evidence, Exam, ScoringRun
 from app.services import assessment_jobs, assessment_worker
-from test_core_scoring import db_questions
 
 
 async def completed_exam(session, workspace, outbox):

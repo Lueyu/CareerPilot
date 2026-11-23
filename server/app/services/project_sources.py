@@ -6,8 +6,8 @@ The limits and exclusions are coverage limitations, not an assertion of full aud
 """
 from __future__ import annotations
 
-import base64
 import asyncio
+import base64
 import json
 import re
 from dataclasses import dataclass, field
@@ -16,8 +16,7 @@ from urllib.parse import quote
 
 import httpx
 
-from app.services import github_repo, gitcode_repo
-
+from app.services import gitcode_repo, github_repo
 
 MAX_DOWNLOAD_BYTES = 768_000
 MAX_TREE_FILES = 4000

@@ -79,6 +79,7 @@ def test_scan_api_view_does_not_serialize_legacy_ability_matrix():
 
 def test_asset_draft_does_not_republish_legacy_ability_scores():
     from datetime import datetime, timezone
+
     from app.models.project import Project
     from app.models.project_analysis import ProjectAnalysis
     from app.services.asset_pipeline import _render_markdown, repository_observations

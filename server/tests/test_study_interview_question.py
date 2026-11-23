@@ -17,7 +17,6 @@ from app.models.question import STUDY_CHAT_REVIEW_META
 from app.models.study_chat import StudyInterviewQuestion, StudyMessage
 from app.services import study_interview_questions, study_notes
 
-
 GUIDE = {
     "title": "如何让队列任务的重复投递安全？",
     "plain": "超时后，同一个任务可能被送来两次。",

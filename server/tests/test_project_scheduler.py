@@ -1,8 +1,11 @@
 import importlib.util
+
 import pytest
-from sqlalchemy import select,func
-from app.models import AppSetting,Project,ProjectAnalysis
+from sqlalchemy import func, select
+
+from app.models import AppSetting, Project, ProjectAnalysis
 from app.services.project_autopilot_config import CONSENT_VERSION
+
 
 async def setup(session,ws):
     assert importlib.util.find_spec('app.services.project_scheduler'), 'durable scheduler missing'
@@ -19,7 +22,7 @@ async def test_unchanged_probe_does_not_enqueue_or_call_model(db_session,test_wo
     monkeypatch.setattr(s,'probe_repository',probe)
     first=await s.check_project(db_session,p.id,test_workspace.id)
     run=await db_session.get(ProjectAnalysis,first['run_id']);run.status='COMPLETED';run.report_status='VALID';run.coverage_status='COMPLETE';run.source_revision='a'*40
-    from app.services.project_autopilot_engine import SCHEMA_VERSION,SAFETY_POLICY_VERSION
+    from app.services.project_autopilot_engine import SAFETY_POLICY_VERSION, SCHEMA_VERSION
     run.snapshot={'provenance':{'schema_version':SCHEMA_VERSION,'safety_policy_version':SAFETY_POLICY_VERSION}}
     run.prompt_bundle_version = 'project-autopilot-prompts-v2'
     run.model_config_fingerprint = 'old-routing-fingerprint'
@@ -34,7 +37,7 @@ async def test_running_updates_coalesce_and_missing_consent_never_calls_source(d
     sha=['a'*40]
     async def probe(*args,**kwargs):return {'target_sha':sha[0],'branch':'main'}
     monkeypatch.setattr(s,'probe_repository',probe)
-    first=await s.check_project(db_session,p.id,test_workspace.id)
+    await s.check_project(db_session,p.id,test_workspace.id)
     for letter in ('b','c','d'):
         sha[0]=letter*40;await s.check_project(db_session,p.id,test_workspace.id)
     await db_session.refresh(p)

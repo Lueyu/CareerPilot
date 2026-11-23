@@ -189,7 +189,7 @@ async def run_update_pipeline(
     if project_id is not None:
         reports = reports.where(Project.id == project_id)
 
-    for project, report in await session.execute(reports):
+    for project, report in await session.execute(reports):  # noqa: B007 -- 循环变量在 break 后于 :200-203 使用（for/else 选行模式），不是未用变量
         observations = repository_observations(report)
         if observations:
             break
@@ -244,7 +244,8 @@ async def approve_update(
     if d.status != "APPROVED":
         d.status = "APPROVED"
         d.reviewed_by = "workspace-owner"
-        from datetime import datetime, timezone as _tz
+        from datetime import datetime
+        from datetime import timezone as _tz
         d.reviewed_at = datetime.now(_tz.utc)
         await session.flush()
 

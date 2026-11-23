@@ -14,7 +14,6 @@ from typing import Any
 from app.services.answer_gen import build_rubric, render_html
 from app.services.llm import AgentAdapter
 
-
 SCHEMA_VERSION = 1
 MAX_RESPONSE_CHARS = 1_000_000
 MAX_FIELD_CHARS = 20_000

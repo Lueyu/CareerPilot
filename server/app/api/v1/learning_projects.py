@@ -1,21 +1,28 @@
 """Explicit project task and immutable submission preview, then durable feedback."""
 import asyncio
-from copy import deepcopy
 import re
+from copy import deepcopy
 from types import SimpleNamespace
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
+
 from app.api.deps import get_workspace
 from app.db import get_session
-from app.models import Workspace, Project, ProjectAnalysis
-from app.models.learning_feedback import LearningGoal, LearningActivity
+from app.models import Project, ProjectAnalysis, Workspace
+from app.models.learning_feedback import LearningActivity, LearningGoal
 from app.models.learning_project import LearningProjectSnapshot
-from app.services.project_practice import (report_options, build_contract, assessment_for_contract,
-                                           normalize_submission, MAX_FILES)
+from app.services.assessment_versions import digest
+from app.services.project_practice import (
+    MAX_FILES,
+    assessment_for_contract,
+    build_contract,
+    normalize_submission,
+    report_options,
+)
 from app.services.project_sources import open_repository
 from app.services.repository_credentials import repository_credentials
-from app.services.assessment_versions import digest
 
 router = APIRouter()
 

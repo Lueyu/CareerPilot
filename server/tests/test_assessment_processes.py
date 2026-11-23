@@ -1,13 +1,13 @@
 """Real Worker/API process failures, fresh PostgreSQL, explicit non-network judge."""
 import asyncio
-from dataclasses import dataclass, field
 import json
 import os
-from pathlib import Path
 import socket
 import subprocess
 import sys
 import time
+from dataclasses import dataclass, field
+from pathlib import Path
 from uuid import uuid4
 
 import asyncpg
@@ -18,9 +18,9 @@ from sqlalchemy import func, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
+from test_assessment_reliability import prepared
 
 from app.models import Base, CompetencySnapshot, Evidence, Exam, ScoringRun, ScoringStep, Workspace
-from test_assessment_reliability import prepared
 
 SERVER = Path(__file__).resolve().parents[1]
 HARNESS = r'''

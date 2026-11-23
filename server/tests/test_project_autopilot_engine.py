@@ -7,7 +7,6 @@ from copy import deepcopy
 import httpx
 import pytest
 
-
 SHA = 'a' * 40
 
 

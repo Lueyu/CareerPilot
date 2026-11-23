@@ -7,13 +7,23 @@ import pytest
 from fastapi import BackgroundTasks, HTTPException
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from test_llm_stream_transport import CONFIG, DONE, Body, frame, install
 
 from app.api.v1 import study_chat as api
-from app.models import Exam, ExamAnswer, ExamQuestion, LearningGoal, LearningTask, Question, Skill, SkillState, Workspace
+from app.models import (
+    Exam,
+    ExamAnswer,
+    ExamQuestion,
+    LearningGoal,
+    LearningTask,
+    Question,
+    Skill,
+    SkillState,
+    Workspace,
+)
 from app.models.project import Project
 from app.models.study_chat import StudyMessage
 from app.services import study_chat as worker
-from test_llm_stream_transport import Body, CONFIG, DONE, frame, install
 
 
 @pytest.mark.asyncio

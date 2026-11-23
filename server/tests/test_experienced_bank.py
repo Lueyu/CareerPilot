@@ -14,17 +14,27 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 from sqlalchemy.schema import CreateSchema, DropSchema
+from test_assessment_reliability import result_for
 
 from app import seed
 from app.api.deps import require_auth
 from app.api.v1 import bank, exams
 from app.db import get_session
-from app.models import CompetencySnapshot, Event, Evidence, Exam, ExamQuestion, LearningTask, Question, ScoringRun, Skill, Workspace
-from app.services import assessment_jobs, assessment_worker, experienced_bank
-from app.services import answer_guides
+from app.models import (
+    CompetencySnapshot,
+    Event,
+    Evidence,
+    Exam,
+    ExamQuestion,
+    LearningTask,
+    Question,
+    ScoringRun,
+    Skill,
+    Workspace,
+)
+from app.services import answer_guides, assessment_jobs, assessment_worker, experienced_bank
 from app.services.answer_guides import for_question, published_guides
 from app.services.learning_exposure import EVENT_KIND
-from test_assessment_reliability import result_for
 
 CRITERIA = ["说明连接超时的可观测信号", "给出重试预算与退避策略", "说明如何检查重复请求的副作用"]
 

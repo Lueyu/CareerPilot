@@ -64,7 +64,7 @@ def test_unrelated_reviews_and_absent_reviews_do_not_change_other_modules():
 
 @pytest.mark.asyncio
 async def test_reviewed_claim_cannot_reappear_in_report_or_memory_generation(monkeypatch):
-    from test_project_autopilot_engine import fixture_pipeline, drive, context, runtime
+    from test_project_autopilot_engine import context, drive, fixture_pipeline, runtime
     engine, _ = await fixture_pipeline(monkeypatch, count=2)
     ctx = context()
     artifacts, _ = await drive(engine, ctx, runtime(engine))

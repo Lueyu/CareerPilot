@@ -1,8 +1,10 @@
 from copy import deepcopy
+
 import pytest
 from fastapi import HTTPException
-from app.api.v1 import bank,exams
 from test_assessment_queue import make_exam
+
+from app.api.v1 import bank, exams
 
 
 @pytest.mark.asyncio

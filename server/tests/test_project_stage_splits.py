@@ -1,13 +1,12 @@
 """Durable source partition recovery, all model/source calls are explicit fixtures."""
-from copy import deepcopy
 import importlib
 import importlib.util
 import json
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
-
-from test_project_autopilot_engine import context, drive, fixture_pipeline, runtime, SHA
+from test_project_autopilot_engine import SHA, context, drive, fixture_pipeline, runtime
 
 
 def split_api():

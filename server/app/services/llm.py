@@ -12,10 +12,10 @@ PRD: 所有 LLM 依赖必须有规则引擎降级。本文件提供:
 """
 from __future__ import annotations
 
-import time
-import hashlib
 import asyncio
+import hashlib
 import math
+import time
 from typing import Any
 
 import httpx
@@ -177,7 +177,7 @@ class AgentAdapter:
         async def record_response_headers(response: httpx.Response) -> None:
             # HTTPX invokes this before consuming the body. Preserve only an
             # explicit safe projection even when the body later stalls/cancels.
-            from app.services.project_autopilot_sources import safe_request_id, retry_seconds
+            from app.services.project_autopilot_sources import retry_seconds, safe_request_id
             self.last_response_meta.update(status=response.status_code,
                 transport_phase='reading_response_body', response_headers_received=True,
                 response_headers_ms=int((time.perf_counter() - t0) * 1000))

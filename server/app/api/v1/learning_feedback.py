@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import Exam, Workspace
-from app.models.learning_feedback import LearningGoal, LearningActivity, LearningSubmission
+from app.models.learning_feedback import LearningActivity, LearningGoal, LearningSubmission
 from app.services import assessment_jobs
 from app.services import learning_feedback as service
 

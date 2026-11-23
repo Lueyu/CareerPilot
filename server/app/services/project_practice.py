@@ -1,13 +1,13 @@
 """Read-only, scoped project practice snapshots. No submitted code is executed."""
 from __future__ import annotations
 
-from copy import deepcopy
 import difflib
 import hashlib
 import re
+from copy import deepcopy
 
-from app.services.assessment_versions import digest
 from app.services.assessment_rubric import AssessmentJudgeError, rubric_version, validate_rubric
+from app.services.assessment_versions import digest
 from app.services.project_sources import is_safe_source_path, redact_source
 
 MAX_FILES = 12
@@ -298,6 +298,7 @@ async def validate_project_submission(session, ws, activity, payload):
     """Shared guard: the generic text-submission API cannot bypass preview."""
     from fastapi import HTTPException
     from sqlalchemy import select
+
     from app.models import Project
     from app.models.learning_project import LearningProjectSnapshot
     snapshot_id = payload.get('project_snapshot_id')

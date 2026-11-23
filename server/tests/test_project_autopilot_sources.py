@@ -7,7 +7,6 @@ import time
 import httpx
 import pytest
 
-
 SHA = 'a' * 40
 TREE = 'b' * 40
 PROJECT = {'kind': 'github', 'owner': 'fixture', 'repo': 'sample', 'branch': 'main'}

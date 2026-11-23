@@ -1,9 +1,9 @@
 """Versioned project observations, kept separate from personal performance."""
 from copy import deepcopy
 
-from sqlalchemy import select, text, or_
+from sqlalchemy import or_, select, text
 
-from app.models import MemoryItem, ProjectAnalysis, Project
+from app.models import MemoryItem, Project, ProjectAnalysis
 
 PROJECT_TYPES = ('ProjectUnderstanding', 'ProjectIssue')
 

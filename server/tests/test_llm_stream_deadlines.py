@@ -1,14 +1,14 @@
 """Explicit SSE total deadlines do not extend HTTP I/O timeouts or alter payloads."""
 import asyncio
-from contextlib import asynccontextmanager, suppress
 import json
 import time
+from contextlib import asynccontextmanager, suppress
 
 import httpx
 import pytest
+from test_llm_stream_transport import CONFIG, DONE, Body, frame, install
 
 from app.services.llm import AgentAdapter
-from test_llm_stream_transport import Body, CONFIG, DONE, frame, install
 
 
 @asynccontextmanager

@@ -3,7 +3,6 @@ import pytest
 
 from app.services.project_autopilot_engine import StageError, _validate_refs
 
-
 REF = {'source_id': 'same-source', 'start_line': 183, 'end_line': 187}
 
 

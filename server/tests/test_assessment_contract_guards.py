@@ -1,12 +1,13 @@
 from copy import deepcopy
-from types import SimpleNamespace
+
 import pytest
 from fastapi import HTTPException
+from test_assessment_queue import make_exam
+
+from app.models import Question
+from app.services import assessment_jobs as jobs
 from app.services.assessment_versions import question_snapshot
 from app.services.assessment_worker import rule_result
-from app.services import assessment_jobs as jobs
-from app.models import Question
-from test_assessment_queue import make_exam
 
 
 @pytest.mark.parametrize('rubric',[{'answer_index':True,'max_points':5},{'answer_index':2,'max_points':5},

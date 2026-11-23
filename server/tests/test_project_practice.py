@@ -1,5 +1,6 @@
 """Project practice uses explicitly supplied, immutable source; never executes it."""
 from copy import deepcopy
+
 import pytest
 
 
@@ -91,15 +92,15 @@ def test_source_limit_rejects_instead_of_silently_truncating():
 
 
 def test_unrun_review_cannot_claim_tests_passed():
-    from app.services.project_practice import validate_review_result
     from app.services.assessment_rubric import AssessmentJudgeError
+    from app.services.project_practice import validate_review_result
     with pytest.raises(AssessmentJudgeError, match='运行'):
         validate_review_result({'strengths': ['所有测试已通过'], 'criterion_scores': []}, {})
 
 
 def test_quotes_in_user_explanation_cannot_impersonate_code_lines():
-    from app.services.project_practice import validate_review_result
     from app.services.assessment_rubric import AssessmentJudgeError
+    from app.services.project_practice import validate_review_result
     payload = {'project_source_text':'[app.py:L1] print(1)'}
     with pytest.raises(AssessmentJudgeError, match='源码'):
         validate_review_result({'criterion_scores':[{'criterion_id':'project_requirements', 'score':3,
@@ -117,6 +118,7 @@ def test_project_feedback_keeps_implementation_and_understanding_separate():
 
 def test_project_contract_defaults_to_verifying_existing_mechanism():
     from types import SimpleNamespace
+
     from app.services.project_practice import build_contract, report_options
     run = SimpleNamespace(id=1, source_revision='a'*40, report_status='VALID', coverage_status='COMPLETE',
         snapshot={'files': [{'path':'app.py', 'content':'def run():\n    return 1\n'}]},
@@ -137,19 +139,29 @@ def test_project_contract_defaults_to_verifying_existing_mechanism():
 
 @pytest.mark.asyncio
 async def test_project_preview_submit_queue_is_scoped_versioned_and_not_ability_evidence(db_session, test_workspace, monkeypatch):
-    from sqlalchemy import select, func
-    from sqlalchemy.ext.asyncio import async_sessionmaker
     from types import SimpleNamespace
+
     from fastapi import HTTPException
-    from app.models import Project, ProjectAnalysis, Evidence, ScoringRun
-    from app.models.learning_feedback import LearningActivity, LearningGoal
-    from app.models.learning_project import LearningProjectSnapshot
-    from app.services.learning_feedback import prepare_path, submission_view
-    from app.api.v1.learning_projects import (project_options, create_project_activity, ProjectActivityIn,
-        preview_project, PreviewIn, submit_project, ProjectSubmitIn)
-    from app.services import assessment_jobs as jobs, assessment_worker as worker
-    from test_learning_feedback import task_with_valid_origin
+    from sqlalchemy import func, select
+    from sqlalchemy.ext.asyncio import async_sessionmaker
     from test_assessment_reliability import result_for
+    from test_learning_feedback import task_with_valid_origin
+
+    from app.api.v1.learning_projects import (
+        PreviewIn,
+        ProjectActivityIn,
+        ProjectSubmitIn,
+        create_project_activity,
+        preview_project,
+        project_options,
+        submit_project,
+    )
+    from app.models import Evidence, Project, ProjectAnalysis
+    from app.models.learning_feedback import LearningGoal
+    from app.models.learning_project import LearningProjectSnapshot
+    from app.services import assessment_jobs as jobs
+    from app.services import assessment_worker as worker
+    from app.services.learning_feedback import prepare_path, submission_view
     task = await task_with_valid_origin(db_session, test_workspace, monkeypatch)
     path = await prepare_path(db_session, test_workspace, task.id)
     goal_id = path['goal']['id']
@@ -192,6 +204,7 @@ async def test_project_preview_submit_queue_is_scoped_versioned_and_not_ability_
     from app.services.project_practice import validate_review_result
     result = result_for(claim, criterion_score=3)
     import json
+
     from app.services.assessment_rubric import validate_judgement
     raw = json.loads(result['raw_response'])
     for item in raw['criterion_scores']:
@@ -217,9 +230,11 @@ async def test_project_preview_submit_queue_is_scoped_versioned_and_not_ability_
 
 @pytest.mark.asyncio
 async def test_generic_submission_cannot_bypass_project_snapshot_preview(db_session, test_workspace):
-    from app.services.project_practice import validate_project_submission
-    from fastapi import HTTPException
     from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from app.services.project_practice import validate_project_submission
     activity = SimpleNamespace(id=1, goal_id=1, version=1, workspace_id=test_workspace.id,
         snapshot={'project_contract':{'project_id':1}})
     with pytest.raises(HTTPException) as error:

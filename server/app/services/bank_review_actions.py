@@ -12,7 +12,6 @@ from app.models import ImportItem, QuestionGeneration, Skill
 from app.services import question_generation as protocol
 from app.services.answer_gen import build_rubric, render_html
 
-
 REWRITE_TIMEOUT = 150
 LEASE_SECONDS = REWRITE_TIMEOUT + 30
 LEASE_ERROR = "改写中断，原草稿已保留。请重试。"

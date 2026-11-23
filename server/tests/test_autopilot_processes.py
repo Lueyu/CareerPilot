@@ -4,15 +4,15 @@ No model reliability or actual repository-analysis quality is claimed. Every tes
 creates a fresh isolated database and retains it for recovery inspection.
 """
 import asyncio
-from dataclasses import dataclass, field
-from datetime import timedelta
 import json
 import os
-from pathlib import Path
 import socket
 import subprocess
 import sys
 import time
+from dataclasses import dataclass, field
+from datetime import timedelta
+from pathlib import Path
 from uuid import uuid4
 
 import asyncpg
@@ -24,9 +24,9 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from app.models import AppSetting, Base, Project, ProjectAnalysis, AnalysisStep, WorkerHeartbeat, Workspace
-from app.services import project_jobs as jobs
+from app.models import AnalysisStep, AppSetting, Base, Project, ProjectAnalysis, WorkerHeartbeat, Workspace
 from app.services import project_autopilot_engine as analysis_engine
+from app.services import project_jobs as jobs
 from app.services.project_autopilot_config import CONSENT_VERSION
 
 SERVER = Path(__file__).resolve().parents[1]

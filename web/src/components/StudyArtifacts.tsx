@@ -45,7 +45,7 @@ export default function StudyArtifact({b,sources}:{b:Artifact;sources:Evidence[]
    }catch { /* Local storage may be disabled. */ }
    return {n:3,flag:false};
  });
- const updateControls=(next:Controls)=>{setControls(next);if(controlKey)try{localStorage.setItem(controlKey,JSON.stringify(next))}catch{}};
+ const updateControls=(next:Controls)=>{setControls(next);if(controlKey)try{localStorage.setItem(controlKey,JSON.stringify(next))}catch{/* localStorage may be unavailable */}};
  useEffect(()=>{if(zoom&&!ref.current?.open)ref.current?.showModal();},[zoom]);
  const refs=b.type==='diagram'?b.sources:b.type==='chart'?[...new Set(b.points.flatMap(p=>p[2]===undefined?[]:[p[2]]))]:[];
  const view=()=>b.type==='diagram'?<DiagramView b={b}/>:b.type==='chart'?<ChartView b={b}/>:<DemoView preset={b.preset} controls={controls} onChange={updateControls}/>;

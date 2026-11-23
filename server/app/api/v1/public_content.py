@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import datetime as dt
 import time
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -28,7 +27,6 @@ from app.models import (
 from app.models.public_content import (
     DRAFT_STATUS_APPROVED,
     DRAFT_STATUS_BUILD_FAILED,
-    DRAFT_STATUS_BUILDING,
     DRAFT_STATUS_DRAFT,
     DRAFT_STATUS_NEEDS_REVIEW,
     DRAFT_STATUS_PR_CREATED,

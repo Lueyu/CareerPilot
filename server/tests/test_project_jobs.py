@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import select
 
-from app.models import Project, ProjectAnalysis
+from app.models import Project
 
 
 def queue():

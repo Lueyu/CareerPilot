@@ -1,12 +1,15 @@
 """Versioned proposals; report publication never implies personal-memory consent."""
 from copy import deepcopy
+
 from sqlalchemy import select
-from app.models import MemoryItem,Project,ProjectAnalysis
+
+from app.models import MemoryItem, Project
 from app.services.bank_review_memory import BANK_REVIEW_FEEDBACK_TYPE
-from app.services.project_jobs import fingerprint,utcnow
-from app.services.project_memory import PROJECT_TYPES,lock_project_memories,source_excerpts
-from app.services.tracing import emit_event
+from app.services.project_jobs import fingerprint, utcnow
+from app.services.project_memory import PROJECT_TYPES, lock_project_memories, source_excerpts
 from app.services.task_memory import TASK_COMPLETION_TYPE
+from app.services.tracing import emit_event
+
 
 def eligible(row):
     return row.mtype not in (TASK_COMPLETION_TYPE, BANK_REVIEW_FEEDBACK_TYPE) and row.status=='ACTIVE' and row.freshness=='CURRENT' and (

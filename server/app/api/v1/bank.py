@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import datetime as dt
 import json
 import re
 import time
@@ -17,11 +16,23 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
-from app.models import Exam, ImportItem, ImportSession, Project, Question, Skill, StudyInterviewQuestion, StudySession, Trace, Workspace
+from app.models import (
+    Exam,
+    ImportItem,
+    ImportSession,
+    Project,
+    Question,
+    Skill,
+    StudyInterviewQuestion,
+    StudySession,
+    Trace,
+    Workspace,
+)
 from app.models.question import STUDY_CHAT_REVIEW_META
-from app.services.answer_gen import generate_answer
-from app.services.answer_guides import current_reference, example_for, for_question as teaching_guide_for
 from app.services import bank_review_actions as review_actions
+from app.services.answer_gen import generate_answer
+from app.services.answer_guides import current_reference, example_for
+from app.services.answer_guides import for_question as teaching_guide_for
 from app.services.experienced_bank import is_owned_question, list_installed_pack, owned_question_clause
 from app.services.interview_rewrite import rewrite_interview_questions
 from app.services.llm import AgentAdapter
@@ -390,7 +401,8 @@ async def _process_import(
     trace: Trace | None = None
     t0 = time.perf_counter()
     try:
-        ws = (
+        # 存在性守卫：workspace 不存在时 scalar_one() 抛 NoResultFound；结果不需要
+        (
             await session.execute(select(Workspace).where(Workspace.id == workspace_id))
         ).scalar_one()
         trace = await start_trace(
@@ -1250,8 +1262,9 @@ async def update_question(
     if not data:
         raise HTTPException(status_code=422, detail="没有需要更新的字段")
     from copy import deepcopy
-    from app.services.assessment_versions import digest
     from datetime import datetime, timezone
+
+    from app.services.assessment_versions import digest
     before={k:deepcopy(getattr(q,k)) for k in ('title','qtype','topic','skill_id','difficulty','role','level','options','rubric','answer_html')}
     if "skill_key" in data:
         sm = await _skill_map(session)

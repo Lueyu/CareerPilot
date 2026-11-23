@@ -1,13 +1,15 @@
 """User review and bounded local planning; neither endpoint grants mastery."""
 from datetime import datetime, timezone
 from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
+
 from app.api.deps import get_workspace
 from app.db import get_session
-from app.models import Workspace, MemoryItem
-from app.models.learning_feedback import LearningGoal, LearningActivity
+from app.models import MemoryItem, Workspace
+from app.models.learning_feedback import LearningActivity, LearningGoal
 from app.services.learning_memory import LEARNING_TYPES, invalidate_memory_dependents
 from app.services.project_memory import lock_project_memories
 from app.services.tracing import emit_event

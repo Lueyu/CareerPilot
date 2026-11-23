@@ -1,6 +1,8 @@
 """Learning completion schedules checks; only scored new answers yield observations."""
 import datetime as dt
+
 from sqlalchemy import select
+
 from app.models import LearningTask
 from app.services.retest_targets import goal_outcomes
 from app.services.task_memory import record_task_completion

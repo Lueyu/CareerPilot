@@ -11,8 +11,15 @@ from app.db import get_session
 from app.models import LearningTask, Workspace
 from app.models.learning_feedback import LearningGoal
 from app.services.daily_learning_plan import (
-    AGENT_INTERVIEW_SPRINT, DEFAULT_CAPACITY, DEFAULT_DEADLINE, MAX_DAYS, PREFERENCE_KEY, PlanItem,
-    build_plan, next_workday, pace_baseline,
+    AGENT_INTERVIEW_SPRINT,
+    DEFAULT_CAPACITY,
+    DEFAULT_DEADLINE,
+    MAX_DAYS,
+    PREFERENCE_KEY,
+    PlanItem,
+    build_plan,
+    next_workday,
+    pace_baseline,
 )
 from app.services.task_memory import record_daily_plan_evidence
 

@@ -6,12 +6,12 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import delete
+from test_assessment_snapshot_review import fixture_question
 
-from app.models import Evidence, Exam, JobStandard, JobStandardTarget, LearningTask, Question
+from app.models import Evidence, JobStandard, JobStandardTarget, LearningTask, Question
 from app.services.competency import recompute_skill_states
 from app.services.learning_loop import complete_retest_for_exam
 from app.services.selection import select_questions_for_exam
-from test_assessment_snapshot_review import fixture_question
 
 
 @pytest.mark.asyncio

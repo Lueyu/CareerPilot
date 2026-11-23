@@ -1,20 +1,20 @@
 """Core-loop scoring regressions. Unit fixtures never connect to the personal DB."""
-import datetime as dt
 import asyncio
+import datetime as dt
 import time
 import uuid
 from types import SimpleNamespace as NS
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.v1 import exams
 from app.models import Evidence, Exam, ExamAnswer, ExamQuestion, LearningTask, Question, Skill, SkillState, Workspace
-from fastapi import HTTPException
-from app.services.competency import recompute_skill_states
 from app.services import assessment_jobs, assessment_worker
+from app.services.competency import recompute_skill_states
 
 
 class Result:

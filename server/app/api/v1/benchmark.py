@@ -1,5 +1,4 @@
 """岗位对标 API: 种子标准 / JD 导入与对标版本生成。"""
-import datetime as dt
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -8,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_workspace
 from app.db import get_session
-from app.models import JdSource, JobStandard, Skill, SkillState, Workspace
+from app.models import JdSource, JobStandard, Skill, Workspace
 from app.services.benchmark_jd import build_targets, parse_jd
 from app.services.competency import recompute_skill_states
 from app.services.tracing import add_span, emit_event, finish_trace, start_trace

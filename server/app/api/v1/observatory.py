@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_workspace
 from app.db import get_session
-from app.models import DecisionRecord, Event, Evidence, Trace, TraceSpan, Workspace
+from app.models import DecisionRecord, Event, Trace, TraceSpan, Workspace
 
 router = APIRouter()
 

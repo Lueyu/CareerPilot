@@ -3,7 +3,7 @@ import AnswerGuide, {type TeachingGuide} from '../components/AnswerGuide';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAppState } from '../components/AppState';
-import { DiffLabel, Modal, PageHead, Stars } from '../components/ui';
+import { Modal, PageHead, Stars } from '../components/ui';
 import { api, BankData, ImportReview, QuestionDetail } from '../api/client';
 import { trackImport } from '../lib/importTracker';
 import BankQuestionEditor from '../components/BankQuestionEditor';
@@ -889,7 +889,7 @@ export default function Bank() {
                 <div className="rev-pane-title">📄 原文预览</div>
                 {(review?.meta?.files?.length
                   ? review.meta.files.map((f) => ({ name: f.name, sub: f.ok ? `${f.chars} 字符 · ${f.suffix || '文本'}` : (f.error || '解析失败'), ok: f.ok }))
-                  : files.map((f, i) => ({ name: f.name, sub: `${(f.size / 1024).toFixed(1)} KB`, ok: true }))
+                  : files.map((f) => ({ name: f.name, sub: `${(f.size / 1024).toFixed(1)} KB`, ok: true }))
                 ).map((f, i) => (
                   <div className={`rev-src-file ${f.ok ? '' : 'bad'}`} key={`${f.name}-${i}`}>
                     <b>{f.ok ? '📄' : '⚠️'} {f.name}</b>

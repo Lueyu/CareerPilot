@@ -1,5 +1,6 @@
 import json
 import unittest
+
 from app.services.study_blocks import extract_blocks, teaching_diagram_fallback, wants_teaching_diagram
 
 

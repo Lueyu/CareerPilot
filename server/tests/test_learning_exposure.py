@@ -1,9 +1,10 @@
 """Reference exposure must be recorded before an answer can become a retest."""
 import pytest
 from sqlalchemy import select
-from app.models import Exam, LearningTask, Question
-from app.api.v1 import bank, exams
 from test_assessment_snapshot_review import fixture_question
+
+from app.api.v1 import bank, exams
+from app.models import LearningTask, Question
 
 
 @pytest.mark.asyncio
@@ -33,8 +34,8 @@ async def test_bank_list_is_not_exposure_but_reference_detail_excludes_family(db
 
 @pytest.mark.asyncio
 async def test_reference_opened_during_exam_freezes_assistance_and_cannot_be_independent(db_session, test_workspace, monkeypatch):
-    from app.services import assessment_jobs as jobs
     from app.models import ScoringStep
+    from app.services import assessment_jobs as jobs
     first, _ = await fixture_question(db_session, test_workspace)
     first.answer_html='<p>Source reference</p>'
     await db_session.commit()

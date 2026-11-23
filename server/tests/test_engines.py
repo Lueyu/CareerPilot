@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pytest
 
 # ---------------------------------------------------------------- benchmark_jd
-from app.services.benchmark_jd import parse_jd, build_targets
+from app.services.benchmark_jd import build_targets, parse_jd
 
 SKILLS = [
     {"key": "agent", "name": "Agent 架构与规划"},
@@ -81,7 +81,7 @@ def test_build_targets_no_hits_no_change():
 
 # ---------------------------------------------------------------- scorer(规则评分)
 from app.models import Question
-from app.services.scorer import score_mcq, score_open, score_question, build_feedback
+from app.services.scorer import build_feedback, score_mcq, score_open, score_question
 
 
 def _open_q():
@@ -217,8 +217,8 @@ async def test_judge_bad_json_and_no_reasoning_fail_closed():
 
 
 # ---------------------------------------------------------------- teaching
-from app.services.teaching import _parse_json_reply, _rule_content, HELP_MODES
 from app.models import LearningTask
+from app.services.teaching import HELP_MODES, _parse_json_reply, _rule_content
 
 
 def test_parse_json_reply_handles_chat_shape():
@@ -241,7 +241,7 @@ def test_help_modes_defined():
 
 
 # ---------------------------------------------------------------- content_validation
-from app.services.content_validation import run_all, privacy_scan, is_low_risk
+from app.services.content_validation import is_low_risk, privacy_scan, run_all
 
 
 def test_privacy_scan_flags_phone_and_email():

@@ -1,23 +1,25 @@
 """Per-question execution and atomic publication, used by the existing local Worker."""
 import asyncio
-from contextlib import suppress
-from copy import deepcopy
-from datetime import datetime, timedelta
 import json
 import logging
 import os
-from pathlib import Path
 import time
+from contextlib import suppress
+from copy import deepcopy
+from datetime import datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
+
 from sqlalchemy import select
-from app.models import Exam, Workspace, ScoringRun, ScoringStep, Trace, SkillState, CompetencySnapshot
+
+from app.models import CompetencySnapshot, ScoringRun, ScoringStep, SkillState, Trace, Workspace
 from app.services import assessment_jobs as jobs
+from app.services.assessment_rubric import JUDGE_VERSION, AssessmentJudgeError, Judgement, validate_judgement
 from app.services.assessment_versions import digest
-from app.services.assessment_rubric import AssessmentJudgeError, JUDGE_VERSION, Judgement, validate_judgement
 from app.services.llm import AgentAdapter
 from app.services.llm_judge import judge_frozen_answer
-from app.services.project_autopilot_config import runtime_config, model_fingerprint
+from app.services.project_autopilot_config import model_fingerprint, runtime_config
 
 log=logging.getLogger('careerpilot.assessment_worker')
 OUTBOX_ROOT=Path(__file__).resolve().parents[3]/'personal'/'assessment-outbox'
@@ -41,8 +43,8 @@ def save_outbox(path,claim,result):
 
 
 def rule_result(payload):
-    from app.services.scorer import score_question
     from app.services.assessment_versions import mcq_rubric
+    from app.services.scorer import score_question
     payload=deepcopy(payload)
     if payload['qtype']=='mcq':payload['rubric']=mcq_rubric(payload.get('rubric'),payload.get('options'))
     q=SimpleNamespace(**payload)
@@ -58,7 +60,8 @@ def rule_result(payload):
         'answer_quotes':[],'satisfied_anchors':[next(a['anchor_id'] for a in c['score_anchors'] if a['score']==0)],
         'missing_points':[c['title']],'reasoning_summary':'本次未作答，没有该项表现证据。',
         'why_not_higher':'需要提交符合本题要求的真实回答。'} for c in rubric.get('criteria',[])]
-    names=lambda values:[p.get('title','') if isinstance(p,dict) else str(p) for p in values]
+    def names(values):
+        return [p.get('title','') if isinstance(p,dict) else str(p) for p in values]
     return {**result,'max_points':maximum,'overall_score':100*result['points']/maximum,
         'hit':names(result.get('hits',[])),'missing':names(result.get('misses',[])) or [c['title'] for c in criteria],
         'reasoning':'未作答；确定性记为本题0分。' if q.qtype=='open' else '按冻结的选择题正确选项确定性比较。',
@@ -128,6 +131,7 @@ async def execute_claim(claim,worker_id,factory,lease_seconds=45,heartbeat_secon
             return
         if run.mode == 'PRACTICE' and not claim.payload.get('experienced_bank_practice'):
             from fastapi import HTTPException
+
             from app.models.learning_feedback import LearningGoal, LearningSubmission
             from app.services.learning_feedback import assert_goal_sources
             submission = await session.scalar(select(LearningSubmission).where(

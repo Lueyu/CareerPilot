@@ -1,8 +1,10 @@
 """Durable per-question grading and append-only answer revisions."""
 from datetime import datetime
+
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
+
 from app.db import Base
 
 

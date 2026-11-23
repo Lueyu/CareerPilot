@@ -1,7 +1,7 @@
 from uuid import uuid4
 
-from fastapi import HTTPException
 import pytest
+from fastapi import HTTPException
 
 from app.models.study_chat import StudyMessage, StudySession
 from app.services import study_notes, study_practice

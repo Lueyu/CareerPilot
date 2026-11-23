@@ -2,20 +2,20 @@
 from copy import deepcopy
 from datetime import timedelta
 
-from fastapi import HTTPException
 import pytest
-from sqlalchemy import select, func
+from fastapi import HTTPException
+from sqlalchemy import func, select
+from test_project_candidates import prepared, proposal
+from test_project_jobs import setup_run
 
 from app.models import MemoryItem, ProjectAnalysis
 from app.services.project_memory import active_project_memories, issue_targets
-from test_project_candidates import prepared, proposal
-from test_project_jobs import setup_run
 
 
 @pytest.mark.asyncio
 async def test_unchanged_pending_fact_is_still_reviewable_after_new_report(db_session, test_workspace):
     service, project, first = await prepared(db_session, test_workspace)
-    previous = await service.publish_candidates(db_session, first, [proposal()])
+    await service.publish_candidates(db_session, first, [proposal()])
     await db_session.commit()
     newer = ProjectAnalysis(project_id=project.id, workspace_id=test_workspace.id,
         request_key='newer-same-evidence', pipeline_version='autopilot-v1', status='COMPLETED',
@@ -182,8 +182,9 @@ async def test_unchanged_confirmed_issue_remains_usable_in_new_report_without_re
 
 @pytest.mark.asyncio
 async def test_claim_cancelled_before_execution_cannot_start_a_new_external_stage(db_session, test_workspace, monkeypatch):
-    from app import project_worker as worker
     from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app import project_worker as worker
 
     jobs, project, run = await setup_run(db_session, test_workspace,
         pipeline_version=worker.analysis.PIPELINE_VERSION, prompt_bundle_version=worker.analysis.PROMPT_BUNDLE_VERSION)

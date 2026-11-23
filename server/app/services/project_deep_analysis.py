@@ -5,8 +5,8 @@ No report is produced when the model fails or its references are invalid.
 """
 from __future__ import annotations
 
-import hashlib
 import asyncio
+import hashlib
 import json
 import re
 from collections.abc import Awaitable, Callable
@@ -17,7 +17,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.services.llm import AgentAdapter, get_llm_config
 from app.services.project_sources import SourceRepository, open_repository, redact_source, redact_value
-
 
 MAX_INITIAL_FILES = 12
 MAX_FOLLOWUP_FILES = 8

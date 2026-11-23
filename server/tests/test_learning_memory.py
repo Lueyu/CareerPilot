@@ -1,11 +1,13 @@
 """Confirmed learning summaries are context, never a replacement for grades."""
 from types import SimpleNamespace
 from uuid import uuid4
+
 import pytest
-from sqlalchemy import select, func
 from fastapi import HTTPException
-from app.models import MemoryItem, Evidence, EvolutionCandidate
-from app.models.learning_feedback import LearningGoal, LearningActivity
+from sqlalchemy import func, select
+
+from app.models import Evidence, EvolutionCandidate, MemoryItem
+from app.models.learning_feedback import LearningActivity, LearningGoal
 
 
 async def goal_fixture(session, ws):
@@ -52,6 +54,7 @@ async def test_system_failure_creates_no_weakness_memory(db_session, test_worksp
 @pytest.mark.asyncio
 async def test_confirmed_context_excludes_candidate_stale_and_deleted(db_session, test_workspace):
     from datetime import datetime, timezone
+
     from app.services.learning_memory import attach_learning_context, invalidate_memory_dependents
     goal, _ = await goal_fixture(db_session, test_workspace)
     records = []
@@ -73,7 +76,7 @@ async def test_confirmed_context_excludes_candidate_stale_and_deleted(db_session
 
 @pytest.mark.asyncio
 async def test_memory_review_version_and_workspace_guards(db_session, test_workspace):
-    from app.api.v1.learning_memory import review_memories, MemoryReviewIn
+    from app.api.v1.learning_memory import MemoryReviewIn, review_memories
     goal, _ = await goal_fixture(db_session, test_workspace)
     row = MemoryItem(workspace_id=test_workspace.id, mtype='LearningObservation', content='本次观察',
         status='CANDIDATE', meta={'goal_id':goal.id}, revision=1, freshness='CURRENT')
@@ -92,7 +95,7 @@ async def test_memory_review_version_and_workspace_guards(db_session, test_works
 
 @pytest.mark.asyncio
 async def test_shorten_preserves_started_work_and_does_not_infer_weakness(db_session, test_workspace):
-    from app.api.v1.learning_memory import adjust_goal, AdjustIn
+    from app.api.v1.learning_memory import AdjustIn, adjust_goal
     goal, started = await goal_fixture(db_session, test_workspace)
     ready = []
     for i in range(3):
@@ -125,6 +128,7 @@ async def test_generic_confirmation_cannot_bypass_learning_version_review(db_ses
 @pytest.mark.asyncio
 async def test_memory_delete_invalidates_actual_dependent_plan(db_session, test_workspace):
     from datetime import datetime, timezone
+
     from app.api.v1.memory import delete_memory
     goal, _ = await goal_fixture(db_session, test_workspace)
     row = MemoryItem(workspace_id=test_workspace.id, mtype='LearningObservation', content='已确认',
@@ -147,6 +151,7 @@ def test_general_eligibility_requires_learning_confirmation():
 @pytest.mark.asyncio
 async def test_legacy_aggregate_retest_does_not_promote_learning_goal(db_session, test_workspace):
     from datetime import datetime, timezone
+
     from app.models import LearningTask
     from app.services.learning_memory import on_verification_completed
     goal, _ = await goal_fixture(db_session, test_workspace)
@@ -184,11 +189,13 @@ async def test_source_dispute_marks_dependent_goal_and_summary_for_review(db_ses
 
 @pytest.mark.asyncio
 async def test_repeated_difficulty_proposes_but_never_activates_strategy(db_session, test_workspace, monkeypatch):
-    from app.services.learning_feedback import prepare_path, submit_activity
-    from app.services import assessment_jobs as jobs, assessment_worker as worker
     from sqlalchemy.ext.asyncio import async_sessionmaker
-    from test_learning_feedback import task_with_valid_origin
     from test_assessment_reliability import result_for
+    from test_learning_feedback import task_with_valid_origin
+
+    from app.services import assessment_jobs as jobs
+    from app.services import assessment_worker as worker
+    from app.services.learning_feedback import prepare_path, submit_activity
     task = await task_with_valid_origin(db_session, test_workspace, monkeypatch)
     path = await prepare_path(db_session, test_workspace, task.id)
     activity = await db_session.get(LearningActivity, path['activities'][0]['id'])
@@ -206,7 +213,7 @@ async def test_repeated_difficulty_proposes_but_never_activates_strategy(db_sess
     assert rows[0].source_data['learning_effect'] == 'UNKNOWN'
     goal = await db_session.get(LearningGoal,path['goal']['id']); await db_session.refresh(goal)
     assert goal.meta['next_action']['kind'] == 'CHANGE_EXPLANATION'
-    from app.services.evolution import evaluate_candidate, collect_signals, _exam_history_metrics
+    from app.services.evolution import _exam_history_metrics, collect_signals, evaluate_candidate
     assert (await collect_signals(db_session,test_workspace.id))['completed_exams'] == 1
     assert (await _exam_history_metrics(db_session,test_workspace.id))['sample_size'] == 1
     evaluation = await evaluate_candidate(db_session,test_workspace.id,rows[0])
@@ -219,11 +226,13 @@ async def test_repeated_difficulty_proposes_but_never_activates_strategy(db_sess
 @pytest.mark.asyncio
 async def test_withdrawal_cancels_already_queued_feedback_and_fences_running_worker(db_session, test_workspace, monkeypatch):
     from datetime import datetime, timezone
-    from app.models import ScoringRun
-    from app.api.v1.memory import delete_memory
-    from app.services.learning_feedback import prepare_path, submit_activity
-    from app.services import assessment_jobs as jobs
+
     from test_learning_feedback import task_with_valid_origin
+
+    from app.api.v1.memory import delete_memory
+    from app.models import ScoringRun
+    from app.services import assessment_jobs as jobs
+    from app.services.learning_feedback import prepare_path, submit_activity
     task = await task_with_valid_origin(db_session,test_workspace,monkeypatch)
     path = await prepare_path(db_session,test_workspace,task.id)
     goal = await db_session.get(LearningGoal,path['goal']['id'])

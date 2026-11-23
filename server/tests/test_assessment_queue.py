@@ -1,10 +1,11 @@
-import importlib.util
 from uuid import uuid4
+
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import func, select
+
 from app.api.v1 import exams
-from app.models import Question, Skill, Evidence, Exam
+from app.models import Evidence, Question, Skill
 
 
 async def make_exam(session, ws, count=1):

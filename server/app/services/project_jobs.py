@@ -1,10 +1,12 @@
 """PostgreSQL durable stage queue. No provider calls or open HTTP transactions here."""
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import select, text
-from app.models import AppSetting, Project, ProjectAnalysis, AnalysisStep
+
+from app.models import AnalysisStep, AppSetting, Project, ProjectAnalysis
 
 ACTIVE = ('QUEUED', 'RUNNING', 'RETRY_WAIT')
 OPEN = ACTIVE + ('PAUSED_USER', 'PAUSED_BUDGET', 'BLOCKED', 'WAITING_WORKER')
@@ -32,7 +34,7 @@ class Claim:
 async def enqueue(session, project, request_key, mode='full', target_sha=None, budget=None,
                   model_config_fingerprint='', pipeline_version=None, prompt_bundle_version=None, reuse_open=False):
     if pipeline_version is None or prompt_bundle_version is None:
-        from app.services.project_autopilot_engine import PIPELINE_VERSION,PROMPT_BUNDLE_VERSION
+        from app.services.project_autopilot_engine import PIPELINE_VERSION, PROMPT_BUNDLE_VERSION
         pipeline_version=pipeline_version or PIPELINE_VERSION
         prompt_bundle_version=prompt_bundle_version or PROMPT_BUNDLE_VERSION
     handoff = await session.scalar(select(AppSetting.value).where(
@@ -340,6 +342,7 @@ async def split_failed_source_stage(session,run_id,workspace_id,step_id,source_g
     resplit children. The caller supplies complete frozen source groups.
     """
     from copy import deepcopy
+
     from app.services import project_stage_splits as splits
     await session.execute(text('SELECT pg_advisory_xact_lock(20261117, 0)'))
     run=await session.scalar(select(ProjectAnalysis).where(ProjectAnalysis.id==run_id,

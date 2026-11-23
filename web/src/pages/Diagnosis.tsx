@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { DemoBanner, Modal } from '../components/ui';
-import { api, ExamDetail, ScoringTaskAck } from '../api/client';
+import { api, ExamDetail } from '../api/client';
 import { loadOrCreateExam, clearExamCreation, submitExam } from '../lib/coreLoop';
 import {useExamDraft,clearSavedDraft} from '../lib/useExamDraft';
 import { useSpeechRecognition } from '../lib/speech';

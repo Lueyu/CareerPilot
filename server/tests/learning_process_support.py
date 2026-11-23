@@ -3,25 +3,25 @@
 This file provides test infrastructure, not completed learning-loop acceptance.
 Seed callbacks must use the real learning services once their contracts exist.
 """
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
 import asyncio
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from pathlib import Path
 from uuid import uuid4
 
 import asyncpg
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
+from test_assessment_processes import Fixture, ready  # noqa: F401 -- ready 是 pytest fixture 再导出，test_learning_feedback_processes 从本模块取用
 
 from app.models import Base
-from test_assessment_processes import Fixture, ready
 
 SERVER = Path(__file__).resolve().parents[1]
 CONFIG = {'provider':'fixture','model':'assessment-fixture',
@@ -219,7 +219,7 @@ async def transactional_dump_restore(source_url, folder):
             await invoke(['pg_dump','--no-password','--dbname='+source_url.database,
                 '--snapshot='+snapshot,'--format=custom','--file='+str(archive)])
             listing=await invoke(['pg_restore','--list',str(archive)])
-            entries=sum(bool(l.strip()) and not l.startswith(';') for l in listing.splitlines())
+            entries=sum(bool(line.strip()) and not line.startswith(';') for line in listing.splitlines())
             assert archive.stat().st_size>0 and entries>0
             checksum=hashlib.sha256(archive.read_bytes()).hexdigest()
             (folder/'learning-feedback-fixture.dump.sha256').write_text(checksum+'\n',encoding='ascii')

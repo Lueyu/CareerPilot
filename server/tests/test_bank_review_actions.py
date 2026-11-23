@@ -6,11 +6,13 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
-
-from app.api.v1 import bank, question_generation as workshop
-from app.models import Evidence, ImportItem, ImportSession, MemoryItem, Question, Skill
-from app.services import bank_review_actions as review, question_generation as protocol
 from test_question_workshop import create, response
+
+from app.api.v1 import bank
+from app.api.v1 import question_generation as workshop
+from app.models import Evidence, ImportItem, ImportSession, MemoryItem, Question, Skill
+from app.services import bank_review_actions as review
+from app.services import question_generation as protocol
 
 
 async def raw_draft(session, workspace, *, answer="<p>标注文档后计算召回率。</p>", rubric=None):

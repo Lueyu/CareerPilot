@@ -1,11 +1,10 @@
 """Optional lossless downstream encoding; no live model or source database."""
-from copy import deepcopy
 import importlib
 import importlib.util
 import json
+from copy import deepcopy
 
 import pytest
-
 from test_project_autopilot_engine import context, drive, fixture_pipeline, runtime
 
 CONTRACT = 'source-registry-v1'
@@ -52,7 +51,8 @@ def test_group_budget_counts_full_registry_and_roundtrips_without_truncation():
         for ref in claim['citations']:
             ref['source_id'] = f's{i}'
             ref['path'] = ('long-directory/' * 12) + str(i) + '.py'
-    size = lambda value: len(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')))
+    def size(value):
+        return len(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')))
     limit = max(size(api.encode_claims([c])) for c in claims) + 15
     groups = api.group_claims(claims, limit)
     assert len(groups) == len(claims), 'Registry bytes must participate in splitting'

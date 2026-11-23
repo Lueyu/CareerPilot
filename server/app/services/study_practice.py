@@ -1,20 +1,31 @@
 """Grounded one-question exercises using CareerPilot's practice and official assessment paths."""
-from datetime import datetime, timezone
 import re
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import func, select, update
 
-from app.models import CompetencySnapshot, Event, Evidence, Exam, ExamQuestion, Question, ScoringRun, Skill, SkillState, Workspace
+from app.models import (
+    CompetencySnapshot,
+    Event,
+    Evidence,
+    Exam,
+    ExamQuestion,
+    Question,
+    ScoringRun,
+    Skill,
+    SkillState,
+    Workspace,
+)
 from app.models.learning_feedback import LearningActivity, LearningGoal, LearningSubmission
 from app.models.study_chat import StudyMessage, StudySession
 from app.models.study_notes import StudyCard, StudyCardEvent, StudyNote, StudyNoteVersion
 from app.models.study_practice import StudyPractice
 from app.services import learning_feedback as learning
 from app.services.assessment_versions import digest
-from app.services.study_teaching import practice_prompt
 from app.services.benchmark_jd import SKILL_KEYWORDS
 from app.services.competency import assessed_observations
+from app.services.study_teaching import practice_prompt
 
 
 def _topic_text(value):

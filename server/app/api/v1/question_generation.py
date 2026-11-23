@@ -16,7 +16,17 @@ from sqlalchemy.orm import lazyload
 
 from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
-from app.models import ImportItem, ImportSession, LearningTask, Project, ProjectAnalysis, Question, QuestionGeneration, Skill, Workspace
+from app.models import (
+    ImportItem,
+    ImportSession,
+    LearningTask,
+    Project,
+    ProjectAnalysis,
+    Question,
+    QuestionGeneration,
+    Skill,
+    Workspace,
+)
 from app.services import question_generation as protocol
 from app.services.bank_review_memory import load_review_feedback
 from app.services.project_context import build_project_context
@@ -95,7 +105,7 @@ async def suggestions(ws: Workspace = Depends(get_workspace), session: AsyncSess
         latest_analysis = p.latest_valid_analysis_id or await session.scalar(select(ProjectAnalysis.id).where(ProjectAnalysis.project_id == p.id,
             ProjectAnalysis.workspace_id == ws.id, ProjectAnalysis.status == 'SUCCESS').order_by(ProjectAnalysis.id.desc()).limit(1))
         if latest_analysis:
-            from app.services.project_memory import active_project_memories,report_binding
+            from app.services.project_memory import active_project_memories, report_binding
             gaps=[m for m in await active_project_memories(session,ws.id,p.id)
                   if m.mtype=='ProjectIssue' and report_binding(m,latest_analysis)][:3]
             for gap in gaps:

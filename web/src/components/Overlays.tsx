@@ -160,12 +160,7 @@ export function CommandPalette() {
 // —— 通知中心 ——
 export function NotificationsPanel() {
   const { notifOpen, setNotifOpen } = useAppState();
-  const navigate = useNavigate();
   if (!notifOpen) return null;
-  const go = (to: string) => {
-    setNotifOpen(false);
-    navigate(to);
-  };
   return (
     <div className="modal-mask" onClick={() => setNotifOpen(false)}>
       <div className="pop-panel" style={{ right: 'auto', left: '50%', transform: 'translateX(-50%)', top: '64px', position: 'absolute' }} onClick={(e) => e.stopPropagation()}>

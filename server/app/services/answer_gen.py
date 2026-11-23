@@ -556,7 +556,7 @@ def render_html(title: str, skill_name: str, data: dict[str, Any], source: str) 
     if steps:
         parts.append("<h3>详细拆解</h3>")
         items = []
-        for i, (t, d) in enumerate(steps, start=1):
+        for _i, (t, d) in enumerate(steps, start=1):
             head = f"<b>{esc(t)}</b>：" if t else ""
             items.append(f"<li>{head}{esc(d)}</li>")
         parts.append("<ol>" + "".join(items) + "</ol>")

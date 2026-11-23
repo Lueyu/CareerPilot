@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Exam, ExamQuestion, LearningGoal, LearningTask, Question, RetestCriterionMapping, Workspace
 from app.services.assessment_versions import question_snapshot
 
+
 @dataclass(frozen=True)
 class RetestTarget:
     goal_id: int | None

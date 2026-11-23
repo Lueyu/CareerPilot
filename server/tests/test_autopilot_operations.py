@@ -1,13 +1,12 @@
 """Windows process lifecycle acceptance with local fake modules, no DB or LLM."""
 import json
 import os
-from pathlib import Path
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
-import time
+from pathlib import Path
 
 import pytest
 

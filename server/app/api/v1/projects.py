@@ -1,7 +1,7 @@
 """项目 API：登记仓库、维护个人资料和读取历史记录。"""
-from uuid import uuid4
 from datetime import datetime, timezone
 from typing import Literal
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -9,10 +9,10 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_workspace
+from app.db import get_session
 from app.models.project import Project, ProjectFinding, ProjectScan
 from app.models.project_resume import ProjectResumeDraft
 from app.models.workspace import Workspace
-from app.db import get_session
 from app.services.project_analyzer import coverage_for_scan
 from app.services.project_context import project_kind, project_profile
 
@@ -199,7 +199,7 @@ async def create_project(
     await session.flush()
     run = None
     if provider != 'manual':
-        from app.services.project_autopilot_config import CONSENT_VERSION, runtime_config, model_fingerprint
+        from app.services.project_autopilot_config import CONSENT_VERSION, model_fingerprint, runtime_config
         from app.services.project_jobs import enqueue
         from app.services.project_scheduler import versions
         config, _, settings = await runtime_config(session, ws.id, require_consent=False)
@@ -248,9 +248,9 @@ async def delete_project(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    from app.services.project_memory import lock_project_memories
-    from app.models import MemoryItem,ProjectAnalysis,AnalysisStep
+    from app.models import AnalysisStep, MemoryItem, ProjectAnalysis
     from app.services.project_jobs import OPEN
+    from app.services.project_memory import lock_project_memories
     await session.execute(text('SELECT pg_advisory_xact_lock(20261117, 0)'))
     await lock_project_memories(session, ws.id)
     p = await _get_project(session, ws, project_id)

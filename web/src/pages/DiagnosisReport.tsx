@@ -3,7 +3,7 @@ import StudyEntryButton from '../components/StudyEntryButton';
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { experiencedBankPath, hasExperiencedBankOrigin } from '../lib/experiencedBankPath';
-import { DemoBanner, PageHead, plainLevel } from '../components/ui';
+import { DemoBanner, PageHead } from '../components/ui';
 import { api, ExamReportData, ScoringTaskAck } from '../api/client';
 import { clearExamCreation } from '../lib/coreLoop';
 import AssessmentEvidence,{referenceText} from '../components/AssessmentEvidence';
@@ -97,6 +97,7 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
     setPollPaused(false);
     if (!reportId || !/^\d+$/.test(reportId)) { setErr('请从本次考试或历史记录打开带考试 ID 的报告。'); return; }
     const poll=async()=>{
+      // eslint-disable-next-line no-useless-assignment -- try/catch 两分支都会重新赋值，初值仅为通过 lint 保留
       reads++;let again=false;
       try{const r=await api.get<ExamReportData>(`/exams/${reportId}/report`);if(!alive)return;if(String(r.id)!==reportId)throw new Error('收到其他考试的响应，本次结果未被替换');setReport(r);setErr(null);again=PENDING_STATUSES.includes(r.status);}
       catch(e){if(!alive)return;setErr(String(e instanceof Error?e.message:e));again=true;}

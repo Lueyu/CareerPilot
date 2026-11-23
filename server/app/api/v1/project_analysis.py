@@ -5,14 +5,20 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select, text, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
 from app.models import Exam, ExamQuestion, ImportItem, Project, ProjectAnalysis, QuestionGeneration, Workspace
 from app.services.project_context import project_kind, project_profile
-from app.services.project_memory import active_project_memories, lock_project_memories, publish_project_memories, source_excerpts, report_binding
+from app.services.project_memory import (
+    active_project_memories,
+    lock_project_memories,
+    publish_project_memories,
+    report_binding,
+    source_excerpts,
+)
 from app.services.project_sources import open_repository
 from app.services.repository_credentials import repository_credentials
 
@@ -63,8 +69,8 @@ async def create_analysis(project_id: int, req: AnalysisIn, ws: Workspace = Depe
     project = await owned_project(session, ws.id, project_id)
     if project_kind(project) not in ('github', 'gitcode') or project.archived_at:
         raise HTTPException(409, '请选择未移除的仓库项目')
+    from app.services.project_autopilot_config import model_fingerprint, runtime_config
     from app.services.project_jobs import enqueue
-    from app.services.project_autopilot_config import runtime_config,model_fingerprint
     from app.services.project_scheduler import versions
     config,_,settings=await runtime_config(session,ws.id,require_consent=False)
     pipeline,prompt=versions()

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_workspace
 from app.db import get_session
-from app.models import Evidence, Skill, SkillState, Workspace
+from app.models import Evidence, Workspace
 from app.services.competency import recompute_skill_states
 
 router = APIRouter()

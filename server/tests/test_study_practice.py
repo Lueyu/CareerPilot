@@ -3,19 +3,22 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
-from fastapi import HTTPException
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from test_assessment_reliability import result_for
 
-from app.api.v1 import exams, study_practice as api
+from app.api.v1 import exams
+from app.api.v1 import study_practice as api
 from app.models import Evidence, Exam, ExamQuestion, Question, Skill, SkillState
-from app.models.study_chat import StudySession, StudyMessage
-from app.models.study_notes import StudyNote, StudyNoteVersion, StudyCard, StudyCardEvent
-from app.services import assessment_jobs as jobs, assessment_worker as worker, study_practice as service
+from app.models.study_chat import StudyMessage, StudySession
+from app.models.study_notes import StudyCard, StudyCardEvent, StudyNote, StudyNoteVersion
+from app.services import assessment_jobs as jobs
+from app.services import assessment_worker as worker
+from app.services import study_practice as service
 from app.services.assessment_rubric import AssessmentJudgeError
 from app.services.learning_exposure import record_reference_exposure
-from test_assessment_reliability import result_for
 
 
 async def setup_lesson(session, ws, monkeypatch, *, with_card=False):

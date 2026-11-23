@@ -1,8 +1,8 @@
 """Opt-in durable source partitioning; never rewrites a failed stage or calls a model."""
-from copy import deepcopy
 import hashlib
 import json
 import re
+from copy import deepcopy
 
 CONTRACT_VERSION = 'source-split-v1'
 LIST_FIELDS = ('claims', 'issues', 'unknowns', 'dependencies', 'read_requests', 'boundary_adjustments')

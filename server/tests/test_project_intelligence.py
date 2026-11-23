@@ -50,7 +50,7 @@ async def finish(session, ws, row, revision='a' * 40):
     run.report={**run.report,'claims':[{'id':'c1','citations':[citation]}]}
     row.latest_valid_analysis_id=run.id
     await session.flush()
-    from app.services.project_candidates import publish_candidates,review_candidates,invalidate_changed_sources
+    from app.services.project_candidates import invalidate_changed_sources, publish_candidates, review_candidates
     await invalidate_changed_sources(session,row,None,revision)
     candidates=await publish_candidates(session,run,[{'fact_key':'issue-I1','mtype':'ProjectIssue','kind':'issue',
         'issue_id':'I1','content':run.report['issues'][0]['title'],'claim_ids':['c1'],'fact_type':'CODE_OBSERVED'}])
@@ -117,7 +117,8 @@ async def test_memory_correction_keeps_provenance_and_dismissal_removes_prompt_c
 async def test_issue_bound_generation_freezes_memory_and_rejects_dismissed_or_foreign_source(db_session, test_workspace):
     row = await project(db_session, test_workspace)
     run = await finish(db_session, test_workspace, row)
-    from app.api.v1 import question_generation as generation, memory
+    from app.api.v1 import memory
+    from app.api.v1 import question_generation as generation
     if not await db_session.scalar(select(Skill).where(Skill.key == 'backend')):
         db_session.add(Skill(key='backend', name='后端工程'))
         await db_session.commit()
@@ -167,6 +168,7 @@ async def test_deleting_project_archives_active_project_memories(db_session, tes
 @pytest.mark.asyncio
 async def test_legacy_failure_and_restart_keep_last_confirmed_memory(db_session, test_workspace, monkeypatch):
     from sqlalchemy.ext.asyncio import async_sessionmaker
+
     from app.services import project_deep_analysis
     api = api_module()
     monkeypatch.setattr(api, 'SessionLocal', async_sessionmaker(db_session.bind, expire_on_commit=False))
@@ -197,11 +199,14 @@ async def test_legacy_failure_and_restart_keep_last_confirmed_memory(db_session,
 @pytest.mark.asyncio
 async def test_issue_question_review_and_actual_answer_are_the_only_personal_evidence(db_session, test_workspace, monkeypatch, tmp_path):
     import json
-    from app.api.v1 import bank, exams, question_generation as generation
-    from app.models import ExamQuestion, LearningTask, Question
+
     from sqlalchemy.ext.asyncio import async_sessionmaker
-    from app.services import assessment_jobs, assessment_worker
     from test_question_workshop import response
+
+    from app.api.v1 import bank, exams
+    from app.api.v1 import question_generation as generation
+    from app.models import ExamQuestion, LearningTask, Question
+    from app.services import assessment_jobs, assessment_worker
     row = await project(db_session, test_workspace)
     run = await finish(db_session, test_workspace, row)
     if not await db_session.scalar(select(Skill).where(Skill.key == 'backend')):

@@ -6,11 +6,12 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
-
-from app.models import Exam, ScoringRun, ScoringStep, Workspace, Evidence, CompetencySnapshot
-from app.services import assessment_jobs as jobs, assessment_worker as worker
-from app.services.llm_judge import JUDGE_PROMPT_VERSION
 from test_assessment_reliability import prepared, result_for
+
+from app.models import CompetencySnapshot, Evidence, Exam, ScoringRun, ScoringStep, Workspace
+from app.services import assessment_jobs as jobs
+from app.services import assessment_worker as worker
+from app.services.llm_judge import JUDGE_PROMPT_VERSION
 
 
 @pytest.mark.asyncio

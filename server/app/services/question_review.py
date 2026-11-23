@@ -29,8 +29,8 @@ def issue_signature(meta):
 
 async def approve_generated(session, workspace, import_id, item_ids=None, edits=None, *,
                             locked_import=None, commit=True, require_review_content=False):
-    from app.api.v1.question_generation import normalized_title, workspace_lock
     from app.api.v1.bank import SKILL_TOPIC, _owned_import
+    from app.api.v1.question_generation import normalized_title, workspace_lock
     from app.services.bank_review_actions import bump_review_revision, ensure_not_revising
 
     if edits:

@@ -3,7 +3,6 @@ import json
 from copy import deepcopy
 
 import pytest
-
 from test_project_autopilot_engine import context, drive, fixture_pipeline, runtime
 
 

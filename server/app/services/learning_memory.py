@@ -2,9 +2,11 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
+
 from sqlalchemy import select
-from app.models import MemoryItem, EvolutionCandidate, ScoringStep, ScoringRun, Exam, Workspace
-from app.models.learning_feedback import LearningGoal, LearningActivity, LearningSubmission
+
+from app.models import EvolutionCandidate, Exam, MemoryItem, ScoringRun, ScoringStep, Workspace
+from app.models.learning_feedback import LearningActivity, LearningGoal, LearningSubmission
 from app.services.tracing import emit_event
 
 LEARNING_TYPES = ('LearningObservation', 'LearningPreference')
@@ -70,8 +72,9 @@ async def invalidate_memory_dependents(session, workspace_id, memory_id, reason)
 
 async def cancel_pending_feedback(session, goal, reason):
     """Fence already queued/running jobs in the same withdrawal transaction."""
-    from app.services import assessment_jobs
     from types import SimpleNamespace
+
+    from app.services import assessment_jobs
     pairs = (await session.execute(select(LearningSubmission, ScoringRun).join(ScoringRun,
         LearningSubmission.scoring_run_id == ScoringRun.id).where(LearningSubmission.workspace_id == goal.workspace_id,
         LearningSubmission.goal_id == goal.id, ScoringRun.mode == 'PRACTICE',
@@ -277,8 +280,9 @@ async def on_verification_completed(session, exam, task):
 
 async def evaluate_teaching_candidate(session, workspace_id, candidate):
     """Offline provenance checks, explicitly not a teaching-effect experiment."""
-    from app.models import EvolutionRun
     from fastapi import HTTPException
+
+    from app.models import EvolutionRun
     if candidate.workspace_id != workspace_id:
         raise HTTPException(404, '策略候选不存在')
     source = candidate.source_data or {}

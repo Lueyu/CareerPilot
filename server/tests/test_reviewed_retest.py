@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from test_assessment_reliability import result_for
 
 from app.api.v1.exams import CreateExamReq, SaveAnswerReq, SubmitExamReq, create_exam, submit_exam
 from app.api.v1.learning import start_retest
@@ -14,7 +15,6 @@ from app.services import assessment_jobs, assessment_worker
 from app.services.assessment_versions import ensure_revision, question_snapshot
 from app.services.learning_exposure import independence_snapshot
 from app.services.learning_loop import complete_retest_for_exam
-from test_assessment_reliability import result_for
 
 
 async def question(session, workspace, skill, title, *criteria):

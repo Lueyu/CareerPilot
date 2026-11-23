@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from app.services.llm import AgentAdapter
 from app.services import project_autopilot_engine as engine
+from app.services.llm import AgentAdapter
 
 CONFIG = {'provider':'fixture','model':'unchanged-model','base_url':'https://fixture.invalid/v1','api_key':'SECRET_KEY'}
 

@@ -39,7 +39,6 @@ export default function Pipeline() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [rollbackOpen, setRollbackOpen] = useState<RunView | null>(null);
-  const [dryRun, setDryRun] = useState(false);
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -50,20 +49,6 @@ export default function Pipeline() {
   }, []);
 
   useEffect(() => { reload(); }, [reload]);
-
-  const approve = async (r: RunView, autoMerge: boolean) => {
-    setBusy(true);
-    try {
-      const q = `auto_merge=${autoMerge}&dry_run=${dryRun}`;
-      await api.post(`/career-assets/updates/${r.id}/approve?${q}`);
-      toast(dryRun ? '🧪' : '✅', autoMerge ? (dryRun ? 'Dry-run 发布计划已生成（未写 GitHub）' : '已发布：PR 创建成功') : '草稿已批准，可在公开内容页手动发布');
-      reload();
-    } catch (e: any) {
-      toast('⚠️', `审批失败：${e.message || e}`);
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const rollback = async (r: RunView) => {
     setBusy(true);

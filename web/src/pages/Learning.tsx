@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { DemoBanner, PageHead, Modal } from '../components/ui';
-import { useApi, LearningData, LearningTaskView } from '../api/client';
+import { useApi, LearningData } from '../api/client';
 import DailyLearningPlan from './DailyLearningPlan';
 
 

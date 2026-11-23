@@ -12,7 +12,6 @@ from app.models import LearningTask, Workspace
 from app.services import daily_learning_plan as planner
 from app.services.daily_learning_plan import DEFAULT_DEADLINE, PlanItem, build_plan, curriculum
 
-
 TODAY = date(2026, 11, 18)
 
 

@@ -13,7 +13,6 @@ from app.models import Workspace
 from app.models.study_notes import StudyCard, StudyCardEvent, StudyNote, StudyNoteJob, StudyNoteVersion
 from app.services import study_notes as service
 
-
 router = APIRouter(prefix="/study", tags=["study-notes"])
 
 

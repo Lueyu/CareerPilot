@@ -1,6 +1,6 @@
 """Lossless opt-in wire encoding for downstream claim-only model stages."""
-from copy import deepcopy
 import json
+from copy import deepcopy
 
 CONTRACT_VERSION = 'source-registry-v1'
 SOURCE_FIELDS = ('source_id', 'source_version', 'path')

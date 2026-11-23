@@ -11,7 +11,7 @@ from sqlalchemy.orm import lazyload
 
 from app.models import Question
 from app.models.question import SOURCE_PUBLIC
-from app.services.experienced_bank import Text, is_owned_question, original_identities, load_catalog, render_answer_html
+from app.services.experienced_bank import Text, is_owned_question, load_catalog, original_identities, render_answer_html
 
 
 class Comparison(BaseModel):

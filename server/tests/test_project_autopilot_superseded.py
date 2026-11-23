@@ -2,9 +2,9 @@
 from uuid import uuid4
 
 import pytest
+from test_project_autopilot_api import api, project
 
 from app.models import AnalysisStep, ProjectAnalysis
-from test_project_autopilot_api import api, project
 
 
 async def split_fixture(session, workspace, *, status='QUEUED', error=None):

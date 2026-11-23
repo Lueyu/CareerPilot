@@ -396,7 +396,7 @@ export interface AuditItem {
 import { useEffect, useState } from 'react';
 
 /** Remote data is never replaced by demo or stale data. */
-export function useApi<T>(path: string | null, fallback?: T): { data: T | undefined; loading: boolean; error: string | null } {
+export function useApi<T>(path: string | null, _fallback?: T): { data: T | undefined; loading: boolean; error: string | null } {
   const [data, setData] = useState<T | undefined>(undefined);
   const [loading, setLoading] = useState(!!path);
   const [error, setError] = useState<string | null>(null);

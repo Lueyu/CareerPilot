@@ -27,7 +27,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 
-
 # --- 草稿状态机(C2) ---
 DRAFT_STATUS_DRAFT = "DRAFT"
 DRAFT_STATUS_VALIDATING = "VALIDATING"

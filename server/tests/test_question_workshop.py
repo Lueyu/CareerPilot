@@ -53,7 +53,8 @@ async def test_create_is_idempotent_and_freezes_only_owned_context(db_session, t
 
 @pytest.mark.asyncio
 async def test_external_repair_edit_approve_preserves_answers_without_model_or_evidence(db_session, test_workspace, monkeypatch):
-    from app.api.v1 import bank, question_generation as api
+    from app.api.v1 import bank
+    from app.api.v1 import question_generation as api
     from app.services import question_generation as protocol
 
     async def forbidden(*a, **k):
@@ -86,7 +87,8 @@ async def test_external_repair_edit_approve_preserves_answers_without_model_or_e
 
 @pytest.mark.asyncio
 async def test_same_original_import_variants_share_canonical(db_session, test_workspace):
-    from app.api.v1 import bank, question_generation as api
+    from app.api.v1 import bank
+    from app.api.v1 import question_generation as api
     ids = []
     for title in ("项目 A 如何评估召回？", "项目 B 如何评估召回？"):
         task = await create(db_session, test_workspace, kind="import", source_text="原始面经：如何评估检索召回率？")
@@ -99,7 +101,8 @@ async def test_same_original_import_variants_share_canonical(db_session, test_wo
 
 @pytest.mark.asyncio
 async def test_pasted_original_matches_existing_ordinary_question(db_session, test_workspace):
-    from app.api.v1 import bank, question_generation as api
+    from app.api.v1 import bank
+    from app.api.v1 import question_generation as api
     task = await create(db_session, test_workspace, kind="import", source_text="如何评估检索召回率？")
     base = Question(short_code="F-" + uuid4().hex[:15], workspace_id=test_workspace.id, title="如何评估检索召回率？", topic="rag", qtype="open")
     db_session.add(base)
@@ -112,7 +115,8 @@ async def test_pasted_original_matches_existing_ordinary_question(db_session, te
 
 @pytest.mark.asyncio
 async def test_generated_legacy_regeneration_cannot_drop_project_provenance(db_session, test_workspace):
-    from app.api.v1 import bank, question_generation as api
+    from app.api.v1 import bank
+    from app.api.v1 import question_generation as api
     task = await create(db_session, test_workspace)
     result = await api.submit_result(task["id"], api.ResultIn(text=response(task)), ws=test_workspace, session=db_session)
     item = result["review"]["items"][0]
@@ -123,7 +127,8 @@ async def test_generated_legacy_regeneration_cannot_drop_project_provenance(db_s
 
 @pytest.mark.asyncio
 async def test_missing_context_and_foreign_fact_rejected_before_approval(db_session, test_workspace):
-    from app.api.v1 import bank, projects, question_generation as api
+    from app.api.v1 import bank, projects
+    from app.api.v1 import question_generation as api
     project = await projects.create_project(projects.ProjectIn(name="未知职责项目", kind="manual"), ws=test_workspace, session=db_session)
     task = await create(db_session, test_workspace, project_ids=[project["id"]])
     raw = response(task, question_mode="needs_context", project_id=project["id"], missing_context=["请补充本人职责"])
@@ -138,6 +143,7 @@ async def test_missing_context_and_foreign_fact_rejected_before_approval(db_sess
 @pytest.mark.asyncio
 async def test_api_mode_failure_retains_real_status_and_can_retry(db_session, test_workspace, monkeypatch):
     from sqlalchemy.ext.asyncio import async_sessionmaker
+
     from app.api.v1 import question_generation as api
     from app.services import question_generation as protocol
     task = await create(db_session, test_workspace, mode="api")
@@ -165,7 +171,8 @@ async def test_api_mode_failure_retains_real_status_and_can_retry(db_session, te
 
 @pytest.mark.asyncio
 async def test_selected_existing_source_preserves_canonical_and_exact_dedup(db_session, test_workspace):
-    from app.api.v1 import bank, question_generation as api
+    from app.api.v1 import bank
+    from app.api.v1 import question_generation as api
     from app.models import ImportSession
     await create(db_session, test_workspace)
     skill = await db_session.scalar(select(Skill).where(Skill.key == "rag"))
@@ -190,7 +197,8 @@ async def test_selected_existing_source_preserves_canonical_and_exact_dedup(db_s
 
 @pytest.mark.asyncio
 async def test_approved_question_can_be_practiced_without_automatic_mastery(db_session, test_workspace):
-    from app.api.v1 import bank, exams, question_generation as api
+    from app.api.v1 import bank, exams
+    from app.api.v1 import question_generation as api
     task = await create(db_session, test_workspace)
     result = await api.submit_result(task["id"], api.ResultIn(text=response(task)), ws=test_workspace, session=db_session)
     await bank.approve_import(result["import_session_id"], bank.ApproveItemReq(), ws=test_workspace, session=db_session)
@@ -216,7 +224,6 @@ async def test_manual_selection_rejects_missing_and_retest_questions(db_session,
 
 @pytest.mark.asyncio
 async def test_source_import_preserves_full_text_and_refuses_lost_uploaded_context(db_session, test_workspace):
-    from app.api.v1 import question_generation as api
     from app.models import ImportSession
     full = "项目背景" * 3000 + "末尾的真实职责"
     imp = ImportSession(short_code="FI-"+uuid4().hex[:15], workspace_id=test_workspace.id, paste_text=full[:10000], status="REVIEW", meta={"pasted_text": full})

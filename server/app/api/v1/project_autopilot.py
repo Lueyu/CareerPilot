@@ -10,10 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_workspace
 from app.db import get_session
-from app.models import AppSetting, AnalysisStep, MemoryItem, Project, ProjectAnalysis, Workspace, WorkerHeartbeat
+from app.models import AnalysisStep, AppSetting, MemoryItem, Project, ProjectAnalysis, WorkerHeartbeat, Workspace
 from app.services import project_candidates, project_jobs
 from app.services.project_autopilot_config import (
-    CONSENT_VERSION, SOURCE_NOTICE, model_fingerprint, runtime_config, settings_for,
+    CONSENT_VERSION,
+    SOURCE_NOTICE,
+    model_fingerprint,
+    runtime_config,
+    settings_for,
 )
 from app.services.project_context import project_kind
 from app.services.project_memory import PROJECT_TYPES, source_excerpts

@@ -5,10 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
+from test_project_jobs import setup_run
 
 from app.models import AnalysisStep
 from app.services import project_jobs as jobs
-from test_project_jobs import setup_run
 
 
 async def model_step(session, workspace):

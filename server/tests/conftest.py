@@ -1,10 +1,9 @@
 """All database tests are isolated; never default to a personal database."""
-import asyncio
 import os
 import sys
 from pathlib import Path
-from uuid import uuid4
 from urllib.parse import urlparse
+from uuid import uuid4
 
 import asyncpg
 import pytest_asyncio
@@ -26,7 +25,6 @@ os.environ["GITHUB_TOKEN"] = ""
 os.environ["PORTAL_AUTO_MERGE"] = "false"
 
 from app.models import Base, Exam, ImportSession, Workspace  # noqa: E402
-
 
 _schema_ready = False
 

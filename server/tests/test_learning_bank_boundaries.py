@@ -3,12 +3,12 @@ import json
 
 import pytest
 from sqlalchemy import select
+from test_assessment_snapshot_review import fixture_question
+from test_question_generation import item  # noqa: F401 -- pytest 从模块命名空间发现 fixture，此导入即注册
 
 from app.api.v1 import bank, question_generation
 from app.models import ImportItem, QuestionGeneration
 from app.services.question_review import approve_generated
-from test_assessment_snapshot_review import fixture_question
-from test_question_generation import item
 
 
 @pytest.mark.asyncio
@@ -25,7 +25,7 @@ async def test_bank_lists_and_facets_exclude_internal_practice(db_session, test_
 
 
 @pytest.mark.asyncio
-async def test_generation_context_and_approval_do_not_merge_into_practice(db_session, test_workspace, item):
+async def test_generation_context_and_approval_do_not_merge_into_practice(db_session, test_workspace, item):  # noqa: F811 -- item 是 pytest fixture 参数，遮蔽同名导入是有意为之
     question, skill = await fixture_question(db_session, test_workspace)
     question.generation_meta = {'assessment_use':'PRACTICE_ONLY'}
     await db_session.commit()

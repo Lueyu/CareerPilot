@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.api.v1 import study_notes as api
 from app.models import Evidence, Workspace
 from app.models.study_chat import StudyMessage, StudySession
-from app.models.study_notes import StudyCard, StudyCardEvent, StudyNoteVersion
+from app.models.study_notes import StudyCardEvent, StudyNoteVersion
 from app.services import study_notes as service
 
 

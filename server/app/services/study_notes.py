@@ -15,7 +15,6 @@ from app.models.study_notes import StudyCard, StudyNote, StudyNoteJob, StudyNote
 from app.services.llm import AgentAdapter, get_llm_config
 from app.services.study_teaching import teaching_prompt
 
-
 log = logging.getLogger(__name__)
 
 

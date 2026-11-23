@@ -1,6 +1,6 @@
 """Turn a saved study conversation into workspace-owned review material."""
-from html import escape
 import json
+from html import escape
 from typing import Annotated
 from uuid import uuid4
 
@@ -18,7 +18,6 @@ from app.services.llm import get_llm_config
 from app.services.study_notes import GenerationError, read_json
 from app.services.study_routing import profile
 from app.services.study_teaching import teaching_prompt
-
 
 MAX_SNAPSHOT_BYTES = 128_000
 

@@ -2,20 +2,20 @@
 
 These tests never call the live model or touch the original exam 25.
 """
+import json
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timedelta
-import json
 from types import SimpleNamespace
 from uuid import uuid4
 
-from fastapi import HTTPException
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import func, select
 
 from app.models import Exam, ExamAnswer, ExamQuestion, Question, ScoringRun, ScoringStep, Skill
 from app.services import assessment_jobs as jobs
-from app.services.assessment_rubric import AssessmentJudgeError, JUDGE_VERSION, validate_judgement
+from app.services.assessment_rubric import JUDGE_VERSION, AssessmentJudgeError, validate_judgement
 from app.services.assessment_versions import question_snapshot
 
 
@@ -228,6 +228,7 @@ async def test_project_and_assessment_share_the_global_model_slot(db_session, te
 @pytest.mark.asyncio
 async def test_model_result_survives_database_publication_failure_without_second_model_call(db_session, test_workspace, monkeypatch, tmp_path):
     from sqlalchemy.ext.asyncio import async_sessionmaker
+
     from app.services import assessment_worker as worker
 
     exam, run, _ = await prepared(db_session, test_workspace, monkeypatch)
@@ -270,6 +271,7 @@ async def test_model_result_survives_database_publication_failure_without_second
 @pytest.mark.asyncio
 async def test_failed_finalize_rolls_back_all_side_effects_and_retries_once(db_session, test_workspace, monkeypatch):
     from sqlalchemy.ext.asyncio import async_sessionmaker
+
     from app.api.v1 import exams
     from app.models import CompetencySnapshot, Evidence, LearningTask, SkillState
     from app.services import assessment_worker as worker

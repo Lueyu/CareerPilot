@@ -63,7 +63,8 @@ def assessed_observations(evidences: list[Evidence], *, include_assisted: bool =
         parents[root(m["question_id"])] = root(m["canonical_question_id"])
 
     latest: dict[int, Evidence] = {}
-    rank = lambda e: ((e.occurred_at or e.created_at).timestamp(), e.id or 0)
+    def rank(e):
+        return ((e.occurred_at or e.created_at).timestamp(), e.id or 0)
     for ev in valid:
         key = root(ev.meta["question_id"])
         previous = latest.get(key)
@@ -108,7 +109,6 @@ async def recompute_skill_states(session: AsyncSession, workspace_id: int) -> li
         ).scalars().all()
     }
 
-    import datetime as _dt
 
     result: list[SkillState] = []
     for skill in skills:

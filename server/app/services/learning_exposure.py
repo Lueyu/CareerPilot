@@ -1,8 +1,10 @@
 """Known answer exposure and question families; never claims to observe outside AI use."""
-from datetime import datetime, timezone
 import re
 import unicodedata
+from datetime import datetime, timezone
+
 from sqlalchemy import select
+
 from app.models import Event, Exam, ExamQuestion, Question, Workspace
 from app.services.tracing import emit_event
 

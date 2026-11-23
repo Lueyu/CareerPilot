@@ -1,16 +1,16 @@
 """Ambiguity reports are scoped, durable review requests, never grade changes."""
-from copy import deepcopy
 import importlib
 import importlib.util
+from copy import deepcopy
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import func, select
+from test_assessment_queue import make_exam
 
 from app.api.v1 import exams
 from app.models import Event, Exam, ExamQuestion, Workspace
-from test_assessment_queue import make_exam
 
 
 def feedback_api():

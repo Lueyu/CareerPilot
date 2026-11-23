@@ -1,17 +1,29 @@
 """Source-bound practice, with the assessment queue as the only grading truth."""
+import importlib.util
 from copy import deepcopy
 from datetime import datetime, timezone
-import importlib.util
 from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
 
-from app.models import (Evidence, Exam, ExamAnswer, ExamQuestion, LearningTask, Question,
-                        ScoringRun, ScoringStep, Skill, Workspace, MemoryItem, Event)
-from app.models.learning_feedback import LearningGoal, LearningActivity, LearningSubmission
-from app.services.assessment_versions import digest, question_snapshot
+from app.models import (
+    Event,
+    Evidence,
+    Exam,
+    ExamAnswer,
+    ExamQuestion,
+    LearningTask,
+    MemoryItem,
+    Question,
+    ScoringRun,
+    ScoringStep,
+    Skill,
+    Workspace,
+)
+from app.models.learning_feedback import LearningActivity, LearningGoal, LearningSubmission
 from app.services.assessment_rubric import rubric_version, validate_rubric
+from app.services.assessment_versions import digest, question_snapshot
 from app.services.tracing import emit_event
 
 POLICY_VERSION = 'learning-feedback-v1'
@@ -268,7 +280,7 @@ async def record_assistance(session, ws, activity_id, kind, request_key, expecte
     goal = await session.get(LearningGoal, activity.goal_id)
     await assert_goal_sources(session, ws, goal)
     if goal.gap_type == 'StudyTopic' and goal.source_task_id is None:
-        from app.services.study_practice import owned_practice, mark_active_retest_help
+        from app.services.study_practice import mark_active_retest_help, owned_practice
         study = await owned_practice(session, ws.id, activity.id)
         if study.retest_exam_id:
             await mark_active_retest_help(session, ws, study.retest_exam_id)

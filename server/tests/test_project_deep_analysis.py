@@ -1,8 +1,8 @@
 """Grounded project analysis tests: all network and model calls are fixtures."""
+import asyncio
 import importlib
 import importlib.util
 import json
-import asyncio
 
 import httpx
 import pytest

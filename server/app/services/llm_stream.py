@@ -1,10 +1,10 @@
 """Bounded Chat Completions SSE reader. No partial result or reasoning retention."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
 import time
+from dataclasses import dataclass
 
 import httpx
 

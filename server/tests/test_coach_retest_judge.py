@@ -1,5 +1,8 @@
 from types import SimpleNamespace
-from app.services import assessment_jobs as jobs, study_routing
+
+from app.services import assessment_jobs as jobs
+from app.services import study_routing
+
 
 def test_independent_open_coach_retest_uses_configured_judge(monkeypatch):
     cfg={'model':'base','provider':'fixture','base_url':'https://local.invalid','api_key':'local'}

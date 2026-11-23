@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 
 from app.api.v1 import projects
 from app.models import Project, ProjectFinding, ProjectScan, Workspace

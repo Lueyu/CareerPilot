@@ -1,15 +1,18 @@
 """Lightweight repository checks; persisted due time, no offline catch-up backlog."""
 from datetime import timedelta
 from uuid import uuid4
-from sqlalchemy import select,or_,text
-from app.models import Project,ProjectAnalysis
-from app.services.project_jobs import enqueue,utcnow,OPEN
-from app.services.project_context import project_kind
-from app.services.project_autopilot_config import runtime_config,model_fingerprint,settings_for
+
+from sqlalchemy import or_, select, text
+
+from app.models import Project, ProjectAnalysis
+from app.services.project_autopilot_config import model_fingerprint, runtime_config, settings_for
 from app.services.project_autopilot_sources import probe_repository
+from app.services.project_context import project_kind
+from app.services.project_jobs import OPEN, enqueue, utcnow
+
 
 def versions():
-    from app.services.project_autopilot_engine import PIPELINE_VERSION,PROMPT_BUNDLE_VERSION
+    from app.services.project_autopilot_engine import PIPELINE_VERSION, PROMPT_BUNDLE_VERSION
     return PIPELINE_VERSION,PROMPT_BUNDLE_VERSION
 
 async def check_project(session,project_id,workspace_id,now=None):
@@ -39,7 +42,7 @@ async def check_project(session,project_id,workspace_id,now=None):
     project.branch=head['branch']
     baseline=await session.get(ProjectAnalysis,project.latest_valid_analysis_id) if project.latest_valid_analysis_id else None
     pipeline,prompt=versions();fp=model_fingerprint(config)
-    from app.services.project_autopilot_engine import SCHEMA_VERSION,SAFETY_POLICY_VERSION
+    from app.services.project_autopilot_engine import SAFETY_POLICY_VERSION, SCHEMA_VERSION
     provenance=((baseline.snapshot or {}).get('provenance') or {}) if baseline else {}
     # The card-layout release adds optional evidence fields and Auto routing.
     # Updating the app alone should not launch a paid rescan of unchanged v2 reports.

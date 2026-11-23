@@ -195,6 +195,7 @@ def test_invalid_frozen_rubric_cannot_become_a_valid_standard(mutation):
 @pytest.mark.parametrize('kind', ['duplicate_json', 'truncated', 'timeout'])
 async def test_strict_failure_keeps_safe_attempt_metadata_and_no_valid_score(kind):
     import asyncio
+
     from app.services.llm_judge import judge_frozen_answer
     class Adapter:
         last_response_meta = {'request_id': 'fixture-1', 'finish_reason': 'length' if kind == 'truncated' else 'stop'}

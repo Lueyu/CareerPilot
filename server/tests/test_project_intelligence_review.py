@@ -5,11 +5,12 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
-
-from app.api.v1 import bank, exams, memory, question_generation as generation
-from app.models import Exam, MemoryItem, Question, QuestionGeneration, Skill
 from test_project_intelligence import api_module, finish, project
 from test_question_workshop import response
+
+from app.api.v1 import bank, exams, memory
+from app.api.v1 import question_generation as generation
+from app.models import Exam, MemoryItem, Question, QuestionGeneration, Skill
 
 
 async def backend_skill(session):

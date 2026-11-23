@@ -1,0 +1,24 @@
+# CareerPilot server 工具配置（阶段 1 门禁，2026-11-23）
+# 只放工具配置，不定义 [project] 打包元数据——依赖管理仍走 requirements*.txt。
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+# E/F/W: pycodestyle+pyflakes（未用导入/未用变量/语法坏味道）
+# I: import 排序；B: bugbear（常见隐患）
+select = ["E", "F", "W", "I", "B"]
+# ignore 理由（阶段 1 原则：门禁先落地；风格重排与语义决策单独立项）：
+#   E501   行宽交给 ruff format，全库重排独立立项
+#   B008   FastAPI Depends() 默认参数的合法模式
+#   E701/E702  代码库刻意的单行紧凑风格（685 处）；重排=巨大 churn 且破坏行号引用
+#   B905   zip 加 strict= 会改变语义（长度不等时抛错），需逐点决策
+#   B904   raise ... from ... 改变异常链可见性（traceback），留专门一轮
+ignore = ["E501", "B008", "E701", "E702", "B905", "B904"]
+
+[tool.ruff.lint.per-file-ignores]
+"app/models/__init__.py" = ["F401"]  # 模型转发导出层：名称供 `from app.models import X` 统一使用
+"tests/test_engines.py" = ["E402"]   # 分节测试文件：import 跟随分节注释
+

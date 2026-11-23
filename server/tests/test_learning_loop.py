@@ -9,7 +9,19 @@ from sqlalchemy import func, select, text
 
 from app.api.v1.learning import complete_task, learning_center
 from app.api.v1.memory import confirm_memory, delete_memory, list_memory
-from app.models import Evidence, Event, Exam, ExamAnswer, ExamQuestion, LearningTask, MemoryItem, Question, Skill, SkillState, Workspace
+from app.models import (
+    Event,
+    Evidence,
+    Exam,
+    ExamAnswer,
+    ExamQuestion,
+    LearningTask,
+    MemoryItem,
+    Question,
+    Skill,
+    SkillState,
+    Workspace,
+)
 
 
 async def task_fixture(session, ws, kind="UNDERSTAND"):
@@ -214,6 +226,7 @@ async def test_new_question_check_is_linked_and_request_is_idempotent(db_session
 @pytest.mark.asyncio
 async def test_teaching_uses_source_observation_and_keeps_private_material_scoped(db_session, test_workspace):
     import json
+
     from app.models import Workspace
     from app.services.teaching import build_teaching_content
     task, skill = await task_fixture(db_session, test_workspace)
@@ -244,6 +257,7 @@ async def test_teaching_uses_source_observation_and_keeps_private_material_scope
 @pytest.mark.parametrize("matching_title", [True, False])
 async def test_retest_pass_does_not_verify_legacy_title_only_gap(db_session, test_workspace, matching_title):
     import datetime as dt
+
     from app.services.learning_loop import complete_retest_for_exam
     task, skill = await task_fixture(db_session, test_workspace, "RETEST")
     task.source_criterion = "检索评估"

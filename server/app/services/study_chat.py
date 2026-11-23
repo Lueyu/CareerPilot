@@ -1,17 +1,17 @@
 import asyncio
-from datetime import datetime, timedelta, timezone
 import json
 import re
 import time
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, update
 
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models.jd import JdSource
-from app.services.study_routing import decide, profile
 from app.models.study_chat import StudyMessage, StudySession
 from app.services.llm import AgentAdapter, get_llm_config
+from app.services.study_routing import decide, profile
 
 
 def lease_deadline():
@@ -116,7 +116,13 @@ async def branch_history(session, reply):
 
 
 async def generate_reply(message_id: int, attempt: int):
-    from app.services.study_blocks import TEXT_ONLY, block_prompt, extract_blocks, teaching_diagram_fallback, wants_teaching_diagram
+    from app.services.study_blocks import (
+        TEXT_ONLY,
+        block_prompt,
+        extract_blocks,
+        teaching_diagram_fallback,
+        wants_teaching_diagram,
+    )
     from app.services.study_project_evidence import collect_project_evidence
     from app.services.study_teaching import teaching_prompt
 
@@ -259,10 +265,10 @@ async def generate_reply(message_id: int, attempt: int):
 
             async def partial(text):
                 nonlocal last_publish
-                fragments.append(text)
+                fragments.append(text)  # noqa: B023 -- fragments 每次迭代重建；partial 仅在同一次 create_task 内消费
                 now = time.monotonic()
                 if now - last_publish >= 0.5:
-                    await save("generating", content="".join(fragments))
+                    await save("generating", content="".join(fragments))  # noqa: B023
                     last_publish = now
 
             operation = asyncio.create_task(adapter.chat_with({**cfg, "output_limit":allowance, "report_usage":True},

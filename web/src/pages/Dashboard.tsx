@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { DemoBanner, PageHead, SegBars, StatusChip, StatCard, plainLevel } from '../components/ui';
+import { DemoBanner, PageHead, SegBars, StatusChip, plainLevel } from '../components/ui';
 import { useApi, DashboardData } from '../api/client';
 import { DiagnosisModelReadiness } from './Onboarding';
 

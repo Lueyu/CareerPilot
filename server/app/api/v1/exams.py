@@ -23,17 +23,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import (
-    Evidence, Exam, ExamAnswer, ExamQuestion, LearningTask, Question, Skill, SkillState, Workspace,
+    Evidence,
+    Exam,
+    ExamAnswer,
+    ExamQuestion,
+    LearningTask,
+    Question,
+    Skill,
+    SkillState,
+    Workspace,
 )
 from app.services.competency import recompute_skill_states
 from app.services.experienced_bank import catalog_questions, is_owned_question, load_catalog
 from app.services.followup import suggest_followups
+from app.services.learning_loop import complete_retest_for_exam
 from app.services.llm import adapter as llm_adapter
 from app.services.llm_judge import judge_open_answer
 from app.services.planner import plan_tasks_for_exam
-from app.services.learning_loop import complete_retest_for_exam
-from app.services.scorer import build_feedback, score_question
 from app.services.retest_targets import load_retest_plan
+from app.services.scorer import build_feedback, score_question
 from app.services.selection import select_questions_for_exam
 from app.services.tracing import add_span, emit_event, finish_trace, start_trace
 
@@ -213,7 +221,12 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
     retest_plan = None
     study_topic = None
     if study_practice is not None:
-        from app.services.study_practice import assert_retest_ready, resolve_retest_skill, skill_snapshot, taught_question_ids
+        from app.services.study_practice import (
+            assert_retest_ready,
+            resolve_retest_skill,
+            skill_snapshot,
+            taught_question_ids,
+        )
         if study_practice.retest_exam_id:
             previous = await _get_own_exam(session, ws, study_practice.retest_exam_id, lock=True)
             _maybe_expire(previous)
@@ -329,8 +342,8 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
         raise HTTPException(status_code=409, detail="当前能力域没有可用的新题，请先补充题库后再验证")
     from app.services.project_assessment import freeze_assessment
     exam.project_assessment = await freeze_assessment(session, ws.id, questions, req.project_generation_id)
-    from app.services.assessment_versions import digest, question_snapshot
     from app.models import JobStandard, JobStandardTarget
+    from app.services.assessment_versions import digest, question_snapshot
     standard_role = 'AI Agent 应用开发工程师'
     standard=await session.scalar(select(JobStandard).where(
         JobStandard.role == standard_role, JobStandard.is_seed.is_(True))
@@ -577,7 +590,8 @@ async def _finalize_exam(session: AsyncSession, ws: Workspace, exam: Exam, trace
         answer = eq.answer
         submitted = _submitted_answer(eq)
         fb = (answer.feedback if answer else None) or {}
-        normalize = lambda values: [str(p.get("title", "") if isinstance(p, dict) else p) for p in values]
+        def normalize(values):
+            return [str(p.get("title", "") if isinstance(p, dict) else p) for p in values]
         missed = normalize(fb.get("missed_points") or [])
         hits = normalize(fb.get("hit_points") or [])
         criteria = [{"criterion_id": str(i), "title": title,

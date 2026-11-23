@@ -14,10 +14,10 @@ from app.db import get_session
 from app.models import MemoryItem, Workspace
 from app.services.bank_review_memory import BANK_REVIEW_FEEDBACK_TYPE, review_feedback_eligible
 from app.services.llm import AgentAdapter
-from app.services.tracing import emit_event
-from app.services.project_memory import lock_project_memories
 from app.services.project_candidates import eligible
+from app.services.project_memory import lock_project_memories
 from app.services.task_memory import TASK_COMPLETION_TYPE
+from app.services.tracing import emit_event
 
 router = APIRouter()
 

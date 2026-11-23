@@ -1,5 +1,5 @@
 import React, { ReactNode } from 'react';
-import { STATUS_META, DomainSkill } from '../data/demo';
+import { STATUS_META } from '../data/demo';
 import { getWorkspace } from '../api/client';
 
 // —— 状态徽章 ——

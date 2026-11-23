@@ -1,8 +1,11 @@
 import importlib.util
+
 import pytest
-from sqlalchemy import select,func
-from app.models import Project,ProjectAnalysis,MemoryItem,Evidence
+from sqlalchemy import func, select
+
+from app.models import Evidence, Project, ProjectAnalysis
 from app.services.project_memory import active_project_memories
+
 
 async def prepared(session,ws):
     assert importlib.util.find_spec('app.services.project_candidates'), 'candidate confirmation service missing'

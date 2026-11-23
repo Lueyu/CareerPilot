@@ -9,8 +9,8 @@ from fastapi import Depends, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import get_session
 from app.config import get_settings
+from app.db import get_session
 from app.models import Workspace
 
 

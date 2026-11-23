@@ -6,14 +6,38 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import bank, benchmark, career_assets, dashboard, evolution, exams, learning, memory, observatory, profile, projects, public_content, settings
-from app.api.v1 import question_generation, project_analysis, project_autopilot, project_dossier, project_resume, assessment_feedback
-from app.api.v1 import learning_feedback, learning_projects, learning_memory, retest_mappings
-from app.api.v1 import study_chat, study_notes, study_practice
-from app.services.study_chat import recover_interrupted as recover_study_chat
+from app.api.v1 import (
+    assessment_feedback,
+    bank,
+    benchmark,
+    career_assets,
+    dashboard,
+    evolution,
+    exams,
+    learning,
+    learning_feedback,
+    learning_memory,
+    learning_projects,
+    memory,
+    observatory,
+    profile,
+    project_analysis,
+    project_autopilot,
+    project_dossier,
+    project_resume,
+    projects,
+    public_content,
+    question_generation,
+    retest_mappings,
+    settings,
+    study_chat,
+    study_notes,
+    study_practice,
+)
 from app.config import get_settings
 from app.db import engine
 from app.models import Base  # noqa: F401  (注册全部模型)
+from app.services.study_chat import recover_interrupted as recover_study_chat
 
 
 @asynccontextmanager

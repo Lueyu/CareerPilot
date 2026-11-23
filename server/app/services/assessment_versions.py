@@ -1,10 +1,12 @@
 """Freeze question meaning at exam creation and append immutable answer revisions."""
-from copy import deepcopy
 import hashlib
 import json
 import math
+from copy import deepcopy
+
 from fastapi import HTTPException
 from sqlalchemy import select
+
 from app.models import AnswerRevision, ExamAnswer
 
 
@@ -28,7 +30,7 @@ def mcq_rubric(raw,options):
 
 
 def question_snapshot(q, standard=None):
-    from app.services.assessment_rubric import compile_rubric, AssessmentJudgeError
+    from app.services.assessment_rubric import AssessmentJudgeError, compile_rubric
     material={"question_id":q.id,"canonical_question_id":q.canonical_question_id or q.id,
         "short_code":q.short_code,"title":q.title,"qtype":q.qtype,"options":deepcopy(q.options),
         "skill_id":q.skill_id,"skill_key":q.skill.key if q.skill else None,

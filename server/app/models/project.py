@@ -9,7 +9,6 @@ from datetime import datetime
 
 from sqlalchemy import (
     DateTime,
-    Float,
     ForeignKey,
     Integer,
     String,

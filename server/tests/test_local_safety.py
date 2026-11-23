@@ -1,16 +1,17 @@
 """Local-only boundaries. Unit cases never contact GitHub or the personal DB."""
-from types import SimpleNamespace
-from pathlib import Path
 import os
 import shutil
 import subprocess
+from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import httpx
 import pytest
 from fastapi import HTTPException
 
-from app.api.v1 import career_assets, evolution as evolution_api, public_content
+from app.api.v1 import career_assets, public_content
+from app.api.v1 import evolution as evolution_api
 from app.config import Settings
 from app.services import evolution
 from app.services.github_publish import GitHubError, GitHubPublisher
@@ -18,9 +19,10 @@ from app.services.github_publish import GitHubError, GitHubPublisher
 
 @pytest.mark.asyncio
 async def test_personal_workspace_is_idempotent_and_contains_no_demo_data(db_session):
+    from sqlalchemy import func, select
+
     from app import seed
     from app.models import Evidence, LearningTask, Workspace, WorkspaceMember
-    from sqlalchemy import func, select
 
     ensure = getattr(seed, "ensure_personal_workspace", None)
     assert callable(ensure), "startup seed must ensure a clean personal workspace"
@@ -184,8 +186,10 @@ def test_failed_backup_does_not_leave_a_fake_archive_or_claim_success(tmp_path):
 @pytest.mark.asyncio
 async def test_concurrent_start_cannot_overwrite_completed_learning_task(db_session, test_workspace):
     import asyncio
+
     from sqlalchemy import select, text
     from sqlalchemy.ext.asyncio import async_sessionmaker
+
     from app.api.v1.learning import start_task
     from app.models import LearningTask
 

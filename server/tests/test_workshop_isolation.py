@@ -10,9 +10,16 @@ from fastapi import HTTPException
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.api.v1 import bank, projects, question_generation as generation
+from app.api.v1 import bank, projects
+from app.api.v1 import question_generation as generation
 from app.models import (
-    Evidence, ImportItem, ImportSession, Question, QuestionGeneration, Skill, Workspace,
+    Evidence,
+    ImportItem,
+    ImportSession,
+    Question,
+    QuestionGeneration,
+    Skill,
+    Workspace,
 )
 
 

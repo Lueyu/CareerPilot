@@ -1,15 +1,15 @@
 """Run-specific protocol/encoding opt-ins preserve model and checkpoint identity."""
 import asyncio
-from copy import deepcopy
 import json
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
+from test_project_autopilot_engine import runtime
+from test_project_jobs import setup_run
 
 from app import project_worker as worker
 from app.services import project_autopilot_engine as api
-from test_project_autopilot_engine import runtime
-from test_project_jobs import setup_run
 
 
 @pytest.mark.asyncio
@@ -87,7 +87,7 @@ async def test_project_total_timeout_keeps_stream_progress_without_accepting_par
 @pytest.mark.asyncio
 @pytest.mark.parametrize('outcome', ['success', 'truncated', 'missing_done', 'invalid_schema'])
 async def test_actual_stream_adapter_and_project_validation_share_failure_contract(monkeypatch, outcome):
-    from test_llm_stream_transport import Body, DONE, frame, install
+    from test_llm_stream_transport import DONE, Body, frame, install
     rt = runtime(api)
     rt.transport_mode = 'sse-v1'
     content = json.dumps({'observations': [], 'conflicts': [], 'unknowns': []})

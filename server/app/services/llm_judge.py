@@ -119,7 +119,8 @@ async def judge_open_answer(
     titles = [str(p.get("title", "") if isinstance(p, dict) else p).strip() for p in points_meta]
     # Assessment claims must map to the frozen rubric, never invented criteria.
     if titles:
-        normalize = lambda s: _re.sub(r"^要点\s*[:：]\s*", "", s).strip()
+        def normalize(s):
+            return _re.sub(r"^要点\s*[:：]\s*", "", s).strip()
         known = {normalize(t): t for t in titles}
         if any(normalize(t) not in known for t in hit + missing):
             return None
@@ -158,8 +159,13 @@ async def judge_frozen_answer(adapter, *, question_id, answer_revision_id, title
     import asyncio
     import hashlib
     import time
+
     from app.services.assessment_rubric import (
-        AssessmentJudgeError, JUDGE_VERSION, Judgement, validate_judgement, validate_rubric,
+        JUDGE_VERSION,
+        AssessmentJudgeError,
+        Judgement,
+        validate_judgement,
+        validate_rubric,
     )
     rubric = validate_rubric(rubric)
     if rubric['question_id'] != question_id or not isinstance(text, str):

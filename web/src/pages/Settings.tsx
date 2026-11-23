@@ -546,50 +546,27 @@ const BUILTIN_CHECKS = [
 ];
 
 function RulesTab() {
-  const [rules, setRules] = useState<PublicationRule[] | null>(null);
-  const [defaultAutoMerge, setDefaultAutoMerge] = useState(true);
+  const [, setRules] = useState<PublicationRule[] | null>(null);
   const [audit, setAudit] = useState<AuditItem[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy] = useState(false);
 
   const load = useCallback(async () => {
     setErr(null);
     try {
-      const [r, a, o] = await Promise.all([
+      const [r, a] = await Promise.all([
         api.get<{ items: PublicationRule[] }>('/public-content/rules'),
         api.get<{ items: AuditItem[] }>('/public-content/audit'),
         api.get<SettingsOverview>('/settings/overview'),
       ]);
       setRules(r.items);
       setAudit(a.items);
-      setDefaultAutoMerge(o.connections.github_publish.auto_merge_default);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : String(e));
     }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
-
-  const autoMerge = rules?.find((r) => r.key === 'auto_merge') || null;
-  const autoMergeOn = autoMerge ? autoMerge.is_enabled : defaultAutoMerge;
-
-  const toggleAutoMerge = async () => {
-    setBusy(true);
-    try {
-      const next = !autoMergeOn;
-      const saved = await api.put<PublicationRule>('/public-content/rules', { key: 'auto_merge', value: { note: '公共内容写入已禁用' }, is_enabled: next });
-      setRules((rs) => {
-        const base = rs || [];
-        const idx = base.findIndex((r) => r.key === 'auto_merge');
-        if (idx >= 0) { const copy = [...base]; copy[idx] = saved; return copy; }
-        return [...base, saved];
-      });
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <>

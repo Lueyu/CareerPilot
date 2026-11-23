@@ -132,6 +132,7 @@ async def _collect_task_material(session, task, skill_key: str | None, limit: in
                                        workspace_id=task.workspace_id)
 
     from sqlalchemy import select
+
     from app.models import Exam, ExamQuestion
 
     snapshot = (await session.execute(
@@ -168,9 +169,9 @@ def _rule_content(task, skill_name: str, material: str) -> dict:
         ln for ln in lines
         if 8 <= len(ln) <= 80 and ("：" in ln or "是" in ln)
     ][:4] or [
-        f"先给结论再展开机制(面试与工作都适用的表达结构)",
-        f"任何机制都要能说出一个真实坑与应对",
-        f"知识要落到可验证的产出物上(代码/笔记/证据)",
+        "先给结论再展开机制(面试与工作都适用的表达结构)",
+        "任何机制都要能说出一个真实坑与应对",
+        "知识要落到可验证的产出物上(代码/笔记/证据)",
     ]
     steps = [
         "阅读参考资料里最简单的一道题的答案解析(5 分钟)",

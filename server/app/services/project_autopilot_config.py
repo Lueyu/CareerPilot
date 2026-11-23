@@ -1,8 +1,8 @@
 """Resolve model configuration, repository credentials and source-transfer consent."""
-from app.models import AppSetting
 from app.config import get_settings
-from app.services.project_jobs import fingerprint
+from app.models import AppSetting
 from app.services import study_routing
+from app.services.project_jobs import fingerprint
 from app.services.repository_credentials import repository_credentials
 
 CONSENT_VERSION='source-analysis-v1'

@@ -1,8 +1,8 @@
 """Opt-in SSE uses one bounded request and never retains reasoning or partial results."""
 import asyncio
-from dataclasses import replace
 import json
 import time
+from dataclasses import replace
 
 import httpx
 import pytest

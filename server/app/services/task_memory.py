@@ -1,9 +1,9 @@
 from datetime import datetime
 
-from app.models import MemoryItem
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models import MemoryItem
 
 TASK_COMPLETION_TYPE = "TaskCompletion"
 

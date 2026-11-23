@@ -14,7 +14,6 @@ import httpx
 
 from app.services.project_sources import is_safe_source_path, redact_source
 
-
 MAX_RESPONSE_BYTES = 16_000_000
 
 

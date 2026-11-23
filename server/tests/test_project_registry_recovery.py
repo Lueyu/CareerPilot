@@ -1,14 +1,14 @@
 """Durable downstream contracts must be checked before publication, not just dispatch."""
+import json
 from copy import deepcopy
 from types import SimpleNamespace
-import json
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
-
-from app.services.project_run_compatibility import assert_compatible
 from test_project_autopilot_engine import context, drive, fixture_pipeline, runtime
 from test_project_jobs import setup_run
+
+from app.services.project_run_compatibility import assert_compatible
 
 CONTRACT = 'source-registry-v1'
 

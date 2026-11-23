@@ -1,24 +1,26 @@
 """Independent durable project worker. Run: python -m app.project_worker."""
 import argparse
 import asyncio
-from contextlib import suppress
 import logging
 import os
-from pathlib import Path
 import time
+from contextlib import suppress
+from pathlib import Path
 from uuid import uuid4
+
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
-from app.db import SessionLocal,engine
-from app.models import AppSetting,Project,ProjectAnalysis,AnalysisStep,WorkerHeartbeat,MemoryItem
-from app.services import project_jobs as jobs
+
+from app.db import SessionLocal, engine
+from app.models import AnalysisStep, AppSetting, MemoryItem, Project, ProjectAnalysis, WorkerHeartbeat
 from app.services import project_autopilot_engine as analysis
-from app.services.project_autopilot_config import CONSENT_VERSION,runtime_config,model_fingerprint
+from app.services import project_jobs as jobs
+from app.services.project_autopilot_config import CONSENT_VERSION, model_fingerprint, runtime_config
+from app.services.project_candidates import invalidate_changed_sources, publish_candidates
 from app.services.project_context import project_kind
-from app.services.project_candidates import publish_candidates,invalidate_changed_sources
-from app.services.project_memory import active_project_memories,PROJECT_TYPES
-from app.services.tracing import emit_event
+from app.services.project_memory import PROJECT_TYPES, active_project_memories
 from app.services.project_run_compatibility import assert_compatible
+from app.services.tracing import emit_event
 
 log=logging.getLogger('careerpilot.project_worker')
 
@@ -275,7 +277,7 @@ async def serve(poll_seconds=2,lease_seconds=None,heartbeat_seconds=10,once=Fals
     try:
         while True:
             await announce_worker()
-            from app.services import assessment_jobs,assessment_worker
+            from app.services import assessment_jobs, assessment_worker
             await assessment_worker.reconcile(factory)
             async with factory() as session:
                 grading=await assessment_jobs.claim_step(session,worker_id,scoring_lease)

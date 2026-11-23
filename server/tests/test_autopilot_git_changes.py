@@ -7,7 +7,8 @@ import pytest
 from sqlalchemy import func, select
 
 from app.models import Project, ProjectAnalysis
-from app.services import project_autopilot_engine as engine, project_autopilot_sources as sources
+from app.services import project_autopilot_engine as engine
+from app.services import project_autopilot_sources as sources
 from app.services import project_scheduler as scheduler
 from app.services.project_autopilot_config import model_fingerprint
 

@@ -1,14 +1,14 @@
 """Durable source splitting preserves failed parents as immutable history."""
+import hashlib
 from copy import deepcopy
 from datetime import timedelta
-import hashlib
 
 import pytest
 from sqlalchemy import select
+from test_project_jobs import setup_run
 
 from app.models import AnalysisStep
 from app.services import project_jobs as jobs
-from test_project_jobs import setup_run
 
 
 def row_value(row):

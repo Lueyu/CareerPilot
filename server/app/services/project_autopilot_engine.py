@@ -18,12 +18,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.services import project_autopilot_sources as sources
-from app.services.llm import AgentAdapter
-from app.services import study_routing
-from app.services.project_sources import redact_value
-from app.services.project_prompts import PROMPT_BUNDLE_VERSION, system_prompt
 from app.services import project_claim_registry as claim_registry
 from app.services import project_stage_splits as stage_splits
+from app.services import study_routing
+from app.services.llm import AgentAdapter
+from app.services.project_prompts import PROMPT_BUNDLE_VERSION, system_prompt
+from app.services.project_sources import redact_value
 
 PIPELINE_VERSION = 'project-autopilot-v1'
 SAFETY_POLICY_VERSION = 'project-source-policy-v3'
@@ -1094,7 +1094,7 @@ def _assemble_report(context, artifacts, payload):
         unknowns.append(note)
         next(s for s in sections if s['id'] == 'limitations')['paragraphs'].append({'text': note, 'claim_ids': []})
     architecture = [{'title': c['title'], 'detail': c['text'], 'citations': c['citations'], 'claim_id': c['id'], 'fact_type': c['kind']}
-                    for c in claims if c['citations'] and not ':issue' in c['id']]
+                    for c in claims if c['citations'] and ':issue' not in c['id']]
     report = {'schema_version': SCHEMA_VERSION, 'summary': '\n'.join(p['text'] for p in sections[0]['paragraphs']) if sections else '',
               'architecture': architecture, 'issues': issues, 'unknowns': unknowns, 'sections': sections, 'claims': claims,
               'technologies_assessed': True,

@@ -1,11 +1,10 @@
 """Document evidence must not become a code fact when stages derive reports."""
-from copy import deepcopy
 import json
+from copy import deepcopy
 
 import pytest
 
 from app.services import project_autopilot_engine as engine
-
 
 SHA = 'a' * 40
 
@@ -116,7 +115,8 @@ async def test_module_never_guesses_documentation_from_partial_unknown_or_mixed_
     elif case == 'mixed': citations = [ref(), ref(2)]
     elif case == 'no_refs': citations = []
     elif case == 'missing_category':
-        customize = lambda artifacts: artifacts[engine._read_key('docs/design.md')]['source'].pop('category')
+        def customize(artifacts):
+            return artifacts[engine._read_key('docs/design.md')]['source'].pop('category')
     elif case == 'wrong_version': citations[0]['source_version'] = 'b' * 40
     elif case == 'wrong_path': citations[0]['path'] = 'docs/unrelated.md'
     elif case == 'inferred': kind = 'INFERRED'

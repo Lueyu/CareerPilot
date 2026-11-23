@@ -2,11 +2,10 @@
 
 所有配置来自环境变量或 .env 文件; 生产环境绝不使用默认密码。
 """
-from functools import lru_cache
 import re
+from functools import lru_cache
 
 from pydantic import Field, field_validator
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 

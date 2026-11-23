@@ -6,10 +6,11 @@ from uuid import uuid4
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select, func, delete
+from sqlalchemy import delete, func, select
+
 from app.api.deps import get_workspace
 from app.db import get_session
-from app.models import AppSetting, Project, ProjectAnalysis, MemoryItem, AnalysisStep, Workspace
+from app.models import AnalysisStep, AppSetting, MemoryItem, Project, ProjectAnalysis, Workspace
 from app.services.project_autopilot_config import CONSENT_VERSION
 from app.services.project_jobs import utcnow
 
@@ -287,7 +288,7 @@ async def test_run_details_include_safe_trace_and_attempt_metadata(db_session,te
 
 @pytest.mark.asyncio
 async def test_first_enable_resumes_same_config_consent_blocked_run_without_a_second_full_request(db_session,test_workspace):
-    from app.services.project_autopilot_config import runtime_config,model_fingerprint
+    from app.services.project_autopilot_config import model_fingerprint, runtime_config
     from app.services.project_scheduler import versions
     p=await project(db_session,test_workspace)
     config,_,_=await runtime_config(db_session,test_workspace.id,require_consent=False)

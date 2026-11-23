@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import re
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models import Evidence, LearningTask
 
 
@@ -94,9 +96,10 @@ async def plan_tasks_for_exam(session: AsyncSession, workspace_id: int, exam, li
     await session.flush()
     # The goal links to the same scored observation; it creates no new grade or
     # mastery evidence. Keep existing task IDs and user progress intact.
+    from fastapi import HTTPException
+
     from app.models import Workspace
     from app.services.learning_feedback import ensure_goal
-    from fastapi import HTTPException
     workspace = await session.get(Workspace, workspace_id)
     for task in tasks:
         try:

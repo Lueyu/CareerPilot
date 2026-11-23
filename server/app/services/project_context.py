@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.project import Project
 from app.services.project_memory import active_project_memories, memory_fact
 
-
 PROFILE_FIELDS = (
     "background", "role", "responsibilities", "stack", "decisions",
     "challenges", "outcomes", "boundaries",

@@ -4,10 +4,10 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import delete
+from test_assessment_snapshot_review import fixture_question
 
 from app.api.v1.dashboard import dashboard
 from app.models import Exam, JobStandard, JobStandardTarget
-from test_assessment_snapshot_review import fixture_question
 
 
 @pytest.mark.asyncio

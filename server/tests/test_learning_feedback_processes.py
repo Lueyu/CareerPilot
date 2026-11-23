@@ -2,23 +2,28 @@
 
 These are not real-user learning or live-model acceptance results.
 """
-from copy import deepcopy
 import hashlib
 import json
-from pathlib import Path
 import shutil
 import socket
+from copy import deepcopy
 
 import httpx
 import pytest
+from learning_process_support import (
+    CONFIG,
+    LearningProcesses,
+    isolated_learning_processes,
+    ready,
+    transactional_dump_restore,
+)
 from sqlalchemy import func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
+from test_learning_feedback import task_with_valid_origin
 
 from app.models import AppSetting, CompetencySnapshot, Evidence, ScoringRun, ScoringStep, SkillState, Workspace
-from learning_process_support import CONFIG, isolated_learning_processes, ready, LearningProcesses, transactional_dump_restore
-from test_learning_feedback import task_with_valid_origin
 
 
 def seed_factory(monkeypatch, *, second_queued=True):
@@ -56,9 +61,16 @@ def seed_factory(monkeypatch, *, second_queued=True):
 
 def project_seed_factory(monkeypatch):
     async def seed(session):
-        from app.models import Project,ProjectAnalysis
-        from app.api.v1.learning_projects import (project_options,create_project_activity,ProjectActivityIn,
-            preview_project,PreviewIn,submit_project,ProjectSubmitIn)
+        from app.api.v1.learning_projects import (
+            PreviewIn,
+            ProjectActivityIn,
+            ProjectSubmitIn,
+            create_project_activity,
+            preview_project,
+            project_options,
+            submit_project,
+        )
+        from app.models import Project, ProjectAnalysis
         ids=await seed_factory(monkeypatch,second_queued=False)(session)
         workspace=await session.get(Workspace,ids['workspace_id'])
         project=Project(workspace_id=workspace.id,name='Explicit source snapshot fixture',owner='fixture',repo='learning',
@@ -212,8 +224,8 @@ async def learning_relations(factory):
 @pytest.mark.asyncio
 @pytest.mark.parametrize('with_project',[False,True],ids=['concept','project-snapshot'])
 async def test_practice_chain_dump_restore_and_real_worker_resume(tmp_path,monkeypatch,with_project):
-    from app.services.assessment_versions import digest
     from app.services.assessment_jobs import Claim
+    from app.services.assessment_versions import digest
     from app.services.assessment_worker import cached_result
     seed=project_seed_factory(monkeypatch) if with_project else seed_factory(monkeypatch)
     async with isolated_learning_processes(tmp_path,seed) as (fixture,ids):
