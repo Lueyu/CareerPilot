@@ -268,9 +268,11 @@ async def test_interview_preserves_hints_original_answers_feedback_and_memories(
             {"quote": "按渠道区分", "question": "如何核对渠道贡献？"},
             {
                 "covered": [
-                    {"answer": "initial", "quote": "按渠道区分", "comment": "提出渠道拆分"},
-                    {"answer": "followup", "quote": "对比上一周", "comment": "使用基线"},
                     {"answer": "initial", "quote": "对比上一周", "comment": "错误来源"},
+                    *[{"answer": "initial", "quote": quote, "comment": quote}
+                      for quote in ("按渠道区分", "自然流量", "活动流量")],
+                    *[{"answer": "followup", "quote": quote, "comment": quote}
+                      for quote in ("对比上一周", "同期指标", "上一周的同期指标")],
                 ],
                 "gaps": ["缺少转化率数据"],
                 "next_steps": ["说明基线选择依据"],
@@ -304,7 +306,9 @@ async def test_interview_preserves_hints_original_answers_feedback_and_memories(
     assert finished["actions"] == [] and finished["ability_status"] == "unknown"
     assert finished["turns"][2]["assisted"] is False
     assert "score" not in finished["turns"][3]["result"]
-    assert len(finished["turns"][3]["result"]["covered"]) == 2
+    assert [point["quote"] for point in finished["turns"][3]["result"]["covered"]] == [
+        "按渠道区分", "自然流量", "活动流量", "对比上一周", "同期指标",
+    ]
     assert all(call["用户确认的经历"] == ["我负责社群拉新"] for call in calls)
     assert (await other.get("/coach/threads?mode=interview")).json()["threads"] == []
 

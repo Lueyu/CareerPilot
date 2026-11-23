@@ -60,6 +60,7 @@ async def browser(db_session, test_workspace, monkeypatch):
         return await db.get(Workspace, x_test_space)
 
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False, autoflush=False)
+    monkeypatch.setattr("app.services.public_model.SessionLocal", factory)
 
     async def database():
         async with factory() as db:
@@ -175,7 +176,7 @@ async def test_roles_gateway_fallback_starter_and_reload(browser):
 
 
 @pytest.fixture
-def starter_provider(browser, library, monkeypatch):
+def starter_provider(browser, monkeypatch):
     from app.services import public_model
 
     for name, value in {
@@ -254,7 +255,7 @@ async def test_overlapping_starter_requests_make_one_metered_provider_call(brows
 @pytest.mark.parametrize("settled", [True, False], ids=["replay-settled", "retry-unsettled"])
 @pytest.mark.asyncio
 async def test_expired_starter_lease_reconciles_reservation(
-    browser, starter_provider, library, monkeypatch, db_session, settled
+    browser, starter_provider, monkeypatch, db_session, settled
 ):
     from app.models.public_library import PublicLibraryStarter
     from app.models.public_model import PublicModelCall
@@ -307,7 +308,7 @@ async def test_expired_starter_lease_reconciles_reservation(
 
 
 @pytest.mark.asyncio
-async def test_starter_replays_exact_batch_and_scopes_changed_inputs_and_workspace(browser, library, monkeypatch):
+async def test_starter_replays_exact_batch_and_scopes_changed_inputs_and_workspace(browser, monkeypatch):
     owner, peer, _, _, _ = browser
     selection = await _role(owner, jd="原岗位要求")
     example = (await owner.post("example", json=selection)).json()

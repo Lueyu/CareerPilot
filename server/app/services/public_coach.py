@@ -100,9 +100,9 @@ class CoveredPoint(ModelOutput):
 
 
 class Feedback(ModelOutput):
-    covered: list[CoveredPoint] = Field(max_length=5)
-    gaps: list[ShortText] = Field(max_length=5)
-    next_steps: list[ShortText] = Field(max_length=4)
+    covered: list[CoveredPoint]
+    gaps: list[ShortText]
+    next_steps: list[ShortText]
 
 
 def effective_status(turn):
@@ -229,6 +229,7 @@ _TASKS = {
     "finish": (
         "结合题目、原答、追问及追问回答写简洁练习点评。不打分、不评等级。"
         "已答到的点必须逐字摘引相应答案。遗漏只根据题目和作答。"
+        "按重要性排序，已答要点和遗漏各最多五项，练习建议最多四项。"
         "没有证据支持的已答要点和遗漏可以留空。下一步至少给一项与本题相关、可以实际练习的建议。"
         "即使原答完整，也可建议在不同条件下复验其中的判断。"
         '只输出 JSON {"covered":[{"answer":"initial 或 followup",'
@@ -362,7 +363,9 @@ def _structured_result(context, raw):
         "initial": next((item.user_text for item in context.history if item.action == "answer"), None),
         "followup": next((item.user_text for item in context.history if item.action == "followup_answer"), None),
     }
-    feedback.covered = [point for point in feedback.covered if point.quote in (answers[point.answer] or "")]
+    feedback.covered = [point for point in feedback.covered if point.quote in (answers[point.answer] or "")][:5]
+    feedback.gaps = feedback.gaps[:5]
+    feedback.next_steps = feedback.next_steps[:4]
     return "", feedback
 
 
