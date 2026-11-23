@@ -1,7 +1,7 @@
 import StudyRetestResult from '../components/StudyRetestResult';
 import StudyEntryButton from '../components/StudyEntryButton';
 import React, { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { experiencedBankPath, hasExperiencedBankOrigin } from '../lib/experiencedBankPath';
 import { DemoBanner, PageHead, plainLevel } from '../components/ui';
 import { api, ExamReportData, ScoringTaskAck } from '../api/client';
@@ -34,6 +34,7 @@ interface AnswerGap {order_no:number;exam_question_id?:number;title:string;detai
 export default function DiagnosisReport({ studyMode = false }: { studyMode?: boolean } = {}) {
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  const { hash } = useLocation();
   const returnTask=params.get('return_task_id');
   const returnLink=returnTask && /^[1-9]\d*$/.test(returnTask) && Number.isSafeInteger(Number(returnTask))?<button className="btn btn-outline" onClick={()=>navigate(`/learning/task/${returnTask}`)}>返回这次学习路径</button>:null;
   const [open, setOpen] = useState<number[]>([0]);
@@ -110,6 +111,13 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
     if (report?.status === 'COMPLETED') clearExamCreation();
   }, [report]);
 
+  const linkedQuestionIndex = currentReport?.questions.findIndex(q => hash === `#exam-question-${q.order_no}`) ?? -1;
+  useEffect(() => {
+    if (linkedQuestionIndex < 0) return;
+    setOpen(current => current.includes(linkedQuestionIndex) ? current : [...current, linkedQuestionIndex]);
+    document.getElementById(hash.slice(1))?.scrollIntoView();
+  }, [reportId, hash, linkedQuestionIndex]);
+
   // 后端报告
   if (currentReport) {
     const r = currentReport;
@@ -118,6 +126,7 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
       return <StudyRetestResult key={r.id} report={r} practiceId={studyPracticeId} />;
     }
     const deep = r.diagnosis_deep;
+    const coverage = deep?.coverage;
     const ob = r.overall;
     const degraded = r.status !== 'COMPLETED';
     const canRetry=r.scoring_task?r.scoring_task.can_retry:r.status==='SCORING_FAILED';
@@ -293,6 +302,14 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
           )}
           {deep && !deepBusy && (
             <>
+              {coverage && (
+                <p role="status">
+                  {`已解释 ${coverage.explained}/${coverage.total} 题`}
+                  {coverage.missing_order_nos.length
+                    ? ` · 未生成讲解 ${coverage.missing_order_nos.map(no => `Q${no}`).join('、')}`
+                    : ' · 逐题讲解完整'}
+                </p>
+              )}
               <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.85, whiteSpace: 'pre-wrap' }}>{deep.conclusion}</p>
               {!!deep.weaknesses.length && (
                 <div style={{ marginTop: 14 }}>

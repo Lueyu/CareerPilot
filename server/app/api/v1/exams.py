@@ -9,12 +9,15 @@ import html as _html
 import json as _json
 import re as _re
 import time
+from collections import Counter
+from collections.abc import Sequence
 from copy import deepcopy
 from types import SimpleNamespace
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_workspace
@@ -68,6 +71,7 @@ EXAM_KINDS = {
     Exam.KIND_BANK: {"title": "面经考试", "desc": "用面经题库组卷实战演练", "default_minutes": 45},
     Exam.KIND_PROJECT: {"title": "项目面试", "desc": "围绕项目经历的深挖式问答", "default_minutes": 40},
 }
+EXAM_HISTORY_PAGE_SIZE = 20
 
 
 def _is_experienced_practice(exam: Exam) -> bool:
@@ -77,24 +81,58 @@ def _is_experienced_practice(exam: Exam) -> bool:
     )
 
 
+def _experienced_practice_filter():
+    return (Exam.kind == "practice") & Exam.questions.any(
+        ExamQuestion.creation_snapshot.contains({"experienced_bank_practice": True})
+    )
+
+
 @router.get("/exams")
 async def list_exams(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
     recent_ids = select(Exam.id).where(Exam.workspace_id == ws.id).order_by(Exam.id.desc()).correlate(None)
-    recent_exams = recent_ids.where(Exam.kind != 'practice').limit(20)
-    recent_practice = recent_ids.where(Exam.kind == 'practice', Exam.questions.any(
-        ExamQuestion.creation_snapshot['experienced_bank_practice'].as_boolean().is_(True)
-    )).limit(20)
+    recent_exams = recent_ids.where(Exam.kind != "practice").limit(EXAM_HISTORY_PAGE_SIZE)
+    recent_practice = recent_ids.where(_experienced_practice_filter()).limit(EXAM_HISTORY_PAGE_SIZE)
     active_diagnosis = recent_ids.where(Exam.kind == Exam.KIND_DIAGNOSIS, Exam.status == Exam.STATUS_ACTIVE).limit(1)
     history = (await session.scalars(select(Exam).where(
         Exam.id.in_(recent_exams) | Exam.id.in_(recent_practice) | Exam.id.in_(active_diagnosis)
     ).order_by(Exam.id.desc()))).all()
-    counts = {
-        kind: sum(1 for e in history if e.kind == kind)
-        for kind in EXAM_KINDS
+    return _exam_list_data(history, Counter(exam.kind for exam in history))
+
+
+@router.get("/exams/history")
+async def list_exam_history(
+    before_id: Annotated[int | None, Query(ge=1, le=2_147_483_647)] = None,
+    ws: Workspace = Depends(get_workspace),
+    session: AsyncSession = Depends(get_session),
+):
+    query = _exam_history_query(ws)
+    if before_id is not None:
+        query = query.where(Exam.id < before_id)
+    rows = (await session.scalars(query.limit(EXAM_HISTORY_PAGE_SIZE + 1))).all()
+    page = rows[:EXAM_HISTORY_PAGE_SIZE]
+    count_rows = await session.execute(
+        select(Exam.kind, func.count()).where(*_exam_history_scope(ws)).group_by(Exam.kind)
+    )
+    counts = {kind: count for kind, count in count_rows}
+    return {
+        **_exam_list_data(page, counts),
+        "total_count": sum(counts.values()),
+        "next_cursor": page[-1].id if len(rows) > EXAM_HISTORY_PAGE_SIZE else None,
     }
+
+
+def _exam_history_scope(ws: Workspace):
+    return Exam.workspace_id == ws.id, or_(Exam.kind != "practice", _experienced_practice_filter())
+
+
+def _exam_history_query(ws: Workspace):
+    return select(Exam).where(*_exam_history_scope(ws)).order_by(Exam.id.desc())
+
+
+def _exam_list_data(history: Sequence[Exam], counts: dict[str, int]) -> dict:
     return {
         "kinds": [
             {
@@ -102,7 +140,7 @@ async def list_exams(
                 "title": meta["title"],
                 "desc": meta["desc"],
                 "default_minutes": meta["default_minutes"],
-                "history_count": counts[kind],
+                "history_count": counts.get(kind, 0),
             }
             for kind, meta in EXAM_KINDS.items()
         ],
@@ -889,14 +927,24 @@ def _norm_pq_key(k) -> str | None:
     return s if s.isdigit() else None
 
 
-def _sanitize_pq(pq, expect: set) -> dict:
-    """只保留「题号 -> {why, how}」的合法条目, 丢弃 LLM 幻觉出的占位键(如 ':{')。"""
+def _sanitize_pq(pq, expect: set[str]) -> dict[str, dict[str, str]]:
+    """只保留指定题号及包含非空 why 和 how 的讲解。"""
+    if not isinstance(pq, dict):
+        return {}
     out = {}
-    for k, v in (pq or {}).items():
+    for k, v in pq.items():
         nk = _norm_pq_key(k)
-        if nk and nk in expect and isinstance(v, dict) and v.get("why") and v.get("how"):
-            out[nk] = {"why": str(v["why"]), "how": str(v["how"])}
+        if nk not in expect or not isinstance(v, dict):
+            continue
+        why, how = v.get("why"), v.get("how")
+        if isinstance(why, str) and why.strip() and isinstance(how, str) and how.strip():
+            out[nk] = {"why": why, "how": how}
     return out
+
+
+def _deep_coverage(expect: set[str], per_question: dict[str, dict[str, str]]) -> dict:
+    missing = sorted(int(no) for no in expect.difference(per_question))
+    return {"total": len(expect), "explained": len(expect) - len(missing), "missing_order_nos": missing}
 
 
 @router.post("/exams/{exam_id}/report/deep")
@@ -962,6 +1010,8 @@ async def exam_report_deep(
 
     try:
         deep_raw = _json.loads(resp["content"])
+        if not isinstance(deep_raw, dict):
+            raise ValueError("deep diagnosis must be a JSON object")
     except Exception:
         await finish_trace(session, trace, "FAILED", int((time.perf_counter() - t0) * 1000), fail_reason="llm bad json")
         await session.commit()
@@ -971,18 +1021,15 @@ async def exam_report_deep(
     expect = {str(eq.order_no) for eq in exam.questions}
     per_q = _sanitize_pq(deep_raw.get("per_question"), expect)
     retried = False
-    missing = sorted(expect - set(per_q.keys()), key=int)
+    missing = expect.difference(per_q)
     if missing:
-        fix = [f"第一次输出缺少题目 {('、'.join(missing))} 的 per_question 条目（或出现了占位键）。请严格按要求为每道题补齐。", ""]
-        for no in missing:
-            eq = next((e for e in exam.questions if str(e.order_no) == no), None)
-            if eq is not None and eq.order_no in q_material:
-                fix.append(q_material[eq.order_no])
-                fix.append("")
+        missing_in_order = sorted(missing, key=int)
+        fix = [f"第一次输出缺少题目 {'、'.join(missing_in_order)} 的 per_question 条目。请为这些题目补齐讲解。", ""]
+        fix.extend(q_material[int(no)] for no in missing_in_order)
         resp2 = await llm_adapter.chat(DEEP_DIAG_FIX, "\n".join(fix), json_mode=True, timeout=120, trace=trace, session=session, span_name="llm:deep_diagnosis_fix")
         if resp2:
             try:
-                per_q.update(_sanitize_pq(_json.loads(resp2["content"]).get("per_question"), expect))
+                per_q.update(_sanitize_pq(_json.loads(resp2["content"]).get("per_question"), missing))
                 retried = True
             except Exception:
                 pass
@@ -998,20 +1045,31 @@ async def exam_report_deep(
         "retried": retried,
     }
     exam.summary = {**(exam.summary or {}), "diagnosis_deep": deep}
-    await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000), 0.02)
+    coverage = _deep_coverage(expect, per_q)
+    missing_order_nos = coverage["missing_order_nos"]
+    await finish_trace(
+        session, trace, "PARTIAL" if missing_order_nos else "SUCCESS",
+        int((time.perf_counter() - t0) * 1000), 0.02,
+        fail_reason="缺少逐题讲解：" + "、".join(f"Q{no}" for no in missing_order_nos) if missing_order_nos else None,
+    )
     await emit_event(session, ws.id, "exam.deep_diagnosis", {"exam_id": exam.id}, "exam", exam.id)
     await session.commit()
-    return deep
+    return {**deep, "coverage": coverage}
 
 
 async def _exam_report(session: AsyncSession, ws: Workspace, exam_id: int) -> dict:
     exam = await _get_own_exam(session, ws, exam_id)
+    summary = exam.summary or {}
+    deep = summary.get("diagnosis_deep") if exam.status == Exam.STATUS_COMPLETED else None
+    if deep:
+        expect = {str(eq.order_no) for eq in exam.questions}
+        per_q = _sanitize_pq(deep.get("per_question"), expect)
+        deep = {**deep, "per_question": per_q, "coverage": _deep_coverage(expect, per_q)}
     if exam.status=='COMPLETED' and getattr(exam,'active_scoring_run_id',None):
         from app.models import ScoringRun
         stored=await session.get(ScoringRun,exam.active_scoring_run_id)
         if stored and stored.workspace_id==ws.id and stored.status=='COMPLETED' and stored.report:
             result=deepcopy(stored.report)
-            deep=(exam.summary or {}).get('diagnosis_deep')
             if deep:result.update(diagnosis_deep=deep,has_deep=True)
             return result
     if exam.status not in (Exam.STATUS_COMPLETED, Exam.STATUS_SCORING_FAILED,'SCORING','SCORING_RETRY_WAIT','NEEDS_REVIEW','FROZEN'):
@@ -1021,13 +1079,12 @@ async def _exam_report(session: AsyncSession, ws: Workspace, exam_id: int) -> di
     scoring_task=await scoring_view(session,exam.active_scoring_run_id)
     breakdown = _skill_breakdown(exam.questions)
     states_map = await _states_map(session, ws, breakdown)
-    summary = exam.summary or {}
-    deep = summary.get("diagnosis_deep")
+    experienced_practice = _is_experienced_practice(exam)
     return {
         "id": exam.id,
         "title": exam.title,
         "kind": exam.kind,
-        "experienced_bank_practice": _is_experienced_practice(exam),
+        "experienced_bank_practice": experienced_practice,
         "status": exam.status,
         "scoring_failed": ([q['order_no'] for q in scoring_task['questions'] if q['status'] in ('FAILED','RETRY_WAIT')] if scoring_task else summary.get("scoring_failed")) if degraded else None,
         "scoring_task":scoring_task,
@@ -1039,9 +1096,9 @@ async def _exam_report(session: AsyncSession, ws: Workspace, exam_id: int) -> di
         "learning_tasks": summary.get("learning_tasks", []),
         "observations": summary.get("observations", []),
         "skill_breakdown": breakdown,
-        "overall": None if degraded or _is_experienced_practice(exam) else _overall_diagnosis(breakdown, exam, states_map),
-        "diagnosis_deep": None if degraded else deep,
-        "has_deep": bool(deep) and not degraded,
+        "overall": None if degraded or experienced_practice else _overall_diagnosis(breakdown, exam, states_map),
+        "diagnosis_deep": deep,
+        "has_deep": bool(deep),
         "completed_at": exam.completed_at.isoformat() if exam.completed_at else None,
         "questions": [
             {

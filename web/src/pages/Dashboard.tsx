@@ -1,17 +1,24 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { DemoBanner, PageHead, SegBars, StatusChip, StatCard, plainLevel } from '../components/ui';
-import { api, useApi, DashboardData } from '../api/client';
+import { useApi, DashboardData } from '../api/client';
+import { DiagnosisModelReadiness } from './Onboarding';
 
 
 const TYPE_CLS: Record<string, string> = { UNDERSTAND: 'chip-blue', PRACTICE: 'chip-purple', RETEST: 'chip-amber' };
 const TYPE_NAME: Record<string, string> = { UNDERSTAND: '理解', PRACTICE: '实践', RETEST: '复测' };
 
+type DashboardWithRetests = DashboardData & {
+  due_retests: { id: number; title: string; due_date: string; parent_id: number; parent_title: string }[];
+};
+
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { data, loading, error } = useApi<DashboardData>('/dashboard');
+  const { data, loading, error } = useApi<DashboardWithRetests>('/dashboard');
 
   const domains = data?.domains ?? [];
+  const dueRetests = data?.due_retests ?? [];
+  const nextRetest = dueRetests[0];
   const stats = data?.stats;
   const statCards = [
     { label: '证据覆盖', value: stats?.evidence_total ?? '—', delta: '', ic: '🗂' },
@@ -39,9 +46,12 @@ export default function Dashboard() {
   const plainStatus = topGap
     ? `你在「${topGap.name}」上离目标最远——先补这里收益最大。`
     : '尚无可排序的能力差距；未知状态需要独立作答证据，不能据此判断已达标。';
-  const primaryCta = todayTasks.length
+  const defaultCta = todayTasks.length
     ? { label: '开始今天的学习', to: '/learning' }
     : { label: '开始能力诊断', to: '/exam/diagnosis' };
+  const primaryCta = nextRetest
+    ? { label: '去做已到期的复测', to: `/learning/task/${nextRetest.id}` }
+    : defaultCta;
 
   return (
     <div>
@@ -60,6 +70,7 @@ export default function Dashboard() {
 
       {loading && <div className="demo-banner" style={{ marginBottom: 12 }}>正在从后端加载实时数据…</div>}
       {error && <div className="demo-banner demo-banner-err" style={{ marginBottom: 12 }}>后端不可用（{error}），无法读取当前空间数据，请稍后重试</div>}
+      {data?.workspace.is_demo === false && data.recent_activity?.length === 0 && <DiagnosisModelReadiness />}
 
       {/* 深色 hero 卡: 目标 + 一句通俗状态 + 差距 */}
       <div className="hero-card" style={{ marginBottom: 16 }}>
@@ -117,6 +128,25 @@ export default function Dashboard() {
             )}
           </div>
 
+          {dueRetests.length > 0 && (
+            <div className="card">
+              <div className="card-head">
+                <span className="card-title">到期复测</span>
+              </div>
+              {dueRetests.map(retest => (
+                <div className="list-row" key={retest.id}>
+                  <div className="list-main">
+                    <Link className="link list-title" to={`/learning/task/${retest.id}`}>{retest.title}</Link>
+                    <div className="list-meta">
+                      <span>到期日 {retest.due_date}</span>
+                      <Link className="link" to={`/learning/task/${retest.parent_id}`}>{retest.parent_title}</Link>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* 今日任务(1-3) */}
           <div className="card">
             <div className="card-head">
@@ -128,9 +158,11 @@ export default function Dashboard() {
                 <div className="list-ic">🎉</div>
                 <div className="list-main">
                   <div className="list-title">今天没有待办任务</div>
-                  <div className="list-sub">做一次诊断，让系统重新规划</div>
+                  {!nextRetest && <div className="list-sub">做一次诊断，让系统重新规划</div>}
                 </div>
-                <button className="btn btn-primary btn-sm" onClick={() => navigate('/exam/diagnosis')}>开始诊断</button>
+                {!nextRetest && (
+                  <button className="btn btn-primary btn-sm" onClick={() => navigate('/exam/diagnosis')}>开始诊断</button>
+                )}
               </div>
             )}
             {todayTasks.slice(0, 3).map((t: any) => (

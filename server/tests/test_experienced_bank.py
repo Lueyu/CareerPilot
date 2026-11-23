@@ -248,6 +248,18 @@ async def test_legacy_install_after_pack_and_resume_after_twenty_practices(isola
         assert sum(row["kind"] == "focused" for row in history) == 20
         assert sum(row["experienced_bank_practice"] for row in history) == 20
 
+        rows, cursor = [], None
+        for size in (20, 20, 3):
+            page = await exams.list_exam_history(before_id=cursor, ws=workspace, session=session)
+            assert len(page["history"]) == size and page["total_count"] == 43
+            rows.extend(page["history"])
+            cursor = page["next_cursor"]
+            assert cursor == (rows[-1]["id"] if size == 20 else None)
+        ids = [row["id"] for row in rows]
+        assert len(ids) == 43 and ids == sorted(set(ids), reverse=True)
+        assert ids[-1] == active.id
+        assert sum(row["experienced_bank_practice"] for row in rows) == 21
+
 
 @pytest.mark.asyncio
 async def test_catalog_listing_exposure_and_practice_scoring(isolated_seed, monkeypatch, tmp_path):
@@ -360,12 +372,13 @@ async def test_catalog_listing_exposure_and_practice_scoring(isolated_seed, monk
         assert "原始参考" not in response.text and all(c not in response.text for c in CRITERIA)
         url = f"/exams/{practice['id']}"
         assert (await client.get(url, headers={"X-Workspace": "foreign"})).status_code == 404
-        history = (await client.get("/exams")).json()["history"]
-        resume = next(row for row in history if row["id"] == practice["id"])
-        assert resume["status"] == "ACTIVE" and resume["experienced_bank_practice"] is True
-        assert old_practice.id not in {row["id"] for row in history}
-        other_history = (await client.get("/exams", headers={"X-Workspace": "foreign"})).json()["history"]
-        assert other_history == []
+        for history_path in ("/exams", "/exams/history"):
+            history = (await client.get(history_path)).raise_for_status().json()["history"]
+            resume = next(row for row in history if row["id"] == practice["id"])
+            assert resume["status"] == "ACTIVE" and resume["experienced_bank_practice"] is True
+            assert old_practice.id not in {row["id"] for row in history}
+            other = await client.get(history_path, headers={"X-Workspace": "foreign"})
+            assert other.raise_for_status().json()["history"] == []
         assert (await client.get(url)).json()["experienced_bank_practice"] is True
         assert (await client.get(f"/exams/{old_practice.id}")).json()["experienced_bank_practice"] is False
 

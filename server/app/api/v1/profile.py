@@ -93,6 +93,7 @@ async def skill_detail(
             "evidence_coverage": state.evidence_coverage,
             "dimension_scores": state.dimension_scores,
             "model_version": state.model_version,
+            "last_assessed_at": state.last_assessed_at.isoformat() if state.last_assessed_at else None,
         },
         "evidence": [
             {

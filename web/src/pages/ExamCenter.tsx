@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { DemoBanner, PageHead } from '../components/ui';
-import { api, useApi, ExamsData } from '../api/client';
+import { api, useApi, type ExamHistoryPage } from '../api/client';
 import { EXPERIENCED_BANK_PATH, experiencedHistoryPath } from '../lib/experiencedBankPath';
 
 
@@ -37,9 +37,35 @@ const KIND_DESC: Record<string, string> = {
   project: '基于你的项目经历的结构化面试',
 };
 
+const HISTORY_PATH = '/exams/history';
+
 export default function ExamCenter() {
   const navigate = useNavigate();
-  const { data, loading, error } = useApi<ExamsData>('/exams');
+  const { data, loading, error } = useApi<ExamHistoryPage>(HISTORY_PATH);
+  const [older, setOlder] = useState<Pick<ExamHistoryPage, 'history' | 'next_cursor'> | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [olderError, setOlderError] = useState<string | null>(null);
+  const nextCursor = older ? older.next_cursor : data?.next_cursor;
+
+  async function loadOlder() {
+    if (nextCursor == null || loadingOlder) return;
+    setLoadingOlder(true);
+    setOlderError(null);
+    try {
+      const page = await api.get<ExamHistoryPage>(`${HISTORY_PATH}?before_id=${nextCursor}`);
+      setOlder(previous => {
+        if (previous && previous.next_cursor !== nextCursor) return previous;
+        return {
+          history: [...(previous?.history ?? []), ...page.history],
+          next_cursor: page.next_cursor,
+        };
+      });
+    } catch (cause) {
+      setOlderError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setLoadingOlder(false);
+    }
+  }
 
   const kinds = data?.kinds
     ? data.kinds.filter(k => k.kind === 'diagnosis').map((k) => ({
@@ -49,14 +75,14 @@ export default function ExamCenter() {
         primary: k.kind === 'diagnosis',
       }))
     : [];
-  const history = data?.history
-    ? data.history.map((h) => ({
-        id: h.id, name: h.experienced_bank_practice || h.title === '社招专项' ? '题库练习' : h.title, type: h.experienced_bank_practice ? '题库练习' : KIND_NAME[h.kind] || h.kind, count:h.question_count,
-        experienced: h.experienced_bank_practice,
-        status: h.status, score: h.score, time: (h.completed_at || h.started_at || '').slice(0, 10),
-        report: ['COMPLETED', 'SCORING_FAILED', 'SCORING', 'SCORING_RETRY_WAIT','NEEDS_REVIEW','SUBMITTED','FROZEN','TRANSCRIPT_CONFIRMED'].includes(h.status),
-      }))
-    : [];
+  const history = [...(data?.history ?? []), ...(older?.history ?? [])].map(h => ({
+    id: h.id,
+    name: h.experienced_bank_practice || h.title === '社招专项' ? '题库练习' : h.title,
+    type: h.experienced_bank_practice ? '题库练习' : KIND_NAME[h.kind] || h.kind,
+    experienced: h.experienced_bank_practice,
+    status: h.status, score: h.score, time: (h.completed_at || h.started_at || '').slice(0, 10),
+    report: ['COMPLETED', 'SCORING_FAILED', 'SCORING', 'SCORING_RETRY_WAIT','NEEDS_REVIEW','SUBMITTED','FROZEN','TRANSCRIPT_CONFIRMED'].includes(h.status),
+  }));
 
   return (
     <div>
@@ -70,7 +96,7 @@ export default function ExamCenter() {
       <DemoBanner />
 
       <div className="grid grid-4" style={{ marginBottom: 18 }}>
-        {kinds.map((e: any) => (
+        {kinds.map(e => (
           <div className="exam-card" key={e.id}>
             <div className={`exam-ic ${e.primary ? '' : 'alt'}`}>{e.icon}</div>
             <div className="exam-title">{e.title}</div>
@@ -96,7 +122,7 @@ export default function ExamCenter() {
       <div className="card">
         <div className="card-head">
           <span className="card-title">历史记录</span>
-
+          {data && <span className="hint" role="status">{`${history.length} / ${data.total_count} 条记录`}</span>}
         </div>
         <div className="table-wrap">
           <table className="tbl">
@@ -111,7 +137,7 @@ export default function ExamCenter() {
               </tr>
             </thead>
             <tbody>{!loading && !error && history.length === 0 && <tr><td colSpan={6}>还没有考试记录。开始一次独立诊断。</td></tr>}
-              {history.map((h: any) => (
+              {history.map(h => (
                 <tr key={h.id}>
                   <td className="strong">{h.name}</td>
                   <td><span className="chip chip-slate">{h.type}</span></td>
@@ -130,6 +156,13 @@ export default function ExamCenter() {
             </tbody>
           </table>
         </div>
+        {olderError && <p className="demo-banner demo-banner-err" role="alert">无法加载更早记录（{olderError}）</p>}
+        {nextCursor != null && (
+          <button className="btn btn-outline" type="button" disabled={loadingOlder} onClick={loadOlder}
+            style={{ marginTop: 12 }}>
+            {loadingOlder ? '正在加载…' : '加载更早记录'}
+          </button>
+        )}
       </div>
     </div>
   );

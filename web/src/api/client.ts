@@ -183,6 +183,7 @@ export interface ExamReportData {
     weaknesses: { skill: string; why: string; gap?: string }[];
     actions: { title: string; detail: string }[];
     per_question: Record<string, { why: string; how: string }>;
+    coverage: { total: number; explained: number; missing_order_nos: number[] };
     generated_at?: string; model?: string;
   } | null;
   has_deep?: boolean;
@@ -216,6 +217,11 @@ export interface ExamsData {
     experienced_bank_practice?: boolean;
     score: number | null; started_at?: string | null; completed_at?: string | null;
   }[];
+}
+
+export interface ExamHistoryPage extends ExamsData {
+  total_count: number;
+  next_cursor: number | null;
 }
 
 export interface LearningData {

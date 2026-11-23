@@ -1,7 +1,15 @@
 import React from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { DemoBanner, PageHead, StatusChip, plainConfidence, plainLevel, OBSERVATION_COVERAGE_NOTE } from '../components/ui';
 import { useApi, ProfileDetailData } from '../api/client';
+
+function evidenceReportLink(sourceRef: string | undefined) {
+  const match = /^exam:([1-9]\d*)#q([1-9]\d*)$/.exec(sourceRef ?? '');
+  if (!match) return null;
+  const [, examId, order] = match;
+  if (!Number.isSafeInteger(Number(examId)) || !Number.isSafeInteger(Number(order))) return null;
+  return `/exam/diagnosis/report?id=${examId}#exam-question-${order}`;
+}
 
 export default function ProfileDetail() {
   const { domain } = useParams();
@@ -38,11 +46,15 @@ export default function ProfileDetail() {
         <div className="card-head"><span className="card-title">作答观察与证据</span><span className="card-sub">{data.evidence.length} 条</span></div>
         {data.evidence.some(e=>e.grade==='OBSERVED_UNCALIBRATED') && <p className="hint">未校准观察只记录本次表现，不等于可靠能力判断。</p>}
         {data.evidence.length === 0 && <p className="hint">尚无作答观察；未知不代表零分或达标。</p>}
-        {data.evidence.map((e, i) => <div className="list-row" key={e.id || i}>
-          <div className="list-ic">🧾</div><div className="list-main"><div className="list-title">{e.title}</div><div className="list-sub">{e.detail}</div><div className="list-sub">{e.short_code} · {(e.occurred_at || e.created_at)?.slice(0, 10)} · {e.grade==='OBSERVED_UNCALIBRATED'?'未校准观察':e.grade}</div>
-          {e.observation && <><p>本次表现：{e.observation.score ?? '—'}/{e.observation.max_points ?? '—'}</p><p>原答摘录：{e.observation.answer_excerpt || '（未作答）'}</p><p>缺失评分项：{(e.observation.criteria || []).filter(c => c.status === 'missing').map(c => c.title).join('、') || '查看原始报告'}</p></>}
-          </div>
-        </div>)}
+        {data.evidence.map((e, i) => {
+          const reportLink = evidenceReportLink(e.source_ref);
+          return <div className="list-row" key={e.id || i}>
+            <div className="list-ic">🧾</div><div className="list-main"><div className="list-title">{e.title}</div><div className="list-sub">{e.detail}</div><div className="list-sub">{e.short_code} · {(e.occurred_at || e.created_at)?.slice(0, 10)} · {e.grade==='OBSERVED_UNCALIBRATED'?'未校准观察':e.grade}</div>
+              {e.observation && <><p>本次表现：{e.observation.score ?? '—'}/{e.observation.max_points ?? '—'}</p><p>原答摘录：{e.observation.answer_excerpt || '（未作答）'}</p><p>缺失评分项：{(e.observation.criteria || []).filter(c => c.status === 'missing').map(c => c.title).join('、') || '未记录'}</p></>}
+              {reportLink && <Link to={reportLink}>查看本题的原答与评分依据</Link>}
+            </div>
+          </div>;
+        })}
         <button className="btn btn-outline btn-sm" onClick={() => navigate('/learning')}>查看具体失分任务 →</button>
       </div>
     </>}

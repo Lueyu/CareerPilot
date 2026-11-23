@@ -118,7 +118,9 @@ async function mount(t, path, respond) {
 
 test('the exam center opens the experienced question catalog directly', async t => {
   const { tree, location } = await mount(t, '/exam', endpoint =>
-    endpoint === '/exams' ? Response.json({ kinds: [], history: [] }) : undefined);
+    endpoint === '/exams/history'
+      ? Response.json({ kinds: [], history: [], total_count: 0, next_cursor: null })
+      : undefined);
   const entry = tree.root.findAllByType('a').find(node => labelOf(node) === '查看题库');
   assert.equal(entry?.props.href, '/bank');
   assert.equal(tree.root.findAllByType('a').filter(node => node.props.href?.startsWith('/bank')).length, 1);
@@ -275,9 +277,13 @@ for (const [path, expected] of [
 
 test('legacy reference retains diagrams and followups after exposure, then practices by original DB ID', async t => {
   const path = '/bank?level=mid&domain=tools&source=legacy';
-  const { tree, calls, location, navigate } = await mount(t, path, (endpoint, body) => {
+  let historyEntry = activeExam;
+  const { tree, calls, location, navigate } = await mount(t, path, endpoint => {
     if (endpoint === `/bank/${legacy.short_code}`) return Response.json({ id: legacy.id, answer_html: original.html });
-    if (endpoint === '/exams') return Response.json(body ? { id: 87 } : { kinds: [], history: [activeExam] });
+    if (endpoint === '/exams') return Response.json({ id: 87 });
+    if (endpoint === '/exams/history') {
+      return Response.json({ kinds: [], history: [historyEntry], total_count: 1, next_cursor: null });
+    }
   });
   assert.deepEqual(calls.map(call => call.endpoint), ['/bank/experienced']);
   assert.ok(!rendered(tree).includes('bank-answer'));
@@ -300,6 +306,14 @@ test('legacy reference retains diagrams and followups after exposure, then pract
   await click(tree, '继续练习');
   assert.equal(location().search, practiceSearch);
   assert.equal(calls.filter(call => call.endpoint === '/exams' && call.method === 'POST').length, 1);
+
+  historyEntry = completedReport;
+  await act(async () => { navigate('/exam'); await flush(); });
+  await click(tree, '查看报告');
+  assert.equal(location().pathname, '/exam/diagnosis/report');
+  assert.equal(location().search, practiceSearch);
+  const returnLink = tree.root.findAllByType('a').find(node => labelOf(node) === '返回题库');
+  assert.equal(returnLink?.props.href, path);
 });
 
 test('legacy actions expand on demand and use the existing mapping and study entry points', async t => {
