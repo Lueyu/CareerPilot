@@ -248,3 +248,5 @@ async def test_bank_edit_cannot_change_shared_question(db_session, test_workspac
     with pytest.raises(HTTPException) as exc:
         await bank.update_question(q.short_code, bank.QuestionUpdate(title="跨空间修改"), ws=test_workspace, session=db_session)
     assert exc.value.status_code == 403
+    await db_session.delete(q)
+    await db_session.commit()
