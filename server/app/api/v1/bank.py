@@ -17,8 +17,10 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
-from app.models import Exam, ImportItem, ImportSession, Project, Question, Skill, Trace, Workspace
+from app.models import Exam, ImportItem, ImportSession, Project, Question, Skill, StudyInterviewQuestion, StudySession, Trace, Workspace
+from app.models.question import STUDY_CHAT_REVIEW_META
 from app.services.answer_gen import generate_answer
+from app.services.answer_guides import current_reference, example_for, for_question as teaching_guide_for
 from app.services import bank_review_actions as review_actions
 from app.services.experienced_bank import is_owned_question, list_installed_pack, owned_question_clause
 from app.services.interview_rewrite import rewrite_interview_questions
@@ -59,6 +61,26 @@ async def _skill_map(session: AsyncSession) -> dict[str, Skill]:
     return {s.key: s for s in skills}
 
 
+def _study_review_clause(workspace_id: int):
+    return (Question.workspace_id == workspace_id) & Question.generation_meta.contains(STUDY_CHAT_REVIEW_META)
+
+
+def _with_visible_study_session(query, workspace_id: int):
+    return (
+        query.add_columns(StudySession.id)
+        .outerjoin(
+            StudyInterviewQuestion,
+            (StudyInterviewQuestion.question_id == Question.id) & _study_review_clause(workspace_id),
+        )
+        .outerjoin(
+            StudySession,
+            (StudySession.id == StudyInterviewQuestion.session_id)
+            & (StudySession.workspace_id == workspace_id)
+            & StudySession.hidden_at.is_(None),
+        )
+    )
+
+
 @router.get("/bank")
 async def list_bank(
     status: str = "all",
@@ -82,7 +104,8 @@ async def list_bank(
     base = select(Question).where(
         workspace_filter,
         Question.canonical_question_id.is_(None),  # 变体不单独列出
-        Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY'),
+        (Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY')
+         | _study_review_clause(ws.id)),
     )
     company_filter = (Question.company.in_(companies) if companies else
                       Question.company.icontains(company, autoescape=True) if company else True)
@@ -98,8 +121,10 @@ async def list_bank(
     filtered = base.where(company_filter, topic_filter, source_filter)
     total = (await session.execute(select(func.count()).select_from(filtered.subquery()))).scalar() or 0
     rows = (
-        await session.execute(filtered.order_by(Question.id).offset(offset).limit(limit))
-    ).scalars().all()
+        await session.execute(
+            _with_visible_study_session(filtered, ws.id).order_by(Question.id).offset(offset).limit(limit)
+        )
+    ).all()
 
     # 公司聚合(左侧过滤栏)
     companies = (
@@ -136,10 +161,12 @@ async def list_bank(
                 "difficulty": r.difficulty,
                 "company": r.company,
                 "source_type": r.source_type,
+                "review_only": r.is_study_chat_review,
+                "study_session_id": study_session_id,
                 "tags": r.tags or [],
                 "occurred_on": r.occurred_on.isoformat() if r.occurred_on else None,
             }
-            for r in rows
+            for r, study_session_id in rows
         ],
         "facets": {
             "companies": [{"name": c, "count": n} for c, n in companies if c],
@@ -173,22 +200,25 @@ async def bank_detail(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    question = (
+    result = (
         await session.execute(
-            select(Question)
+            _with_visible_study_session(select(Question), ws.id)
             .options(joinedload(Question.skill), selectinload(Question.variants))
             .where(
                 Question.short_code == short_code,
                 (Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id),
                 (Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY')
-                 | owned_question_clause()),
+                 | owned_question_clause() | _study_review_clause(ws.id)),
             )
         )
-    ).scalar_one_or_none()
-    if question is None:
+    ).one_or_none()
+    if result is None:
         raise HTTPException(status_code=404, detail="question not found")
+    question, study_session_id = result
     from app.services.learning_exposure import record_reference_exposure
-    if question.answer_html or question.rubric:
+    teaching_guide = teaching_guide_for(question)
+    beginner_example = example_for(question)
+    if question.answer_html or question.rubric or teaching_guide or beginner_example:
         await record_reference_exposure(session, ws, question, source='bank_detail')
         await session.commit()
     return {
@@ -200,13 +230,17 @@ async def bank_detail(
         "skill": question.skill.name if question.skill else None,
         "difficulty": question.difficulty,
         "options": question.options,
-        "answer_html": question.answer_html,
+        "answer_html": current_reference(question),
+        "beginner_example": beginner_example,
+        "teaching_guide": teaching_guide,
         "rubric": question.rubric,
         "company": question.company,
         "role": question.role,
         "level": question.level,
         "occurred_on": question.occurred_on.isoformat() if question.occurred_on else None,
         "source_type": question.source_type,
+        "review_only": question.is_study_chat_review,
+        "study_session_id": study_session_id,
         "tags": question.tags or [],
         "keywords": question.keywords or [],
         "generation_meta": question.generation_meta,
@@ -1199,6 +1233,8 @@ async def _own_question(session: AsyncSession, ws: Workspace, short_code: str) -
         raise HTTPException(status_code=403, detail="无权访问其他工作空间的私有题目")
     if (q.generation_meta or {}).get("interview_set_id"):
         raise HTTPException(status_code=409, detail="面经集题目随原帖与项目依据保存，不能从通用题库修改")
+    if q.is_study_chat_review:
+        raise HTTPException(409, "学习聊天复习题随对话快照保存，请在学习聊天中重新生成")
     return q
 
 

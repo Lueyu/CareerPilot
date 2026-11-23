@@ -1,0 +1,21 @@
+.teaching-guide { display: grid; gap: .8rem; margin: 1rem 0 1.5rem; color: var(--text); line-height: 1.7; overflow-wrap: anywhere; }
+.teaching-guide :is(h3,h4,p,figure,blockquote,ol) { margin: 0; }
+.teaching-guide h3 { font-size: 1.2rem; }
+.teaching-guide h4, .teaching-guide figcaption { font-size: 1rem; font-weight: 650; }
+.teaching-guide ol { padding-inline-start: 1.5rem; }
+.teaching-guide li + li { margin-block-start: .35rem; }
+.teaching-guide .guide-analogy, .teaching-guide blockquote { padding: .7rem 1rem; border-inline-start: 3px solid var(--primary); background: var(--primary-50); }
+.teaching-guide .guide-flow { display: flex; flex-wrap: wrap; list-style: none; padding: .5rem 0 0; gap: .5rem; }
+.teaching-guide .guide-flow li { display: inline-flex; align-items: center; gap: .4rem; margin: 0; padding: .3rem .65rem; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.teaching-guide .guide-flow li + li::before { content: "→" / ""; color: var(--primary); }
+.guide-table-scroll { overflow-x: auto; min-width: 0; }
+.teaching-guide table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+.teaching-guide :is(td,th) { padding: .45rem .65rem; border: 1px solid var(--border); text-align: start; vertical-align: top; }
+.guide-table-scroll :is(td,th) { min-inline-size: 5.5rem; overflow-wrap: normal; word-break: normal; }
+.teaching-guide th { background: var(--surface-2); }
+.teaching-guide .guide-source { color: var(--text-2); font-size: .82rem; }
+.teaching-guide summary { cursor: pointer; font-weight: 600; }
+.teaching-guide details p { margin-top: .4rem; }
+.bank-answer ol.answer-flow { display: grid; list-style: decimal inside; gap: .5rem; padding-inline-start: 0; }
+.bank-answer ol.answer-flow > li { padding: .55rem .8rem; border-inline-start: 3px solid var(--primary); background: var(--primary-50); }
+.bank-answer ol.answer-flow p { margin: .2rem 0 0; }

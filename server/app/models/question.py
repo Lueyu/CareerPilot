@@ -15,6 +15,7 @@ SOURCE_PUBLIC = "PUBLIC_LICENSED"
 SOURCE_PRIVATE = "USER_PRIVATE"
 SOURCE_GENERATED = "GENERATED"
 SOURCE_VERIFIED = "VERIFIED_PUBLIC"
+STUDY_CHAT_REVIEW_META = {"assessment_use": "PRACTICE_ONLY", "origin": "study_chat"}
 
 
 class Question(Base):
@@ -48,6 +49,12 @@ class Question(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     skill = relationship("Skill", lazy="joined")
+
+    @property
+    def is_study_chat_review(self) -> bool:
+        meta = self.generation_meta or {}
+        return self.workspace_id is not None and all(meta.get(key) == value
+                                                    for key, value in STUDY_CHAT_REVIEW_META.items())
 
 
 # 自引用: canonical_question_id 非空的题是变体; variants 列出挂在它下面的重复问法

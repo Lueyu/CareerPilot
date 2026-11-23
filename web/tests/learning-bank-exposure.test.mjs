@@ -32,6 +32,32 @@ test('a successful reference read explains its effect on independent verificatio
  const tree=await mount();try{await act(async()=>{await button(tree,'查看参考').props.onClick();await flush();});assert.match(text(tree),/Recorded reference/);assert.match(text(tree),/该题族不再用于未辅助独立复测/);}finally{await close(tree);}
 });
 
+test('a private reference dialog uses current source visibility from the detail response', async () => {
+  const review = { ...item, review_only: true, study_session_id: 42 };
+  let visibleSession = 42;
+  globalThis.fetch = async url => {
+    const path = new URL(url).pathname;
+    if (path.endsWith('/pending')) return Response.json({ imports: [] });
+    if (path.endsWith('/bank')) return Response.json({ items: [review], total: 1 });
+    assert.ok(path.endsWith('/bank/' + seed.id));
+    return Response.json({ ...review, study_session_id: visibleSession, answer_html: 'Saved review reference' });
+  };
+  const tree = await mount();
+  try {
+    const sourceLinks = () => tree.root.findAllByType('a').filter(node => node.children.join('') === '回看学习聊天');
+    assert.deepEqual(sourceLinks().map(link => link.props.href), ['/study/chat/42']);
+    await act(async () => button(tree, '查看参考').props.onClick());
+    assert.deepEqual(sourceLinks().map(link => link.props.href), ['/study/chat/42', '/study/chat/42']);
+    await act(async () => button(tree, '✕').props.onClick());
+    visibleSession = null;
+    await act(async () => button(tree, '查看参考').props.onClick());
+    assert.equal(sourceLinks().length, 0);
+    assert.match(text(tree), /Saved review reference/);
+  } finally {
+    await close(tree);
+  }
+});
+
 test('mapping review opens without loading the answer and requires an explicit approval', async () => {
  const calls = [];
  const criterion = {criterion_id:'c1',title:'Retrieval evaluation',behavior_key:null,behavior_version:null,reviewed_at:null};

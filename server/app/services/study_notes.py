@@ -56,8 +56,8 @@ class GenerationError(ValueError):
     pass
 
 
-async def read_json(system, payload, schema):
-    cfg = await get_llm_config()
+async def read_json(system, payload, schema, *, config=None):
+    cfg = await get_llm_config() if config is None else config
     adapter = AgentAdapter()
     try:
         result = await asyncio.wait_for(adapter.chat_with(

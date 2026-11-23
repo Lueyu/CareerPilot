@@ -67,7 +67,7 @@ test('the catalog starts with 227 questions and supports local search, paging, a
   assert.equal(count(tree), '共 227 题');
   assert.equal(tree.root.findAllByType('li').length, 10);
   const visibleButtons = tree.root.findAllByType('li').flatMap(row => row.findAllByType('button'));
-  assert.equal(visibleButtons.filter(node => node.children.join('') === '更多操作').length, 5);
+  assert.equal(visibleButtons.filter(node => node.children.join('') === '更多操作').length, 10);
   assert.ok(visibleButtons.every(node => !['复测映射', '围绕这个问题学习'].includes(node.children.join(''))));
   assert.equal(tree.root.findAllByProps({ className: 'experienced-domain' }).length, 12);
   assert.ok(tree.root.findAllByType('a').some(node => node.props.href?.startsWith('/exam/diagnosis?id=87')));

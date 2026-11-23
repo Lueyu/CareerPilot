@@ -95,7 +95,7 @@ def is_owned_question(question: Question) -> bool:
     )
 
 
-def _answer_html(question: AuthoredQuestion) -> str:
+def render_answer_html(question: AuthoredQuestion) -> str:
     def paragraph(text: str) -> str:
         return "<p>" + escape(text).replace("\n", "<br>") + "</p>"
 
@@ -129,7 +129,7 @@ async def install_pack(session: AsyncSession, skills: dict[str, Skill]) -> tuple
                 "topic": domain.name,
                 "skill_id": skill.id,
                 "difficulty": 3 if question.level == "mid" else 4,
-                "answer_html": _answer_html(question),
+                "answer_html": render_answer_html(question),
                 "rubric": {"max_points": 5.0, "points": [
                     {"title": criterion if len(criterion) <= 200 else f"{criterion[:190]}…（{index}）",
                      "detail": criterion}
@@ -180,28 +180,27 @@ def _original_identities(path: Path, version: tuple[int, int, int, int]) -> dict
     }
 
 
+def original_identities() -> dict[str, tuple[str, str]]:
+    from app.seed import BANK_PATH
+
+    try:
+        stat = BANK_PATH.stat()
+    except FileNotFoundError:
+        return {}
+    return _original_identities(BANK_PATH, (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
+
+
 def catalog_questions(
     domains: list[Domain], rows: list[Question],
     legacy_domains: dict[str, dict[str, list[str]]] | None = None,
 ) -> dict[str, list[dict]]:
-    from app.seed import BANK_PATH
-
     by_code = {row.short_code: row for row in rows if (
         row.workspace_id is None and row.canonical_question_id is None
         and not row.is_demo and row.source_type == SOURCE_PUBLIC
     )}
     if legacy_domains is None:
         legacy_domains = _legacy_domains()
-    originals = {}
-    if legacy_domains:
-        try:
-            stat = BANK_PATH.stat()
-        except FileNotFoundError:
-            pass
-        else:
-            originals = _original_identities(
-                BANK_PATH, (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns),
-            )
+    originals = original_identities() if legacy_domains else {}
 
     questions_by_domain: dict[str, list[dict]] = {}
     seen: set[int] = set()

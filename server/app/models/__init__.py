@@ -1,6 +1,6 @@
 """模型汇总导入: 保证 Base.metadata 收集所有表。"""
 from app.db import Base  # noqa: F401
-from app.models.study_chat import StudySession, StudyMessage
+from app.models.study_chat import StudySession, StudyMessage, StudyInterviewQuestion
 from app.models.study_notes import StudyNote, StudyNoteVersion, StudyNoteJob, StudyCard, StudyCardEvent
 from app.models.study_practice import StudyPractice
 from app.models.workspace import User, Workspace, WorkspaceMember  # noqa: F401

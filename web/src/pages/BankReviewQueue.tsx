@@ -40,7 +40,7 @@ const skillNames = Object.fromEntries(SKILLS.map(skill => [skill.key, skill.name
 
 const answerTags = new Set('a b blockquote br caption code dd del details div dl dt em figcaption figure h1 h2 h3 h4 h5 h6 hr i kbd li mark ol p pre s samp small span strong sub summary sup table tbody td tfoot th thead tr u ul var'.split(' '));
 const discardTags = new Set('audio embed iframe img input link math noscript object script select style svg template textarea video'.split(' '));
-const answerClasses = new Set('ans-context-missing ans-elevator ans-elevator-label ans-foot ans-rubric ans-script ans-script-label ans-terms ans-tldr ans-tldr-label an b-ana b-det b-fast b-fol b-term badge block company fu-a fu-a-missing fu-item fu-list fu-q note qa qa-h qa-no qa-t qu tag term-item terms-grid'.split(' '));
+const answerClasses = new Set('answer-flow ans-context-missing ans-elevator ans-elevator-label ans-foot ans-rubric ans-script ans-script-label ans-terms ans-tldr ans-tldr-label an b-ana b-det b-fast b-fol b-term badge block company fu-a fu-a-missing fu-item fu-list fu-q note qa qa-h qa-no qa-t qu tag term-item terms-grid'.split(' '));
 
 export function sanitizeReviewAnswer(html: string): string {
   if (typeof document === 'undefined') return html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

@@ -71,7 +71,7 @@ function companiesOf(company: ExperiencedQuestion['company']): string[] {
 
 const normalizeSearch = (value: string) => value.normalize('NFKC').toLowerCase();
 
-function LegacyQuestionActions({ question, onRetestMapping }: {
+function QuestionActions({ question, onRetestMapping }: {
   question: ExperiencedQuestion;
   onRetestMapping: (question: ExperiencedQuestion) => void;
 }) {
@@ -88,7 +88,7 @@ function LegacyQuestionActions({ question, onRetestMapping }: {
       onClick={() => setOpen(value => !value)}
     >更多操作</button>
     {open && <div id={actionsId} className="bank-actions experienced-extra-actions">
-      <button type="button" className="btn btn-outline btn-sm" onClick={() => onRetestMapping(question)}>复测映射</button>
+      {question.source === 'legacy' && <button type="button" className="btn btn-outline btn-sm" onClick={() => onRetestMapping(question)}>复测映射</button>}
       <StudyEntryButton kind="question" id={question.id} bankKey={question.short_code} />
     </div>}
   </>;
@@ -366,7 +366,7 @@ export default function ExperiencedBank({
                       <button className="btn btn-outline btn-sm" aria-describedby={`experienced-question-${question.id}`} onClick={() => onReference(question, domainName)}>
                         查看参考
                       </button>
-                      {question.source === 'legacy' && <LegacyQuestionActions question={question} onRetestMapping={onRetestMapping} />}
+                      <QuestionActions question={question} onRetestMapping={onRetestMapping} />
                     </div>
                     {practiceError?.id === question.short_code && <p role="alert">{practiceError.message}</p>}
                   </li>

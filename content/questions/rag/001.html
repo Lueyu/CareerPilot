@@ -11,7 +11,7 @@
       <div class="note"><b>先说人话:</b>这题不是考「RAG 是什么」,而是考你敢不敢接真摊子:百万级日查询、带权限的企业知识库,要找得准、答得稳、跑得动、花得起、泄不了密,一次摆平。面试官爱考它,因为十分钟就能分出「跑过 Demo」和「上过生产」:全程只谈模型选型、不提权限和容量账的,当场露馅。</div>
 
       <div class="block fast"><span class="badge b-fast">30秒电梯稿</span>
-        <p>"先反问三个边界:100 万是问答数还是检索调用数?P99 卡多少?有没有文档级 ACL?——带 ACL 的企业 RAG 和不带的工程量差 3 倍。我按『有 ACL、P99 &lt; 2.5s、月成本五位数内』设计:编排器串起<b>查询理解(意图/改写/ACL 注入)→ BM25+Dense+Rerank 三段检索 → 三级模型池生成</b>;成本靠<b>模型路由 + 三层缓存</b>把单次打到 ¥0.002 档;质量靠<b>强制引用 + 拒答兜底 + 三张评测表</b>。最后我会主动亮四个软肋——多跳推理、表格幻觉、黄金集腐化、ACL×缓存组合爆炸。"</p>
+        <p>“先确认 100 万指问答请求还是检索调用，再问首 token 与整答的 P99 目标，以及是否有文档级 ACL。以常规生成路径的示例开销计，首 token 约 0.81 秒。每请求以 60 token/秒输出 350 token，整答约 6.63 秒，超过 2.5 秒的目标。峰值 65 QPS 下的整答 P99 需要压测。检索走 BM25 + Dense、RRF 融合再 Rerank，生成按难度分档。压测时分档看首 token、整答和成本，同时验证引用、拒答与权限隔离。”</p>
         <p>这段黑话浓度高是正常的——它是说给面试官听的「成品」。下面按金字塔展开:先用类比建直觉,再逐节拆解,每个名词都会落到人话。</p>
       </div>
 
@@ -35,13 +35,13 @@
         <p><b>0. 先反问需求(展示工程嗅觉,别急着画图)</b></p>
         <p>系统设计的第一反应永远是「把无界问题变成有界问题」。这和有人让你「设计一个备份系统」却不给 RPO/RTO、数据规模、备份窗口一个道理——不问就开画,等于裸奔。</p>
         <ul>
-          <li>"100 万是问答请求数还是检索调用次数?平均上下文多长?P99 延迟卡多少?有没有文档级 ACL?"</li>
+          <li>"100 万是问答请求数还是检索调用次数?平均上下文多长?首 token 和整答的 P99 分别卡多少?有没有文档级 ACL?"</li>
           <li>名词解释:文档级 <a target="_blank" rel="noopener" href="https://zh.wikipedia.org/wiki/存取控制串列">ACL</a>(访问控制列表)= 精确到「这份文档谁能看」的权限清单——工资制度只对 HR 可见、项目文档只对本部门可见,检索必须尊重这张清单,而且它必须跟着检索走,不能靠事后删。</li>
-          <li>本文按最典型的 ToB 设定:<b>有 ACL、P99 &lt; 2.5s、可引用溯源、月成本控制在五位数人民币</b>。</li>
+          <li>本文按最典型的 ToB 设定:<b>有 ACL、整答端到端 P99 目标 ≤ 2.5 秒、可引用溯源、月成本控制在五位数人民币</b>。</li>
         </ul>
         <p><b>1. 全局架构(一张脑内图)</b></p>
-        <p><b>怎么读这张图</b>:和所有分布式系统一样按平面读——<b>控制面</b>管评测、Trace、开关灰度、版本,相当于备份系统的调度与策略面,平时看不见、出事全靠它;<b>在线链路</b>是用户一句话实时走的路(相当于恢复/读取路径):网关(门卫,鉴权限流)→ 编排器(总调度)→ 查询理解(把话听懂)→ 混合检索(后厨取料)→ 生成层(炒菜出餐);<b>数据面</b>是文档入库的离线流水线(相当于备份作业流):解析→清洗→分块→向量化→双写双索引,再供给在线查询。</p>
-        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 920 310" role="img" aria-label="企业级 RAG 全局架构:控制面 + 在线链路 + 数据面">
+        <p><b>怎么读这张图</b>:和所有分布式系统一样按平面读——<b>控制面</b>管评测、Trace、开关灰度、版本,相当于备份系统的调度与策略面,平时看不见、出事全靠它;<b>在线链路</b>是用户一句话实时走的路(相当于恢复/读取路径):网关(门卫,鉴权限流)→ 编排器(总调度)→ 查询理解(把话听懂)→ 混合检索（召回、融合、重排）→ 上下文组装 → 生成层(炒菜出餐);<b>数据面</b>是文档入库的离线流水线(相当于备份作业流):解析→清洗→分块→向量化→双写双索引,再供给在线查询。</p>
+        <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 920 310" role="img" aria-label="企业级 RAG 全局架构：混合召回、重排、上下文组装、生成与流式返回">
   <rect class="sd-layer" x="10" y="8" width="900" height="46" rx="8"/>
   <text class="sd-l" x="20" y="36">控制面</text>
   <rect class="sd-box2" x="90" y="17" width="92" height="28" rx="6"/><text class="sd-t" x="136" y="36" text-anchor="middle">Eval 平台</text>
@@ -67,8 +67,7 @@
   <path class="sd-a" marker-end="url(#sd-arr)" d="M448,120 L468,120"/>
   <rect class="sd-box-teal" x="470" y="92" width="118" height="56" rx="10"/>
   <text class="sd-t" x="529" y="114" text-anchor="middle">混合检索</text>
-  <text class="sd-ts" x="529" y="132" text-anchor="middle">BM25+Dense+RRF</text>
-  <path class="sd-a" marker-end="url(#sd-arr)" d="M588,120 L608,120"/>
+  <text class="sd-ts" x="529" y="132" text-anchor="middle">融合 · Rerank</text>
   <rect class="sd-box-amber" x="610" y="92" width="104" height="56" rx="10"/>
   <text class="sd-t" x="662" y="114" text-anchor="middle">生成层</text>
   <text class="sd-ts" x="662" y="132" text-anchor="middle">模型池·引用·流式</text>
@@ -104,16 +103,16 @@
           <tr><th>决策点</th><th>我的选择</th><th>为什么(trade-off)</th></tr>
           <tr><td><b>检索形态</b></td><td>BM25 + Dense + Rerank 三段式</td><td>纯向量在企业术语/编号/缩写上会跪,纯 BM25 语义太脆;Rerank 是性价比最高的一档准确率</td></tr>
           <tr><td><b>向量库</b></td><td>Milvus 集群,HNSW + 标量过滤</td><td>企业必须 ACL + 元数据过滤;post-filtering 会把 recall 打穿,要 pre-filter / 分区索引</td></tr>
-          <tr><td><b>分块</b></td><td>语义分块 + Small-to-Big</td><td>256 token 锚点块做向量,命中回吐 1200 token 父块——检索精度与上下文可读性解耦</td></tr>
-          <tr><td><b>生成模型</b></td><td>三级模型池:7B/32B 自托管 + 云端旗舰</td><td>约 80% 简单问答走小模型,复杂推理才升级,成本差一到两个数量级</td></tr>
+          <tr><td><b>分块</b></td><td>语义分块 + Small-to-Big</td><td>256 token 小块用于检索，命中后取父块，按输入预算去重和裁剪</td></tr>
+          <tr><td><b>生成模型</b></td><td>三级模型池:7B/32B 自托管 + 云端旗舰</td><td>基线按 55% 请求走 8B、30% 走 32B，12% 走云端，3% 直接返回来估算</td></tr>
           <tr><td><b>编排</b></td><td>轻量自研状态机,不用重型框架</td><td>线上要可观测、可回放、可断点;Chain 抽象太厚,debug 会哭</td></tr>
-          <tr><td><b>缓存</b></td><td>三层缓存(精确/语义/块级)</td><td>企业 query 重复率高(入职/HR/报销类),命中率 25%~40%</td></tr>
+          <tr><td><b>缓存</b></td><td>三层缓存(精确/语义/块级)</td><td>企业 query 重复率高(入职/HR/报销类),答案缓存与中间结果缓存分别统计命中率</td></tr>
         </table>
         <p><b>3. ① Ingestion:真正的战场(80% 的事故在这)</b></p>
         <p>这一节你可以完全用备份流水线的直觉读:全量 vs 增量、指纹去重、逻辑删除、版本生效,一个概念都不少。</p>
         <ul>
           <li><b>解析</b>:PDF 不是文本,是排版事故现场。<a target="_blank" rel="noopener" href="https://github.com/DS4SD/docling">Docling</a>/Unstructured + 表格还原;扫描件走 VLM 二次校验——这步省了,后面全是幻觉源。类比:专有格式镜像必须先解析才能恢复文件结构,跳过解析直接读字节,恢复出来的就是乱码。</li>
-          <li><b>分块三件套</b>:结构感知(按标题/条款/表格边界)→ 相邻块语义相似度 &gt; τ 合并 → Small-to-Big 索引(child 256tok 向量,parent 1024tok 存 KV)。</li>
+          <li><b>分块三件套</b>:结构感知(按标题/条款/表格边界)→ 相邻块语义相似度 &gt; τ 合并 → Small-to-Big 索引(child 256tok 向量,parent 约 1200 tok 存 KV)。</li>
         </ul>
         <p>Small-to-Big 用你熟悉的话说:拿 256 token 的小块算「指纹」(向量)去做匹配,命中后回吐 1200 token 的父块做上下文——小块保检索准,大块保读得全,和重删「小块算指纹、恢复回整段」同款思想,把「检准」和「读够」这两个天然打架的目标解耦。</p>
         <ul>
@@ -123,7 +122,7 @@
         <p>增量这行的三个词你都有对应经验:content_hash 就是重删指纹,内容没变的块直接跳过;「只重嵌变更块」就是永久增量备份;tombstone 就是保留策略里的逻辑删除——不物理删、可审计、可回溯,和备份系统一个纪律。</p>
         <div class="note">坑:90% 的团队把"重新入库"做成全量重建,夜间跑 6 小时,白天改的文档次日才生效,业务方直接不信了。<b>增量 + 版本双索引(alias 切流)是刚需</b>。</div>
         <p>翻译一下这条坑:每天跑 6 小时全量重建,等于坚持全量备份不开增量、不给恢复点目标——白天改的文档次日才生效,业务方对「系统数据是旧的」零容忍,信任一旦丢了技术做得再好也没人用。</p>
-        <p><b>4. ② 查询理解:被严重低估的一层(~30ms,小模型或规则)</b></p>
+        <p><b>4. ② 查询理解:被严重低估的一层（示例 40 ms，小模型或规则）</b></p>
         <ul>
           <li><b>意图路由</b>:factual / how_to / summary / compare / chat / out_of_scope → 决定 top_k、要不要 Rerank、要不要上 Graph、要不要直接拒答。——像工单分类:查事实、要操作步骤、要对比、闲聊,分别派不同的后续流程;闲聊就别浪费一次检索。</li>
           <li><b>Rewrite</b>:多轮指代消解("那它第二年呢?" → 补全实体与时间);<b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2212.10496">HyDE</a>/多查询展开</b>:模糊问法生成 2~3 个假设问法并行检索再 RRF。</li>
@@ -135,9 +134,9 @@
         <p>为什么必须是「下推」而不是「查完再删」:post-check 相当于让所有人把档案柜翻一遍、再把无权看的从手里抽走——「柜里有这份文件」这个事实已经泄了;pre-filter 是每人只能开自己有钥匙的柜,碰都碰不到。备份 catalog 的租户隔离同理:先列条目再拒,就是越权枚举。</p>
         <div class="note">加分句:"ACL 做成 query 级强制谓词而不是 post-check——post-check 会泄漏『存在但无权看』这个事实本身,这在企业里就是安全事故。"</div>
         <p><b>5. ③ 混合检索 + Rerank:准确率主战场</b></p>
-        <p>先建体感:<b>召回(recall)像海选</b>——快而糙,宁可捞多 200 个也别漏;Rerank 像终面,慢而准,只精读前 40 名。两份榜单怎么合成一份?靠 RRF:每个候选的得分 = 它在各榜单「名次的倒数」相加(第 1 名记 1/1,第 60 名记 1/60,k 取 60 做平滑),两路都觉得靠前的才是真靠前——不需要把两套不同量纲的分数硬凑到一起,天然稳健。</p>
+        <p>先建体感:<b>召回(recall)像海选</b>——快而糙,宁可捞多 200 个也别漏;Rerank 像终面,慢而准,只精读前 40 名。两份榜单怎么合成一份?靠 RRF:每个候选在出现的榜单上累加 1/(k + 名次)，名次从 1 起算。k=60 时，第 1 名贡献 1/61，第 60 名贡献 1/120,两路都觉得靠前的才是真靠前——不需要把两套不同量纲的分数硬凑到一起,天然稳健。</p>
         <div class="svgwrap"><svg class="sdiagram" viewBox="0 0 920 200" role="img" aria-label="检索流水线:三路召回 RRF 融合后精排">
-  <text class="sd-l" x="20" y="22">Recall 宽而快(~80ms)</text>
+  <text class="sd-l" x="20" y="22">Recall（示例 90 ms）</text>
   <rect class="sd-box2" x="20" y="34" width="200" height="44" rx="10"/>
   <text class="sd-t" x="120" y="52" text-anchor="middle">BM25(ES)</text>
   <text class="sd-ts" x="120" y="70" text-anchor="middle">ik+同义词+缩写词典 · top100</text>
@@ -154,10 +153,10 @@
   <text class="sd-t" x="320" y="102" text-anchor="middle">RRF 融合</text>
   <text class="sd-ts" x="320" y="120" text-anchor="middle">k=60 → top40</text>
   <path class="sd-a" marker-end="url(#sd-arr)" d="M376,106 L398,106"/>
-  <text class="sd-l" x="404" y="22">Rerank 窄而准(~70ms)</text>
+  <text class="sd-l" x="404" y="22">Rerank（示例 70 ms）</text>
   <rect class="sd-box-teal" x="400" y="82" width="170" height="48" rx="10"/>
   <text class="sd-t" x="485" y="102" text-anchor="middle">bge-reranker-v2-m3</text>
-  <text class="sd-ts" x="485" y="120" text-anchor="middle">自托管 FP8 · → top 6~8</text>
+  <text class="sd-ts" x="485" y="120" text-anchor="middle">A10 · FP16 · top 6</text>
   <path class="sd-a" marker-end="url(#sd-arr)" d="M570,106 L592,106"/>
   <rect class="sd-box-amber" x="594" y="70" width="196" height="72" rx="10"/>
   <text class="sd-t" x="692" y="92" text-anchor="middle">Context Packer</text>
@@ -174,20 +173,20 @@
           <li><b><a target="_blank" rel="noopener" href="https://arxiv.org/abs/2307.03172">Lost in the Middle</a></b>:最相关放头尾、中间放支撑材料;加 <code>[Chunk 1 | 来源:XX制度 3.2条 | 生效:2025-01]</code> 结构化信封,引用准确率直接起飞。人话:长上下文里模型对开头结尾记得牢、中间容易走神,所以材料摆放位置是门学问。</li>
         </ul>
         <p><b>6. ④ 生成层:模型路由 + 防幻觉契约</b></p>
-        <p>模型路由就是<b>分层存储</b>思想搬进推理层:数据按访问频率放到不同成本介质,请求按难度送到不同成本模型——「报销单在哪下载」用 7B 小模型绰绰有余,没必要每次都请旗舰出场。</p>
+        <p>模型路由就是<b>分层存储</b>思想搬进推理层:数据按访问频率放到不同成本介质,请求按难度送到不同成本模型——「报销单在哪下载」用 8B 小模型绰绰有余,没必要每次都请旗舰出场。</p>
         <pre class="code">100 万问/天 → 意图/难度分类器分档
-  ├─ ~3%  高频FAQ / 缓存命中 ────→ L0 不调模型,直接回
-  ├─ ~55% 简单事实型 ───────────→ L1 7B 自托管(吃自己 GPU,边际≈免费)
+  ├─ ~3%  高频FAQ / 缓存命中 ────→ L0 直接返回（含答案缓存）
+  ├─ ~55% 简单事实型 ───────────→ L1 8B 自托管
   ├─ ~30% 常规问答/总结 ─────────→ L2 32B 自托管(稍贵)
   └─ ~12% 复杂对比/推理/合规 ────→ L3 云端旗舰(按 token 付费,贵一个量级)</pre>
         <table>
           <tr><th>档位</th><th>模型</th><th>承接流量</th><th>手段</th></tr>
           <tr><td><b>L0</b></td><td>不调模型</td><td>~3%</td><td>语义缓存 / FAQ 直出</td></tr>
-          <tr><td><b>L1</b></td><td>Qwen3-7B · INT4 自托管</td><td>~55%</td><td>模板化作答 + 强制引用</td></tr>
+          <tr><td><b>L1</b></td><td>Qwen3-8B · INT4 自托管</td><td>~55%</td><td>模板化作答 + 强制引用</td></tr>
           <tr><td><b>L2</b></td><td>Qwen3-32B · AWQ(vLLM)</td><td>~30%</td><td>常规 RAG + 精简 CoT</td></tr>
           <tr><td><b>L3</b></td><td>云端旗舰(DeepSeek/Claude 等)</td><td>~12%</td><td>多文档对比、推理、合规敏感</td></tr>
         </table>
-        <p>表里 L1/L2 的底座是 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2309.06180">vLLM</a> 这类推理引擎:显存分页 + 连续批处理,让 4 张 A100 把 90 路并发伺候得动。防幻觉靠<b>契约</b>,不靠提示词祈祷——提示词是「嘱咐」,会被模型无视;约束解码是「镣铐」,在解码层强制生效。</p>
+        <p>表里 L1/L2 的底座是 <a target="_blank" rel="noopener" href="https://arxiv.org/abs/2309.06180">vLLM</a> 这类推理引擎。显存分页和连续批处理有助于提高吞吐。4 张 A100 是待压测的配置，需按模型档位验证显存占用、聚合吞吐和单请求输出速度。防幻觉靠<b>契约</b>,不靠提示词祈祷——提示词是「嘱咐」,会被模型无视;约束解码是「镣铐」,在解码层强制生效。</p>
         <ul>
           <li><b>强制引用 schema</b>:输出必须是下面的结构,用 <a target="_blank" rel="noopener" href="https://json-schema.org/">JSON Schema</a> 约束解码(outlines / vLLM guided decoding):</li>
         </ul>
@@ -201,13 +200,13 @@
           <li><b>拒答阈值</b>:Rerank top1 分数 &lt; τ 且意图 = factual → 直接说"知识库里没有,已转人工"。企业场景一句诚实的"不知道",值 100 句流畅的胡说——和备份哲学完全一致:宁可显式报错,不可静默坏数据。</li>
           <li><b>自校验</b>:轻量 entailment 小模型验"答案是否被引用块蕴含",不蕴含降级重答或挂"待核实"标。entailment(蕴含)= 判断「引用块能不能逻辑推出这句话」,推不出就打回重答。</li>
         </ul>
-        <p><b>7. ⑤ 缓存:把 100 万/日 打成 60 万/日</b></p>
+        <p><b>7. ⑤ 缓存：区分答案直出和中间结果复用</b></p>
         <p>三层缓存的分层逻辑和存储缓存一致:越上层越快越便宜,命中条件越苛刻。L1 是「一字不差才回」的精确缓存;L2 是「问法不同意思相同也认」的语义缓存,要算向量相似度;L3 缓存的不是答案而是中间计算(检索/重排结果),相当于结果缓存而非响应缓存。</p>
         <table>
           <tr><th>层</th><th>内容</th><th>TTL</th><th>预期命中</th></tr>
-          <tr><td><b>L1 精确</b></td><td>hash(query + acl + model_ver)</td><td>1h</td><td>10~15%</td></tr>
-          <tr><td><b>L2 语义</b></td><td>query 向量 sim &gt; 0.97 <b>且 ACL 集合相同</b>才复用</td><td>24h</td><td>15~25%</td></tr>
-          <tr><td><b>L3 块级</b></td><td>热点 chunk 的 embedding/rerank 结果、热门父块正文</td><td>LRU</td><td>省 30% 计算</td></tr>
+          <tr><td><b>L1 精确</b></td><td>hash(query + acl + model_ver)</td><td>1h</td><td>纳入 L0 直出占比</td></tr>
+          <tr><td><b>L2 语义</b></td><td>query 向量 sim &gt; 0.97 <b>且 ACL 集合相同</b>才复用</td><td>24h</td><td>纳入 L0 直出占比</td></tr>
+          <tr><td><b>L3 块级</b></td><td>热点 chunk 的 embedding/rerank 结果、热门父块正文</td><td>LRU</td><td>按省下的检索或重排计算量实测</td></tr>
         </table>
         <div class="note">致命坑:语义缓存必须把 <b>ACL 指纹拼进 key</b>。否则 A 部门问"裁员补偿标准",B 部门命中 A 的保密答案——评审里真实毙掉过的方案。</div>
         <p>用备份的话再说一遍:缓存键里不拼权限/租户标识,等于把 A 租户的恢复数据喂给 B 租户——这不是性能 bug,是数据泄露事故,所以 L1 的 key 是 hash(query + acl + model_ver) 三件套,一个都不能少。</p>
@@ -220,46 +219,48 @@
           <tr><th>评测</th><th>指标</th><th>频率</th><th>集子</th></tr>
           <tr><td><b>检索离线</b></td><td>Recall@20 / MRR / nDCG@10 / <b>ACL 泄漏率 = 0</b></td><td>每次索引变更</td><td>2k 条人标 (query→gold chunk)</td></tr>
           <tr><td><b>生成离线</b></td><td>Faithfulness / 引用精确率 / 拒答准确率</td><td>每次 prompt/模型换版</td><td>500 条黄金集 + LLM-as-Judge(与人工 κ &gt; 0.7 校准)</td></tr>
-          <tr><td><b>线上</b></td><td>TTFT / 端到端 P99 / 点赞踩 / 转人工率 / 单 query 成本</td><td>实时看板</td><td>影子流量 + 10% Canary</td></tr>
+          <tr><td><b>线上</b></td><td>端到端 TTFT P99 / 整答端到端 P99 / 点赞踩 / 转人工率 / 单 query 成本</td><td>实时看板</td><td>影子流量 + 10% Canary</td></tr>
         </table>
         <p>黄金集 = 人手标注的「标准问答对」,相当于容灾演练的验收预案。它最大的敌人是腐化:文档一改版,昨天的标准答案今天就变成错答,指标随即变成自欺。</p>
         <div class="note">金句:"RAG 的 eval 难,不在没指标,在黄金集三个月就腐化——制度改了,昨天的标准答案变成今天的幻觉。所以我们把黄金集绑 doc version,文档一失效,对应用例自动进『待重标』队列。"</div>
         <p><b>9. 容量与成本账(一算就知道你上过生产)</b></p>
         <p>容量估算三步,全是运维老朋友:①日请求摊到秒(均值 QPS);②乘峰值系数——企业流量像备份窗口挤在夜间一样挤在工作时间(8~20 点),潮汐明显,按 5~6 倍备;③用 <a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Little%27s_law">Little's Law</a> 算在途:系统内并发请求数 = 到达率 × 平均停留时间,和算「并发流 = 数据量 ÷ 窗口 ÷ 单流吞吐」是同一门手艺。</p>
         <ul>
-          <li><b>流量模型</b>:100 万/日 → 均值 11.6 QPS;企业 8~20 点集中,峰值系数 5~6 → <b>~65 QPS</b>;平均时延 ~1.4s → 在途请求 ≈ 65 × 1.4 ≈ <b>90 路</b>(Little's Law,vLLM 连续批处理吃下)。</li>
-          <li><b>单次流量</b>:召回 200 候选 → RRF 融合 → Rerank top40 → 生成输入 3.5k / 输出 350 tok。</li>
+          <li><b>流量模型</b>。100 万/日约为 11.6 QPS，规划峰值取 65 QPS。按峰值时也有 85% 流量走自托管估算，L1/L2 共 55.25 请求/秒。平均每次输出 350 token 时，自托管池需约 19,338 输出 token/秒，另有输入预填充、排队与突发流量要测。</li>
+          <li><b>单次流量</b>。常规路径的 BM25 和 Dense 各召回 100 条，必要时加结构化召回，经 RRF 融合后取 top40 精排。上下文压缩后示例输入 3,500 token，输出 350 token。</li>
         </ul>
-        <p>「90 路在途」意味着系统同一时刻要伺候 90 个请求——vLLM 的连续批处理就是干这个的:新请求随到随插进正在算的批,不用等凑满一批再开工。</p>
+        <p>按每个请求持续 60 token/秒，从第一个到最后一个 token 约 5.82 秒。若峰值稳定且每个自托管请求都走这条路径，仅首 token 之后的平均在途数约为 55.25 × 5.82 ≈ 321。用 Little’s Law 算实际在途数时要取同一请求群的稳态到达率和平均停留时间，再从压测验证 GPU 能承载的并发。</p>
         <table>
           <tr><th>组件</th><th>规格</th><th>数量</th><th>说明</th></tr>
           <tr><td>网关 + 编排</td><td>8C16G Pod</td><td>6~8</td><td>HPA 按 QPS</td></tr>
           <tr><td>ES(BM25)</td><td>16C64G + NVMe</td><td>3</td><td>千万级 chunk 绰绰</td></tr>
           <tr><td>Milvus 查询</td><td>16C64G</td><td>2(+数据/索引 3+2)</td><td>2000万 × 1024dim int8 ≈ 20GB,全内存无压力</td></tr>
-          <tr><td>Rerank</td><td>A10 24G(FP8, bs=32)</td><td>2(主备分担)</td><td>top40 窗口 ~2600 pairs/s,详见追问①算账</td></tr>
+          <tr><td>Rerank</td><td>A10 24 GB（Ampere，FP16 起测）</td><td>2 张候选，分双活和单卡工况</td><td>65 QPS 全走 top40 时需 2,600 对/秒。实测后定卡数和余量</td></tr>
           <tr><td>Embedding</td><td>T4/L4</td><td>2</td><td>查询侧;入库走离线池</td></tr>
-          <tr><td>LLM L1/L2</td><td>2×A100-80G × 2 节点(vLLM)</td><td>4 卡</td><td>7B 富余、32B 峰值偏紧,prefix cache + 输入压缩兜底</td></tr>
+          <tr><td>LLM L1/L2</td><td>2×A100-80G × 2 节点(vLLM)</td><td>4 卡</td><td>候选配置。按档位测 TTFT、每请求输出速度、聚合吞吐和显存</td></tr>
           <tr><td>Redis / Kafka</td><td>16G 集群 / 按需</td><td>3 / —</td><td>缓存会话 / CDC 与在线隔离</td></tr>
         </table>
         <ul>
-          <li><b>成本粗算(月)</b>:在线 GPU 常驻 ~4 卡 ≈ 2.5~3.5 万;L3 云端兜底(12% × 100 万 × 30 ≈ 360 万次,DeepSeek 档)≈ 1~2 万;CPU/存储/可观测 ≈ 1 万 → <b>合计 ≈ 4.5~6.5 万/月</b>,折合<b>单次 ¥0.0015~0.002</b>;缓存命中再压 20~30%。对比全量走云端旗舰(单次 ¥0.08~0.12),<b>省一到两个数量级</b>——这就是模型路由存在的意义。</li>
+          <li><b>成本粗算（月）</b>。示例假设 4 张 A100 月费约 2.5～3.5 万元，L3 兜底约 360 万次/月、费用约 1～2 万元，CPU、存储和可观测约 1 万元。这些项小计 4.5～6.5 万元/月，按 3,000 万问折合约 ¥0.0015～0.0022/问。完整预算还须计入重排卡和 Embedding 卡，并按压测配置与实际用量更新。路由比例包含答案直出，成本估算中避免再次扣除同一批缓存命中。</li>
         </ul>
-        <p>延迟也是一笔账:把 P99 ≤ 2.5s 的承诺拆成各环节的开销上限,每段打点核对——和把容灾 RTO 分解到各步骤、逐步验收一个做法。</p>
+        <p>首 token 耗时（TTFT）从用户发出请求算到收到首个 token，包含检索、模型排队及预填充。整答耗时算到最后一个 token。下面是单次常规路径的示例账，峰值压测要分别统计两项 P99，并按缓存、模型档位和输出长度拆分。端到端 P99 直接从逐请求时延求分位数。</p>
         <table>
-          <tr><th>SLA 预算(P99 ≤ 2.5s 怎么花)</th><th>耗时</th><th>说明</th></tr>
+          <tr><th>单次常规生成示例</th><th>耗时</th><th>说明</th></tr>
           <tr><td>网关 + ACL 鉴权</td><td>30ms</td><td>—</td></tr>
           <tr><td>Query Rewrite</td><td>40ms</td><td>小模型</td></tr>
-          <tr><td>Recall(三路并行)</td><td>90ms</td><td>BM25/Dense 并行</td></tr>
+          <tr><td>Recall（并行）</td><td>90ms</td><td>BM25、Dense 并行，结构化召回按需</td></tr>
           <tr><td>RRF + 去重</td><td>10ms</td><td>—</td></tr>
           <tr><td>Rerank</td><td>70ms</td><td>top40 窗口</td></tr>
           <tr><td>Pack + Prompt 组装</td><td>20ms</td><td>—</td></tr>
-          <tr><td><b>LLM 首字(TTFT)</b></td><td><b>550ms</b></td><td>大头:连续批处理 + prefix cache 压</td></tr>
-          <tr><td>流式输出 350 tok</td><td>~900ms</td><td>≈ 60 tok/s</td></tr>
-          <tr><td><b>合计</b></td><td><b>P50 ≈ 1.7s</b></td><td><b>P99 ≈ 2.4s(长尾来自 L3 降级 &amp; 冷 prefix)</b></td></tr>
+          <tr><td>进入模型服务到首 token</td><td>550 ms</td><td>含模型排队、预填充和首 token</td></tr>
+          <tr><td><b>端到端 TTFT</b></td><td><b>约 0.81 秒</b></td><td>前六项 260 ms + 模型侧 550 ms，假设额外传输开销可忽略</td></tr>
+          <tr><td>流式输出至 350 token</td><td>约 5.82 秒</td><td>首 token 已计入 TTFT，剩余 349 ÷ 60 token/秒</td></tr>
+          <tr><td><b>整答端到端</b></td><td><b>约 6.63 秒</b></td><td>示例路径超过 2.5 秒的整答 P99 目标。整答 P99 待测</td></tr>
         </table>
+        <p>如果整答目标必须保持在 2.5 秒，按示例的首 token 开销和输出速度，整答最多约 102 个 token，且未留尾延迟余量。若仍需输出 350 个 token，单请求输出至少约 207 token/秒才够这个算例。也可按产品需求约定独立的首 token 目标，并为长答单列整答目标。</p>
         <p><b>10. 主动亮四个软肋(面试决胜区:多数候选人只讲 Happy Path)</b></p>
         <ul>
-          <li><b>跨文档多跳推理仍是痛点</b>:Small-to-Big + Rerank 搞定 85% 事实型,但"对比 A 制度和 B 制度在跨区调动上的差异"会漏。解法是 Agentic RAG 迭代检索("还缺 B 的附则,再取一次")——Agentic 即模型自己当调度员,发现资料不够就自己再发一轮检索;代价是延迟 1.6s → 6~9s,必须做成"深度模式"让用户手动开,像深度演练不占用日常巡检的 SLA。</li>
+          <li><b>跨文档多跳推理仍是痛点</b>:Small-to-Big + Rerank 搞定 85% 事实型,但"对比 A 制度和 B 制度在跨区调动上的差异"会漏。解法是 Agentic RAG 迭代检索("还缺 B 的附则,再取一次")——Agentic 即模型自己当调度员,发现资料不够就自己再发一轮检索;代价是多轮检索和推理会拉长整答耗时，可放进独立的深度模式，按模式分别实测。</li>
           <li><b>表格与图表是幻觉重灾区</b>:现在用"表格转结构化 JSON + Text-to-SQL 旁路",复杂合并单元格仍会错。没有银弹,只能降权 + 强制附原图截图。</li>
           <li><b>黄金集腐化</b>:组织问题不是技术问题,要拉业务方签"季度重标"SLA,否则指标全是自欺——演练预案不重演,成绩单就是自欺,一模一样。</li>
           <li><b>ACL × 语义缓存 × 多租户组合爆炸</b>:指纹一写错就是越权事故。兜底:缓存层每周跑"交叉租户回放测试"——A 的 query 套 B 的 token 打一遍,必须 100% 未命中。</li>
@@ -268,7 +269,7 @@
       </div>
 
       <div class="block fol"><span class="badge b-fol">面试官追问</span>
-        <details class="qa"><summary class="qu">Q:峰值 65 QPS,Rerank 用两张 A10 够吗?算给我看。</summary><div class="an"><b>人话:</b>够,但「够」必须算出来,不能拍胸脯——把每秒要精读的「问题×片段」对数乘出来,再除以单卡吞吐。<b>类比:</b>和算备份窗口同款手艺:总数据量 ÷ 窗口时间 ÷ 单流吞吐 = 并发流数;流不够就降规格,不是硬扛到超窗。<b>技术:</b>RRF 后取 top40 进 Rerank → 65 × 40 = 2600 pairs/s;bge-reranker-v2-m3(568M)FP8、bs=32、截断 256 tok,A10 单卡 ≈ 1000~1500 pairs/s,2 张主备分担 ≈ 2000~3000,吃得下;峰值溢出两步降级:窗口收窄到 top20(吞吐减半)、先小模型粗打分预筛再精排。主动把账摆出来,比被面试官算出来强。</div></details>
+        <details class="qa"><summary class="qu">Q:峰值 65 QPS，Rerank 用两张 A10 够吗？</summary><div class="an"><b>先算需求</b>。若每个请求都重排 40 个片段，65 × 40 = 2,600 对/秒。<b>再看实测容量</b>。A10 属于 Ampere，无原生 FP8 Tensor Core 计算，先用 FP16 跑 bge-reranker-v2-m3；例如以 batch=32、问题与片段拼接后最长 256 token 起测，并验证截断对质量的影响。假设单卡在延迟目标内实测 1,000～1,500 对/秒，双活理想合计 2,000～3,000 对/秒，区间下限吃不下峰值，即使达到上限也需核对排队和余量。一主一备或掉一张卡时只有单卡容量。把窗口收窄到 top20 后，峰值需求降为 1,300 对/秒，单卡仍须验证吞吐和质量，必要时限流或增加在线卡。</div></details>
         <details class="qa"><summary class="qu">Q:ACL 标签 2000 个、用户动态继承 12 个组,pre-filter 把 HNSW 打得碎片化,recall 掉 15 个点怎么办?</summary><div class="an"><b>人话:</b>权限条件太细,向量图每次只在零碎角落里搜,自然漏;治法不是松权限,是让「细」在写入时就折叠掉、并按权限把索引分好家。<b>类比:</b>像多租户存储把全局重删索引按租户分库——一张大索引被高选择性过滤打穿,分区后区内查找天然窄,跨区才走全局。<b>技术:</b>①物化继承:写入时把 12 个组的动态继承折叠成「生效标签集」bitmap,查询侧免运行时图遍历;②分区索引:按部门/大租户建 HNSW 分区,区内查询窄;③filter-aware 搜索参数(Milvus/Qdrant 的预取放大)补偿高选择率过滤;④受控松弛兜底:先查宽再过滤 + rerank 找回精度。红线用「ACL 泄漏率 = 0」回归集卡死:宁 recall 低,不泄漏。</div></details>
         <details class="qa"><summary class="qu">Q:业务要求秒级看到新上传文档生效,你的离线流水线怎么改?</summary><div class="an"><b>人话:</b>把「夜间批量」改成「事件驱动」:文档一落地就触发入库,同时把相关缓存立刻作废,别傻等 TTL。<b>类比:</b>就是备份从「每晚定时全量」升级成 CDP 持续数据保护的思路:变更事件实时进流、增量处理,恢复点目标从 24 小时压到秒级。<b>技术:</b>文档库 CDC → 带优先级的消息队列(新上传走高优)→ 解析/分块/嵌入在线化(与查询侧共享推理池,限流保护)→ Milvus 热索引 upsert 直写当前分区(免 alias 切换)→ ES 调 refresh_interval;三层缓存全带 content_hash/doc_version,写入完成即精确失效对应 key;大 PDF 解析是真瓶颈——异步先返「已入库,正在解析」,解析完成再可检。</div></details>
         <details class="qa"><summary class="qu">Q:语义缓存 sim 阈值 0.97 是谁定的?误命中一次造成错误答复,谁背锅?</summary><div class="an"><b>人话:</b>阈值是量出来的不是拍的:在标注数据上选「错配率近零」的工作点;误命中按线上事故管理,owner 是 RAG 平台团队。<b>类比:</b>像备份可恢复性抽检——恢复成功率不能靠自我感觉,要有抽检集和红线,超线就拦截发版,谁维护谁背锅。<b>技术:</b>在人标「同义/不同义 query 对」上画 ROC,选 FPR &lt; 0.1% 工作点,再用影子流量校准微调。三道防线:①ACL 指纹严格相同才可复用,不同权限视为不同 query;②高危域(薪酬/法务/人事)关闭语义缓存,只留精确缓存;③每周跨租户回放测试:A 的 query 套 B 的 token 打一遍,必须 100% 未命中,漏一条发版拦截。</div></details>
