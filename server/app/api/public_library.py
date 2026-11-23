@@ -242,6 +242,7 @@ async def list_questions(
     ws: Space,
     role: RoleName | None = None,
     topic: TopicName | None = None,
+    q: Annotated[str | None, Query(max_length=240)] = None,
     before: Annotated[int | None, Query(gt=0)] = None,
 ):
     query = _questions(ws.id)
@@ -249,6 +250,8 @@ async def list_questions(
         query = query.where(Question.role == role)
     if topic is not None:
         query = query.where(Question.topic == topic)
+    if q and q.strip():
+        query = query.where(Question.title.icontains(q.strip(), autoescape=True))
     if before is not None:
         query = query.where(Question.id < before)
     rows = (await db.scalars(query.order_by(Question.id.desc()).limit(51))).all()
@@ -256,6 +259,14 @@ async def list_questions(
         "questions": [_question_view(row) for row in rows[:50]],
         "next_before": rows[49].id if len(rows) > 50 else None,
     }
+
+
+@router.get("/questions/{question_id}")
+async def read_question(question_id: int, db: Db, ws: Space):
+    question = await db.scalar(_questions(ws.id).where(Question.id == question_id))
+    if question is None:
+        raise HTTPException(404, "找不到这道题。")
+    return _question_view(question)
 
 
 def _new_question(workspace_id: int, role: str, topic: str, title: str, answer: str, origin: str, **meta) -> Question:

@@ -1,3 +1,5 @@
+@import "./bank-presentation.css";
+
 /* ============ 侧边栏 ============ */
 .sidebar {
   width: var(--sidebar-w);
@@ -1181,35 +1183,6 @@ table.tbl {
   gap: 12px;
 }
 
-/* 上传区 */
-.dropzone {
-  border: 1.5px dashed var(--border);
-  border-radius: 12px;
-  padding: 30px 20px;
-  text-align: center;
-  background: var(--surface-2);
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-.dropzone:hover {
-  border-color: var(--primary);
-  background: var(--primary-50);
-}
-.dropzone-ic {
-  font-size: 26px;
-}
-.dropzone b {
-  display: block;
-  font-size: 14px;
-  color: var(--text);
-  margin-top: 6px;
-}
-.dropzone p {
-  font-size: 12px;
-  color: var(--text-4);
-  margin-top: 3px;
-}
-
 /* 步骤指示 */
 .steps {
   display: flex;
@@ -1390,54 +1363,6 @@ table.tbl {
 .filter-item.active .filter-count {
   background: var(--badge-strong);
   color: var(--primary);
-}
-
-/* 题库卡片 */
-.q-card {
-  display: flex;
-  gap: 14px;
-  padding: 15px 4px;
-  border-bottom: 1px solid var(--border-2);
-  align-items: flex-start;
-}
-.q-card:last-child {
-  border-bottom: none;
-}
-.q-id {
-  font-size: 11.5px;
-  color: var(--text-4);
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
-  padding-top: 3px;
-}
-.q-body {
-  flex: 1;
-  min-width: 0;
-}
-.q-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text);
-  cursor: pointer;
-  line-height: 1.45;
-}
-.q-title:hover {
-  color: var(--primary);
-}
-.q-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 6px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: var(--text-4);
-}
-.q-actions {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-  align-items: center;
 }
 
 /* 考试卡 */
@@ -2423,13 +2348,6 @@ table.tbl {
 }
 
 /* ── 导入面经 · 真实文件上传 ───────────────────────────── */
-.dropzone.dragover {
-  border-color: var(--primary);
-  background: var(--primary-50);
-  box-shadow: inset 0 0 0 2px var(--primary-200);
-}
-.dropzone.dragover .dropzone-ic { transform: scale(1.15); }
-.dropzone:focus-visible { outline: 2px solid var(--primary-200); outline-offset: 2px; }
 .file-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .file-item {
   display: flex; align-items: center; gap: 8px;

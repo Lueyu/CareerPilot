@@ -1,0 +1,173 @@
+/* 上传区 */
+.dropzone {
+  border: 1.5px dashed var(--border, var(--line));
+  border-radius: 12px;
+  padding: 30px 20px;
+  text-align: center;
+  background: var(--surface-2, var(--paper));
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.dropzone:hover {
+  border-color: var(--primary, var(--leaf));
+  background: var(--primary-50, var(--paper));
+}
+.dropzone-ic {
+  font-size: 26px;
+}
+.dropzone b {
+  display: block;
+  font-size: 14px;
+  color: var(--text, var(--ink));
+  margin-top: 6px;
+}
+.dropzone p {
+  font-size: 12px;
+  color: var(--text-4, var(--soft));
+  margin-top: 3px;
+}
+
+.dropzone.dragover {
+  border-color: var(--primary, var(--leaf));
+  background: var(--primary-50, var(--paper));
+  box-shadow: inset 0 0 0 2px var(--primary-200, var(--leaf));
+}
+.dropzone.dragover .dropzone-ic { transform: scale(1.15); }
+.dropzone:focus-visible { outline: 2px solid var(--primary-200, var(--leaf)); outline-offset: 2px; }
+
+/* 题库卡片 */
+.q-card {
+  display: flex;
+  gap: 14px;
+  padding: 15px 4px;
+  border-bottom: 1px solid var(--border-2, var(--line));
+  align-items: flex-start;
+}
+.q-card:last-child {
+  border-bottom: none;
+}
+.q-id {
+  font-size: 11.5px;
+  color: var(--text-4, var(--soft));
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  padding-top: 3px;
+}
+.q-body {
+  flex: 1;
+  min-width: 0;
+}
+.q-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text, var(--ink));
+  cursor: pointer;
+  line-height: 1.45;
+}
+.q-title:hover {
+  color: var(--primary, var(--leaf));
+}
+.q-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-4, var(--soft));
+}
+.q-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+
+.bank-search.inp {
+  width: 220px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.dropzone[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.52;
+}
+
+.registered-bank .q-card, .registered-bank .q-actions {
+  flex-wrap: wrap;
+}
+.registered-bank .q-body {
+  min-width: min(14rem, 100%);
+}
+.registered-bank .q-title {
+  cursor: inherit;
+}
+.registered-bank .q-extra {
+  flex-basis: 100%;
+}
+
+.card.registered-onboarding {
+  box-sizing: border-box;
+  width: 568px;
+  max-width: 100%;
+  padding: 24px;
+  border-radius: var(--radius, 12px);
+  display: grid;
+  gap: 18px;
+}
+
+.registered-onboarding h1 {
+  font-size: 24px;
+  margin: 0;
+}
+
+.registered-onboarding-fields {
+  display: grid;
+  gap: 18px;
+  justify-items: start;
+}
+
+.registered-onboarding-fields .field {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+}
+
+.registered-onboarding-directions {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.registered-onboarding-directions legend {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.registered-onboarding-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.registered-onboarding-chips .btn {
+  border-radius: 999px;
+}
+
+.registered-onboarding-example {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 12px;
+  background: var(--surface-2, var(--paper));
+  border: 1px solid var(--border, var(--line));
+  border-radius: var(--radius-sm, 8px);
+}
+
+.registered-onboarding-continue {
+  width: 100%;
+}

@@ -1,5 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { BankQuestionRow, BankSearch, BankUploadPicker } from "../components/BankPresentation";
+import "../styles/bank-presentation.css";
 import { useWorkspaceApi } from "./api";
+import { useLibraryRole, type LibraryRole, type Selection } from "./libraryRole";
+
+export { RegisteredOnboarding } from "./RegisteredOnboarding";
 
 type Mode = "study" | "interview";
 type PracticeQuestion = { id: number; title: string };
@@ -8,14 +13,6 @@ type Props = {
   onCoach: () => void;
 };
 
-type Direction = { name: string; example: string; origin: "preset" | "model" };
-type Role = {
-  role: string;
-  jd: string | null;
-  selected_topic: string | null;
-  directions: Direction[];
-};
-type Roles = { selected_role: string | null; roles: Role[] };
 type Question = PracticeQuestion & {
   role: string | null;
   topic: string;
@@ -44,7 +41,6 @@ type Candidate = CandidateEdit & {
 type ImportDraft = ImportSummary & { source_text: string; items: Candidate[] };
 type ImportPage = { imports: ImportSummary[]; next_before: number | null };
 type Privacy = { region: string; provider: string };
-type Selection = { role: string; topic: string };
 
 const messages = {
   load: "正在加载…",
@@ -87,24 +83,22 @@ function QuestionCard({
   }
 
   return (
-    <article className="card stack">
-      <div>
-        <span className="muted">{question.topic}</span>
-        <h3>{question.title}</h3>
-        {question.filename && <small className="muted">来源 · {question.filename}</small>}
-      </div>
-      <div className="actions">
+    <BankQuestionRow
+      title={question.title}
+      metadata={<>
+        <span>{question.topic}</span>
+        <span>私有</span>
+        {question.filename && <small>来源 · {question.filename}</small>}
+      </>}
+      actions={<>
         <button type="button" className="primary" onClick={() => onPractice(question, "study")}>
           学习
         </button>
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => onPractice(question, "interview")}
-        >
+        <button type="button" className="secondary" onClick={() => onPractice(question, "interview")}>
           面试
         </button>
-      </div>
+      </>}
+    >
       {question.answer && (
         <details>
           <summary>查看参考答案</summary>
@@ -135,19 +129,19 @@ function QuestionCard({
           {status && <p role="status">{status}</p>}
         </form>
       </details>
-    </article>
+    </BankQuestionRow>
   );
 }
 
 function QuestionList({
   role,
   topic,
-  revision,
+  query,
   onPractice,
 }: {
   role: string;
   topic: string | null;
-  revision: number;
+  query: string;
   onPractice: Props["onPractice"];
 }) {
   const { request } = useWorkspaceApi();
@@ -159,29 +153,24 @@ function QuestionList({
   function path(before?: number) {
     const params = new URLSearchParams({ role });
     if (topic) params.set("topic", topic);
+    if (query) params.set("q", query);
     if (before) params.set("before", String(before));
     return "/library/questions?" + params;
   }
 
   useEffect(() => {
-    let active = true;
-    const params = new URLSearchParams({ role });
-    if (topic) params.set("topic", topic);
-    request<QuestionPage>("/library/questions?" + params).then(
+    const lifetime = new AbortController();
+    request<QuestionPage>(path(), { signal: lifetime.signal }).then(
       (result) => {
-        if (active) {
-          setPage(result);
-          setError("");
-        }
+        setPage(result);
+        setError("");
       },
       (failure: unknown) => {
-        if (active) setError(errorMessage(failure));
+        if (!lifetime.signal.aborted) setError(errorMessage(failure));
       },
     );
-    return () => {
-      active = false;
-    };
-  }, [request, role, topic, revision, retry]);
+    return () => lifetime.abort();
+  }, [request, role, topic, query, retry]);
 
   async function more(before: number) {
     setLoading(true);
@@ -215,7 +204,7 @@ function QuestionList({
       )}
       {page ? (
         page.questions.length === 0 ? (
-          <p className="muted">这里还没有题。试做例题、生成起步题，或导入你自己的面经。</p>
+          <p className="muted">{query ? "没有匹配的题目" : "这里还没有题。试做例题、生成起步题，或导入你自己的面经。"}</p>
         ) : (
           <div className="stack">
             {page.questions.map((question) => (
@@ -317,7 +306,6 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
   function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!file || !selection || !privacy) return;
-    const form = event.currentTarget;
     const body = new FormData();
     body.set("file", file);
     body.set("role", selection.role);
@@ -326,7 +314,6 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
       const result = await request<ImportDraft>("/library/imports", { method: "POST", body });
       show(result);
       if (result.status === "FAILED") return;
-      form.reset();
       setFile(undefined);
       setStatus("已提取正文，可以审核候选题。");
     });
@@ -413,16 +400,20 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
           <p>
             归入「{selection.role}」的「{selection.topic}」
           </p>
-          <label>
-            选择面经文件
-            <input
-              type="file"
-              accept=".pdf,.docx,.md,.markdown"
-              disabled={!privacy || !!busy}
-              required
-              onChange={(event) => setFile(event.target.files?.[0])}
-            />
-          </label>
+          <BankUploadPicker
+            accept=".pdf,.docx,.md,.markdown"
+            description="PDF / DOCX / Markdown · 单份文件 ≤ 6 MB"
+            disabled={!privacy || !!busy}
+            onFiles={(files) => {
+              if (files && files.length > 1) {
+                setError("每次只能上传一份面经。");
+                return;
+              }
+              setFile(files?.[0]);
+              setError("");
+            }}
+          />
+          {file && <p className="muted">{file.name}</p>}
           <div className="actions">
             <button type="submit" className="primary" disabled={!privacy || !file || !!busy}>
               上传并预览
@@ -646,82 +637,17 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
 }
 
 export default function Library({ onPractice, onCoach }: Props) {
-  const { request, send } = useWorkspaceApi();
-  const [roles, setRoles] = useState<Roles>();
-  const [roleInput, setRoleInput] = useState("");
-  const [jd, setJd] = useState("");
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-  const [status, setStatus] = useState("");
-  const [retry, setRetry] = useState(0);
+  const { send } = useWorkspaceApi();
+  const {
+    roles, roleInput, setRoleInput, jd, setJd, busy, error, status, setStatus, setRetry,
+    active, direction, selection, applyRole, operate, saveRole, selectDirection,
+  } = useLibraryRole();
   const [showAll, setShowAll] = useState(false);
   const [revision, setRevision] = useState(0);
-  const active = roles?.roles.find((role) => role.role === roles.selected_role);
-  const direction = active?.directions.find((item) => item.name === active.selected_topic);
-  const selection = active && direction ? { role: active.role, topic: direction.name } : null;
-
-  useEffect(() => {
-    let mounted = true;
-    request<Roles>("/library/roles").then(
-      (result) => {
-        if (!mounted) return;
-        const selected = result.roles.find((role) => role.role === result.selected_role);
-        setRoles(result);
-        setRoleInput(selected?.role ?? "");
-        setJd(selected?.jd ?? "");
-        setError("");
-      },
-      (failure: unknown) => {
-        if (mounted) setError(errorMessage(failure));
-      },
-    );
-    return () => {
-      mounted = false;
-    };
-  }, [request, retry]);
-
-  function applyRole(role: Role, resetInputs = true) {
-    setRoles((previous) => {
-      const entries = previous?.roles ?? [];
-      return {
-        selected_role: role.role,
-        roles: entries.some((entry) => entry.role === role.role)
-          ? entries.map((entry) => (entry.role === role.role ? role : entry))
-          : [...entries, role],
-      };
-    });
-    if (resetInputs) {
-      setRoleInput(role.role);
-      setJd(role.jd ?? "");
-    }
-  }
-
-  async function operate(label: string, action: () => Promise<void>) {
-    setBusy(label);
-    setError("");
-    setStatus("");
-    try {
-      await action();
-    } catch (failure) {
-      setError(errorMessage(failure));
-    } finally {
-      setBusy("");
-    }
-  }
-
-  function saveRole(event: FormEvent) {
-    event.preventDefault();
-    const role = roleInput.trim();
-    if (!role) return;
-    void operate("正在保存岗位…", async () => {
-      applyRole(await send<Role>("/library/role", "PUT", { role, jd: jd.trim() }));
-      setShowAll(false);
-      setStatus("岗位已保存。");
-    });
-  }
+  const [query, setQuery] = useState("");
 
   return (
-    <div className="stack">
+    <div className="registered-bank stack">
       <section className="panel stack" aria-labelledby="library-role-heading">
         <div>
           <p className="eyebrow">练习计划</p>
@@ -753,7 +679,7 @@ export default function Library({ onPractice, onCoach }: Props) {
                     const role = event.target.value;
                     if (!role) return;
                     void operate("正在切换岗位…", async () => {
-                      applyRole(await send<Role>("/library/role", "PUT", { role }));
+                      applyRole(await send<LibraryRole>("/library/role", "PUT", { role }));
                       setShowAll(false);
                     });
                   }}
@@ -767,7 +693,10 @@ export default function Library({ onPractice, onCoach }: Props) {
                 </select>
               </label>
             )}
-            <form className="stack" onSubmit={saveRole}>
+            <form className="stack" onSubmit={(event) => {
+              setShowAll(false);
+              void saveRole(event);
+            }}>
               <label>
                 目标岗位
                 <input
@@ -826,18 +755,7 @@ export default function Library({ onPractice, onCoach }: Props) {
                     className={item.name === active.selected_topic ? "primary" : "secondary"}
                     aria-pressed={item.name === active.selected_topic}
                     disabled={!!busy}
-                    onClick={() =>
-                      void operate("正在选择方向…", async () => {
-                        applyRole(
-                          await send<Role>("/library/direction", "PUT", {
-                            role: active.role,
-                            topic: item.name,
-                          }),
-                          false,
-                        );
-                        setShowAll(false);
-                      })
-                    }
+                    onClick={() => void selectDirection(item.name, () => setShowAll(false))}
                   >
                     {item.name === active.selected_topic ? "已选方向" : "选择方向"}
                   </button>
@@ -854,7 +772,7 @@ export default function Library({ onPractice, onCoach }: Props) {
                 onClick={() =>
                   void operate("正在推荐练习方向…", async () => {
                     applyRole(
-                      await send<Role>("/library/directions", "POST", { role: active.role }),
+                      await send<LibraryRole>("/library/directions", "POST", { role: active.role }),
                     );
                     setStatus("已更新推荐方向。");
                   })
@@ -927,11 +845,12 @@ export default function Library({ onPractice, onCoach }: Props) {
               </button>
             )}
           </div>
+          <BankSearch value={query} onChange={setQuery} maxLength={240} />
           <QuestionList
-            key={JSON.stringify([active.role, showAll ? null : direction?.name])}
+            key={JSON.stringify([active.role, showAll ? null : direction?.name, query.trim(), revision])}
             role={active.role}
             topic={showAll ? null : (direction?.name ?? null)}
-            revision={revision}
+            query={query.trim()}
             onPractice={onPractice}
           />
         </section>

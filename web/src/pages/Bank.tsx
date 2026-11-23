@@ -1,3 +1,4 @@
+import { BankQuestionRow, BankSearch, BankUploadPicker } from '../components/BankPresentation';
 import StudyEntryButton from '../components/StudyEntryButton';
 import AnswerGuide, {type TeachingGuide} from '../components/AnswerGuide';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -171,7 +172,6 @@ export default function Bank() {
 
   // 真实文件上传
   const [files, setFiles] = useState<File[]>([]);
-  const [dragOver, setDragOver] = useState(false);
   const [importErr, setImportErr] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [sets, setSets] = useState<InterviewSet[]>([]);
@@ -191,7 +191,6 @@ export default function Bank() {
   const paperAttempts = useRef(new Map<string, string>());
   const [company, setCompany] = useState('');
   const [level, setLevel] = useState('');
-  const fileRef = useRef<HTMLInputElement>(null);
 
   // 答案预览
   const [openAns, setOpenAns] = useState<Record<number, boolean>>({});
@@ -572,25 +571,15 @@ export default function Bank() {
             <span className="card-title">
               我的题目 · {bankLoading ? '加载中…' : `${resultCount} 题`}
             </span>
-            <input
-              className="inp"
-              aria-label="搜索我的题目"
-              placeholder="搜索题目关键词…"
-              value={q}
-              onChange={(e) => {setQ(e.target.value); setPage(0);}}
-              style={{ width: 220, padding: '6px 10px', fontSize: 13 }}
-            />
+            <BankSearch value={q} onChange={(value) => {setQ(value); setPage(0);}} />
           </div>
 
           {bankLoading ? <p className="empty" role="status">正在加载我的题目…</p> : apiErr ? <p role="alert">我的题目加载失败：{apiErr} <button className="btn btn-outline btn-sm" onClick={() => setReload(value => value + 1)}>重试</button></p> : rows.length === 0 ? (
             <div className="empty"><b>没有匹配的题目</b><p>换个筛选条件试试</p></div>
           ) : (
             rows.map((r) => (
-              <div className="q-card" key={r.id}>
-                <div className="q-id">{r.id}</div>
-                <div className="q-body">
-                  <div className="q-title">{r.title}</div>
-                  <div className="q-meta">
+              <BankQuestionRow key={r.id} id={r.id} title={r.title}
+                metadata={<>
                     <span className="chip chip-green">{r.status}</span>
                     <span>{r.company}</span>
                     <span className="chip chip-slate">{TOPIC_NAME[r.topic] ?? r.topic}</span>
@@ -598,9 +587,8 @@ export default function Bank() {
                     {bankSourcePresentation(r).isPrivate && <span className="chip chip-purple">私有</span>}
                     <span className="chip chip-slate">{r.reviewOnly ? '学习聊天整理' : bankSourcePresentation(r).label}</span>
                     {r.tags?.slice(0, 2).map((t) => <span key={t} className="chip chip-slate">#{t}</span>)}
-                  </div>
-                </div>
-                <div className="q-actions">
+                </>}
+                actions={<>
                   {r.reviewOnly ? <>
                     {r.studySessionId && <Link className="btn btn-outline btn-sm" to={`/study/chat/${r.studySessionId}`}>回看学习聊天</Link>}
                     <button className="btn btn-outline btn-sm" onClick={() => openDetail(r)}>查看参考</button>
@@ -614,8 +602,8 @@ export default function Bank() {
                   <button className="btn btn-outline btn-sm" onClick={() => openDetail(r)}>查看参考</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => setMergeQ(r)}>合并重复</button>
                   </>}
-                </div>
-              </div>
+                </>}
+              />
             ))
           )}
           <div className="bank-actions bank-pagination">
@@ -812,33 +800,12 @@ export default function Bank() {
         >
           {stage === 'upload' && (
             <>
-              <div
-                className={`dropzone ${dragOver ? 'dragover' : ''}`}
-                role="button"
-                tabIndex={0}
-                onClick={() => fileRef.current?.click()}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileRef.current?.click(); }}
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
-                onDragLeave={(e) => { e.preventDefault(); setDragOver(false); }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setDragOver(false);
-                  addFiles(e.dataTransfer.files);
-                }}
-              >
-                <div className="dropzone-ic">📥</div>
-                <b>拖拽文件到这里，或点击选择</b>
-                <p>支持 PDF / DOCX / Markdown / TXT / JPG / PNG，单文件 ≤ 12MB，可多选</p>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  multiple
-                  accept=".pdf,.docx,.md,.markdown,.txt,.text,.jpg,.jpeg,.png,.webp,application/pdf,text/markdown,text/plain,image/jpeg,image/png,image/webp"
-                  style={{ display: 'none' }}
-                  onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }}
-                />
-              </div>
+              <BankUploadPicker
+                multiple
+                accept=".pdf,.docx,.md,.markdown,.txt,.text,.jpg,.jpeg,.png,.webp,application/pdf,text/markdown,text/plain,image/jpeg,image/png,image/webp"
+                description="支持 PDF / DOCX / Markdown / TXT / JPG / PNG，单文件 ≤ 12MB，可多选"
+                onFiles={addFiles}
+              />
 
               {files.length > 0 && (
                 <div className="file-list">

@@ -175,6 +175,32 @@ async def test_roles_gateway_fallback_starter_and_reload(browser):
     assert (await peer.get("roles")).json()["roles"][0]["jd"] is None
 
 
+@pytest.mark.asyncio
+async def test_question_detail_and_search_respect_workspace(browser, db_session):
+    owner, peer, _, owner_id, _ = browser
+    direction = await _role(owner)
+    example = (await owner.post("example", json=direction)).json()
+    demo = Question(
+        workspace_id=owner_id, is_demo=True, short_code=f"demo-{uuid4().hex[:20]}",
+        title="演示题", topic="用户增长",
+    )
+    db_session.add(demo)
+    await db_session.commit()
+
+    question_path = f"questions/{example['id']}"
+    response = await owner.get(question_path)
+    assert response.status_code == 200
+    assert response.json() == example
+    assert (await peer.get(question_path)).status_code == 404
+    assert (await owner.get(f"questions/{demo.id}")).status_code == 404
+    assert (await owner.get("questions/0")).status_code == 404
+
+    params = {**direction, "q": example["title"][:5]}
+    assert (await owner.get("questions", params=params)).json()["questions"] == [example]
+    assert (await peer.get("questions", params=params)).json()["questions"] == []
+    assert (await owner.get("questions", params={**params, "q": "%"})).json()["questions"] == []
+
+
 @pytest.fixture
 def starter_provider(browser, monkeypatch):
     from app.services import public_model
