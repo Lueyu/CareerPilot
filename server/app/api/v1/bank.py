@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 import time
-from typing import Annotated, Any
+from typing import Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -34,6 +33,8 @@ from app.services.answer_gen import generate_answer
 from app.services.answer_guides import current_reference, example_for
 from app.services.answer_guides import for_question as teaching_guide_for
 from app.services.experienced_bank import is_owned_question, list_installed_pack, owned_question_clause
+from app.services.interview_import_text import extract_structured_questions as _extract_structured_questions
+from app.services.interview_import_text import read_json
 from app.services.interview_rewrite import rewrite_interview_questions
 from app.services.llm import AgentAdapter
 from app.services.project_context import PROFILE_LABELS, project_profile
@@ -620,21 +621,7 @@ SKILL_KEYS = ("agent", "tools", "memory", "rag", "eval", "backend", "reliability
 
 def _parse_llm_questions(content: str) -> list[dict]:
     """把 LLM 返回的 JSON 文本(可能带 ``` 围栏 / 包在对象里)解析成题目列表。"""
-    text = (content or "").strip()
-    text = re.sub(r"^```(?:json)?\s*|```$", "", text, flags=re.MULTILINE).strip()
-    data: Any
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        # 容错: 截取第一个 [ 或 { 到最后一个 ] 或 }
-        start = min([i for i in (text.find("["), text.find("{")) if i >= 0], default=-1)
-        end = max(text.rfind("]"), text.rfind("}"))
-        if start < 0 or end <= start:
-            return []
-        try:
-            data = json.loads(text[start : end + 1])
-        except json.JSONDecodeError:
-            return []
+    data = read_json(content)
     items = data.get("questions") if isinstance(data, dict) else data
     if not isinstance(items, list):
         return []
@@ -656,45 +643,6 @@ def _parse_llm_questions(content: str) -> list[dict]:
             }
         )
     return out[:20]
-
-
-QA_HEAD = re.compile(r"^\s*(?:问|问题|Q|q)\s*[:：]\s*(.+)$")
-NUMBERED_HEAD = re.compile(r"^\s*[0-9]+[.、]\s*(\S.+)$")
-
-
-def _extract_structured_questions(text: str) -> list[dict]:
-    """按原文顺序提取问答和编号题，保留问答的原文答案。"""
-    items: list[dict] = []
-    cur_q: str | None = None
-    buf: list[str] = []
-    has_qa = False
-    for ln in text.splitlines():
-        qa = QA_HEAD.match(ln)
-        numbered = NUMBERED_HEAD.match(ln)
-        title = numbered.group(1).strip() if numbered and 6 <= len(ln.strip()) <= 120 else ""
-        # 答案里的编号步骤可能叙述“检查系统是如何工作的”。
-        numbered_question = title and (
-            cur_q is None or title.endswith(("?", "？"))
-            or (title.startswith(("什么", "如何", "怎么", "为什么")) and not title.endswith(("。", ".")))
-        )
-        if qa or numbered_question:
-            if cur_q and len(cur_q) >= 6:
-                items.append({"title": cur_q[:200], "answer": "\n".join(buf).strip(), "confidence": 0.7})
-                has_qa = True
-            cur_q, buf = None, []
-            if qa:
-                cur_q = qa.group(1).strip()
-            else:
-                items.append({"title": title, "answer": "", "confidence": 0.55 if title.endswith(("?", "？")) else 0.4})
-            continue
-        if cur_q is not None:
-            if ln.strip().startswith(("答", "A:", "A：", "a:")):
-                ln = ln.split("：", 1)[-1].split(":", 1)[-1].strip()
-            buf.append(ln)
-    if cur_q and len(cur_q) >= 6:
-        items.append({"title": cur_q[:200], "answer": "\n".join(buf).strip(), "confidence": 0.7})
-        has_qa = True
-    return items if has_qa else []
 
 
 async def _extract_questions(text: str) -> list[dict]:

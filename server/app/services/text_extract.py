@@ -73,12 +73,14 @@ def _clean(text: str) -> str:
     return text.strip()
 
 
-def _from_pdf(raw: bytes) -> tuple[str, str]:
+def _from_pdf(raw: bytes, page_limit: int | None = None) -> tuple[str, str]:
     try:
         from pypdf import PdfReader
     except ImportError:  # pragma: no cover - 依赖缺失时给出可操作提示
         raise RuntimeError("服务端未安装 pypdf, 无法解析 PDF（pip install pypdf）")
     reader = PdfReader(io.BytesIO(raw))
+    if page_limit is not None and len(reader.pages) > page_limit:
+        raise RuntimeError(f"PDF 超过 {page_limit} 页，请拆分后再上传")
     pages = []
     for page in reader.pages:
         try:
@@ -94,18 +96,24 @@ def _from_pdf(raw: bytes) -> tuple[str, str]:
     return text, warning
 
 
-def _from_docx(raw: bytes) -> tuple[str, str]:
+def _from_docx(raw: bytes, *, linear: bool = False) -> tuple[str, str]:
     try:
         import docx  # python-docx
     except ImportError:  # pragma: no cover
         raise RuntimeError("服务端未安装 python-docx, 无法解析 DOCX（pip install python-docx）")
     document = docx.Document(io.BytesIO(raw))
-    parts: list[str] = [p.text for p in document.paragraphs if p.text.strip()]
-    for table in document.tables:
-        for row in table.rows:
-            cells = [c.text.strip() for c in row.cells if c.text.strip()]
-            if cells:
-                parts.append(" | ".join(cells))
+    if linear:
+        from docx.oxml.ns import qn
+        from docx.text.paragraph import Paragraph
+
+        parts = [Paragraph(node, document).text for node in document.element.body.iter(qn("w:p"))]
+    else:
+        parts: list[str] = [p.text for p in document.paragraphs if p.text.strip()]
+        for table in document.tables:
+            for row in table.rows:
+                cells = [c.text.strip() for c in row.cells if c.text.strip()]
+                if cells:
+                    parts.append(" | ".join(cells))
     text = _clean("\n".join(parts))
     if not text:
         raise RuntimeError("DOCX 中没有可提取的文字")
@@ -151,7 +159,7 @@ def _from_image(raw: bytes) -> tuple[str, str]:
     return _clean("\n".join(lines)), ""
 
 
-def extract_one(name: str, raw: bytes) -> ExtractedFile:
+def extract_one(name: str, raw: bytes, *, pdf_page_limit: int | None = None, linear_docx: bool = False) -> ExtractedFile:
     """解析单个文件; 永远返回 ExtractedFile, 不抛异常。"""
     lower = name.lower()
     suffix = "." + lower.rsplit(".", 1)[-1] if "." in lower else ""
@@ -166,9 +174,9 @@ def extract_one(name: str, raw: bytes) -> ExtractedFile:
 
     try:
         if suffix == ".pdf":
-            text, warning = _from_pdf(raw)
+            text, warning = _from_pdf(raw, pdf_page_limit)
         elif suffix == ".docx":
-            text, warning = _from_docx(raw)
+            text, warning = _from_docx(raw, linear=linear_docx)
         elif suffix == ".doc":
             item.error = "旧版 .doc 暂不支持，请另存为 .docx 或粘贴文本"
             return item
