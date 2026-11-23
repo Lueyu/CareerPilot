@@ -1,0 +1,13 @@
+ARG SEED_NODE_BASE=node:22-alpine
+ARG SEED_CADDY_BASE=caddy:2-alpine
+FROM ${SEED_NODE_BASE} AS build
+
+ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org
+WORKDIR /build
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY . .
+RUN npm run build:seed && test -f dist-seed/index.html
+
+FROM ${SEED_CADDY_BASE}
+COPY --from=build /build/dist-seed/ /srv/seed/

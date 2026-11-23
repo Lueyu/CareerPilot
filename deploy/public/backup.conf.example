@@ -1,0 +1,3 @@
+# Install as /etc/careerpilot-seed/backup.conf with mode 0600.
+SEED_BACKUP_RECIPIENT=
+SEED_BACKUP_TARGET=

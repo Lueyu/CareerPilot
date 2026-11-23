@@ -1,0 +1,30 @@
+{$SEED_HOST} {
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+	}
+
+	@seed_api path /api/v1 /api/v1/*
+	handle @seed_api {
+		# Keep compression off this handler. Caddy flushes text/event-stream immediately.
+		reverse_proxy api:8000
+	}
+	@other_api path /api /api/*
+	handle @other_api {
+		respond 404
+	}
+
+	handle /assets/* {
+		root * /srv/seed
+		encode zstd gzip
+		file_server
+	}
+
+	handle {
+		root * /srv/seed
+		encode zstd gzip
+		try_files {path} /index.html
+		file_server
+	}
+}

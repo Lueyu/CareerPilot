@@ -1,0 +1,13 @@
+**
+!requirements.txt
+!app/__init__.py
+!app/config.py
+!app/db.py
+!app/public_main.py
+!app/api/__init__.py
+!app/api/public_*.py
+!app/models/*.py
+!app/services/__init__.py
+!app/services/interview_import_text.py
+!app/services/text_extract.py
+!app/services/public_*.py

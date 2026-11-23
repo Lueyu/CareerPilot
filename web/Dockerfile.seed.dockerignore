@@ -1,0 +1,13 @@
+**
+!package.json
+!package-lock.json
+!tsconfig.json
+!vite.seed.config.ts
+!seed/index.html
+!src/seed/**/*.ts
+!src/seed/**/*.tsx
+!src/seed/**/*.css
+**/*.test.*
+**/*.spec.*
+**/fixtures/
+**/.*

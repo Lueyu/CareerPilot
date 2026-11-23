@@ -1,0 +1,102 @@
+name: careerpilot-seed
+
+services:
+  db:
+    image: ${SEED_POSTGRES_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${SEED_DB_NAME:-careerpilot_seed}
+      POSTGRES_USER: seed_admin
+      POSTGRES_PASSWORD: ${SEED_DB_ADMIN_PASSWORD:?set a dedicated PostgreSQL admin password}
+      SEED_DB_PASSWORD: ${SEED_DB_PASSWORD:?set a separate PostgreSQL application password}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/10-seed-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [db_net]
+
+  api:
+    image: careerpilot-seed-api:${SEED_RELEASE_TAG:?set the integrated release commit}
+    build:
+      context: ../../server
+      dockerfile: Dockerfile.seed
+      args:
+        SEED_PYTHON_BASE: ${SEED_PYTHON_BASE:-python:3.12-slim}
+        PIP_INDEX_URL: ${SEED_PIP_INDEX_URL:-https://pypi.org/simple}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://seed_app:${SEED_DB_PASSWORD:?set a dedicated application password}@db:5432/${SEED_DB_NAME:-careerpilot_seed}
+      DEBUG: "false"
+      SEED_PUBLIC_ORIGIN: ${SEED_PUBLIC_ORIGIN:?set the exact HTTPS browser origin}
+      SEED_SESSION_SECRET: ${SEED_SESSION_SECRET:?set a dedicated session secret}
+      SEED_MODEL_BASE_URL: ${SEED_MODEL_BASE_URL:?set the provider HTTPS API base}
+      SEED_MODEL_KEY: ${SEED_MODEL_KEY:?set the dedicated beta provider key}
+      SEED_MODEL_NAME: ${SEED_MODEL_NAME:?set the provider model name}
+      SEED_INPUT_CNY_PER_MILLION: ${SEED_INPUT_CNY_PER_MILLION:?set the input rate}
+      SEED_OUTPUT_CNY_PER_MILLION: ${SEED_OUTPUT_CNY_PER_MILLION:?set the output rate}
+      SEED_MONTHLY_CNY: ${SEED_MONTHLY_CNY:?set the site monthly cap}
+      SEED_DAILY_USER_CNY: ${SEED_DAILY_USER_CNY:?set the per-user daily cap}
+      SEED_STORAGE_REGION: ${SEED_STORAGE_REGION:?set the actual storage region}
+      SEED_MODEL_PROVIDER_LABEL: ${SEED_MODEL_PROVIDER_LABEL:?set the actual provider label}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          from http.client import HTTPConnection
+          from os import environ
+          from urllib.parse import urlsplit
+
+          host = urlsplit(environ["SEED_PUBLIC_ORIGIN"]).netloc
+          connection = HTTPConnection("127.0.0.1", 8000, timeout=2)
+          connection.request("GET", "/healthz", headers={"Host": host})
+          raise SystemExit(connection.getresponse().status != 200)
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    networks: [db_net, web_net]
+
+  web:
+    image: careerpilot-seed-web:${SEED_RELEASE_TAG:?set the integrated release commit}
+    build:
+      context: ../../web
+      dockerfile: Dockerfile.seed
+      args:
+        SEED_NODE_BASE: ${SEED_NODE_BASE:-node:22-alpine}
+        SEED_CADDY_BASE: ${SEED_CADDY_BASE:-caddy:2-alpine}
+        NPM_CONFIG_REGISTRY: ${SEED_NPM_REGISTRY:-https://registry.npmjs.org}
+    restart: unless-stopped
+    environment:
+      SEED_HOST: ${SEED_HOST:?set the host name only}
+    ports:
+      - "${SEED_BIND_ADDRESS:-0.0.0.0}:${SEED_HTTP_PORT:-80}:80"
+      - "${SEED_BIND_ADDRESS:-0.0.0.0}:${SEED_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [web_net]
+
+networks:
+  db_net:
+    internal: true
+  web_net:
+
+volumes:
+  pg_data:
+  caddy_data:
+  caddy_config:

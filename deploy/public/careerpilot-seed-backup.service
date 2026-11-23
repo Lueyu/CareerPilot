@@ -1,0 +1,12 @@
+[Unit]
+Description=Back up the CareerPilot public beta database
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/careerpilot-seed/backup.conf
+ExecStart=/opt/careerpilot-seed/current/backup.sh
+PrivateTmp=true
+UMask=0077
