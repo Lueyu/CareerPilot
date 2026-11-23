@@ -161,6 +161,23 @@ def test_hallucinated_quotes_and_message_ids_fail_instead_of_saving():
         with pytest.raises(service.GenerationError):
             service.render_note(output, snapshot)
 
+
+def test_quote_matching_tolerates_whitespace_differences():
+    # 模型引文常因换行/连续空格与原文不一致，仅空白差异应视为可接受的引用。
+    snapshot = [{"id": 7, "session_id": 8, "role": "assistant",
+                 "text": "第一行结论。\n\n第二行\n细节与结尾。", "materials": []}]
+    for quote in ["第一行结论。", "第二行\n\n细节", "第一行结论。\n\n第二行", "  第二行\n细节  "]:
+        output = service.NoteOutput(title="笔记", points=[service.NotePoint(kind="explanation", text="结论",
+                                     citations=[service.Citation(message_id=7, quote=quote)])])
+        body, sources = service.render_note(output, snapshot)
+        assert sources and sources[0]["quote"] == quote
+        assert "## 核心解释" in body
+    # 顺序或内容不同的引文仍然拒绝。
+    output = service.NoteOutput(title="笔记", points=[service.NotePoint(kind="explanation", text="结论",
+                                 citations=[service.Citation(message_id=7, quote="结尾。第一行")])])
+    with pytest.raises(service.GenerationError):
+        service.render_note(output, snapshot)
+
 @pytest.mark.asyncio
 async def test_overlapping_card_requests_generate_once(db_session, test_workspace, monkeypatch):
     import asyncio
