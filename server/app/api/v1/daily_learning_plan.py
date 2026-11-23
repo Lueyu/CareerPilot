@@ -13,14 +13,13 @@ from app.models.learning_feedback import LearningGoal
 from app.services.daily_learning_plan import (
     AGENT_INTERVIEW_SPRINT,
     DEFAULT_CAPACITY,
-    DEFAULT_DEADLINE,
     MAX_DAYS,
     PREFERENCE_KEY,
     PlanItem,
-    build_plan,
     next_workday,
     pace_baseline,
 )
+from app.services.personal_daily_learning_plan import DEFAULT_DEADLINE, build_plan
 from app.services.task_memory import record_daily_plan_evidence
 
 router = APIRouter(prefix='/learning/daily-plan', tags=['daily-learning-plan'])

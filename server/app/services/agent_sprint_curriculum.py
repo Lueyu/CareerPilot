@@ -1,19 +1,6 @@
 """Weekday curriculum for the November–December Agent sprint."""
 
-from dataclasses import dataclass
-
-
-@dataclass(frozen=True)
-class SprintBlock:
-    """One practice block, with its day counted in weekdays from November 20."""
-
-    key: str
-    day: int
-    stage: str
-    title: str
-    minutes: int
-    criteria: str
-    prerequisite: str | None = None
+from app.services.daily_learning_plan import SprintBlock
 
 
 _FOUNDATION = "Agent 基础"

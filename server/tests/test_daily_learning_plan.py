@@ -9,8 +9,9 @@ from pydantic import ValidationError
 from app.api.v1 import daily_learning_plan as api
 from app.api.v1.memory import delete_memory, list_memory
 from app.models import LearningTask, Workspace
-from app.services import daily_learning_plan as planner
-from app.services.daily_learning_plan import DEFAULT_DEADLINE, PlanItem, build_plan, curriculum
+from app.services import personal_daily_learning_plan as planner
+from app.services.daily_learning_plan import PlanItem
+from app.services.personal_daily_learning_plan import DEFAULT_DEADLINE, build_plan, curriculum
 
 TODAY = date(2026, 11, 18)
 
