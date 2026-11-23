@@ -200,6 +200,7 @@ export default function Bank() {
   const [detailHtml, setDetailHtml] = useState<string | null>(null);
   const [trustedDetail, setTrustedDetail] = useState(false);
   const [guide, setGuide] = useState<TeachingGuide | null>(null);
+  const [beginnerExample, setBeginnerExample] = useState<string | null>(null);
   const [detailLoading,setDetailLoading]=useState(false);
   const detailRequest=useRef(0);
   const [detailBusy, setDetailBusy] = useState(false);
@@ -452,7 +453,7 @@ export default function Bank() {
   /** 打开题目详情: 拉真实答案(私有题无静态 html) */
   const openDetail = async (r: ReferenceQuestion) => {
     const request=++detailRequest.current;
-    setDetail(r);setDetailHtml(null);setGuide(null);setTrustedDetail(false);setDetailErr(null);setDetailLoading(true);
+    setDetail(r);setDetailHtml(null);setGuide(null);setBeginnerExample(null);setTrustedDetail(false);setDetailErr(null);setDetailLoading(true);
     try {
       const d = await api.get<QuestionDetail>(`/bank/${encodeURIComponent(r.id)}`);
       const answer = d.answer_html || null;
@@ -468,6 +469,7 @@ export default function Bank() {
       if (request !== detailRequest.current) return;
       setTrustedDetail(answer === bundled);
       setGuide(d.teaching_guide ?? null);
+      setBeginnerExample(d.beginner_example ?? null);
       setDetailHtml(answer);
     } catch(e) {
       if(request===detailRequest.current)setDetailErr(`参考读取失败：${e instanceof Error?e.message:String(e)}。辅助记录未确认，暂不展示参考内容。`);
@@ -641,7 +643,7 @@ export default function Bank() {
           {generalDetail && <p className="hint">{generalDetail.reviewOnly ? '个人复习题 · 来自学习聊天' : bankSourcePresentation(generalDetail).isPrivate ? `个人题库 · ${bankSourcePresentation(generalDetail).label}`:'共享题库只读；需要结合项目改写时，可在面经工作台导入并审核为个人题目。'}</p>}
           {detailErr && <div role="alert" className="demo-banner demo-banner-err" style={{ marginBottom: 10 }}>{detailErr}</div>}
           {practiceError?.id === detail.id && <p role="alert">{practiceError.message}</p>}
-          {guide && <AnswerGuide guide={guide} />}
+          {guide ? <AnswerGuide guide={guide} beginnerExample={beginnerExample} /> : beginnerExample && <section className="teaching-guide" aria-label="入门例子"><h3>先看一个生活里的例子</h3><p>{beginnerExample}</p></section>}
           <p className="hint">{generalDetail ? '查看参考后，该题族不再用于未辅助独立复测；仍可用于带辅助的学习和练习。' : '读取参考会记录这道题的辅助条件。建议先作答，再对照参考。'}</p>
           {detailLoading?<p role="status">正在记录辅助条件并读取参考…</p>:detailErr?<button className="btn btn-outline" onClick={()=>openDetail(detail)}>重新读取参考</button>:detailHtml ? (
             <>

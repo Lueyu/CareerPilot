@@ -13,11 +13,11 @@ export interface TeachingGuide {
   check: {question: string; answer: string};
 }
 
-export default function AnswerGuide({guide}: {guide: TeachingGuide}) {
+export default function AnswerGuide({guide, beginnerExample}: {guide: TeachingGuide; beginnerExample?: string | null}) {
   return <section className="teaching-guide" aria-label="从零理解这道题">
     <h3>从零理解这道题</h3>
     <p>{guide.plain}</p>
-    <p className="guide-analogy"><strong>打个比方</strong> {guide.analogy}</p>
+    <p className="guide-analogy"><strong>打个比方</strong> {beginnerExample || guide.analogy}</p>
     <figure>
       <figcaption>顺着流程看一遍</figcaption>
       <ol className="guide-flow">{guide.flow.map((node, i) => <li key={i}>{node}</li>)}</ol>

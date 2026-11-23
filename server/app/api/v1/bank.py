@@ -20,7 +20,7 @@ from app.db import SessionLocal, get_session
 from app.models import Exam, ImportItem, ImportSession, Project, Question, Skill, Trace, Workspace
 from app.models.question import STUDY_CHAT_REVIEW_META
 from app.services.answer_gen import generate_answer
-from app.services.answer_guides import for_question as teaching_guide_for
+from app.services.answer_guides import current_reference, example_for, for_question as teaching_guide_for
 from app.services import bank_review_actions as review_actions
 from app.services.experienced_bank import is_owned_question, list_installed_pack, owned_question_clause
 from app.services.interview_rewrite import rewrite_interview_questions
@@ -198,7 +198,8 @@ async def bank_detail(
         raise HTTPException(status_code=404, detail="question not found")
     from app.services.learning_exposure import record_reference_exposure
     teaching_guide = teaching_guide_for(question)
-    if question.answer_html or question.rubric or teaching_guide:
+    beginner_example = example_for(question)
+    if question.answer_html or question.rubric or teaching_guide or beginner_example:
         await record_reference_exposure(session, ws, question, source='bank_detail')
         await session.commit()
     return {
@@ -210,7 +211,8 @@ async def bank_detail(
         "skill": question.skill.name if question.skill else None,
         "difficulty": question.difficulty,
         "options": question.options,
-        "answer_html": question.answer_html,
+        "answer_html": current_reference(question),
+        "beginner_example": beginner_example,
         "teaching_guide": teaching_guide,
         "rubric": question.rubric,
         "company": question.company,

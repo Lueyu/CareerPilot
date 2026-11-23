@@ -12,7 +12,7 @@ from app.db import get_session
 from app.models import Workspace
 from app.models.project import Project
 from app.models.study_chat import StudyMessage, StudySession
-from app.services.answer_guides import for_question as teaching_guide_for
+from app.services.answer_guides import example_for, for_question as teaching_guide_for
 from app.services.learning_exposure import record_reference_exposure
 from app.services.study_chat import expire_generations, generate_reply, lease_deadline, teaching_action
 from app.services.study_chat_context import current_skill_sources, entry_context, excerpt, project_sources, topic_skills, visible_question
@@ -189,11 +189,15 @@ async def mark_help(session, ws, row, question_text):
         if question:
             await record_reference_exposure(session, ws, question, source="study_chat_explanation")
             guide = teaching_guide_for(question)
+            example = example_for(question)
             if guide:
                 return excerpt("teaching_guide", question.id, "本题导读与教学示例", {
                     "白话": guide.plain, "流程": guide.flow, "例子": guide.example,
+                    "比方": example or guide.analogy,
                     "提议的项目练习": guide.project.model_dump(),
                 }, "teaching_material")
+            if example:
+                return excerpt("teaching_guide", question.id, "本题的入门例子", example, "teaching_material")
 
 
 @router.post("/{session_id}/messages", status_code=202)

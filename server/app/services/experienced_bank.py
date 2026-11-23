@@ -95,7 +95,7 @@ def is_owned_question(question: Question) -> bool:
     )
 
 
-def _answer_html(question: AuthoredQuestion) -> str:
+def render_answer_html(question: AuthoredQuestion) -> str:
     def paragraph(text: str) -> str:
         return "<p>" + escape(text).replace("\n", "<br>") + "</p>"
 
@@ -129,7 +129,7 @@ async def install_pack(session: AsyncSession, skills: dict[str, Skill]) -> tuple
                 "topic": domain.name,
                 "skill_id": skill.id,
                 "difficulty": 3 if question.level == "mid" else 4,
-                "answer_html": _answer_html(question),
+                "answer_html": render_answer_html(question),
                 "rubric": {"max_points": 5.0, "points": [
                     {"title": criterion if len(criterion) <= 200 else f"{criterion[:190]}…（{index}）",
                      "detail": criterion}

@@ -29,6 +29,7 @@ from app.models import (
 )
 from app.services.competency import recompute_skill_states
 from app.services.experienced_bank import install_pack
+from app.services.answer_guides import update_published_references
 from app.services.planner import plan_tasks_for_workspace
 from app.services.tracing import add_span, finish_trace, start_trace
 from app.services.workspaces import ensure_personal_workspace
@@ -189,6 +190,7 @@ async def seed(*, include_demo: bool = False) -> None:
                 await session.execute(insert(Question).values(missing).on_conflict_do_nothing(index_elements=[Question.short_code]))
 
         created, existing, collisions = await install_pack(session, skills)
+        await update_published_references(session)
         print(f"[seed] experienced bank: {created} created, {existing} already installed, {len(collisions)} collisions")
         for code in collisions:
             print(f"[seed] experienced bank short_code collision: {code!r} (existing row kept)")

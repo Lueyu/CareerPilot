@@ -21,6 +21,7 @@ from app.api.v1 import bank, exams
 from app.db import get_session
 from app.models import CompetencySnapshot, Event, Evidence, Exam, ExamQuestion, LearningTask, Question, ScoringRun, Skill, Workspace
 from app.services import assessment_jobs, assessment_worker, experienced_bank
+from app.services import answer_guides
 from app.services.answer_guides import for_question, published_guides
 from app.services.learning_exposure import EVENT_KIND
 from test_assessment_reliability import result_for
@@ -45,17 +46,39 @@ def test_tutorials_are_bound_to_the_published_question():
     originals = experienced_bank.original_identities()
     guides = published_guides()
     assert authored <= guides.keys() <= authored | originals.keys()
+    assert answer_guides.beginner_examples().keys() == originals.keys()
     assert {g.project.name for g in guides.values()} == {"AIDR", "Squabble", "CareerPilot"}
     code = "rag-001"
     title, topic = originals[code]
     row = Question(short_code=code, title=title, topic=topic, qtype="open",
                    source_type="PUBLIC_LICENSED", is_demo=False)
     assert for_question(row) == guides[code]
+    assert answer_guides.example_for(row)
     row.workspace_id = 7
     assert for_question(row) is None
+    assert answer_guides.example_for(row) is None
     row.workspace_id = None
     row.title = "An unrelated question"
     assert for_question(row) is None
+
+
+def test_reference_corrections_only_apply_to_unedited_shared_originals(monkeypatch):
+    from hashlib import sha256
+
+    code = "rag-001"
+    old_html = "<p>Original published reference</p>"
+    corrected = json.loads(seed.BANK_PATH.read_text(encoding="utf-8"))["questions"]
+    expected_html = next(item["html"] for item in corrected if item["id"] == code)
+    monkeypatch.setitem(answer_guides.PREVIOUS_REFERENCE_DIGESTS, code, sha256(old_html.encode()).hexdigest())
+    title, topic = experienced_bank.original_identities()[code]
+    row = Question(short_code=code, title=title, topic=topic, qtype="open",
+                   source_type="PUBLIC_LICENSED", is_demo=False, answer_html=old_html)
+    assert answer_guides.current_reference(row) == expected_html
+    row.workspace_id = 5
+    assert answer_guides.current_reference(row) == old_html
+    row.workspace_id = None
+    row.answer_html = "<p>Locally edited reference</p>"
+    assert answer_guides.current_reference(row) == row.answer_html
 
 
 def test_shipped_legacy_mapping_covers_each_original_once():
