@@ -13,6 +13,7 @@ Evidence-driven career growth platform for AI engineers
 
 ## 更多文档
 
+- [学习助手 Auto 路由、资料召回和故障恢复实测](docs/auto-routing.md)
 - [架构与接口审计（AI 报告归档）](docs/ai-reports/README.md)
 - [公开内容发布设计与安全红线（AI 报告归档）](docs/ai-reports/05-architecture/README.md) · [部署指南](LOCAL_DEPLOYMENT_GUIDE.md)
 
