@@ -1,17 +1,27 @@
 # CareerPilot Auto offline quality
 
-From this repository root, run the scorer with the existing CareerPilot server environment.
+Run both suites from this repository root with the CareerPilot server environment.
 
 ```powershell
 $python = 'D:/agent-interview/server/.venv/Scripts/python.exe'
-$reportDir = Join-Path ([System.IO.Path]::GetTempPath()) 'careerpilot-auto-quality'
-New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
-& $python server/acceptance/auto_quality.py --baseline 70660b2 --output (Join-Path $reportDir 'baseline.json')
-& $python server/acceptance/auto_quality.py --output (Join-Path $reportDir 'candidate.json')
+$out = Join-Path ([System.IO.Path]::GetTempPath()) 'careerpilot-auto-quality'
+New-Item -ItemType Directory -Force -Path $out | Out-Null
+$frozenRouter = 'ddf3be9076b4c9706528ec6755b257707c40762bb888313565abb29540d6a33f'
+foreach ($suite in 'primary', 'confirmation') {
+    & $python server/acceptance/auto_quality.py --suite $suite --baseline 70660b2 --output (Join-Path $out "$suite-baseline.json")
+    if ($LASTEXITCODE -ne 0) { throw "Baseline failed for $suite" }
+    & $python server/acceptance/auto_quality.py --suite $suite --expect-policy-version study-auto-v2.2 --expect-router-sha256 $frozenRouter --output (Join-Path $out "$suite-candidate.json")
+    if ($LASTEXITCODE -ne 0) { throw "Candidate failed for $suite" }
+}
 ```
 
-The baseline archives the exact dev commit. The candidate snapshots the current `server/app` working tree. Both use `auto_quality_v1.json` beside the runner. A run returns nonzero if a case errors or the fixture digest differs from the frozen value. The JSON records the source and runner digests, aggregate metrics, strata, and per-case results.
+The baseline archives the exact dev commit. The candidate snapshots the current `server/app` working tree. The two candidate checks require the frozen router bytes and the expected policy version on every production routing trace. When evaluating a later snapshot, choose the expected version and router digest for that snapshot. Each JSON records suite identity, source and scorer digests, aggregate metrics, strata, and per-case outcomes.
 
-The expected fixture SHA-256 is `e55a67f83a1b620bff605762b63a3ab5fc7ddfbc43ce26fcac99c6e95f92340d`. Keep the adjacent `.gitattributes` with the fixture. Its `-text` rule turns off Git line-ending conversion for that path, including checkouts with `core.autocrlf=true`. Check the bytes with `Get-FileHash server/acceptance/auto_quality_v1.json`. Verify the attribute with `git check-attr text -- server/acceptance/auto_quality_v1.json` and check for `unset`.
+| Suite | Adjacent fixture | SHA-256 |
+| --- | --- | --- |
+| Primary | `auto_quality_v1.json` | `e55a67f83a1b620bff605762b63a3ab5fc7ddfbc43ce26fcac99c6e95f92340d` |
+| Confirmation | `auto_quality_confirmation_v1.json` | `f3bc87e8135a3711d153beb8d62f55095e1c1e580f42cdcf7a5d9e0c6ac056c9` |
 
-The runner uses synthetic rows and repositories. It evaluates initial model tier and evidence retrieval with no PostgreSQL service, model credentials, or provider calls. Keep the frozen labels separate from implementation tuning.
+Keep the adjacent `.gitattributes` with both fixtures. Its `-text` rules disable Git line-ending conversion for these paths, including checkouts with `core.autocrlf=true`. Use `Get-FileHash` for the file SHA-256. Use `git check-attr text -- server/acceptance/auto_quality_v1.json server/acceptance/auto_quality_confirmation_v1.json` to verify that both text attributes are unset.
+
+Both suites run offline with synthetic rows and repositories. The primary suite evaluates initial tier and retrieval. The confirmation suite evaluates initial tier on new questions and returns zero retrieval cases. Keep judgement labels and case results out of future policy tuning.

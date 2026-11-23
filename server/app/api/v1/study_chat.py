@@ -305,9 +305,13 @@ async def owned_reply(session, row, message_id):
 
 
 @router.post("/{session_id}/messages/{message_id}/interrupt")
-async def interrupt(session_id: int, message_id: int, session: Db, ws: Owner):
+async def interrupt(session_id: int, message_id: int, session: Db, ws: Owner,
+                    expected_attempt: Annotated[int | None, Query(ge=1)] = None):
     row = await owned(session, ws.id, session_id, lock=True)
     user_id, reply = await owned_reply(session, row, message_id)
+    if expected_attempt is not None and expected_attempt != reply.attempt:
+        await session.commit()
+        return ticket(user_id, reply)
     if reply.status == "generating":
         reply.content = interrupt_content(reply)
         reply.coach = {**reply.coach, "trace": {**reply.coach.get("trace", {}), "stage": "interrupted", "error_kind": "cancelled"}}
@@ -337,8 +341,8 @@ async def retry(session_id: int, message_id: int, tasks: BackgroundTasks, sessio
     await mark_help(session, ws, row, question_text)
     previous_trace = dict(reply.coach.get("trace", {}))
     calls = list(previous_trace.get("calls", []))
-    if calls and reply.content:
-        calls[-1] = {**calls[-1], "saved_output": reply.content[:16000], "error": calls[-1].get("error") or reply.error}
+    if calls and calls[-1].get("attempt") == reply.attempt and reply.content:
+        calls[-1] = {**calls[-1], "saved_output": reply.content[:16000]}
     previous_trace.pop("latency", None)
     reply.coach = {**reply.coach, "trace": {**previous_trace, "calls": calls, "stage": "queued", "error_kind": None}}
     reply.attempt += 1

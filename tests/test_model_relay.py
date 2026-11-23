@@ -138,12 +138,12 @@ def test_invalid_calls_never_reach_provider(relay, path, payload, headers, statu
     assert requests == []
 
 
-@pytest.mark.parametrize("prompt", ["provider redirect", "provider failure"])
-def test_upstream_errors_never_redirect_or_expose_provider_body(relay, prompt):
+@pytest.mark.parametrize(("prompt", "expected"), [("provider redirect", 502), ("provider failure", 400)])
+def test_upstream_errors_never_redirect_or_expose_provider_body(relay, prompt, expected):
     client, requests, _ = relay
     payload = {**PAYLOAD, "messages": [{"role": "user", "content": prompt}]}
     response = client.post(ROUTE, json=payload, headers=AUTH)
-    assert response.status_code == 502
+    assert response.status_code == expected
     assert KEY not in response.text
     assert "location" not in response.headers
     assert len(requests) == 1

@@ -1,6 +1,9 @@
 """Exercise the production study reply worker with isolated database rows and synthetic SSE."""
 
 import json
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import httpx
@@ -15,6 +18,73 @@ from app.config import get_settings
 from app.models import AppSetting, Project
 from app.services import llm
 from app.services import study_chat as worker
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [400, 401, 403, 429])
+async def test_registered_turn_preserves_upstream_retry_class(study, monkeypatch, status):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]))
+    from deploy.tenant.model_relay import RelayConfig, create_app
+
+    ask, _ = study
+    token = "synthetic-only-tenant-token-for-this-test"
+    base_model = CONFIG["model"]
+    monkeypatch.setattr(llm, "_CACHE", {**CONFIG, "base_url": "http://relay.test/v1", "api_key": token})
+    requested = []
+
+    async def upstream(request):
+        requested.append(json.loads(request.content)["model"])
+        if len(requested) == 1:
+            return httpx.Response(status, json={"detail": "private provider detail"})
+        return response("合成答复。")
+
+    relay = create_app(RelayConfig("https://provider.test/v1", base_model, "synthetic-upstream-key", token),
+                       strong_model="fixture-pro", transport=httpx.MockTransport(upstream))
+    client = httpx.AsyncClient
+
+    def connect(**options):
+        options.setdefault("transport", httpx.ASGITransport(app=relay))
+        return client(**options)
+
+    monkeypatch.setattr(httpx, "AsyncClient", connect)
+    reply = await ask("什么是分母？")
+    assert requested == ([base_model, "fixture-pro"] if status == 429 else [base_model])
+    assert reply["status"] == ("completed" if status == 429 else "failed")
+    assert reply["trace"]["calls"][0]["http_status"] == status
+    assert "private provider detail" not in json.dumps(reply, default=str)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("explicit_flash", "partial_strong", "expected_flash", "expected_strong"), [
+    ("", False, "saved-choice", "strong-choice"),
+    ("quick-choice", False, "quick-choice", "strong-choice"),
+    ("", True, "saved-choice", ""),
+])
+async def test_personal_model_launcher_inherits_native_profiles(
+    monkeypatch, tmp_path, explicit_flash, partial_strong, expected_flash, expected_strong,
+):
+    import asyncpg
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]))
+    from deploy.tenant.start_local import environment
+
+    settings = get_settings()
+    for name, value in {
+        "llm_model": "retired-default", "llm_base_url": CONFIG["base_url"], "llm_api_key": CONFIG["api_key"],
+        "study_flash_model": explicit_flash, "study_strong_model": "strong-choice",
+        "study_strong_provider": "incomplete" if partial_strong else "", "study_strong_base_url": "",
+        "study_strong_api_key": "",
+    }.items():
+        monkeypatch.setattr(settings, name, value)
+    monkeypatch.setattr(llm, "get_llm_config", AsyncMock(return_value={**CONFIG, "model": "saved-choice"}))
+    monkeypatch.setattr(asyncpg, "connect", AsyncMock(return_value=AsyncMock()))
+    account_env = tmp_path / "account.env"
+    account_env.write_text("DATABASE_URL=postgresql://localhost/registered_test")
+    args = SimpleNamespace(account_env=account_env, state_dir=tmp_path, bind_owner=None, port=1,
+                           use_personal_model=True, library_dir=[], local_unmetered=False)
+    env = await environment(args)
+    assert env["SEED_STUDY_FLASH_MODEL"] == expected_flash
+    assert env["SEED_STUDY_STRONG_MODEL"] == expected_strong
+    assert not env["SEED_STUDY_STRONG_BASE_URL"] and not env["SEED_STUDY_STRONG_API_KEY"]
 
 
 @pytest.fixture
@@ -83,7 +153,7 @@ async def test_ordinary_questions_choose_roles_in_chinese_without_a_classifier(s
         reply = await ask(question, action=action)
         route = reply["trace"]
         assert reply["status"] == "completed", route.get("error_kind")
-        assert (route["policy_version"], route["role"], route["tier"]) == ("study-auto-v2.1", role, tier)
+        assert (route["policy_version"], route["role"], route["tier"]) == ("study-auto-v2.2", role, tier)
         assert len(route["calls"]) == 1
         assert prompt_phrase in requests[-1]["messages"][0]["content"]
     assert [r["model"] for r in requests] == [
@@ -106,6 +176,8 @@ async def test_applied_tasks_choose_depth_across_job_roles(study, monkeypatch, d
         ("数据工程师", "比较全量导入和增量导入，你会推荐哪种，分别有哪些风险？", "compare_alternatives"),
         ("测试开发工程师", "新版登录偶发失败但监控没告警，给我一个排查顺序。", "diagnose_failure"),
         ("后端工程师", "为电子发票设计回滚流程，写出关键步骤。", "design_solution"),
+        ("门店主管", "新人这周只能上三个早班，老员工临时请假。该先调整谁的班次？", "scenario_decision"),
+        ("采购", "One supplier can ship today but the batch is uninspected. What would you do first?", "scenario_decision"),
     ]
     for role, question, reason in cases:
         test_workspace.target_role = role
@@ -119,7 +191,7 @@ async def test_applied_tasks_choose_depth_across_job_roles(study, monkeypatch, d
         assert f'"target_role": "{role}"' in messages[1]["content"]
     definition = await ask("什么是架构选型？")
     assert definition["trace"]["tier"] == "flash"
-    assert [r["model"] for r in requests] == ["fixture-pro"] * 4 + ["unchanged-model"]
+    assert [r["model"] for r in requests] == ["fixture-pro"] * len(cases) + ["unchanged-model"]
 
 
 @pytest.mark.asyncio
@@ -235,6 +307,7 @@ async def test_settings_db_default_and_explicit_models(study, monkeypatch, db_se
     ("http_401", 1, "failed", ""),
     ("blank_network", 2, "completed", "深度档合成回答"),
     ("whitespace_network", 2, "completed", "深度档合成回答"),
+    ("hidden_block_network", 2, "completed", "深度档合成回答"),
     ("started_network", 1, "failed", "已发出的开头"),
     ("short_deadline", 1, "failed", ""),
     ("exhausted_budget", 1, "failed", ""),
@@ -258,10 +331,11 @@ async def test_transport_failover_is_bounded_and_never_replaces_visible_answer(
     async def transport(request):
         if json.loads(request.content)["model"] == "fixture-pro":
             return response("深度档合成回答")
-        if failure in {"blank_network", "whitespace_network", "started_network"}:
+        if failure in {"blank_network", "whitespace_network", "hidden_block_network", "started_network"}:
             chunks = {
                 "blank_network": [],
                 "whitespace_network": [frame(" \t\n\u3000")],
+                "hidden_block_network": [frame("```study-blocks\n{}")],
                 "started_network": [frame("已发出的开头")],
             }[failure]
             return httpx.Response(200, headers={"content-type": "text/event-stream"},

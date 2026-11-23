@@ -33,6 +33,7 @@ async def environment(args):
     from app.config import get_settings
     from app.db import engine
     from app.services.llm import get_llm_config
+    from app.services.study_routing import profile
 
     settings = dict(line.split("=", 1) for line in args.account_env.read_text(encoding="utf-8-sig").splitlines()
                     if line and not line.startswith("#"))
@@ -91,15 +92,15 @@ async def environment(args):
             raise ValueError("The personal model is not configured")
         env.update(SEED_MODEL_NAME=model["model"], SEED_MODEL_KEY=model["api_key"], SEED_MODEL_BASE_URL=model["base_url"],
                    SEED_MODEL_PROVIDER_LABEL="CareerPilot · " + model["model"])
-        cfg = get_settings()
-        # The stored default can select Pro while the same connection declares a faster model.
-        same_connection = (cfg.llm_base_url.rstrip("/") == model["base_url"].rstrip("/")
-                           and cfg.llm_api_key == model["api_key"])
-        env.update(SEED_STUDY_FLASH_MODEL=cfg.study_flash_model or (cfg.llm_model if same_connection else "") or model["model"],
-                   SEED_STUDY_FLASH_THINKING=getattr(cfg, "study_flash_thinking", "") or env.get("SEED_MODEL_THINKING", ""),
-                   SEED_STUDY_STRONG_MODEL=cfg.study_strong_model,
-                   SEED_STUDY_STRONG_BASE_URL=cfg.study_strong_base_url,
-                   SEED_STUDY_STRONG_API_KEY=cfg.study_strong_api_key)
+        flash = profile(model, "flash")
+        strong = profile(model, "strong") or {}
+        separate = strong and (strong["base_url"].rstrip("/") != model["base_url"].rstrip("/")
+                               or strong["api_key"] != model["api_key"])
+        env.update(SEED_STUDY_FLASH_MODEL=flash["model"],
+                   SEED_STUDY_FLASH_THINKING=flash.get("thinking") or env.get("SEED_MODEL_THINKING", ""),
+                   SEED_STUDY_STRONG_MODEL=strong.get("model", ""),
+                   SEED_STUDY_STRONG_BASE_URL=strong["base_url"] if separate else "",
+                   SEED_STUDY_STRONG_API_KEY=strong["api_key"] if separate else "")
     if args.local_unmetered:
         env["SEED_LOCAL_UNMETERED"] = "true"
     return env

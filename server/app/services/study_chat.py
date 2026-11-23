@@ -364,43 +364,16 @@ async def _generate(turn, settings, deadline, trace, save, fail):
         }.get(skipped.get(preferred), "所选档位更符合本轮能力需求")
         trace["reason"] += "；" + explanation
 
-    max_calls = 2 if mode == "auto" and (alternate or artifact) else 1
-    trace.update(initial_tier=selected.tier, max_calls=max_calls)
-    repair_draft = None
-    retry_kind = None
-    for index in range(max_calls):
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError
-        cfg = selected.config
-        model = str(cfg["model"])[:200]
-        missing = sorted(intent.specialties - selected.capabilities)
-        adapter = AgentAdapter()
-        call = dict(provider=cfg["provider"], requested_model=model, reported_model=None,
-                    usage=None, cost=None, attempt=attempt, generation=index + 1,
-                    escalation=int(bool(index) and selected.tier == "strong" and trace["initial_tier"] == "flash"),
-                    elapsed_ms=None, error=None, tier=selected.tier,
-                    retry_kind=retry_kind, output_limit=allowance, capability_gaps=missing)
-        if "thinking" in cfg:
-            call["thinking_mode"] = cfg["thinking"]
-        trace.update(tier=selected.tier, capabilities=sorted(selected.capabilities), capability_gaps=missing)
-        if missing and not index and mode == "auto":
-            trace["reason"] += "；配置中缺少本轮偏好的专长，使用可用档位尝试"
-        await save("generating", model=model, content="")
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError
-        trace["calls"].append(call)
+    async def stream_attempt(adapter, cfg, model, instruction, request, allowance, call, remaining):
         fragments = []
         reasoning_parts = []
         started = time.monotonic()
         last_publish = last_push = float("-inf")
 
         def live_snapshot():
-            # noqa: B023 -- 每次档位迭代重建；live_snapshot 只在该次生成期间被调用
-            return {"id": message_id, "status": "generating", "content": "" if artifact else "".join(fragments),  # noqa: B023
-                    "model": model, "attempt": attempt, "error": None, "stage": "generating",  # noqa: B023
-                    "reasoning": "".join(reasoning_parts) or None}  # noqa: B023
+            return {"id": message_id, "status": "generating", "content": "" if artifact else "".join(fragments),
+                    "model": model, "attempt": attempt, "error": None, "stage": "generating",
+                    "reasoning": "".join(reasoning_parts) or None}
 
         def push_live(now):
             nonlocal last_push
@@ -410,13 +383,13 @@ async def _generate(turn, settings, deadline, trace, save, fail):
 
         async def partial(text):
             nonlocal last_publish, last_push
-            fragments.append(text)  # noqa: B023 -- fragments 每次迭代重建；partial 仅在同一次 create_task 内消费
+            fragments.append(text)
             if artifact:
                 return
             now = time.monotonic()
             first_body = False
             if "first_visible_body_ms" not in call and text.strip():
-                body = "".join(fragments)  # noqa: B023
+                body = "".join(fragments)
                 fence = _STREAM_BLOCK_FENCE.search(body)
                 first_body = bool((body[:fence.start()] if fence else body).strip())
             if first_body:
@@ -424,17 +397,17 @@ async def _generate(turn, settings, deadline, trace, save, fail):
                 timing = trace["latency"]
                 timing.setdefault("first_visible_body_ms", round((now - turn["submitted_at"]) * 1000, 2))
                 timing.setdefault("body_release_stage", "stream")
-                _publish_live(message_id, live_snapshot())  # noqa: B023
+                _publish_live(message_id, live_snapshot())
                 last_push = now
             else:
-                push_live(now)  # noqa: B023
+                push_live(now)
             if first_body or ("first_visible_body_ms" in call and now - last_publish >= STREAM_POLL_SECONDS):
-                await save("generating", content="".join(fragments))  # noqa: B023
+                await save("generating", content="".join(fragments))
                 last_publish = now
 
         async def thinking(text):
             # Reasoning 只用于实时展示, 不落库、不进 trace, 进程重启后由数据库最终状态收敛。
-            reasoning_parts.append(text)  # noqa: B023
+            reasoning_parts.append(text)
             push_live(time.monotonic())
 
         call["provider_start_ms"] = round((started - turn["submitted_at"]) * 1000, 2)
@@ -461,11 +434,45 @@ async def _generate(turn, settings, deadline, trace, save, fail):
             if not operation.done():
                 operation.cancel()
                 await asyncio.gather(operation, return_exceptions=True)
+        return result, fragments, started
+
+    max_calls = 2 if mode == "auto" and (alternate or artifact) else 1
+    trace.update(initial_tier=selected.tier, max_calls=max_calls)
+    repair_draft = None
+    retry_kind = None
+    for index in range(max_calls):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError
+        cfg = selected.config
+        model = str(cfg["model"])[:200]
+        missing = sorted(intent.specialties - selected.capabilities)
+        adapter = AgentAdapter()
+        call = dict(provider=cfg["provider"], requested_model=model, reported_model=None,
+                    usage=None, cost=None, outcome="unknown", attempt=attempt, generation=index + 1,
+                    escalation=int(bool(index) and selected.tier == "strong" and trace["initial_tier"] == "flash"),
+                    elapsed_ms=None, error=None, tier=selected.tier,
+                    retry_kind=retry_kind, output_limit=allowance, capability_gaps=missing)
+        if "thinking" in cfg:
+            call["thinking_mode"] = cfg["thinking"]
+        trace.update(tier=selected.tier, capabilities=sorted(selected.capabilities), capability_gaps=missing)
+        if missing and not index and mode == "auto":
+            trace["reason"] += "；配置中缺少本轮偏好的专长，使用可用档位尝试"
+        trace["calls"].append(call)
+        await save("generating", model=model, content="")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError
+        result, fragments, started = await stream_attempt(
+            adapter, cfg, model, instruction, request, allowance, call, remaining,
+        )
         call.update(elapsed_ms=int((time.monotonic()-started)*1000), usage=adapter.last_usage,
                     reported_model=adapter.last_response_meta.get("reported_model"),
                     first_reasoning_ms=adapter.last_response_meta.get("first_reasoning_ms"),
                     first_token_ms=adapter.last_response_meta.get("first_content_ms"),
                     first_nonwhitespace_content_ms=adapter.last_response_meta.get("first_nonwhitespace_content_ms"))
+        if result is not None:
+            call["outcome"] = "completed"
         used = (adapter.last_usage or {}).get("completion_tokens")
         budget -= used if type(used) is int and used >= 0 else allowance
         can_retry = index == 0 and max_calls == 2 and budget >= 256 and deadline - time.monotonic() >= 5
@@ -512,7 +519,11 @@ async def _generate(turn, settings, deadline, trace, save, fail):
         call["error"] = error["kind"]
         if "status" in error:
             call["http_status"] = error["status"]
-        streamed_answer = not artifact and any(part.strip() for part in fragments)
+        if error["kind"] == "configuration" or (
+            error["kind"] == "http" and 400 <= error["status"] < 500 and error["status"] != 408
+        ):
+            call["outcome"] = "failed"
+        streamed_answer = "first_visible_body_ms" in call
         if streamed_answer:
             call["fallback_blocked"] = "answer_started"
         elif can_retry and alternate and transient_failure(error, adapter.last_response_meta.get("stream_error")):

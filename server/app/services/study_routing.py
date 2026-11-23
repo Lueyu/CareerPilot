@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 from app.config import Settings, get_settings
 
-POLICY_VERSION = "study-auto-v2.1"
+POLICY_VERSION = "study-auto-v2.2"
 STREAM_CAPABILITIES = frozenset({"text", "stream"})
 ROLE_BY_ACTION = {
     "interview": "interviewer", "critique": "answer_reviewer", "jd": "jd_coach",
@@ -47,6 +47,31 @@ CONTINUATION = (
     "这一步", "刚才", "上面", "为什么会", "接着", "那里", "它为什么", "继续", "进一步",
     "这个方案", "为什么不", "那如果", "上一轮", "这一层",
 )
+
+# A situation followed by a request for a decision is common outside technical roles.
+SCENARIO_CLAUSE = re.compile(r"[。！？；，;!?\n]|(?<!\d)[.,](?=\s)|\b(?:but|while|given that)\b", re.I)
+SCENARIO_DECISION = re.compile(
+    r"怎么(?:办|做|定|选|查|判断|调整|处理|验证)|如何|怎样|怎么办|该(?:先|选|做|如何|怎么)|"
+    r"要不要|能否(?:判断|保证)|优先(?:考虑|处理|解决)|请(?:提出|评估|推荐|给出)|"
+    r"\b(?:what (?:would|should|could)|which (?:would|should)|how (?:would|should|can|do) (?:we|you)|"
+    r"recommend|prioriti[sz]e|evaluate|investigate|decide|propose|assess)\b", re.I,
+)
+COUNTERFACTUAL = re.compile(r"如果|假如|假设|一旦|即使|倘若|\b(?:suppose|imagine|what if|even if|unless|if)\b", re.I)
+BOUNDED_ANSWER = re.compile(
+    r"一句话|用.{0,4}句话|举.{0,4}例子|是什么|什么意思|什么是|名词解释|"
+    r"\b(?:in one sentence|give (?:me )?an example|what (?:is|does .+ mean)|define)\b", re.I,
+)
+
+
+def needs_scenario_reasoning(question):
+    clauses = [part.strip() for part in SCENARIO_CLAUSE.split(question) if part.strip()]
+    if len(clauses) < 2 or not SCENARIO_DECISION.search(question):
+        return False
+    if COUNTERFACTUAL.search(question):
+        return True
+    return not BOUNDED_ANSWER.search(question) and any(
+        len(clause) >= 8 and not SCENARIO_DECISION.search(clause) for clause in clauses
+    )
 
 
 @dataclass(frozen=True)
@@ -116,6 +141,8 @@ def tutoring_intent(action, question, prior, sources, artifact, proactive_diagra
     depth_reasons = []
     if can_analyze and action not in {"simplify", "example"} and not DIRECT_DEFINITION.fullmatch(question.strip()):
         depth_reasons = [(code, reason) for code, reason, pattern in APPLIED_REASONING if pattern.search(question)]
+        if not depth_reasons and needs_scenario_reasoning(question):
+            depth_reasons.append(("scenario_decision", "需要结合题设判断下一步，并说明判断依据"))
     reasons.extend(depth_reasons)
     if followup and can_analyze:
         reasons.append(("grounded_followup", "承接本分支上一轮的深入讨论"))

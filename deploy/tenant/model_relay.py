@@ -201,6 +201,8 @@ def create_app(config: RelayConfig, *, flash_model: str = "", strong_model: str 
                 )
                 if upstream.status_code == 429:
                     raise HTTPException(429, "Upstream model is rate limited")
+                if 400 <= upstream.status_code < 500:
+                    raise HTTPException(upstream.status_code, "Upstream model rejected the request")
                 media_type = "text/event-stream" if payload.stream else "application/json"
                 if (
                     upstream.status_code != 200

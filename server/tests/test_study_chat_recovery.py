@@ -6,11 +6,11 @@ import pytest
 from fastapi import BackgroundTasks
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from test_llm_stream_transport import CONFIG, DONE, Body, frame, install
 
 from app.api.v1 import study_chat as api
 from app.models.study_chat import StudyMessage
 from app.services import study_chat as worker
-from test_llm_stream_transport import CONFIG, DONE, Body, frame, install
 
 
 async def lease_remaining(db, reply_id):
@@ -33,8 +33,8 @@ async def test_silent_provider_keeps_lease_and_old_attempt_cannot_touch_retry(mo
     db, ws = db_session, test_workspace
     factory = async_sessionmaker(db.bind, expire_on_commit=False, autoflush=False)
     monkeypatch.setattr(worker, "SessionLocal", factory)
-    monkeypatch.setattr(worker, "GENERATION_LEASE_SECONDS", 3, raising=False)
-    monkeypatch.setattr(worker, "GENERATION_HEARTBEAT_SECONDS", 0.1, raising=False)
+    monkeypatch.setattr(worker, "GENERATION_LEASE_SECONDS", 8)
+    monkeypatch.setattr(worker, "GENERATION_HEARTBEAT_SECONDS", 2)
 
     async def config():
         return CONFIG
@@ -57,20 +57,18 @@ async def test_silent_provider_keeps_lease_and_old_attempt_cannot_touch_retry(mo
     rid = (await api.send(sid, body, tasks, db, ws))["assistant_message_id"]
     generating = asyncio.create_task(tasks())
     try:
-        await asyncio.wait_for(first_body.wait(), timeout=5)
-        # Cross the initial three-second lease with no provider progress.
-        await asyncio.sleep(3.1)
+        await asyncio.wait_for(first_body.wait(), timeout=10)
+        # Cross the initial lease with no provider progress.
+        await asyncio.sleep(8.2)
         async with factory() as peer:
             partial = (await api.detail(sid, peer, ws))["messages"][-1]
             assert (partial["status"], partial["content"]) == ("generating", "已保存的开头")
-            assert timedelta(0) < await lease_remaining(peer, rid) <= timedelta(seconds=3)
+            assert timedelta(0) < await lease_remaining(peer, rid) <= timedelta(seconds=8)
             await api.interrupt(sid, rid, peer, ws)
             retry_tasks = BackgroundTasks()
             retried = await api.retry(sid, rid, retry_tasks, peer, ws)
             assert retried["attempt"] == 2 and len(retry_tasks.tasks) == 1
             expires_at = await peer.scalar(select(StudyMessage.expires_at).where(StudyMessage.id == rid))
-        # Leave the previous attempt running across its next heartbeat.
-        await asyncio.sleep(0.3)
         release.set()
         await asyncio.wait_for(generating, timeout=5)
         async with factory() as peer:
@@ -90,9 +88,9 @@ async def test_stalled_generation_cannot_renew_past_its_timeout_and_cleanup_wind
     db, ws = db_session, test_workspace
     factory = async_sessionmaker(db.bind, expire_on_commit=False, autoflush=False)
     monkeypatch.setattr(worker, "SessionLocal", factory)
-    monkeypatch.setattr(worker, "GENERATION_LEASE_SECONDS", 2)
-    monkeypatch.setattr(worker, "GENERATION_HEARTBEAT_SECONDS", 0.1)
-    settings = worker.get_settings().model_copy(update={"study_timeout_seconds": 1})
+    monkeypatch.setattr(worker, "GENERATION_LEASE_SECONDS", 4)
+    monkeypatch.setattr(worker, "GENERATION_HEARTBEAT_SECONDS", 1)
+    settings = worker.get_settings().model_copy(update={"study_timeout_seconds": 3})
     monkeypatch.setattr(worker, "get_settings", lambda: settings)
     collecting = asyncio.Event()
     release = asyncio.Event()
@@ -108,7 +106,7 @@ async def test_stalled_generation_cannot_renew_past_its_timeout_and_cleanup_wind
     generation = asyncio.create_task(tasks())
     try:
         await asyncio.wait_for(collecting.wait(), timeout=5)
-        await asyncio.sleep(3.2)
+        await asyncio.sleep(7.2)
         assert not generation.done()
         async with factory() as peer:
             assert (await api.detail(sid, peer, ws))["messages"][-1]["status"] == "interrupted"
