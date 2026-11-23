@@ -8,13 +8,14 @@ from fastapi import FastAPI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.api import public_auth, public_learning, public_library
+from app.api import public_auth, public_coach, public_learning, public_library, public_memory
 from app.db import get_session
 from app.models import MemoryItem, Question
 from app.models.question import SOURCE_GENERATED, SOURCE_PRIVATE, SOURCE_VERIFIED
 
 ORIGIN = "https://learning.test"
 PLAN = "/api/v1/learning/daily-plan"
+EXPORT = "/api/v1/export"
 
 
 def question(workspace_id, role="Backend", *, source=SOURCE_PRIVATE, demo=False):
@@ -36,7 +37,8 @@ async def test_registered_plan_scopes_questions_and_preserves_evidence(db_sessio
 
     app = FastAPI()
     app.middleware("http")(public_auth.public_origin_guard)
-    for routes in (public_auth.router, public_learning.router, public_library.router):
+    for routes in (public_auth.router, public_library.router, public_coach.router, public_memory.router,
+                   public_learning.router):
         app.include_router(routes, prefix="/api/v1")
     app.dependency_overrides[get_session] = database
     transport = httpx.ASGITransport(app=app)
@@ -109,6 +111,13 @@ async def test_registered_plan_scopes_questions_and_preserves_evidence(db_sessio
         design = (await client.get(PLAN, headers=owner_header)).json()
         assert design["progress"]["completed"] == 0
         assert [item["question_id"] for day in design["days"] for item in day["items"]] == [other_role.id]
+        owner_export = await client.get(EXPORT, headers=owner_header)
+        assert owner_export.status_code == 200
+        exported = owner_export.json()
+        assert exported["target_role"] == "Design"
+        assert exported["learning_plans"]["Backend"]["evidence"] == {
+            f"question:{first.id}": completed["evidence"],
+        }
         await choose("Backend")
         restored = (await client.get(PLAN, headers=owner_header)).json()
         assert restored["progress"]["completed"] == 1
@@ -124,3 +133,9 @@ async def test_registered_plan_scopes_questions_and_preserves_evidence(db_sessio
         assert (await client.get(PLAN, headers=peer_header)).json()["progress"]["total"] == 0
         assert (await client.post(PLAN + "/evidence", headers=peer_header,
                                   json={**body, "item_key": f"question:{first.id}"})).status_code == 404
+        assert (await client.get(EXPORT, headers=owner_header)).status_code == 409
+        peer_export = await client.get(EXPORT, headers=peer_header)
+        assert peer_export.status_code == 200
+        peer_plan = peer_export.json()["learning_plans"]["Backend"]
+        assert peer_plan.get("evidence", {}) == {}
+        assert peer_plan["assignments"] == {}

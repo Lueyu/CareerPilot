@@ -19,9 +19,11 @@ Caddy 首次签发本机证书后，CA 文件才会出现。浏览器可在隔�
 
 运行 `python deploy/public/test_release.py --config-only` 检查合成配置。去掉 `--config-only` 会额外构建合成镜像、检查回环 HTTPS 流，并用临时数据库和 age 密钥演练恢复。只验收恢复时用 `--restore-only`。完整检查需要 Linux 或带 Docker 的 WSL，以及 age、age-keygen、OpenSSL 和 Bash。先确保当前 daemon 有 `postgres:16-alpine` 镜像。上传环节使用本地副本。
 
+运行 `python deploy/public/test_release.py --build-only` 用当前工作树和正式 Docker 允许清单构建 API、前端构建阶段和最终镜像。检查公开 API 可导入、私有源码未进入构建阶段，以及静态产物没有源码映射。该检查无需启动数据库或读取运行配置。
+
 ## 在可信构建机生成镜像
 
-用集成 Git 提交作为镜像标签和运维文件版本。构建上下文分别是 `server/` 和 `web/`。两个 `Dockerfile.seed.dockerignore` 使用允许清单。构建前核对集成后的公开模块和复用依赖均在清单中。检查生成的 API 镜像及前端静态资源，包括 Vite 生成的源码映射。API 镜像运行 `app.public_main:app`。前端最终镜像只复制 `npm run build:seed` 生成的 `dist-seed/`。
+用集成 Git 提交作为镜像标签和运维文件版本。构建上下文分别是 `server/` 和 `web/`。两个 `Dockerfile.seed.dockerignore` 使用允许清单。构建前核对集成后的公开模块和复用依赖均在清单中。公开前端由根目录的 `web/index.html` 和 `web/src/main.tsx` 启动，Vite 将工作区入口指向 `RegisteredApp.tsx`，并关闭源码映射。API 镜像运行 `app.public_main:app`。前端最终镜像只复制 `npm run build:seed` 生成的 `dist-seed/`。
 
 ```bash
 release="$(git rev-parse HEAD)"

@@ -1,4 +1,4 @@
-"""Use throwaway source, credentials, containers, and volumes."""
+"""Check public release builds and exercise deployment with throwaway fixtures."""
 import argparse
 import http.client
 import json
@@ -152,18 +152,74 @@ def fixture_sources(work, ops):
           '{"name":"seed-fixture","lockfileVersion":3,"packages":{"":{"name":"seed-fixture"}}}\n')
     write(work / "web" / "public" / "old-bank.json", '{"fixture": "private"}\n')
     write(work / "web" / "src" / "data" / "old-bank.json", '{"fixture": "private"}\n')
-    write(work / "web" / "seed" / "index.html", "seed fixture")
-    write(work / "web" / "src" / "seed" / "main.tsx", "// fixture entry")
+    write(work / "web" / "index.html", '<script type="module" src="/src/main.tsx"></script>')
+    write(work / "web" / "src" / "main.tsx", 'import App from "./workspace-entry";')
+    write(work / "web" / "src" / "seed" / "RegisteredApp.tsx", "export default function App() {}")
+    shutil.copyfile(ROOT / "web" / "vite.seed.config.ts", work / "web" / "vite.seed.config.ts")
     write(work / "web" / "src" / "seed" / "build.ts", """
 const fs = require("node:fs");
-for (const path of [".env", "private.txt", "public/old-bank.json", "src/data/old-bank.json", "seed/.env"]) {
-    if (fs.existsSync(path)) throw new Error("private fixture entered build context");
+for (const path of [
+    ".env", "private.txt", "public/old-bank.json", "src/data/old-bank.json",
+    "seed/index.html", "src/workspace-entry.ts", "src/App.tsx",
+]) {
+    if (fs.existsSync(path)) throw new Error("excluded fixture entered build context: " + path);
 }
 fs.mkdirSync("dist-seed");
-if (!fs.existsSync("src/seed/main.tsx")) throw new Error("missing public entry");
-fs.copyFileSync("seed/index.html", "dist-seed/index.html");
+for (const path of ["index.html", "src/main.tsx", "src/seed/RegisteredApp.tsx", "vite.seed.config.ts"]) {
+    if (!fs.existsSync(path)) throw new Error("missing registered entry: " + path);
+}
+fs.writeFileSync("dist-seed/index.html", "seed fixture");
 """)
-    write(work / "web" / "seed" / ".env", "SYNTHETIC_PRIVATE_SENTINEL")
+    for path in ("seed/index.html", "src/workspace-entry.ts", "src/App.tsx"):
+        write(work / "web" / path, "SYNTHETIC_PRIVATE_SENTINEL")
+
+
+def check_source_build():
+    tag = f"cp-seed-source-{uuid4().hex[:12]}"
+    api, builder, web = (f"{tag}-{part}" for part in ("api", "builder", "web"))
+
+    def docker(*args):
+        subprocess.run(["docker", *args], check=True)
+
+    def build(component, image, *args):
+        context = ROOT / component
+        docker("build", "-f", str(context / "Dockerfile.seed"), "-t", image, *args, str(context))
+
+    try:
+        build("server", api)
+        docker("run", "--rm", "--network", "none", api, "python", "-c", """
+from pathlib import Path
+from app.public_main import app
+
+paths = app.openapi()["paths"]
+assert "get" in paths["/api/v1/coach/notes/{note_id}/versions/{version_id}"]
+assert "get" in paths["/api/v1/learning/daily-plan"]
+assert not any(Path(path).exists() for path in (
+    ".env", "app/main.py", "app/api/v1", "app/data", "app/services/llm.py",
+    "app/services/study_notes.py", "app/services/study_teaching.py",
+))
+""")
+        build("web", builder, "--target", "build")
+        docker("run", "--rm", "--network", "none", builder, "sh", "-ec", """
+for path in .env public src/data src/App.tsx src/workspace-entry.ts seed/index.html src/seed/main.tsx; do
+    test ! -e "$path"
+done
+test -f src/main.tsx
+test -f src/seed/RegisteredApp.tsx
+""")
+        build("web", web)
+        docker("run", "--rm", "--network", "none", "--entrypoint", "sh", web, "-ec", """
+cd /srv/seed
+test -f index.html
+grep -Eq 'src="/assets/[^"]+[.]js"' index.html
+test -z "$(find . -type f -name '*.map' -print)"
+test ! -e src
+test ! -e public
+test ! -e /build
+""")
+    finally:
+        subprocess.run(["docker", "image", "rm", api, builder, web], capture_output=True)
+    print("Allowlisted API import, registered web build and private-file exclusion passed", flush=True)
 
 
 def check_proxy(compose):
@@ -263,7 +319,11 @@ if __name__ == "__main__":
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--config-only", action="store_true")
     mode.add_argument("--restore-only", action="store_true")
+    mode.add_argument("--build-only", action="store_true")
     parser.add_argument("--postgres-image", default="postgres:16-alpine")
     options = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix="cp-seed-release-") as workspace:
-        check_release(Path(workspace), options.config_only, options.restore_only, options.postgres_image)
+    if options.build_only:
+        check_source_build()
+    else:
+        with tempfile.TemporaryDirectory(prefix="cp-seed-release-") as workspace:
+            check_release(Path(workspace), options.config_only, options.restore_only, options.postgres_image)
