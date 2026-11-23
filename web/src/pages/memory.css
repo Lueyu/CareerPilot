@@ -7,3 +7,6 @@
 .memory-pending article + article { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px; }
 .memory-sections { display: grid; gap: 16px; }
 .memory-panel .mem-actions { flex-wrap: wrap; }
+
+.memory-timeline .mem-body { overflow-wrap: anywhere; }
+.memory-timeline .mem-actions { flex-wrap: wrap; }

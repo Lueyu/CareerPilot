@@ -7,23 +7,8 @@ import {api} from '../api/client';
 import {ProjectMemory} from '../lib/projectIntelligence';
 import {messageOf} from '../lib/questionWorkshop';
 import ProjectMemoryCandidates from '../components/ProjectMemoryCandidates';
+import MemoryTimeline, {learningMemory, sourceName, type MemoryEntry} from '../components/MemoryTimeline';
 
-type MemoryEntry = ProjectMemory & { eligible_for_bank_generation?: boolean };
-const TYPE_NAMES: Record<string,string>={CareerGoal:'职业目标',Preference:'偏好',KnowledgeGapSignal:'待诊断线索',ProjectDecision:'项目决策',ProjectUnderstanding:'项目理解',ProjectIssue:'项目问题',Feedback:'反馈',BankReviewFeedback:'题库审核反馈',LearningObservation:'学习观察',LearningPreference:'局部教学观察',TaskCompletion:'学习进度'};
-const TYPE_IC: Record<string,string>={CareerGoal:'🎯',Preference:'❤️',KnowledgeGapSignal:'🔎',ProjectDecision:'🧭',ProjectUnderstanding:'🗂',ProjectIssue:'📍',Feedback:'💬',BankReviewFeedback:'💬'};
-const eligible=(item:ProjectMemory)=>item.eligible_for_personalization ?? !(item.meta?.project_id || item.meta?.goal_id);
-const learningMemory=(item:ProjectMemory)=>!!item.meta?.goal_id || ['LearningObservation','LearningPreference'].includes(item.mtype);
-const sourceName=(item:ProjectMemory)=>item.mtype==='BankReviewFeedback'?'题库审核':item.meta?.daily_plan_item_key?'每日计划作答':item.meta?.exam_kind?'考试作答':item.mtype==='TaskCompletion'?'学习任务完成':learningMemory(item)?'作答与评价':item.source==='DIALOG_IMPORT'?'对话导入':item.source==='USER'?'用户纠正':'系统记录';
-function memoryStatus(item: MemoryEntry) {
-  if (item.status === 'ACTIVE') {
-    if (item.eligible_for_bank_generation) return { label: '仅题库补题使用', active: true };
-    if (item.mtype === 'TaskCompletion') return { label: '已确认', active: true };
-    if (eligible(item)) return { label: '当前有效', active: true };
-    return { label: '需要重新确认', active: false };
-  }
-  const label = item.status === 'SUPERSEDED' ? '历史版本' : item.status === 'CANDIDATE' ? '待确认' : item.status;
-  return { label, active: false };
-}
 function completionSource(item:ProjectMemory) {
   const meta=item.meta;
   if (meta?.exam_kind && meta.exam_id) return <Link to={`/exam/diagnosis/report?id=${meta.exam_id}`}>查看原卷 #{meta.exam_id}</Link>;
@@ -80,11 +65,7 @@ export default function Memory() {
   const candidates=items.filter(m=>m.status==='CANDIDATE' && !m.meta?.project_id);
   const candidateKey=params.get('candidate');
   const candidate=candidates.find(m=>String(m.id)===candidateKey);
-  const renderMemory=(m:MemoryEntry)=>{const status=memoryStatus(m);return <article className="mem-item" key={m.id}>
-    <div className="mem-ic">{TYPE_IC[m.mtype] || '📌'}</div>
-    <div className="mem-body">
-      <div className="q-meta"><span className="chip chip-slate">{TYPE_NAMES[m.mtype] || m.mtype}</span><span className={'chip '+(status.active?'chip-green':'chip-slate')}>{status.label}</span><small>{m.created_at?new Date(m.created_at).toLocaleString():''} · {sourceName(m)}</small></div>
-      <p style={{whiteSpace:'pre-wrap'}}>{m.content}</p>
+  const renderDetails=(m:MemoryEntry)=><>
       {m.mtype==='TaskCompletion' && <p className="hint">仅记录学习进度，不影响能力分数。 {completionSource(m)}</p>}
       {m.mtype==='BankReviewFeedback' && <p className="hint">题库补题可将有效反馈作为同技能的历史案例。 <Link to="/bank?review=1">查看待审核队列</Link></p>}
       {m.meta?.goal_id && <div><p className="hint">这是有限范围的学习观察，不代表永久短板或整个能力域已掌握；确认不会改分。</p>{m.eligible_for_personalization!==true && <p className="hint">尚未确认或来源需要复核，当前不用于新任务。</p>}<Link to={m.meta.source_task_id?`/learning/task/${m.meta.source_task_id}`:'/learning'}>返回学习路径核对目标 #{m.meta.goal_id}</Link></div>}
@@ -99,8 +80,7 @@ export default function Memory() {
         {m.status==='ACTIVE' && <button className="btn btn-outline btn-sm" disabled={busy} onClick={()=>{setCorrecting(m);setCorrectText(m.content);setError('');}}>纠正</button>}
         <button className="btn btn-ghost btn-sm" disabled={busy} onClick={()=>remove(m)}>{m.status==='CANDIDATE'?'忽略':'删除'}</button>
       </div>}
-    </div>
-  </article>;};
+  </>;
   if(candidateKey) return <div className="memory-page">
     <PageHead title="核对一条候选记忆" sub="确认前可以检查来源和原始上下文。"><Link to="/memory" className="btn btn-outline">返回记忆中心</Link></PageHead>
     {loading && <p role="status">正在读取候选…</p>}
@@ -131,20 +111,22 @@ export default function Memory() {
       {!candidates.length && <><h2>没有待审核的学习或对话记忆</h2><p className="hint">完成学习任务后可核对进度记录，实际作答与评价也可能生成学习观察。</p><Link className="btn btn-outline btn-sm" to="/learning">查看学习计划</Link></>}
     </section>}
     <div className="memory-sections">
-      <section className="card">
-        <div className="card-head"><span className="card-title">已确认与历史记录</span><span className="card-sub">{filteredTimeline.filter(m=>m.status==='ACTIVE').length} 条已保存 · 历史版本不参与新任务</span></div>
-        <label className="field"><span>记忆类型</span><select className="inp" value={reviewOnly?'bank-review':''} onChange={event=>{
+      <MemoryTimeline
+        items={filteredTimeline}
+        title="已确认与历史记录"
+        summary={filteredTimeline.filter(m=>m.status==='ACTIVE').length + ' 条已保存 · 历史版本不参与新任务'}
+        details={renderDetails}
+        filters={<label className="field"><span>记忆类型</span><select className="inp" value={reviewOnly?'bank-review':''} onChange={event=>{
           const next=new URLSearchParams(params);
           if(event.target.value) next.set('type',event.target.value);
           else next.delete('type');
           setParams(next,{replace:true});
-        }}><option value="">全部类型</option><option value="bank-review">题库审核反馈</option></select></label>
-        {filteredTimeline.map(renderMemory)}
-        {!loading && !loadError && !filteredTimeline.length && <div className="memory-panel">
+        }}><option value="">全部类型</option><option value="bank-review">题库审核反馈</option></select></label>}
+        empty={!loading && !loadError && <div className="memory-panel">
           <h2>{reviewOnly?'还没有题库审核反馈':'还没有已确认的记忆'}</h2>
           {reviewOnly ? <Link to="/bank?review=1">查看待审核题目</Link> : <p className="hint">确认候选后，记忆和来源会出现在这里。</p>}
         </div>}
-      </section>
+      />
       <div style={{display:'flex',flexDirection:'column',gap:18}}>
         <section className="card" style={{padding:18}}><h3>从对话提取候选记忆</h3><textarea className="textarea" aria-label="对话记录" rows={5} placeholder="粘贴需要整理的对话记录，检查候选内容后再确认。" value={pasteText} onChange={e=>setPasteText(e.target.value)}/><button className="btn btn-outline" style={{marginTop:10}} disabled={busy || !pasteText.trim()} onClick={extract}>{busy?'处理中…':'提取候选记忆'}</button><p className="hint">对话提取与项目代码分析是两个来源。候选记忆确认后才生效。</p></section>
         <ProjectMemoryCandidates onReviewed={reload}/>
