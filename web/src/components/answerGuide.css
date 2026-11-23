@@ -11,6 +11,7 @@
 .guide-table-scroll { overflow-x: auto; min-width: 0; }
 .teaching-guide table { border-collapse: collapse; width: 100%; font-size: .92rem; }
 .teaching-guide :is(td,th) { padding: .45rem .65rem; border: 1px solid var(--border); text-align: start; vertical-align: top; }
+.guide-table-scroll :is(td,th) { min-inline-size: 5.5rem; overflow-wrap: normal; word-break: normal; }
 .teaching-guide th { background: var(--surface-2); }
 .teaching-guide .guide-source { color: var(--text-2); font-size: .82rem; }
 .teaching-guide summary { cursor: pointer; font-weight: 600; }
