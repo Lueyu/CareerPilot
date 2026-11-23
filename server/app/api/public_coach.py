@@ -1,0 +1,323 @@
+"""Workspace-scoped coach routes for the public FastAPI app."""
+
+from collections import defaultdict
+from html import escape
+from typing import Annotated
+from uuid import uuid4
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import lazyload
+
+from app.api.public_auth import current_workspace
+from app.db import get_session
+from app.models.public_coach import CoachCandidate, CoachThread, CoachTurn
+from app.models.question import SOURCE_GENERATED, Question
+from app.models.workspace import Workspace
+from app.services.public_coach import (
+    STUDY_ACTIONS,
+    TURN_LEASE,
+    Mode,
+    ThreadInput,
+    TurnInput,
+    admit_turn,
+    effective_status,
+    interview_actions,
+    now,
+    run_turn,
+    thread_candidates,
+    thread_turns,
+    turn_events,
+    turn_view,
+)
+
+router = APIRouter(prefix="/coach", tags=["public-coach"])
+Database = Annotated[AsyncSession, Depends(get_session)]
+MemberWorkspace = Annotated[Workspace, Depends(current_workspace)]
+
+
+class RetryInput(BaseModel):
+    attempt: int = Field(ge=1)
+
+
+def _thread_view(row):
+    return {
+        "id": row.id,
+        "mode": row.mode,
+        "role": row.role,
+        "direction": row.direction,
+        "question_id": row.question_id,
+        "question_title": row.question_title,
+        "title": row.title,
+        "created_at": row.created_at.isoformat(),
+        "updated_at": row.updated_at.isoformat(),
+    }
+
+
+def _candidate_view(row):
+    return {
+        "id": row.id,
+        "turn_id": row.turn_id,
+        "number": row.number,
+        "title": row.title,
+        "reference": row.reference,
+        "superseded": row.superseded,
+        "question_id": row.question_id,
+        "origin": "model_candidate",
+    }
+
+
+def _detail(row, turns, candidates):
+    latest = turns[-1] if turns else None
+    actions = STUDY_ACTIONS if row.mode == "study" else interview_actions(turns)
+    return {
+        **_thread_view(row),
+        "turns": [turn_view(turn) for turn in turns],
+        "candidates": [_candidate_view(candidate) for candidate in candidates],
+        "actions": [] if latest and effective_status(latest) == "generating" else list(actions),
+        "ability_status": "unknown" if row.mode == "interview" else None,
+    }
+
+
+def _threads(workspace_id):
+    return select(CoachThread).where(CoachThread.workspace_id == workspace_id)
+
+
+async def _thread(db, workspace_id, thread_id, *, lock=False):
+    stmt = _threads(workspace_id).where(CoachThread.id == thread_id)
+    thread = await db.scalar(stmt.with_for_update() if lock else stmt)
+    if thread is None:
+        raise HTTPException(404, "找不到这段对话")
+    return thread
+
+
+@router.get("/threads")
+async def list_threads(
+    db: Database,
+    ws: MemberWorkspace,
+    mode: Mode,
+    question_id: int | None = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    stmt = _threads(ws.id).where(CoachThread.mode == mode)
+    if question_id is not None:
+        stmt = stmt.where(CoachThread.question_id == question_id)
+    rows = await db.scalars(
+        stmt.order_by(CoachThread.updated_at.desc(), CoachThread.id.desc()).offset(offset).limit(31)
+    )
+    page = list(rows)
+    return {
+        "threads": [_thread_view(row) for row in page[:30]],
+        "next_offset": offset + 30 if len(page) > 30 else None,
+    }
+
+
+@router.post("/threads", status_code=201)
+async def create_thread(body: ThreadInput, db: Database, ws: MemberWorkspace):
+    question = None
+    if body.question_id is not None:
+        question = await db.scalar(
+            select(Question)
+            .options(lazyload("*"))
+            .where(
+                Question.id == body.question_id,
+                Question.workspace_id == ws.id,
+                Question.is_demo.is_(False),
+            )
+        )
+        if question is None:
+            raise HTTPException(404, "找不到这道题")
+    if body.mode == "interview" and question is None:
+        raise HTTPException(422, "请先从题库选择一道面试题")
+    role, direction = ws.target_role, body.direction
+    if question is not None:
+        meta = question.generation_meta or {}
+        role = meta.get("target_role") or question.role or role
+        direction = meta.get("direction") or question.topic or direction
+
+    title = question.title if question is not None else direction or "学习对话"
+    row = CoachThread(
+        workspace_id=ws.id,
+        mode=body.mode,
+        role=role[:160],
+        direction=direction[:120],
+        question_id=question.id if question is not None else None,
+        question_title=question.title if question is not None else None,
+        title=title[:160],
+    )
+    db.add(row)
+    await db.commit()
+    return _detail(row, [], [])
+
+
+@router.get("/threads/{thread_id}")
+async def read_thread(thread_id: int, db: Database, ws: MemberWorkspace):
+    row = await _thread(db, ws.id, thread_id)
+    return _detail(row, await thread_turns(db, row.id), await thread_candidates(db, row.id))
+
+
+@router.post("/threads/{thread_id}/turns")
+async def create_turn(
+    thread_id: int,
+    body: TurnInput,
+    background: BackgroundTasks,
+    db: Database,
+    ws: MemberWorkspace,
+):
+    thread = await _thread(db, ws.id, thread_id, lock=True)
+    turns = await thread_turns(db, thread_id)
+    prior = next((item for item in turns if item.request_id == str(body.request_id)), None)
+    if prior is not None:
+        if (prior.action, prior.user_text, prior.target_number) != (body.action, body.text, body.target_number):
+            raise HTTPException(409, "请求编号已被另一条消息使用")
+        return turn_view(prior)
+    turn = admit_turn(thread, turns, body)
+    if body.target_number is not None:
+        exists = await db.scalar(
+            select(CoachCandidate.id).where(
+                CoachCandidate.thread_id == thread_id,
+                CoachCandidate.number == body.target_number,
+                CoachCandidate.superseded.is_(False),
+            )
+        )
+        if exists is None:
+            raise HTTPException(409, "找不到当前题号，请刷新候选题")
+    if not turns and thread.mode == "study" and thread.question_title is None:
+        thread.title = (body.text or thread.title)[:64]
+    thread.updated_at = now()
+    workspace_id = ws.id
+    db.add(turn)
+    await db.commit()
+    if turn.status == "generating":
+        background.add_task(run_turn, workspace_id, thread_id, turn.id, turn.attempt)
+    return turn_view(turn)
+
+
+@router.post("/threads/{thread_id}/turns/{turn_id}/retry")
+async def retry_turn(
+    thread_id: int,
+    turn_id: int,
+    body: RetryInput,
+    background: BackgroundTasks,
+    db: Database,
+    ws: MemberWorkspace,
+):
+    thread = await _thread(db, ws.id, thread_id, lock=True)
+    turns = await thread_turns(db, thread_id)
+    turn = next((item for item in turns if item.id == turn_id), None)
+    if turn is None:
+        raise HTTPException(404, "找不到这条消息")
+    if effective_status(turn) != "failed" or body.attempt != turn.attempt:
+        return turn_view(turn)
+    if turn.id != turns[-1].id:
+        raise HTTPException(409, "请重试最新一轮，或继续对话")
+    workspace_id = ws.id
+    turn.attempt += 1
+    # A hint may already have been read when its first attempt failed.
+    if turn.action != "hint":
+        turn.reply = ""
+    turn.status = "generating"
+    turn.error = None
+    turn.expires_at = now() + TURN_LEASE
+    thread.updated_at = now()
+    await db.commit()
+    background.add_task(run_turn, workspace_id, thread_id, turn.id, turn.attempt)
+    return turn_view(turn)
+
+
+@router.get("/threads/{thread_id}/turns/{turn_id}/events")
+async def stream_turn(thread_id: int, turn_id: int, db: Database, ws: MemberWorkspace):
+    workspace_id = ws.id
+    owns_turn = await db.scalar(
+        select(CoachTurn.id)
+        .join(CoachThread)
+        .where(
+            CoachThread.id == thread_id,
+            CoachThread.workspace_id == workspace_id,
+            CoachTurn.id == turn_id,
+        )
+    )
+    if owns_turn is None:
+        raise HTTPException(404, "找不到这条消息")
+    # Release the dependency's transaction and connection before entering the SSE loop.
+    await db.rollback()
+    return StreamingResponse(
+        turn_events(workspace_id, thread_id, turn_id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/threads/{thread_id}/candidates/{candidate_id}/collect")
+async def collect_candidate(thread_id: int, candidate_id: int, db: Database, ws: MemberWorkspace):
+    thread = await _thread(db, ws.id, thread_id, lock=True)
+    candidate = await db.scalar(
+        select(CoachCandidate).where(
+            CoachCandidate.id == candidate_id,
+            CoachCandidate.thread_id == thread_id,
+        )
+    )
+    if candidate is None:
+        raise HTTPException(404, "找不到这道候选题")
+    if candidate.question_id is not None:
+        return {"question_id": candidate.question_id}
+    if candidate.superseded:
+        raise HTTPException(409, "这道候选题已有新版本")
+    reference = escape(candidate.reference).replace("\n", "<br>") if candidate.reference else None
+    question = Question(
+        short_code=f"PC-{uuid4().hex[:24]}",
+        workspace_id=ws.id,
+        title=candidate.title,
+        topic=thread.direction[:64] or "待分类",
+        role=thread.role[:120],
+        source_type=SOURCE_GENERATED,
+        is_demo=False,
+        answer_html=f"<p>{reference}</p>" if reference else None,
+        generation_meta={
+            "origin": "public_coach",
+            "assessment_use": "PRACTICE_ONLY",
+            "thread_id": thread.id,
+            "candidate_id": candidate.id,
+            "turn_id": candidate.turn_id,
+            "target_role": thread.role,
+            "direction": thread.direction or "待分类",
+        },
+    )
+    db.add(question)
+    await db.flush()
+    candidate.question_id = question.id
+    await db.commit()
+    return {"question_id": question.id}
+
+
+async def export_coach(db: AsyncSession, workspace_id: int) -> dict:
+    """Return the account's full coach history for the parent export endpoint."""
+    rows = list(await db.scalars(_threads(workspace_id).order_by(CoachThread.id)))
+    turns_by_thread = defaultdict(list)
+    candidates_by_thread = defaultdict(list)
+    if rows:
+        for item in await db.scalars(
+            select(CoachTurn)
+            .join(CoachThread)
+            .where(
+                CoachThread.workspace_id == workspace_id,
+            )
+            .order_by(CoachTurn.id)
+        ):
+            turns_by_thread[item.thread_id].append(item)
+        for item in await db.scalars(
+            select(CoachCandidate)
+            .join(CoachThread)
+            .where(
+                CoachThread.workspace_id == workspace_id,
+            )
+            .order_by(CoachCandidate.number, CoachCandidate.id)
+        ):
+            candidates_by_thread[item.thread_id].append(item)
+    return {"threads": [_detail(row, turns_by_thread[row.id], candidates_by_thread[row.id]) for row in rows]}
