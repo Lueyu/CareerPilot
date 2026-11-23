@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Literal
 
 from fastapi import HTTPException
@@ -13,13 +13,10 @@ from sqlalchemy import or_, select
 from app.models.study_chat import StudyMessage, StudySession
 from app.models.study_notes import StudyCard, StudyNote, StudyNoteJob, StudyNoteVersion
 from app.services.llm import AgentAdapter, get_llm_config
+from app.services.note_store import create_note, own_note, own_version, utcnow
 from app.services.study_teaching import teaching_prompt
 
 log = logging.getLogger(__name__)
-
-
-def utcnow():
-    return datetime.now(timezone.utc)
 
 
 class Citation(BaseModel):
@@ -79,22 +76,6 @@ async def own_session(db, workspace_id, session_id, *, lock=False):
     return row
 
 
-async def own_note(db, workspace_id, note_id, *, lock=False):
-    stmt = select(StudyNote).where(StudyNote.id == note_id, StudyNote.workspace_id == workspace_id)
-    row = await db.scalar(stmt.with_for_update() if lock else stmt)
-    if row is None:
-        raise HTTPException(404, "笔记不存在")
-    return row
-
-
-async def own_version(db, note_id, version_id, *, lock=False):
-    stmt = select(StudyNoteVersion).where(StudyNoteVersion.id == version_id, StudyNoteVersion.note_id == note_id)
-    row = await db.scalar(stmt.with_for_update() if lock else stmt)
-    if row is None:
-        raise HTTPException(404, "笔记版本不存在")
-    return row
-
-
 async def enqueue(db, workspace_id, session_id, request_id, requested_note, focus_message_id=None):
     chat = await own_session(db, workspace_id, session_id, lock=True)
     reused = await db.scalar(select(StudyNoteJob).where(
@@ -115,9 +96,7 @@ async def enqueue(db, workspace_id, session_id, request_id, requested_note, focu
             StudyNote.origin_session_id == session_id, StudyNote.workspace_id == workspace_id
         ).with_for_update())
     if not note:
-        note = StudyNote(workspace_id=workspace_id, origin_session_id=session_id, title=chat.title)
-        db.add(note)
-        await db.flush()
+        note = await create_note(db, workspace_id, session_id, chat.title)
     base = await own_version(db, note.id, note.current_version_id) if note.current_version_id else None
     session_ids = sorted(set([session_id, *(base.session_ids if base else [])]))
     messages = (await db.scalars(select(StudyMessage).join(StudySession, StudySession.id == StudyMessage.session_id)

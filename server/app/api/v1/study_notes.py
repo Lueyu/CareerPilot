@@ -5,13 +5,15 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import or_, select
+from sqlalchemy import select
 
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import Workspace
-from app.models.study_notes import StudyCard, StudyCardEvent, StudyNote, StudyNoteJob, StudyNoteVersion
+from app.models.study_notes import StudyCard, StudyCardEvent, StudyNoteJob
+from app.services import note_store as notebook
 from app.services import study_notes as service
+from app.services.note_store import EditIn
 
 router = APIRouter(prefix="/study", tags=["study-notes"])
 
@@ -24,13 +26,6 @@ class JobIn(Input):
     focus_message_id: int | None = Field(default=None, gt=0)
     request_id: str = Field(min_length=1, max_length=100)
     note_id: int | None = Field(default=None, gt=0)
-
-
-class EditIn(Input):
-    expected_version_id: int = Field(gt=0)
-    title: str = Field(min_length=1, max_length=160)
-    body: str = Field(min_length=1, max_length=80000)
-    source_version_id: int | None = Field(default=None, gt=0)
 
 
 class CardGenIn(Input):
@@ -98,59 +93,24 @@ async def retry_job(job_id: int, ws=Depends(get_workspace), db=Depends(get_sessi
     return job_view(job)
 
 
-def version_view(row):
-    return {"id": row.id, "version_id": row.id, "note_id": row.note_id, "title": row.title,
-            "author": row.author, "model": row.model, "created_at": row.created_at,
-            "base_version_id": row.base_version_id, "source_version_id": row.source_version_id,
-            "session_ids": row.session_ids, "message_ids": row.coverage, "conflict": row.conflict}
-
-
 @router.get("/notes")
 async def list_notes(q: str = "", ws=Depends(get_workspace), db=Depends(get_session)):
-    stmt = (select(StudyNote, StudyNoteVersion).join(StudyNoteVersion, StudyNoteVersion.id == StudyNote.current_version_id)
-            .where(StudyNote.workspace_id == ws.id).order_by(StudyNote.updated_at.desc(), StudyNote.id.desc()))
-    if q.strip():
-        term = q.strip()[:300]
-        stmt = stmt.where(or_(StudyNote.title.icontains(term, autoescape=True),
-                              StudyNoteVersion.body.icontains(term, autoescape=True)))
-    rows = (await db.execute(stmt)).all()
-    return {"items": [{"id": n.id, "title": n.title, "version_id": v.id, "session_ids": v.session_ids,
-                       "updated_at": n.updated_at} for n, v in rows]}
+    return await notebook.list_notes(db, ws.id, q)
 
 
 @router.get("/notes/{note_id}")
 async def get_note(note_id: int, ws=Depends(get_workspace), db=Depends(get_session)):
-    note = await service.own_note(db, ws.id, note_id)
-    if not note.current_version_id:
-        raise HTTPException(404, "尚未生成可查看的笔记版本")
-    versions = (await db.scalars(select(StudyNoteVersion).where(StudyNoteVersion.note_id == note.id)
-                                 .order_by(StudyNoteVersion.id.desc()))).all()
-    active = next(v for v in versions if v.id == note.current_version_id)
-    return {**version_view(active), "body": active.body, "sources": active.sources, "id": note.id,
-            "updated_at": note.updated_at, "versions": [version_view(v) for v in versions]}
+    return await notebook.get_note(db, ws.id, note_id)
 
 
 @router.get("/notes/{note_id}/versions/{version_id}")
 async def get_version(note_id: int, version_id: int, ws=Depends(get_workspace), db=Depends(get_session)):
-    await service.own_note(db, ws.id, note_id)
-    row = await service.own_version(db, note_id, version_id)
-    return {**version_view(row), "body": row.body, "sources": row.sources}
+    return await notebook.get_version(db, ws.id, note_id, version_id)
 
 
 @router.patch("/notes/{note_id}")
 async def edit_note(note_id: int, body: EditIn, ws=Depends(get_workspace), db=Depends(get_session)):
-    note = await service.own_note(db, ws.id, note_id, lock=True)
-    if note.current_version_id != body.expected_version_id:
-        raise HTTPException(409, "当前笔记已更新，请保留编辑内容并对照新版本")
-    source = await service.own_version(db, note.id, body.source_version_id or note.current_version_id)
-    version = StudyNoteVersion(note_id=note.id, title=body.title, body=body.body, author="USER",
-                               base_version_id=note.current_version_id, source_version_id=source.id,
-                               session_ids=source.session_ids, coverage=source.coverage, sources=source.sources)
-    db.add(version)
-    await db.flush()
-    note.current_version_id, note.title, note.updated_at = version.id, version.title, service.utcnow()
-    await db.commit()
-    return await get_note(note.id, ws, db)
+    return await notebook.edit_note(db, ws.id, note_id, body)
 
 
 def card_view(card):
@@ -174,10 +134,10 @@ async def lock_answer_exposure(db, workspace_id):
 
 @router.post("/notes/{note_id}/cards")
 async def create_cards(note_id: int, body: CardGenIn, ws=Depends(get_workspace), db=Depends(get_session)):
-    await service.own_note(db, ws.id, note_id)
+    await notebook.own_note(db, ws.id, note_id)
     # Only generation on this immutable version waits on the bounded provider call.
     # If the request is interrupted, its transaction releases the lock for a retry.
-    version = await service.own_version(db, note_id, body.version_id, lock=True)
+    version = await notebook.own_version(db, note_id, body.version_id, lock=True)
     if not version.cards_generated:
         try:
             generated = await service.generate_cards(version.body)

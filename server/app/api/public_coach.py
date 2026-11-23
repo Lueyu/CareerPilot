@@ -13,13 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import lazyload
 
 from app.api.public_auth import current_workspace
-from app.api.v1 import study_notes as notebook
 from app.db import get_session
 from app.models.public_coach import CoachCandidate, CoachThread, CoachTurn
 from app.models.question import SOURCE_GENERATED, Question
 from app.models.study_chat import StudySession
 from app.models.study_notes import StudyNote, StudyNoteVersion
 from app.models.workspace import Workspace
+from app.services import note_store as notebook
 from app.services.public_coach import (
     STUDY_ACTIONS,
     TURN_LEASE,
@@ -383,9 +383,7 @@ async def save_reply(thread_id: int, turn_id: int, db: Database, ws: MemberWorks
     )
     db.add(origin)
     await db.flush()
-    note = StudyNote(workspace_id=ws.id, title=thread.title, origin_session_id=origin.id)
-    db.add(note)
-    await db.flush()
+    note = await notebook.create_note(db, ws.id, origin.id, thread.title)
     version = StudyNoteVersion(
         note_id=note.id, title=note.title, body=turn.reply,
         author="AI", sources=[], session_ids=[], coverage=[],
@@ -399,19 +397,19 @@ async def save_reply(thread_id: int, turn_id: int, db: Database, ws: MemberWorks
 
 @router.get("/notes")
 async def list_notes(db: Database, ws: MemberWorkspace, q: str = ""):
-    return await notebook.list_notes(q=q, ws=ws, db=db)
+    return await notebook.list_notes(db, ws.id, q)
 
 
 @router.get("/notes/{note_id}")
 async def get_note(note_id: int, db: Database, ws: MemberWorkspace):
-    return await notebook.get_note(note_id, ws, db)
+    return await notebook.get_note(db, ws.id, note_id)
 
 
 @router.get("/notes/{note_id}/versions/{version_id}")
 async def get_version(note_id: int, version_id: int, db: Database, ws: MemberWorkspace):
-    return await notebook.get_version(note_id, version_id, ws, db)
+    return await notebook.get_version(db, ws.id, note_id, version_id)
 
 
 @router.patch("/notes/{note_id}")
 async def edit_note(note_id: int, body: notebook.EditIn, db: Database, ws: MemberWorkspace):
-    return await notebook.edit_note(note_id, body, ws, db)
+    return await notebook.edit_note(db, ws.id, note_id, body)
