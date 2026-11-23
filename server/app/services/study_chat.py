@@ -352,7 +352,10 @@ async def _generate(turn, settings, deadline, trace, save, fail):
         return
 
     selected, request, allowance = options[0]
-    alternate = next((candidate for candidate, _, _ in options[1:] if candidate.identity != selected.identity), None)
+    alternate = next((candidate for candidate, _, _ in options[1:]
+                      if candidate.identity != selected.identity and not (
+                          settings.study_relay_same_upstream and candidate.config["model"] == selected.config["model"]
+                      )), None)
     if len(options) > 1 and alternate is None:
         skipped[options[1][0].tier] = "same_endpoint_and_model"
     preferred = trace["preferred_tier"]

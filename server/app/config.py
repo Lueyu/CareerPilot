@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     study_strong_base_url: str = ""
     study_strong_api_key: str = ""
     study_strong_provider: str = ""
+    study_relay_same_upstream: bool = False
     study_output_budget: int = 16000
     # 单档最大输出 token。reasoning 模型会把思考 token 计入 max_tokens,
     # 预算过小会导致思考阶段就触顶截断, 触发不必要的档位升级重跑。

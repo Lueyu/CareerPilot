@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 from threading import Lock
 import time
+from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, Request, build_opener
 
 from .relay import LoopbackRelay
@@ -393,10 +394,16 @@ def _compose(
             "STUDY_STRONG_MODEL": upstream.get("MODEL_STRONG_MODEL", "").replace("$", "$$"),
         })
         if upstream.get("MODEL_STRONG_BASE_URL"):
+            def endpoint(base):
+                url = urlsplit(base.rstrip("/"))
+                return url.scheme, url.hostname, url.port or 443, url.path
+
+            same_upstream = endpoint(upstream["MODEL_UPSTREAM_BASE_URL"]) == endpoint(upstream["MODEL_STRONG_BASE_URL"])
             native["environment"].update({
                 "STUDY_STRONG_BASE_URL": f"http://{model_ip}:8080/strong/v1",
                 "STUDY_STRONG_API_KEY": model_token,
                 "STUDY_STRONG_PROVIDER": "compatible",
+                "STUDY_RELAY_SAME_UPSTREAM": str(same_upstream).lower(),
             })
         compose["services"]["model-relay"] = _relay_service(
             "model_relay", "egress", model_ip, 8080,

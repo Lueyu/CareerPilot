@@ -20,6 +20,16 @@ from app.services import llm
 from app.services import study_chat as worker
 
 
+def use_relay_transport(monkeypatch, relay):
+    client = httpx.AsyncClient
+
+    def connect(**options):
+        options.setdefault("transport", httpx.ASGITransport(app=relay))
+        return client(**options)
+
+    monkeypatch.setattr(httpx, "AsyncClient", connect)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", [400, 401, 403, 429])
 async def test_registered_turn_preserves_upstream_retry_class(study, monkeypatch, status):
@@ -40,18 +50,50 @@ async def test_registered_turn_preserves_upstream_retry_class(study, monkeypatch
 
     relay = create_app(RelayConfig("https://provider.test/v1", base_model, "synthetic-upstream-key", token),
                        strong_model="fixture-pro", transport=httpx.MockTransport(upstream))
-    client = httpx.AsyncClient
-
-    def connect(**options):
-        options.setdefault("transport", httpx.ASGITransport(app=relay))
-        return client(**options)
-
-    monkeypatch.setattr(httpx, "AsyncClient", connect)
+    use_relay_transport(monkeypatch, relay)
     reply = await ask("什么是分母？")
     assert requested == ([base_model, "fixture-pro"] if status == 429 else [base_model])
     assert reply["status"] == ("completed" if status == 429 else "failed")
     assert reply["trace"]["calls"][0]["http_status"] == status
     assert "private provider detail" not in json.dumps(reply, default=str)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("strong_url", "strong_model", "mode", "keys"), [
+    ("https://PROVIDER.test:443/v1/", "quick", "auto", ["flash-key"]),
+    ("https://PROVIDER.test:443/v1/", "quick", "strong", ["strong-key"]),
+    ("https://provider.test/v1", "deep", "auto", ["flash-key", "strong-key"]),
+    ("https://other.test/v1", "quick", "auto", ["flash-key", "strong-key"]),
+])
+async def test_registered_retry_uses_distinct_physical_models(study, monkeypatch, strong_url, strong_model, mode, keys):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]))
+    from deploy.tenant.model_relay import RelayConfig, create_app
+    from deploy.tenant.runtime import _compose
+
+    ask, settings = study
+    token = "synthetic-only-tenant-token-for-this-test"
+    base = "https://provider.test/v1"
+    upstream = {"MODEL_UPSTREAM_MODEL":"quick", "MODEL_UPSTREAM_BASE_URL":base, "MODEL_UPSTREAM_API_KEY":"flash-key",
+                "MODEL_STRONG_MODEL":strong_model, "MODEL_STRONG_BASE_URL":strong_url, "MODEL_STRONG_API_KEY":"strong-key"}
+    networks = {"private":"10.9.0.0/28","egress":"10.9.0.16/28","repo_egress":"10.9.0.32/28"}
+    env = _compose("seed-fixture","采购","auth","db",networks,upstream,token,"repo")["services"]["api"]["environment"]
+    monkeypatch.setattr(llm,"_CACHE",{"provider":"openai","api_key":token,"base_url":env["LLM_BASE_URL"],"model":"quick"})
+    for field in ("study_strong_model","study_strong_base_url","study_strong_api_key","study_strong_provider"):
+        monkeypatch.setattr(settings, field, env[field.upper()])
+    monkeypatch.setattr(settings,"study_relay_same_upstream",env["STUDY_RELAY_SAME_UPSTREAM"] == "true")
+    seen = []
+
+    async def provider(request):
+        seen.append(request.headers["authorization"].removeprefix("Bearer "))
+        return response("合成答复。") if seen[-1] == "strong-key" else httpx.Response(429)
+
+    relay = create_app(RelayConfig(base,"quick","flash-key",token),
+                       strong_connection=RelayConfig(strong_url,strong_model,"strong-key",token),
+                       transport=httpx.MockTransport(provider))
+    use_relay_transport(monkeypatch, relay)
+    reply = await ask("什么是订单？", mode=mode)
+    assert seen == keys
+    assert reply["status"] == ("completed" if keys[-1] == "strong-key" else "failed")
 
 
 @pytest.mark.asyncio

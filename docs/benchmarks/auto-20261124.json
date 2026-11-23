@@ -1,0 +1,839 @@
+{
+  "date": "2026-11-24",
+  "baseline": "70660b21f2e635f9dc80851d9d9bfb011c496429",
+  "policy": "study-auto-v2.2",
+  "suites": {
+    "primary": {
+      "fixture_sha256": "e55a67f83a1b620bff605762b63a3ab5fc7ddfbc43ce26fcac99c6e95f92340d",
+      "baseline": {
+        "router_sha256": "63400125e084ee20dcaa943db72bb43296186a4b91744a3e595646948db71215",
+        "routing": {
+          "count": 44,
+          "correct": 23,
+          "accuracy": 0.5227272727272727,
+          "macro_f1": 0.5204981837052414,
+          "confusion": {
+            "flash": {
+              "flash": 13,
+              "strong": 7,
+              "abstain_or_invalid": 0,
+              "error": 0
+            },
+            "strong": {
+              "flash": 14,
+              "strong": 10,
+              "abstain_or_invalid": 0,
+              "error": 0
+            }
+          },
+          "classes": {
+            "flash": {
+              "tp": 13,
+              "fp": 14,
+              "fn": 7,
+              "support": 20,
+              "f1": 0.5531914893617021
+            },
+            "strong": {
+              "tp": 10,
+              "fp": 7,
+              "fn": 14,
+              "support": 24,
+              "f1": 0.4878048780487805
+            }
+          },
+          "errors": 0,
+          "abstain_or_invalid": 0
+        },
+        "retrieval": {
+          "count": 28,
+          "positives": 22,
+          "negatives": 6,
+          "recall_at": {
+            "1": {
+              "macro": 0.18939393939393942,
+              "pooled_hits": 8,
+              "pooled_relevant": 36,
+              "pooled": 0.2222222222222222
+            },
+            "3": {
+              "macro": 0.5151515151515151,
+              "pooled_hits": 22,
+              "pooled_relevant": 36,
+              "pooled": 0.6111111111111112
+            },
+            "5": {
+              "macro": 0.5151515151515151,
+              "pooled_hits": 22,
+              "pooled_relevant": 36,
+              "pooled": 0.6111111111111112
+            },
+            "8": {
+              "macro": 0.5454545454545454,
+              "pooled_hits": 24,
+              "pooled_relevant": 36,
+              "pooled": 0.6666666666666666
+            }
+          },
+          "mrr": 0.4393939393939394,
+          "mrr_at_8": 0.4393939393939394,
+          "reciprocal_rank_sum": 9.666666666666666,
+          "positive_empty": 10,
+          "negative_empty": 3,
+          "negative_abstention": 0.5,
+          "negative_answered": 3,
+          "errors": 0,
+          "unverified_ranked_items": 0
+        }
+      },
+      "candidate": {
+        "router_sha256": "ddf3be9076b4c9706528ec6755b257707c40762bb888313565abb29540d6a33f",
+        "routing": {
+          "count": 44,
+          "correct": 28,
+          "accuracy": 0.6363636363636364,
+          "macro_f1": 0.6356107660455487,
+          "confusion": {
+            "flash": {
+              "flash": 15,
+              "strong": 5,
+              "abstain_or_invalid": 0,
+              "error": 0
+            },
+            "strong": {
+              "flash": 11,
+              "strong": 13,
+              "abstain_or_invalid": 0,
+              "error": 0
+            }
+          },
+          "classes": {
+            "flash": {
+              "tp": 15,
+              "fp": 11,
+              "fn": 5,
+              "support": 20,
+              "f1": 0.6521739130434783
+            },
+            "strong": {
+              "tp": 13,
+              "fp": 5,
+              "fn": 11,
+              "support": 24,
+              "f1": 0.6190476190476191
+            }
+          },
+          "errors": 0,
+          "abstain_or_invalid": 0
+        },
+        "retrieval": {
+          "count": 28,
+          "positives": 22,
+          "negatives": 6,
+          "recall_at": {
+            "1": {
+              "macro": 0.4772727272727273,
+              "pooled_hits": 16,
+              "pooled_relevant": 36,
+              "pooled": 0.4444444444444444
+            },
+            "3": {
+              "macro": 0.7348484848484849,
+              "pooled_hits": 29,
+              "pooled_relevant": 36,
+              "pooled": 0.8055555555555556
+            },
+            "5": {
+              "macro": 0.7803030303030304,
+              "pooled_hits": 30,
+              "pooled_relevant": 36,
+              "pooled": 0.8333333333333334
+            },
+            "8": {
+              "macro": 0.7803030303030304,
+              "pooled_hits": 30,
+              "pooled_relevant": 36,
+              "pooled": 0.8333333333333334
+            }
+          },
+          "mrr": 0.7613636363636364,
+          "mrr_at_8": 0.7613636363636364,
+          "reciprocal_rank_sum": 16.75,
+          "positive_empty": 4,
+          "negative_empty": 4,
+          "negative_abstention": 0.6666666666666666,
+          "negative_answered": 2,
+          "errors": 0,
+          "unverified_ranked_items": 2
+        }
+      }
+    },
+    "confirmation": {
+      "fixture_sha256": "f3bc87e8135a3711d153beb8d62f55095e1c1e580f42cdcf7a5d9e0c6ac056c9",
+      "baseline": {
+        "router_sha256": "63400125e084ee20dcaa943db72bb43296186a4b91744a3e595646948db71215",
+        "routing": {
+          "count": 24,
+          "correct": 12,
+          "accuracy": 0.5,
+          "macro_f1": 0.3333333333333333,
+          "confusion": {
+            "flash": {
+              "flash": 12,
+              "strong": 0,
+              "abstain_or_invalid": 0,
+              "error": 0
+            },
+            "strong": {
+              "flash": 12,
+              "strong": 0,
+              "abstain_or_invalid": 0,
+              "error": 0
+            }
+          },
+          "classes": {
+            "flash": {
+              "tp": 12,
+              "fp": 12,
+              "fn": 0,
+              "support": 12,
+              "f1": 0.6666666666666666
+            },
+            "strong": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 12,
+              "support": 12,
+              "f1": 0.0
+            }
+          },
+          "errors": 0,
+          "abstain_or_invalid": 0
+        }
+      },
+      "candidate": {
+        "router_sha256": "ddf3be9076b4c9706528ec6755b257707c40762bb888313565abb29540d6a33f",
+        "routing": {
+          "count": 24,
+          "correct": 19,
+          "accuracy": 0.7916666666666666,
+          "macro_f1": 0.7822141560798548,
+          "confusion": {
+            "flash": {
+              "flash": 12,
+              "strong": 0,
+              "abstain_or_invalid": 0,
+              "error": 0
+            },
+            "strong": {
+              "flash": 5,
+              "strong": 7,
+              "abstain_or_invalid": 0,
+              "error": 0
+            }
+          },
+          "classes": {
+            "flash": {
+              "tp": 12,
+              "fp": 5,
+              "fn": 0,
+              "support": 12,
+              "f1": 0.8275862068965517
+            },
+            "strong": {
+              "tp": 7,
+              "fp": 0,
+              "fn": 5,
+              "support": 12,
+              "f1": 0.7368421052631579
+            }
+          },
+          "errors": 0,
+          "abstain_or_invalid": 0
+        }
+      }
+    }
+  },
+  "provider_runs": [
+    {
+      "candidate": "study-auto-v2.2",
+      "prompts": {
+        "explain": "请只用纯文字解释什么是向量检索，举一个例子，控制在 150 字以内。",
+        "tradeoff": "请只用纯文字比较关键词检索和向量检索的取舍，并说明各适合哪种场景，控制在 200 字以内。"
+      },
+      "samples": [
+        {
+          "side": "baseline",
+          "prompt": "explain",
+          "repeat": 1,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 18826.02,
+          "duration_ms": 22507.16,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "explain",
+          "repeat": 1,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 14402.94,
+          "duration_ms": 15792.44,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4.1-flash-1017"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "tradeoff",
+          "repeat": 1,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 17259.66,
+          "duration_ms": 19978.97,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "tradeoff",
+          "repeat": 1,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 17896.53,
+          "duration_ms": 20247.75,
+          "requested": "deepseek-v4-pro",
+          "reported": [
+            "deepseek-v4-pro-ga-260813"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "explain",
+          "repeat": 2,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 14152.44,
+          "duration_ms": 15955.4,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "explain",
+          "repeat": 2,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 14763.81,
+          "duration_ms": 15802.84,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "tradeoff",
+          "repeat": 2,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 17645.07,
+          "duration_ms": 20304.32,
+          "requested": "deepseek-v4-pro",
+          "reported": [
+            "deepseek-v4-pro-ga-260813"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "tradeoff",
+          "repeat": 2,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 15435.0,
+          "duration_ms": 16826.83,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "explain",
+          "repeat": 3,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 9639.91,
+          "duration_ms": 10453.89,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "explain",
+          "repeat": 3,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 9506.37,
+          "duration_ms": 10920.5,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "tradeoff",
+          "repeat": 3,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 10061.05,
+          "duration_ms": 11916.03,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "tradeoff",
+          "repeat": 3,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 12801.03,
+          "duration_ms": 15713.35,
+          "requested": "deepseek-v4-pro",
+          "reported": [
+            "deepseek-v4-pro-0813"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "explain",
+          "repeat": 4,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 9907.92,
+          "duration_ms": 11400.53,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "explain",
+          "repeat": 4,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 12107.97,
+          "duration_ms": 12107.99,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4.1-flash-1017"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "tradeoff",
+          "repeat": 4,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 16664.77,
+          "duration_ms": 19111.89,
+          "requested": "deepseek-v4-pro",
+          "reported": [
+            "deepseek-v4-pro-ga-260813"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "tradeoff",
+          "repeat": 4,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 9905.24,
+          "duration_ms": 11118.71,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4.1-flash-1017"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "explain",
+          "repeat": 5,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 14165.82,
+          "duration_ms": 15197.04,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "explain",
+          "repeat": 5,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 10173.97,
+          "duration_ms": 12722.05,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "tradeoff",
+          "repeat": 5,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 17039.1,
+          "duration_ms": 18141.17,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "tradeoff",
+          "repeat": 5,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 11233.34,
+          "duration_ms": 12995.94,
+          "requested": "deepseek-v4-pro",
+          "reported": [
+            "deepseek-v4-pro-ga-260813"
+          ]
+        }
+      ],
+      "percentile_method": "nearest_rank",
+      "usage": {
+        "baseline": {
+          "completed": 10,
+          "calls": 10,
+          "provider_usage_known": 10,
+          "cost_known": 0,
+          "total_tokens": 5836,
+          "prompt_tokens": 3589,
+          "completion_tokens": 2247
+        },
+        "candidate": {
+          "completed": 10,
+          "calls": 10,
+          "provider_usage_known": 10,
+          "cost_known": 0,
+          "total_tokens": 5428,
+          "prompt_tokens": 3511,
+          "completion_tokens": 1917
+        }
+      }
+    },
+    {
+      "candidate": "21fdf5e",
+      "prompts": {
+        "explain": "请只用纯文字解释什么是向量检索，举一个例子，控制在 150 字以内。",
+        "tradeoff": "请只用纯文字比较关键词检索和向量检索的取舍，并说明各适合哪种场景，控制在 200 字以内。"
+      },
+      "samples": [
+        {
+          "side": "baseline",
+          "prompt": "explain",
+          "repeat": 1,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 10678.48,
+          "duration_ms": 11543.43,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "explain",
+          "repeat": 1,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 10924.01,
+          "duration_ms": 11452.86,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4.1-flash-1017"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "tradeoff",
+          "repeat": 1,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 9617.68,
+          "duration_ms": 10475.9,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4.1-flash-1017"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "tradeoff",
+          "repeat": 1,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 18060.7,
+          "duration_ms": 19763.36,
+          "requested": "deepseek-v4-pro",
+          "reported": [
+            "deepseek-v4-pro-0813"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "explain",
+          "repeat": 2,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 10360.48,
+          "duration_ms": 11001.22,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4.1-flash-1017"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "explain",
+          "repeat": 2,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 5702.94,
+          "duration_ms": 6652.65,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "tradeoff",
+          "repeat": 2,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 11298.41,
+          "duration_ms": 14006.83,
+          "requested": "deepseek-v4-pro",
+          "reported": [
+            "deepseek-v4-pro-0813"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "tradeoff",
+          "repeat": 2,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 5035.32,
+          "duration_ms": 6900.42,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "explain",
+          "repeat": 3,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 11134.73,
+          "duration_ms": 12361.43,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "explain",
+          "repeat": 3,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 9728.2,
+          "duration_ms": 10955.24,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "tradeoff",
+          "repeat": 3,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 10840.35,
+          "duration_ms": 11913.62,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4.1-flash-1017"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "tradeoff",
+          "repeat": 3,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 13693.34,
+          "duration_ms": 15786.46,
+          "requested": "deepseek-v4-pro",
+          "reported": [
+            "deepseek-v4-pro-ga-260813"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "explain",
+          "repeat": 4,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 7132.97,
+          "duration_ms": 7887.61,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4.1-flash-1017"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "explain",
+          "repeat": 4,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 10154.35,
+          "duration_ms": 11195.48,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "tradeoff",
+          "repeat": 4,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 13042.53,
+          "duration_ms": 14754.27,
+          "requested": "deepseek-v4-pro",
+          "reported": [
+            "deepseek-v4-pro-ga-260813"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "tradeoff",
+          "repeat": 4,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 10344.51,
+          "duration_ms": 12070.54,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "explain",
+          "repeat": 5,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 8808.32,
+          "duration_ms": 9815.83,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "explain",
+          "repeat": 5,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 8972.87,
+          "duration_ms": 12313.24,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4.1-flash-1017"
+          ]
+        },
+        {
+          "side": "baseline",
+          "prompt": "tradeoff",
+          "repeat": 5,
+          "pair_order": 1,
+          "outcome": "ok",
+          "ttft_ms": 14283.76,
+          "duration_ms": 15936.44,
+          "requested": "deepseek-v4-flash",
+          "reported": [
+            "deepseek-v4-flash-ga-260731"
+          ]
+        },
+        {
+          "side": "candidate",
+          "prompt": "tradeoff",
+          "repeat": 5,
+          "pair_order": 2,
+          "outcome": "ok",
+          "ttft_ms": 13443.88,
+          "duration_ms": 16159.57,
+          "requested": "deepseek-v4-pro",
+          "reported": [
+            "deepseek-v4-pro-0813"
+          ]
+        }
+      ],
+      "percentile_method": "nearest_rank",
+      "usage": {
+        "baseline": {
+          "completed": 10,
+          "calls": 10,
+          "provider_usage_known": 10,
+          "cost_known": 0,
+          "total_tokens": 5242,
+          "prompt_tokens": 3589,
+          "completion_tokens": 1653
+        },
+        "candidate": {
+          "completed": 10,
+          "calls": 10,
+          "provider_usage_known": 10,
+          "cost_known": 0,
+          "total_tokens": 5414,
+          "prompt_tokens": 3514,
+          "completion_tokens": 1900
+        }
+      }
+    }
+  ]
+}
