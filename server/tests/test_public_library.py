@@ -10,7 +10,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from fastapi import Depends, FastAPI, Header, HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select, update
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -172,6 +172,200 @@ async def test_roles_gateway_fallback_starter_and_reload(browser):
     await _role(peer)
     assert (await peer.get("questions", params=direction)).json()["questions"] == []
     assert (await peer.get("roles")).json()["roles"][0]["jd"] is None
+
+
+@pytest.fixture
+def starter_provider(browser, library, monkeypatch):
+    from app.services import public_model
+
+    for name, value in {
+        "SEED_MODEL_BASE_URL": "http://127.0.0.1:1/v1",
+        "SEED_MODEL_KEY": "fixture-key",
+        "SEED_MODEL_NAME": "fixture-model",
+        "SEED_MODEL_THINKING": "",
+        "SEED_LOCAL_UNMETERED": "false",
+        "SEED_INPUT_CNY_PER_MILLION": "1",
+        "SEED_OUTPUT_CNY_PER_MILLION": "1",
+        "SEED_MONTHLY_CNY": "50",
+        "SEED_DAILY_USER_CNY": "10",
+    }.items():
+        monkeypatch.setenv(name, value)
+    client = httpx.AsyncClient
+
+    def install(handler):
+        def provider_client(**options):
+            return client(transport=httpx.MockTransport(handler), **options)
+
+        monkeypatch.setattr(public_model.httpx, "AsyncClient", provider_client)
+        monkeypatch.setattr(library, "complete_text", public_model.complete_text)
+
+    return install
+
+
+def _starter_completion():
+    return httpx.Response(
+        200,
+        json={
+            "choices": [{"message": {"content": '[{"title":"怎样验证流量质量？","answer":"比较分组留存。"}]'}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_overlapping_starter_requests_make_one_metered_provider_call(browser, starter_provider, db_session):
+    from app.models.public_model import PublicModelCall
+
+    owner, _, _, owner_id, _ = browser
+    selection = await _role(owner)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    requests = []
+
+    async def provider(request):
+        requests.append(request)
+        if len(requests) == 1:
+            entered.set()
+            await release.wait()
+        return _starter_completion()
+
+    starter_provider(provider)
+
+    first = asyncio.create_task(owner.post("starter", json=selection))
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        overlap = await asyncio.wait_for(owner.post("starter", json=selection), 5)
+        assert len(requests) == 1
+        assert overlap.status_code == 409 and "正在生成" in overlap.json()["detail"]
+        assert (await asyncio.wait_for(owner.post("example", json=selection), 5)).status_code == 200
+    finally:
+        release.set()
+        result = await asyncio.wait_for(first, 5)
+
+    assert result.status_code == 200, result.text
+    assert (await owner.post("starter", json=selection)).json() == result.json()
+    assert len(requests) == 1
+    calls = (await db_session.scalars(select(PublicModelCall).where(PublicModelCall.workspace_id == owner_id))).all()
+    assert [call.charged_nano_cny for call in calls] == [30_000]
+    questions = (await owner.get("questions", params=selection)).json()["questions"]
+    assert [row for row in questions if row["origin"] == "library_starter"] == result.json()["questions"]
+
+
+@pytest.mark.parametrize("settled", [True, False], ids=["replay-settled", "retry-unsettled"])
+@pytest.mark.asyncio
+async def test_expired_starter_lease_reconciles_reservation(
+    browser, starter_provider, library, monkeypatch, db_session, settled
+):
+    from app.models.public_library import PublicLibraryStarter
+    from app.models.public_model import PublicModelCall
+
+    owner, _, _, owner_id, _ = browser
+    selection = await _role(owner)
+    requests = []
+
+    def provider(request):
+        requests.append(request)
+        if not settled and len(requests) == 1:
+            raise asyncio.CancelledError
+        return _starter_completion()
+
+    starter_provider(provider)
+    complete = library.complete_text
+
+    async def interrupt_after_settlement(*args, **kwargs):
+        await complete(*args, **kwargs)
+        raise asyncio.CancelledError
+
+    with monkeypatch.context() as interruption:
+        if settled:
+            interruption.setattr(library, "complete_text", interrupt_after_settlement)
+        with pytest.raises(asyncio.CancelledError):
+            await owner.post("starter", json=selection)
+    assert (await owner.post("starter", json=selection)).status_code == 409
+    assert (await owner.get("questions", params=selection)).json()["questions"] == []
+
+    await db_session.execute(
+        update(PublicLibraryStarter)
+        .where(PublicLibraryStarter.workspace_id == owner_id)
+        .values(lease_until=func.now())
+    )
+    await db_session.commit()
+    result = await owner.post("starter", json=selection)
+    assert len(requests) == 1
+    if not settled:
+        assert result.status_code == 409 and "重试" in result.json()["detail"]
+        result = await owner.post("starter", json=selection)
+        assert len(requests) == 2
+
+    assert result.status_code == 200, result.text
+    assert (await owner.post("starter", json=selection)).json() == result.json()
+    calls = (await db_session.scalars(select(PublicModelCall).where(PublicModelCall.workspace_id == owner_id))).all()
+    assert len(calls) == len(requests)
+    unsettled = [call for call in calls if call.result is None]
+    assert len(unsettled) == (0 if settled else 1)
+    assert all(call.charged_nano_cny == call.reserved_nano_cny for call in unsettled)
+
+
+@pytest.mark.asyncio
+async def test_starter_replays_exact_batch_and_scopes_changed_inputs_and_workspace(browser, library, monkeypatch):
+    owner, peer, _, _, _ = browser
+    selection = await _role(owner, jd="原岗位要求")
+    example = (await owner.post("example", json=selection)).json()
+    calls = []
+
+    async def provider(workspace_id, request_key, messages, *, max_tokens):
+        purpose = request_key.split(":")[1]
+        payload = json.loads(messages[1]["content"])
+        if purpose == "directions":
+            return json.dumps([{"name": selection["topic"], "example": "怎样验证新版分组实验？"}])
+        calls.append((workspace_id, payload))
+        return json.dumps([{"title": example["title"]}, {"title": f"起步题批次 {len(calls)}"}])
+
+    monkeypatch.setattr(library, "complete_text", provider)
+    original = (await owner.post("starter", json=selection)).json()
+    assert original["questions"][0] == example
+    assert (await owner.post("starter", json=selection)).json() == original
+
+    await _role(peer, jd="原岗位要求")
+    peer_batch = (await peer.post("starter", json=selection)).json()
+    assert {row["id"] for row in peer_batch["questions"]}.isdisjoint(row["id"] for row in original["questions"])
+
+    await _role(owner, jd="新岗位要求")
+    changed_jd = (await owner.post("starter", json=selection)).json()
+    assert changed_jd != original
+    await _role(owner, jd="原岗位要求")
+    assert (await owner.post("starter", json=selection)).json() == original
+
+    assert (await owner.post("directions", json={"role": selection["role"]})).status_code == 200
+    changed_example = (await owner.post("starter", json=selection)).json()
+    assert changed_example != original
+    assert (await owner.post("starter", json=selection)).json() == changed_example
+    assert len(calls) == 4
+
+
+@pytest.mark.asyncio
+async def test_legacy_starters_are_reused_once(browser, db_session):
+    owner, _, calls, workspace_id, _ = browser
+    selection = await _role(owner)
+    legacy = Question(
+        short_code=f"legacy-{uuid4().hex[:20]}",
+        workspace_id=workspace_id,
+        title="旧版起步题",
+        generation_meta={"origin": "library_starter"},
+        **selection,
+    )
+    db_session.add(legacy)
+    await db_session.commit()
+
+    adopted = (await owner.post("starter", json=selection)).json()
+    assert [row["id"] for row in adopted["questions"]] == [legacy.id]
+    assert (await owner.post("starter", json=selection)).json() == adopted
+    assert calls == []
+
+    await _role(owner, jd="更新后的岗位要求")
+    result = (await owner.post("starter", json=selection)).json()
+    assert result["questions"][0]["id"] != legacy.id
+    assert calls == ["starter"]
 
 
 @pytest.mark.parametrize(("filename", "make_bytes"), [("试.md", _markdown), ("试.docx", _docx), ("试.pdf", _pdf)])

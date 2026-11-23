@@ -8,7 +8,8 @@ import json
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import datetime, timedelta, timezone
 from html import escape
 from pathlib import Path, PurePosixPath
 from typing import Annotated
@@ -17,7 +18,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter, ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -26,7 +27,7 @@ from starlette.formparsers import MultiPartException
 from app.api.public_auth import current_workspace
 from app.db import get_session
 from app.models import ImportItem, ImportSession, Question, Workspace
-from app.models.public_library import PublicLibraryRole
+from app.models.public_library import PublicLibraryRole, PublicLibraryStarter
 from app.models.question import SOURCE_GENERATED, SOURCE_PRIVATE
 from app.services.interview_import_text import extract_structured_questions, read_json
 from app.services.public_library_extract import MAX_UPLOAD_BYTES, SUFFIXES
@@ -39,6 +40,8 @@ ORIGIN = "public_library"
 MAX_CANDIDATES = 20
 BODY_LIMIT = MAX_UPLOAD_BYTES + 16_384
 PARSE_SLOTS = asyncio.Semaphore(2)
+STARTER_MODEL_TIMEOUT = 135
+STARTER_LEASE = timedelta(minutes=3)
 
 Db = Annotated[AsyncSession, Depends(get_session)]
 Space = Annotated[Workspace, Depends(current_workspace)]
@@ -158,11 +161,12 @@ async def select_direction(body: DirectionInput, db: Db, ws: Space):
 
 
 async def _model_list(
-    workspace_id: int, purpose: str, instruction: str, payload: dict, schema: type[BaseModel], limit: int
+    workspace_id: int, purpose: str, instruction: str, payload: dict, schema: type[BaseModel], limit: int,
+    *, attempt_id: str | None = None,
 ):
     raw = await complete_text(
         workspace_id,
-        f"library:{purpose}:{uuid4().hex}",
+        f"library:{purpose}:{attempt_id or uuid4().hex}",
         [
             {
                 "role": "system",
@@ -277,17 +281,34 @@ async def _by_title(db: AsyncSession, workspace_id: int, role: str, topic: str) 
     return {_title_key(row.title): row for row in await db.scalars(query)}
 
 
-async def _existing_starters(db: AsyncSession, workspace_id: int, body: DirectionInput) -> list[Question]:
-    query = (
-        _questions(workspace_id)
-        .where(
-            Question.role == body.role,
-            Question.topic == body.topic,
-            Question.generation_meta["origin"].as_string() == "library_starter",
-        )
-        .order_by(Question.id)
+def _starter_inputs(role: PublicLibraryRole, topic: str) -> dict:
+    return {"role": role.name, "jd": role.jd, "topic": topic, "example": _direction(role, topic)["example"]}
+
+
+def _starter_view(rows: Iterable[Question]) -> dict:
+    return {"questions": [_question_view(row) for row in rows]}
+
+
+def _starter_pending() -> HTTPException:
+    return HTTPException(409, "起步题正在生成，请稍后再次提交查看结果。")
+
+
+async def _adopt_legacy_starters(
+    db: AsyncSession, operation: PublicLibraryStarter, body: DirectionInput
+) -> list[Question]:
+    query = _questions(operation.workspace_id).where(
+        Question.role == body.role,
+        Question.topic == body.topic,
+        Question.generation_meta["origin"].as_string() == "library_starter",
+        Question.generation_meta["starter_input_digest"].as_string().is_(None),
     )
-    return list(await db.scalars(query))
+    rows = list(await db.scalars(query.order_by(Question.id)))
+    if rows:
+        # Older batches lack input provenance. Adopt them once for this direction.
+        for row in rows:
+            row.generation_meta = {**row.generation_meta, "starter_input_digest": operation.input_digest}
+        operation.question_ids = [row.id for row in rows]
+    return rows
 
 
 @router.post("/example")
@@ -318,43 +339,99 @@ async def save_example(body: DirectionInput, db: Db, ws: Space):
 @router.post("/starter")
 async def starter_questions(body: DirectionInput, db: Db, ws: Space):
     workspace_id = ws.id
-    role = await _role(db, workspace_id, body.role)
-    direction = _direction(role, body.topic)
-    existing = await _existing_starters(db, workspace_id, body)
-    if existing:
-        return {"questions": [_question_view(row) for row in existing]}
-    jd = role.jd
-    await db.rollback()
-    drafts = await _model_list(
-        workspace_id,
-        "starter",
-        '为这个方向写 3 道各有侧重的面试题。每项格式 {"title":"可独立作答的具体问题","answer":"参考思路"}。'
-        "例题只用于定范围，给出新的情景。不要编造用户的经历。",
-        {"role": body.role, "jd": jd, "topic": body.topic, "example": direction["example"]},
-        ModelQuestion,
-        3,
-    )
-    if not drafts:
-        raise HTTPException(502, "模型没有返回起步题，请重试。")
     await _lock_space(db, workspace_id)
     role = await _role(db, workspace_id, body.role)
-    if role.jd != jd:
-        raise HTTPException(409, "招聘要求已更新，请重新生成起步题。")
-    existing = await _existing_starters(db, workspace_id, body)
-    if existing:
-        return {"questions": [_question_view(row) for row in existing]}
+    inputs = _starter_inputs(role, body.topic)
+    digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
+    operation_key = (workspace_id, digest)
+    operation = await db.get(PublicLibraryStarter, operation_key)
+    if operation is not None and operation.question_ids is not None:
+        query = _questions(workspace_id).where(Question.id.in_(operation.question_ids))
+        by_id = {row.id: row for row in await db.scalars(query)}
+        view = _starter_view(by_id[question_id] for question_id in operation.question_ids if question_id in by_id)
+        await db.rollback()
+        return view
+
+    now = await db.scalar(select(func.clock_timestamp()))
+    token = uuid4().hex
+    legacy = []
+    if operation is None:
+        operation = PublicLibraryStarter(workspace_id=workspace_id, input_digest=digest, attempt_id=token)
+        db.add(operation)
+        legacy = await _adopt_legacy_starters(db, operation, body)
+    elif operation.failed_at is not None:
+        # A new submission can retry, but a submission that overlapped the failure cannot.
+        if operation.failed_at >= await db.scalar(select(func.transaction_timestamp())):
+            raise HTTPException(409, "上一次起步题生成失败，请重新提交以重试。")
+        operation.attempt_id = token
+        operation.failed_at = None
+    elif operation.lease_until > now:
+        raise _starter_pending()
+
+    # An expired lease keeps the same gateway key to replay any settled response.
+    operation.lease_token = token
+    operation.lease_until = now + STARTER_LEASE
+    attempt_id = operation.attempt_id
+    await db.commit()
+    if legacy:
+        return _starter_view(legacy)
+
+    try:
+        async with asyncio.timeout(STARTER_MODEL_TIMEOUT):
+            drafts = await _model_list(
+                workspace_id,
+                "starter",
+                '为这个方向写 3 道各有侧重的面试题。每项格式 {"title":"可独立作答的具体问题","answer":"参考思路"}。'
+                "例题只用于定范围，给出新的情景。不要编造用户的经历。",
+                inputs,
+                ModelQuestion,
+                3,
+                attempt_id=attempt_id,
+            )
+        if not drafts:
+            raise HTTPException(502, "模型没有返回起步题，请重试。")
+    except TimeoutError:
+        raise HTTPException(504, "起步题请求超时，请稍后再次提交查看结果。") from None
+    except HTTPException as error:
+        await _lock_space(db, workspace_id)
+        current = await db.get(PublicLibraryStarter, operation_key, populate_existing=True)
+        if current is None or current.lease_token != token:
+            raise _starter_pending() from None
+        now = await db.scalar(select(func.clock_timestamp()))
+        if error.status_code == 503:
+            # Admission or settlement may have committed before a database error.
+            # Let the next submission reconcile against the same reservation.
+            current.lease_until = now
+        else:
+            current.failed_at = now
+        await db.commit()
+        if error.status_code == 409:
+            raise HTTPException(409, "上一次起步题生成未完成，请重新提交以重试。") from None
+        raise
+
+    await _lock_space(db, workspace_id)
+    operation = await db.get(PublicLibraryStarter, operation_key, populate_existing=True)
+    if operation is None or operation.lease_token != token:
+        raise _starter_pending()
+    role = await _role(db, workspace_id, body.role)
+    if _starter_inputs(role, body.topic) != inputs:
+        operation.lease_until = await db.scalar(select(func.clock_timestamp()))
+        await db.commit()
+        raise HTTPException(409, "招聘要求或方向例题已更新，请重新生成起步题。")
     known = await _by_title(db, workspace_id, body.role, body.topic)
     rows: dict[str, Question] = {}
     for draft in drafts:
         key = _title_key(draft.title)
         if key not in known:
             known[key] = _new_question(
-                workspace_id, body.role, body.topic, draft.title, draft.answer, "library_starter"
+                workspace_id, body.role, body.topic, draft.title, draft.answer, "library_starter",
+                starter_input_digest=digest,
             )
             db.add(known[key])
         rows[key] = known[key]
     await db.flush()
-    view = {"questions": [_question_view(row) for row in rows.values()]}
+    operation.question_ids = [row.id for row in rows.values()]
+    view = _starter_view(rows.values())
     await db.commit()
     return view
 
