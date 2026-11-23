@@ -345,7 +345,7 @@ export default function ExperiencedBank({
               <span className="hint" role="status">共 {results.length} 题</span>
             </div>
             {results.length === 0 ? <p className="experienced-empty">没有符合条件的题目。</p> : (
-              <ul className="experienced-question-list">
+              <ul className="experienced-question-list" key={params.toString()} tabIndex={0} aria-labelledby="bank-catalog-title">
                 {results.slice(start, start + PAGE_SIZE).map(({ question, domainName }) => (
                   <li key={question.id} className="experienced-question">
                     <div>
