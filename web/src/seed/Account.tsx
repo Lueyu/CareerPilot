@@ -1,8 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { request } from './api';
+import { announceSessionChange, requestAuth, type AccountInfo } from './api';
 
 type Mode = 'login' | 'register' | 'recover';
-type AccountInfo = { username: string; workspace_id: number };
 type RecoveryInfo = AccountInfo & { recovery_code: string };
 
 const modes: ReadonlyArray<{ mode: Mode; label: string }> = [
@@ -55,7 +54,7 @@ function RecoveryCode({ code, onContinue }: { code: string; onContinue: () => vo
   );
 }
 
-export default function Account({ onAuthenticated }: { onAuthenticated: () => void }) {
+export default function Account({ onStart, onFinish }: { onStart: () => void; onFinish: () => void }) {
   const [mode, setMode] = useState<Mode>('login');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
@@ -77,21 +76,25 @@ export default function Account({ onAuthenticated }: { onAuthenticated: () => vo
       ? { ...credentials, recovery_code: fields.get('recovery_code') }
       : credentials;
     const options = { method: 'POST', body: JSON.stringify(body) };
+    onStart();
     setPending(true);
     setError('');
 
+    let awaitingConfirmation = false;
     try {
       if (mode === 'login') {
-        await request<AccountInfo>('/auth/login', options);
-        onAuthenticated();
+        await requestAuth<AccountInfo>('/auth/login', options);
       } else {
-        const result = await request<RecoveryInfo>(`/auth/${mode}`, options);
+        const result = await requestAuth<RecoveryInfo>(`/auth/${mode}`, options);
+        awaitingConfirmation = true;
         setRecoveryCode(result.recovery_code);
       }
+      announceSessionChange();
     } catch (cause) {
       setError(cause instanceof Error && cause.message ? cause.message : '账号服务暂不可用，请稍后再试。');
     } finally {
       setPending(false);
+      if (!awaitingConfirmation) onFinish();
     }
   }
 
@@ -101,7 +104,7 @@ export default function Account({ onAuthenticated }: { onAuthenticated: () => vo
         code={recoveryCode}
         onContinue={() => {
           setRecoveryCode(null);
-          onAuthenticated();
+          onFinish();
         }}
       />
     );

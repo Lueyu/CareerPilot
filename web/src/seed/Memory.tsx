@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
-import { request } from './api';
+import { useCallback, useEffect, useState } from 'react';
+import { useWorkspaceApi } from './api';
 
 type Entry = { id: number; text: string; revision: number };
 
 export default function Memory() {
+  const { request } = useWorkspaceApi();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [draft, setDraft] = useState('');
   const [editing, setEditing] = useState<number | null>(null);
@@ -11,12 +12,12 @@ export default function Memory() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setError('');
     try { setEntries(await request<Entry[]>('/memories')); } catch (e) { setError((e as Error).message); }
     finally { setLoading(false); }
-  }
-  useEffect(() => { void refresh(); }, []);
+  }, [request]);
+  useEffect(() => { void refresh(); }, [refresh]);
   async function save() {
     setBusy(true); setError('');
     try {

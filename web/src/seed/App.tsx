@@ -1,21 +1,26 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Account from './Account';
 import Coach from './Coach';
 import Library from './Library';
 import Memory from './Memory';
-import { request, SeedApiError } from './api';
+import {
+  announceSessionChange, createWorkspaceApi, requestAuth, SeedApiError, sessionChangeKey,
+  useWorkspaceApi, WorkspaceApiContext, type AccountInfo,
+} from './api';
 
 const pages = { library: '我的题库', coach: '练习室', memories: '项目记忆', settings: '账户' } as const;
 type Page = keyof typeof pages;
-type User = { username: string; workspace_id: number };
 type Practice = { question: { id: number; title: string }; mode: 'study' | 'interview' };
+type WorkspaceView = { kind: 'workspace'; user: AccountInfo; api: ReturnType<typeof createWorkspaceApi>; key: number };
+type SessionView = WorkspaceView | { kind: 'opening' } | { kind: 'anonymous' } | { kind: 'error'; message: string };
 
 function currentPage(): Page {
   const key = window.location.hash.slice(1);
   return Object.prototype.hasOwnProperty.call(pages, key) ? key as Page : 'library';
 }
 
-function Settings({ user, signedOut }: { user: User; signedOut: () => void }) {
+function Settings({ user, signedOut }: { user: AccountInfo; signedOut: () => void }) {
+  const { request } = useWorkspaceApi();
   const [password, setPassword] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -49,48 +54,105 @@ function Settings({ user, signedOut }: { user: User; signedOut: () => void }) {
 }
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
-  const [booting, setBooting] = useState(true);
-  const [error, setError] = useState('');
+  const [session, setSession] = useState<SessionView>({ kind: 'opening' });
+  const workspace = useRef<WorkspaceView | null>(null);
+  const workspaceKey = useRef(0);
+  const sessionCheck = useRef<AbortController | null>(null);
+  const accountFlow = useRef(false);
   const [page, setPage] = useState<Page>(currentPage);
   const [practice, setPractice] = useState<Practice>();
   const [coachKey, setCoachKey] = useState(0);
-  const loadUser = useCallback(async () => {
-    setError('');
-    try { setUser(await request<User>('/auth/me')); }
-    catch (e) { setUser(null); if (!(e instanceof SeedApiError && e.status === 401)) setError((e as Error).message); }
-    finally { setBooting(false); }
-  }, []);
-  function signedOut() {
-    setUser(null);
+  const clearWorkspace = useCallback(() => {
+    if (!workspace.current) return;
+    workspace.current.api.close();
+    workspace.current = null;
     setPractice(undefined);
+  }, []);
+
+  const loadUser = useCallback(async (reset = false): Promise<void> => {
+    if (accountFlow.current) return;
+    sessionCheck.current?.abort();
+    const check = new AbortController();
+    sessionCheck.current = check;
+    if (reset) {
+      clearWorkspace();
+      setSession({ kind: 'opening' });
+    }
+    try {
+      const user = await requestAuth<AccountInfo>('/auth/me', { signal: check.signal });
+      if (check.signal.aborted || workspace.current?.user.workspace_id === user.workspace_id) return;
+      clearWorkspace();
+      const api = createWorkspaceApi(user.workspace_id, () => void loadUser(true));
+      const next: WorkspaceView = { kind: 'workspace', user, api, key: ++workspaceKey.current };
+      workspace.current = next;
+      setSession(next);
+    } catch (error) {
+      if (check.signal.aborted) return;
+      if (error instanceof SeedApiError && error.status === 401) {
+        clearWorkspace();
+        setSession({ kind: 'anonymous' });
+      } else if (!workspace.current) {
+        setSession({ kind: 'error', message: error instanceof Error ? error.message : '暂时无法连接账号服务。' });
+      }
+    } finally {
+      if (sessionCheck.current === check) sessionCheck.current = null;
+    }
+  }, [clearWorkspace]);
+
+  function startAccountFlow() {
+    accountFlow.current = true;
+    sessionCheck.current?.abort();
+  }
+  function finishAccountFlow() {
+    accountFlow.current = false;
+    void loadUser();
+  }
+  function signedOut() {
+    announceSessionChange();
     window.location.hash = 'library';
+    void loadUser(true);
   }
   useEffect(() => {
     void loadUser();
     const change = () => setPage(currentPage());
+    const check = () => void loadUser();
+    const visible = () => { if (document.visibilityState === 'visible') check(); };
+    const changedInOtherTab = (event: StorageEvent) => { if (event.key === sessionChangeKey) check(); };
     window.addEventListener('hashchange', change);
-    window.addEventListener('careerpilot-session-expired', signedOut);
-    return () => { window.removeEventListener('hashchange', change); window.removeEventListener('careerpilot-session-expired', signedOut); };
+    window.addEventListener('focus', check);
+    window.addEventListener('pageshow', check);
+    window.addEventListener('storage', changedInOtherTab);
+    document.addEventListener('visibilitychange', visible);
+    return () => {
+      sessionCheck.current?.abort();
+      workspace.current?.api.close();
+      workspace.current = null;
+      window.removeEventListener('hashchange', change);
+      window.removeEventListener('focus', check);
+      window.removeEventListener('pageshow', check);
+      window.removeEventListener('storage', changedInOtherTab);
+      document.removeEventListener('visibilitychange', visible);
+    };
   }, [loadUser]);
   function openCoach(next?: Practice) {
     setPractice(next);
     setCoachKey(k => k + 1);
     window.location.hash = 'coach';
   }
+  const user = session.kind === 'workspace' ? session.user : null;
   return <><header className="mast"><div className="mast-inner">
     <a className="brand" href="#library" aria-label="CareerPilot 首页"><span className="brand-mark" aria-hidden="true">C</span>CareerPilot</a>
     {user && <nav aria-label="主导航">{(Object.entries(pages) as [Page,string][]).map(([key,label]) =>
       <a key={key} href={'#' + key} aria-current={page === key ? 'page' : undefined}>{label}</a>)}</nav>}
   </div></header>
   <main className={user ? 'workspace' : 'welcome'}>
-    {booting ? <p role="status">正在打开练习室…</p> : error ? <div className="panel stack"><p role="alert">{error}</p><button onClick={loadUser}>重新连接</button></div>
-    : !user ? <><div className="intro"><h1>把下一场面试，<br/>提前练一遍。</h1><p>带上你的目标岗位和面经，整理自己的题库。和学习助手一起拆解问题，再让面试官沿着你的回答追问。</p></div><section className="login-panel"><Account onAuthenticated={loadUser} /></section></>
-    : <div key={user.workspace_id}>
+    {session.kind === 'opening' ? <p role="status">正在打开练习室…</p> : session.kind === 'error' ? <div className="panel stack"><p role="alert">{session.message}</p><button onClick={() => void loadUser(true)}>重新连接</button></div>
+    : session.kind === 'anonymous' ? <><div className="intro"><h1>把下一场面试，<br/>提前练一遍。</h1><p>带上你的目标岗位和面经，整理自己的题库。和学习助手一起拆解问题，再让面试官沿着你的回答追问。</p></div><section className="login-panel"><Account onStart={startAccountFlow} onFinish={finishAccountFlow} /></section></>
+    : <WorkspaceApiContext.Provider key={session.key} value={session.api}><div>
         {page === 'library' && <Library onPractice={(question,mode) => openCoach({question,mode})} onCoach={() => openCoach()} />}
         {page === 'coach' && <Coach key={coachKey} question={practice?.question} mode={practice?.mode || 'study'} onLibrary={() => { window.location.hash = 'library'; }} />}
         {page === 'memories' && <Memory />}
-        {page === 'settings' && <Settings user={user} signedOut={signedOut} />}
-      </div>}
+        {page === 'settings' && <Settings user={session.user} signedOut={signedOut} />}
+      </div></WorkspaceApiContext.Provider>}
   </main></>;
 }

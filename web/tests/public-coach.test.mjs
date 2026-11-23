@@ -1,22 +1,9 @@
 import { strict as assert } from 'node:assert';
-import { register } from 'node:module';
 import { test } from 'node:test';
 import { createElement } from 'react';
 import { act, create } from 'react-test-renderer';
-
-const apiKey = Symbol.for('careerpilot.public-coach.test-api');
-const virtualApi = 'data:text/javascript,' + encodeURIComponent(
-  "export function request(...args) { return globalThis[Symbol.for('careerpilot.public-coach.test-api')](...args); }",
-);
-const loader = 'data:text/javascript,' + encodeURIComponent(
-  'export async function resolve(specifier, context, next) {' +
-    'if (specifier === "./api" && context.parentURL?.endsWith("/src/seed/Coach.tsx")) {' +
-      'return { url: ' + JSON.stringify(virtualApi) + ', shortCircuit: true };' +
-    '} return next(specifier, context);' +
-  '}',
-);
-register(loader, import.meta.url);
-const { default: Coach } = await import('../src/seed/Coach.tsx');
+import Coach from '../src/seed/Coach.tsx';
+import { createWorkspaceApi, WorkspaceApiContext } from '../src/seed/api.ts';
 
 const summary = { id: 1, title: '增长练习', role: '产品运营', direction: '用户增长', question_title: null };
 const study = { ...summary, actions: ['chat', 'generate'], turns: [], candidates: [], ability_status: null };
@@ -24,19 +11,23 @@ const study = { ...summary, actions: ['chat', 'generate'], turns: [], candidates
 function makeFixture(t, request) {
   const sources = [];
   const calls = [];
-  const apiBefore = globalThis[apiKey];
+  const fetchBefore = globalThis.fetch;
   const eventSourceBefore = globalThis.EventSource;
   const windowBefore = globalThis.window;
-  globalThis[apiKey] = async (path, options) => {
+  const workspaceId = 11;
+  const api = createWorkspaceApi(workspaceId, () => assert.fail('unexpected session invalidation'));
+  globalThis.fetch = async (url, options) => {
+    const path = url.slice('/api/v1'.length);
     const method = options?.method ?? 'GET';
     const body = options?.body ? JSON.parse(options.body) : undefined;
+    assert.equal(options.headers.get('X-Expected-Workspace'), String(workspaceId));
     calls.push({ method, path, body });
     if (method === 'GET' && path.startsWith('/coach/threads?')) {
-      return { threads: [summary], next_offset: null };
+      return Response.json({ threads: [summary], next_offset: null });
     }
-    return request({ path, method, body });
+    return Response.json(await request({ path, method, body }));
   };
-  globalThis.window = { setTimeout, clearTimeout };
+  globalThis.window = { setTimeout, clearTimeout, location: { origin: 'https://seed.test' } };
   globalThis.EventSource = class {
     constructor(url) {
       this.url = url;
@@ -50,7 +41,7 @@ function makeFixture(t, request) {
   let view;
   t.after(async () => {
     await act(async () => view?.unmount());
-    globalThis[apiKey] = apiBefore;
+    globalThis.fetch = fetchBefore;
     globalThis.EventSource = eventSourceBefore;
     globalThis.window = windowBefore;
   });
@@ -58,7 +49,9 @@ function makeFixture(t, request) {
     calls, sources,
     async render() {
       await act(async () => {
-        view = create(createElement(Coach, { mode: 'study', onLibrary() {} }));
+        view = create(createElement(WorkspaceApiContext.Provider, { value: api },
+          createElement(Coach, { mode: 'study', onLibrary() {} }),
+        ));
       });
       return view.root;
     },
@@ -91,7 +84,7 @@ test('shows streamed text before completion and confirms a learner message befor
   const root = await fixture.render();
   await submit(root, response.user_text);
   const source = fixture.sources[0];
-  assert.equal(source.url, '/api/v1/coach/threads/1/turns/7/events');
+  assert.equal(source.url, '/api/v1/coach/threads/1/turns/7/events?expected_workspace_id=11');
   await act(async () => source.emit({ ...response, reply: '先梳理社群目标' }));
   assert.ok(root.findAll(node => node.type === 'div' && node.children.includes('先梳理社群目标')).length);
   assert.ok(root.findAllByProps({ role: 'status' }).some(node => node.children.includes('正在生成回复…')));

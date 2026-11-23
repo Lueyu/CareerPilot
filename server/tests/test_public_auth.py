@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.api import public_memory
 from app.api.public_auth import current_workspace, public_origin_guard, router, validate_auth_config
 from app.db import get_session
 from app.models import Event, ImportItem, ImportSession, MemoryItem, Question, User, Workspace, WorkspaceMember
@@ -40,6 +41,7 @@ async def browser(db_session, monkeypatch):
         app = FastAPI()
         app.middleware("http")(public_origin_guard)
         app.include_router(router, prefix="/api/v1")
+        app.include_router(public_memory.router, prefix="/api/v1")
         app.dependency_overrides[get_session] = database
 
         @app.get("/workspace")
@@ -55,6 +57,50 @@ async def browser(db_session, monkeypatch):
 
 def credentials(username, password=PASSWORD):
     return {"username": username, "password": password}
+
+
+@pytest.mark.asyncio
+async def test_stale_tab_cannot_write_read_logout_or_delete_after_account_switch(browser):
+    async with browser() as shared, browser() as anonymous:
+        first = (await shared.post(f"{AUTH}/register", json=credentials("first_tab"))).json()
+        first_workspace = {"x-expected-workspace": str(first["workspace_id"])}
+        draft = {"text": "First account's draft", "confirmed": True}
+        assert (await anonymous.post("/api/v1/memories", headers=first_workspace, json=draft)).status_code == 401
+
+        second = (await shared.post(f"{AUTH}/register", json=credentials("second_tab"))).json()
+        second_workspace = {"x-expected-workspace": str(second["workspace_id"])}
+        for method, path, payload in [
+            ("POST", "/api/v1/memories", draft),
+            ("GET", "/api/v1/memories", None),
+            ("GET", f"/workspace?expected_workspace_id={first['workspace_id']}", None),
+            ("POST", f"{AUTH}/logout", None),
+            ("DELETE", f"{AUTH}/account", {"password": PASSWORD}),
+        ]:
+            headers = {} if "?" in path else first_workspace
+            rejected = await shared.request(method, path, headers=headers, json=payload)
+            assert rejected.status_code == 409, (method, path)
+            assert rejected.json()["detail"]["code"] == "workspace_changed"
+            assert "set-cookie" not in rejected.headers
+
+        assert (await shared.get(f"{AUTH}/me")).json()["workspace_id"] == second["workspace_id"]
+        assert (await shared.get("/api/v1/memories", headers=second_workspace)).json() == []
+        saved = await shared.post("/api/v1/memories", headers=second_workspace, json={**draft, "text": "Second account's draft"})
+        assert saved.status_code == 201
+        assert (await shared.get("/api/v1/memories", headers=second_workspace)).json() == [saved.json()]
+
+        # A later logout response must not overwrite a cookie another tab installed.
+        logout = await shared.post(f"{AUTH}/logout", headers=second_workspace)
+        assert logout.status_code == 204
+        assert "set-cookie" not in logout.headers
+        expired = await shared.get("/api/v1/memories", headers=second_workspace)
+        assert expired.status_code == 401
+        assert expired.json()["detail"]["code"] == "session_required"
+        assert (await shared.post(f"{AUTH}/login", json=credentials("first_tab"))).status_code == 200
+        assert (await shared.get("/api/v1/memories", headers=first_workspace)).json() == []
+        removed = await shared.request("DELETE", f"{AUTH}/account", headers=first_workspace, json={"password": PASSWORD})
+        assert removed.status_code == 204
+        assert "set-cookie" not in removed.headers
+        assert (await shared.get(f"{AUTH}/me")).status_code == 401
 
 
 @pytest.mark.asyncio

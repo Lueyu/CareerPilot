@@ -117,7 +117,12 @@ def _cookie_digest(request: Request) -> str | None:
 
 
 def _unauthenticated() -> HTTPException:
-    return HTTPException(status_code=401, detail="请先登录。")
+    return HTTPException(status_code=401, detail={"code": "session_required", "message": "请先登录。"})
+
+
+def _workspace_expectation(request: Request) -> list[str]:
+    # EventSource cannot send custom request headers.
+    return request.headers.getlist("x-expected-workspace") + request.query_params.getlist("expected_workspace_id")
 
 
 async def _session_account(request: Request, session: Database) -> PublicAccount:
@@ -129,6 +134,12 @@ async def _session_account(request: Request, session: Database) -> PublicAccount
             .where(PublicSession.token_hash == digest, PublicSession.expires_at > func.now())
         )
         if account is not None:
+            expected = _workspace_expectation(request)
+            if expected and expected != [str(account.workspace_id)]:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "workspace_changed", "message": "当前登录账号已切换。"},
+                )
             return account
     raise _unauthenticated()
 
@@ -263,11 +274,16 @@ async def me(account: Annotated[PublicAccount, Depends(_session_account)]) -> Ac
 
 @router.post("/logout", status_code=204)
 async def logout(request: Request, response: Response, session: Database) -> None:
+    bound = bool(_workspace_expectation(request))
+    if bound:
+        await _session_account(request, session)
     digest = _cookie_digest(request)
     if digest is not None:
         await session.execute(delete(PublicSession).where(PublicSession.token_hash == digest))
         await session.commit()
-    _clear_cookie(response)
+    # A bound browser may have installed another account's cookie while this request was in flight.
+    if not bound:
+        _clear_cookie(response)
 
 
 @router.delete("/account", status_code=204)
@@ -307,4 +323,5 @@ async def delete_account(
     await session.execute(delete(Workspace).where(Workspace.id == workspace_id))
     await session.execute(delete(User).where(User.id == user_id))
     await session.commit()
-    _clear_cookie(response)
+    if not _workspace_expectation(request):
+        _clear_cookie(response)

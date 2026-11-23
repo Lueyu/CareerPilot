@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { request } from "./api";
+import { useWorkspaceApi } from "./api";
 
 type Mode = "study" | "interview";
 type PracticeQuestion = { id: number; title: string };
@@ -56,10 +56,6 @@ function errorMessage(error: unknown) {
   return error instanceof Error && error.message ? error.message : messages.request;
 }
 
-function send<T>(path: string, method: "POST" | "PUT", body: unknown) {
-  return request<T>(path, { method, body: JSON.stringify(body) });
-}
-
 function QuestionCard({
   question,
   onPractice,
@@ -67,6 +63,7 @@ function QuestionCard({
   question: Question;
   onPractice: Props["onPractice"];
 }) {
+  const { send } = useWorkspaceApi();
   const [feedback, setFeedback] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -153,6 +150,7 @@ function QuestionList({
   revision: number;
   onPractice: Props["onPractice"];
 }) {
+  const { request } = useWorkspaceApi();
   const [page, setPage] = useState<QuestionPage>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -183,7 +181,7 @@ function QuestionList({
     return () => {
       active = false;
     };
-  }, [role, topic, revision, retry]);
+  }, [request, role, topic, revision, retry]);
 
   async function more(before: number) {
     setLoading(true);
@@ -245,6 +243,7 @@ function QuestionList({
 }
 
 function Imports({ selection, onSaved }: { selection: Selection | null; onSaved: () => void }) {
+  const { request, send } = useWorkspaceApi();
   const [history, setHistory] = useState<ImportPage>();
   const [draft, setDraft] = useState<ImportDraft>();
   const [privacy, setPrivacy] = useState<Privacy>();
@@ -272,7 +271,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
     return () => {
       active = false;
     };
-  }, [privacyRetry]);
+  }, [request, privacyRetry]);
 
   useEffect(() => {
     let active = true;
@@ -287,7 +286,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
     return () => {
       active = false;
     };
-  }, [historyRetry]);
+  }, [request, historyRetry]);
 
   async function operate(label: string, action: () => Promise<void>) {
     setBusy(label);
@@ -647,6 +646,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
 }
 
 export default function Library({ onPractice, onCoach }: Props) {
+  const { request, send } = useWorkspaceApi();
   const [roles, setRoles] = useState<Roles>();
   const [roleInput, setRoleInput] = useState("");
   const [jd, setJd] = useState("");
@@ -678,7 +678,7 @@ export default function Library({ onPractice, onCoach }: Props) {
     return () => {
       mounted = false;
     };
-  }, [retry]);
+  }, [request, retry]);
 
   function applyRole(role: Role, resetInputs = true) {
     setRoles((previous) => {

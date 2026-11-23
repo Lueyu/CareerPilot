@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import Markdown from 'react-markdown';
-import { request } from './api';
+import { useWorkspaceApi } from './api';
 
 type CoachProps = {
   question?: { id: number; title: string };
@@ -63,10 +63,6 @@ const turnLabels: Record<Action, string> = {
 
 function messageOf(error: unknown) {
   return error instanceof Error ? error.message : '请求失败，请稍后重试';
-}
-
-function post<T>(path: string, body: object) {
-  return request<T>(path, { method: 'POST', body: JSON.stringify(body) });
 }
 
 function studyDraft(text: string, choice: StudyAction, revision: number | null): TurnDraft {
@@ -171,6 +167,7 @@ function Transcript({
 }
 
 function MemoryReview({ initial, onClose }: { initial: string; onClose: (saved: boolean) => void }) {
+  const { send } = useWorkspaceApi();
   const [text, setText] = useState(initial);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
@@ -183,7 +180,7 @@ function MemoryReview({ initial, onClose }: { initial: string; onClose: (saved: 
     setPending(true);
     setError('');
     try {
-      await post('/memories', { text: reviewed, source: 'user_statement', confirmed: true });
+      await send('/memories', 'POST', { text: reviewed, source: 'user_statement', confirmed: true });
       onClose(true);
     } catch (error) {
       setError(messageOf(error));
@@ -208,6 +205,7 @@ function MemoryReview({ initial, onClose }: { initial: string; onClose: (saved: 
 }
 
 function CoachSession({ question, mode, onLibrary }: CoachProps) {
+  const { request, send, events } = useWorkspaceApi();
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
@@ -249,7 +247,7 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
       .catch(error => { if (!controller.signal.aborted) setError(messageOf(error)); })
       .finally(() => { if (!controller.signal.aborted) setHistoryLoading(false); });
     return () => controller.abort();
-  }, [listPath, historyAttempt]);
+  }, [request, listPath, historyAttempt]);
 
   useEffect(() => {
     if (!detailPath) return;
@@ -258,15 +256,15 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
       .then(value => { if (!controller.signal.aborted) setThread(value); })
       .catch(error => { if (!controller.signal.aborted) setError(messageOf(error)); });
     return () => controller.abort();
-  }, [detailPath, detailAttempt]);
+  }, [request, detailPath, detailAttempt]);
 
   useEffect(() => {
     if (!detailPath || streamingId === null) return;
     const controller = new AbortController();
     let timer: number | undefined;
     let reconciling = false;
-    const path = '/api/v1' + detailPath + '/turns/' + streamingId + '/events';
-    const source = typeof EventSource === 'undefined' ? null : new EventSource(path);
+    const path = detailPath + '/turns/' + streamingId + '/events';
+    const source = typeof EventSource === 'undefined' ? null : events(path, controller.signal);
     async function reconcile() {
       try {
         const current = await request<Thread>(detailPath ?? '', { signal: controller.signal });
@@ -312,11 +310,10 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
       void reconcile();
     }
     return () => {
-      source?.close();
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [detailPath, streamingId, streamingAttempt]);
+  }, [request, events, detailPath, streamingId, streamingAttempt]);
 
   async function loadOlder() {
     if (nextOffset === null || pending) return;
@@ -349,7 +346,7 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
     setPending(true);
     setError('');
     try {
-      const result = await post<Thread>('/coach/threads', { mode, question_id: question?.id, direction });
+      const result = await send<Thread>('/coach/threads', 'POST', { mode, question_id: question?.id, direction });
       openThread(result.id);
       setThread(result);
       setThreads(current => [result, ...current]);
@@ -361,7 +358,7 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
     }
   }
 
-  async function send(draft: TurnDraft) {
+  async function submitTurn(draft: TurnDraft) {
     if (!active || !detailPath || pending) return;
     const previous = submission.current;
     const id = previous?.thread === active.id &&
@@ -372,7 +369,7 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
     setPending(true);
     setError('');
     try {
-      const turn = await post<Turn>(detailPath + '/turns', { ...draft, request_id: id });
+      const turn = await send<Turn>(detailPath + '/turns', 'POST', { ...draft, request_id: id });
       submission.current = null;
       if (draft.text) {
         setInput('');
@@ -400,7 +397,7 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
     setPending(true);
     setError('');
     try {
-      const result = await post<Turn>(detailPath + '/turns/' + turn.id + '/retry', { attempt: turn.attempt });
+      const result = await send<Turn>(detailPath + '/turns/' + turn.id + '/retry', 'POST', { attempt: turn.attempt });
       if (result.status !== 'generating') {
         setThread(await request<Thread>(detailPath));
       } else {
@@ -422,8 +419,8 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
     setCollecting(candidate.id);
     setError('');
     try {
-      const result = await post<{ question_id: number }>(
-        detailPath + '/candidates/' + candidate.id + '/collect', {},
+      const result = await send<{ question_id: number }>(
+        detailPath + '/candidates/' + candidate.id + '/collect', 'POST', {},
       );
       setThread(current => current && current.id === id ? {
         ...current,
@@ -449,8 +446,8 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
     event.preventDefault();
     const text = input.trim();
     if (!text) return;
-    if (study) void send(studyDraft(text, studyAction, revision));
-    else if (answerAction) void send({ action: answerAction, text });
+    if (study) void submitTurn(studyDraft(text, studyAction, revision));
+    else if (answerAction) void submitTurn({ action: answerAction, text });
   }
 
   return (
@@ -565,9 +562,9 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
           {!study && (active.actions.includes('hint') || active.actions.includes('finish')) && (
             <div className="actions">
               {active.actions.includes('hint') && <button type="button" className="secondary" disabled={pending}
-                onClick={() => void send({ action: 'hint' })}>给我一条提示</button>}
+                onClick={() => void submitTurn({ action: 'hint' })}>给我一条提示</button>}
               {active.actions.includes('finish') && <button type="button" className="primary" disabled={pending}
-                onClick={() => void send({ action: 'finish' })}>
+                onClick={() => void submitTurn({ action: 'finish' })}>
                 {active.actions.includes('followup_answer') ? '跳过追问并查看点评' : '结束并查看点评'}
               </button>}
             </div>
