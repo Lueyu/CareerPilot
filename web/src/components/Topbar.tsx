@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { useAppState } from './AppState';
 
 const PAGE_NAMES: Record<string, string> = {
   '/': '首页',
@@ -23,13 +22,31 @@ const PAGE_NAMES: Record<string, string> = {
 type Theme = 'light' | 'dark';
 
 function currentTheme(): Theme {
+  try {
+    const saved = localStorage.getItem('cp-theme');
+    if (saved === 'light' || saved === 'dark') return saved;
+  } catch {
+    // Theme remains usable when storage is unavailable.
+  }
   return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
 }
 
-export default function Topbar({ beforeCrumb }: { beforeCrumb?: React.ReactNode }) {
+export interface TopbarActions {
+  search: () => void;
+  quick: () => void;
+  notifications: () => void;
+}
+
+export default function Topbar({ beforeCrumb, workspaceLabel, actions }: {
+  beforeCrumb?: React.ReactNode;
+  workspaceLabel: string;
+  actions?: TopbarActions;
+}) {
   const { pathname } = useLocation();
-  const { setCmdOpen, setQuickOpen, setNotifOpen } = useAppState();
   const [theme, setTheme] = useState<Theme>(currentTheme);
+  React.useLayoutEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
   const name =
     PAGE_NAMES[pathname] ??
     // 动态路由按前缀匹配
@@ -37,8 +54,11 @@ export default function Topbar({ beforeCrumb }: { beforeCrumb?: React.ReactNode 
 
   const toggleTheme = () => {
     const next: Theme = theme === 'dark' ? 'light' : 'dark';
-    document.documentElement.dataset.theme = next;
-    localStorage.setItem('cp-theme', next);
+    try {
+      localStorage.setItem('cp-theme', next);
+    } catch {
+      // The preference still applies to the current view.
+    }
     setTheme(next);
   };
 
@@ -46,19 +66,23 @@ export default function Topbar({ beforeCrumb }: { beforeCrumb?: React.ReactNode 
     <header className="topbar">
       <div className="crumb">
         {beforeCrumb}
-        <span>个人工作空间</span>
+        <span>{workspaceLabel}</span>
         <span className="crumb-sep">/</span>
         <span className="crumb-cur">{name}</span>
       </div>
       <div className="topbar-right">
-        <div className="search-box" onClick={() => setCmdOpen(true)}>
-          <span>🔍</span>
-          <input readOnly placeholder="搜索技能、证据、任务" />
-          <span className="kbd">⌘K</span>
-        </div>
-        <button className="btn btn-primary" onClick={() => setQuickOpen(true)}>
-          + 快捷操作
-        </button>
+        {actions && (
+          <>
+            <div className="search-box" onClick={actions.search}>
+              <span>🔍</span>
+              <input readOnly placeholder="搜索技能、证据、任务" />
+              <span className="kbd">⌘K</span>
+            </div>
+            <button className="btn btn-primary" onClick={actions.quick}>
+              + 快捷操作
+            </button>
+          </>
+        )}
         <button
           className="icon-btn"
           onClick={toggleTheme}
@@ -67,12 +91,11 @@ export default function Topbar({ beforeCrumb }: { beforeCrumb?: React.ReactNode 
         >
           {theme === 'dark' ? '☀️' : '🌙'}
         </button>
-        <div style={{ position: 'relative' }}>
-          <button className="icon-btn" onClick={() => setNotifOpen(true)}>
+        {actions && <div style={{ position: 'relative' }}>
+          <button className="icon-btn" onClick={actions.notifications}>
             🔔
-
           </button>
-        </div>
+        </div>}
       </div>
     </header>
   );

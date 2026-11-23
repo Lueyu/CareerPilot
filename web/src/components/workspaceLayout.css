@@ -1,0 +1,47 @@
+.sidebar button.ws-card { text-align: start; }
+.sidebar .ws-info > span { display: block; }
+.sidebar .ws-card-static { cursor: default; }
+.sidebar .ws-card-static:hover { background: rgba(255, 255, 255, 0.07); }
+
+.app .app-body-study { padding: 0; overflow: hidden; min-height: 0; }
+
+@media (max-width: 760px) {
+  .app-compact-nav .sidebar { width: 54px; padding: 12px 4px; }
+  .app-compact-nav .sidebar .brand { padding: 0; justify-content: center; }
+  .app-compact-nav .sidebar .brand > :last-child,.app-compact-nav .sidebar .ws-card,
+  .app-compact-nav .sidebar .side-tip,.app-compact-nav .sidebar .nav-adv-label,
+  .app-compact-nav .topbar .search-box,.app-compact-nav .topbar .btn-primary { display: none; }
+  .app-compact-nav .sidebar .nav { flex: none; }
+  .app-compact-nav .sidebar .nav-item { justify-content: center; padding: 8px 4px; min-height: 42px; }
+  .app-compact-nav .sidebar .nav-item > :last-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .app-compact-nav .topbar { padding: 8px 12px; gap: 6px; }
+  .app-compact-nav .topbar-right { gap: 4px; }
+}
+
+.workspace-mobile-nav-button.btn,
+.workspace-mobile-drawer { display: none; }
+
+@media (max-width: 760px) {
+  .app-drawer-nav > .sidebar,
+  .app-drawer-nav .topbar .search-box,
+  .app-drawer-nav .topbar .btn-primary,
+  .app-drawer-nav .crumb > span:not(.crumb-cur) { display: none; }
+  .app-drawer-nav .topbar { min-height: 54px; padding: 8px 16px; }
+  .workspace-mobile-nav-button.btn { display: inline-flex; }
+  .workspace-mobile-drawer[open] {
+    display: block;
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(86vw, 300px);
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: var(--navy);
+  }
+  .workspace-mobile-drawer::backdrop { background: rgb(12 21 38 / 52%); }
+  .workspace-mobile-drawer > .sidebar { width: 100%; min-height: 100%; height: auto; }
+  .workspace-mobile-nav-close.btn { position: sticky; top: 8px; float: right; margin: 8px 12px 0 0; z-index: 1; }
+}

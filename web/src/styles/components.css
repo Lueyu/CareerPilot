@@ -10,7 +10,8 @@
   overflow-y: auto;
 }
 
-.brand {
+.sidebar .brand {
+  color: inherit;
   display: flex;
   align-items: center;
   gap: 10px;

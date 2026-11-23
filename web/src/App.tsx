@@ -1,9 +1,9 @@
 import React from 'react';
-import { Route, Routes, Outlet, Navigate, useLocation, useSearchParams } from 'react-router-dom';
-import { AppStateProvider } from './components/AppState';
+import { Route, Routes, Navigate, useSearchParams } from 'react-router-dom';
+import { AppStateProvider, useAppState } from './components/AppState';
 import ImportMonitor from './components/ImportMonitor';
-import Sidebar from './components/Sidebar';
-import Topbar from './components/Topbar';
+import { WorkspaceLayout } from './components/WorkspaceLayout';
+import { getWorkspace, useApi, type SettingsOverview } from './api/client';
 import { CommandPalette, NotificationsPanel, QuickActionsPanel, WorkspaceSwitcher } from './components/Overlays';
 
 import StudyShell from './components/StudyShell';
@@ -30,36 +30,23 @@ import Settings from './pages/Settings';
 import QuestionWorkshop from './pages/QuestionWorkshop';
 
 function Layout() {
-  const { pathname } = useLocation();
-  const study = pathname.startsWith('/study/');
-  const usesMobileDrawer = pathname === '/learning' || pathname === '/bank';
-  const mobileNav = React.useRef<HTMLDialogElement>(null);
-  const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
-  React.useEffect(() => { if (!usesMobileDrawer) setMobileNavOpen(false); }, [usesMobileDrawer]);
-  const compactNav = study || pathname === '/memory' || pathname === '/assets' || pathname.startsWith('/assets/project/');
+  const { setCmdOpen, setQuickOpen, setNotifOpen, setWsOpen } = useAppState();
+  const { data } = useApi<SettingsOverview>('/settings/overview');
   return (
-    <div className={`app${compactNav ? ' app-compact-nav' : ''}${usesMobileDrawer ? ' app-drawer-nav' : ''}`}>
-      <Sidebar />
-      {usesMobileDrawer && <dialog ref={mobileNav} className="learning-mobile-drawer" aria-label="CareerPilot 导航" onClose={() => setMobileNavOpen(false)}
-        onClick={event => {
-          const target = event.target;
-          if (target === event.currentTarget || (target instanceof Element && target.closest('a, .ws-card'))) mobileNav.current?.close();
-        }}>
-        <button className="btn btn-outline learning-mobile-nav-close" type="button" onClick={() => mobileNav.current?.close()}>关闭菜单</button>
-        {mobileNavOpen && <Sidebar />}
-      </dialog>}
-      <div className="app-main">
-        <Topbar beforeCrumb={usesMobileDrawer && <button className="btn btn-outline learning-mobile-nav-button" type="button" aria-haspopup="dialog"
-          onClick={() => { mobileNav.current?.showModal(); setMobileNavOpen(true); }}>菜单</button>} />
-        <div className={study ? 'app-body app-body-study' : 'app-body'}>
-          <Outlet />
-        </div>
-      </div>
-      <CommandPalette />
-      <NotificationsPanel />
-      <QuickActionsPanel />
-      <WorkspaceSwitcher />
-    </div>
+    <WorkspaceLayout
+      workspace={{
+        kind: 'personal',
+        label: data?.workspace.is_demo ? '演示工作空间' : '个人工作空间',
+        name: data?.workspace.name || getWorkspace(),
+        openSwitcher: () => setWsOpen(true),
+        actions: {
+          search: () => setCmdOpen(true),
+          quick: () => setQuickOpen(true),
+          notifications: () => setNotifOpen(true),
+        },
+      }}
+      overlays={<><CommandPalette /><NotificationsPanel /><QuickActionsPanel /><WorkspaceSwitcher /></>}
+    />
   );
 }
 
