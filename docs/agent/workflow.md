@@ -8,7 +8,7 @@
 | --- | --- |
 | 能力画像使用符合条件的独立作答及评分证据。证据不足时显示 `UNKNOWN`。同源题重练可更新表现，独立覆盖按题组计算。 | [能力估计](../../server/app/services/competency.py) |
 | 学习完成记录进度并安排复测。复测采集新作答和评分，分别显示整题表现和原失分项的覆盖及通过情况。 | [学习闭环](../../server/app/services/learning_loop.py)、[正式复测回归](../../server/tests/test_reviewed_retest.py) |
-| 面经、项目扫描和生成草稿供学习与审核。题目通过审核后才进入题库。项目题引用来源区分 `user_statement` 和 `repository_observation`，缺少本人经历证据时保留 `needs_context`。 | [补题工作台指南](../../QUICK_START_QUESTION_WORKSHOP.md)、[项目题生成及校验](../../server/app/services/question_generation.py) |
+| 面经、项目扫描和生成草稿供学习与审核。题目通过审核后才进入题库。项目题引用来源区分 `user_statement` 和 `repository_observation`，缺少本人经历证据时保留 `needs_context`。 | [补题工作台指南](../ai-reports/04-core-loop/README.md)、[项目题生成及校验](../../server/app/services/question_generation.py) |
 | 默认进入 `personal`，Demo 显式进入。公开写入和 Evolution 策略激活在当前本地模式关闭。 | [运行配置](../../server/app/config.py)、[个人使用说明](../../QUICK_START_PERSONAL.md) |
 
 岗位标准与评分规则仍需校准。学习效果、延迟保持、真实供应商调用和某项改动的收益都要按各自证据判断。把待证实的判断写成假设，附可以证实或推翻它的观察方法。旧报告可定位场景和证据，当前行为以工作区对应版本的源码与本次实测为准。

@@ -8,12 +8,12 @@
 | # | 问题 | 理由 |
 |---|---|---|
 | A1 | 无 alembic：用 `create_all + 幂等 SQL 迁移器` 替代 | 单机本地版，迁移需求简单；migrate.py 可重复执行零副作用 |
-| A2 | 单用户体系：无登录/会话/密码，API Token 为静态共享令牌 | local-first 威胁模型下本机用户可信（SECURITY_REPORT） |
+| A2 | 单用户体系：无登录/会话/密码，API Token 为静态共享令牌 | local-first 威胁模型下本机用户可信（见 docs/ai-reports/05-architecture/README.md） |
 | A3 | 无 skill_dependencies 依赖图表 | 种子标准未使用依赖图；加表无消费方 |
 | A4 | 无 conversation_sources/messages 独立表 | 对话文本最小版直存记忆来源字段，避免过度建模 |
 | A5 | 公开草稿不支持图片/附件上传 | JSONB meta 可承载 URL；公开站纯文本先跑通 |
 | A6 | 无诊断式动态插题 | 以「报告内追问建议 + 复测链（1/3/7 天）」实现任务书语义，不打断答卷流 |
-| A7 | 成本为估算（¥2/M tokens 常量） | 无计费 API 对账；口径在 OBSERVABILITY_REPORT 声明 |
+| A7 | 成本为估算（¥2/M tokens 常量） | 无计费 API 对账；口径见 docs/ai-reports/05-architecture/README.md |
 | A8 | TraceSpan 无独立 created_at | 以 trace.started_at + duration 推算，单机足够 |
 
 ## B. 待改进（低频影响，记录在案）

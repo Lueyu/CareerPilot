@@ -13,8 +13,8 @@ Evidence-driven career growth platform for AI engineers
 
 ## 更多文档
 
-- [后端审计与架构](BACKEND_AUDIT.md) · [API 对照](API_GAP_REPORT.md) · [数据模型](DATABASE_GAP_REPORT.md)
-- [公开内容发布设计与安全红线](PUBLIC_CONTENT_BACKEND_PLAN.md) · [部署指南](LOCAL_DEPLOYMENT_GUIDE.md)
+- [架构与接口审计（AI 报告归档）](docs/ai-reports/README.md)
+- [公开内容发布设计与安全红线（AI 报告归档）](docs/ai-reports/05-architecture/README.md) · [部署指南](LOCAL_DEPLOYMENT_GUIDE.md)
 
 ---
 

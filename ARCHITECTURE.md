@@ -1,16 +1,16 @@
 # CareerPilot 架构与模块说明
 
-> **2026-11-17 后续实测：** 用户新答案在隔离库真实评分完成，原答→冻结标准→Evidence→对应学习任务/目标和画像重算走通；原课程完成与长期保持未被推断。补充修复评分状态/部分正确展示和安全HTTP阶段诊断，后端446、前端149项通过。Project Autopilot本次任务预算已授权500，但当前累计11次调用后因重复响应头等待超时暂缓，134个检查点保存，完整报告仍未生成。当前入口为 [PROJECT_AND_NEW_ANSWER_FOLLOWUP.md](PROJECT_AND_NEW_ANSWER_FOLLOWUP.md)；下方预算暂停及旧测试数为此前历史。
+> **2026-11-17 后续实测：** 用户新答案在隔离库真实评分完成，原答→冻结标准→Evidence→对应学习任务/目标和画像重算走通；原课程完成与长期保持未被推断。补充修复评分状态/部分正确展示和安全HTTP阶段诊断，后端446、前端149项通过。Project Autopilot本次任务预算已授权500，但当前累计11次调用后因重复响应头等待超时暂缓，134个检查点保存，完整报告仍未生成。当前入口见 [docs/ai-reports/01-assessment/README.md](docs/ai-reports/01-assessment/README.md)；下方预算暂停及旧测试数为此前历史。
 
-> **2026-11-17 学习反馈更新：** 在既有学习任务下新增目标、活动、提交版本和项目快照关系；练习复用独立评分 Worker 的 `PRACTICE` 模式，反馈不生成个人能力 Evidence。提示/参考曝光、源码引用、候选记忆确认、来源撤回与局部计划调整已接入；项目结果只做代码检查，不代表执行通过或个人理解。最终本轮后端441项、前端137项通过，真实模型仅完成一次明确标记的历史原答反馈重放。新用户修订/独立复测、真实项目实践和长期效果尚未验收；Project Autopilot 原预算阻塞仍保留。当前验收入口为 [LEARNING_LOOP_E2E_REPORT.md](LEARNING_LOOP_E2E_REPORT.md)，实现及边界见 [LEARNING_LOOP_IMPLEMENTATION_REPORT.md](LEARNING_LOOP_IMPLEMENTATION_REPORT.md) 和 [LEARNING_LOOP_KNOWN_LIMITS.md](LEARNING_LOOP_KNOWN_LIMITS.md)。下方395/114等数字属于前序验收记录。
+> **2026-11-17 学习反馈更新：** 在既有学习任务下新增目标、活动、提交版本和项目快照关系；练习复用独立评分 Worker 的 `PRACTICE` 模式，反馈不生成个人能力 Evidence。提示/参考曝光、源码引用、候选记忆确认、来源撤回与局部计划调整已接入；项目结果只做代码检查，不代表执行通过或个人理解。最终本轮后端441项、前端137项通过，真实模型仅完成一次明确标记的历史原答反馈重放。新用户修订/独立复测、真实项目实践和长期效果尚未验收；Project Autopilot 原预算阻塞仍保留。当前验收入口见 [docs/ai-reports/02-learning-loop/README.md](docs/ai-reports/02-learning-loop/README.md)。下方395/114等数字属于前序验收记录。
 
 > **2026-11-17 更新说明：** 下文保留旧提交的架构快照，不能作为当前功能已启用或已验收的证明。当前公共发布与策略自动激活关闭；题目入库、项目代码或学习完成不会直接产生个人掌握证据。项目的数字能力矩阵已移除，结构扫描仅展示覆盖信息。
 >
 > 当前项目链路：导入仓库 → 独立 Worker 后台读取固定提交 → PostgreSQL 阶段检查点（`project_analyses` / `project_analysis_steps`）→ 完整报告 → 待确认项目记忆（`memory_items`）→ 用户确认后才进入补题上下文（`question_generations`）→ 审核题目 → 实际作答评分（`exams.project_assessment` 保存项目来源）→ 个人表现证据与失分学习任务。定时版本检查和增量分析也在 Worker 中，浏览器与 API 不承担长任务。源码结论与个人能力分别记录。
 >
-> **本次评分更新：** 开考冻结题目/Rubric/岗位目标，答案追加revision；提交原子保存后202返回任务。同一独立Worker按题处理`assessment_scoring_runs/steps`，模型不持数据库长事务，严格校验原答引用/逐项档位并确定性计算总分，全部有效后原子发布报告、Evidence、画像快照与学习任务。非空开放题失败不作规则降级；未校准高分只是表现观察，个人估计的confidence仅是覆盖启发式。最新实测为后端395/前端114通过、真实旧答影子评分与教学成功；完整项目模型报告及真人新题复测仍有阻塞。个人库未部署本轮修改。以 [CAREERPILOT_WAKE_UP_REPORT.md](CAREERPILOT_WAKE_UP_REPORT.md) 和 [ASSESSMENT_E2E_TEST_REPORT.md](ASSESSMENT_E2E_TEST_REPORT.md) 为当前验收入口。
+> **本次评分更新：** 开考冻结题目/Rubric/岗位目标，答案追加revision；提交原子保存后202返回任务。同一独立Worker按题处理`assessment_scoring_runs/steps`，模型不持数据库长事务，严格校验原答引用/逐项档位并确定性计算总分，全部有效后原子发布报告、Evidence、画像快照与学习任务。非空开放题失败不作规则降级；未校准高分只是表现观察，个人估计的confidence仅是覆盖启发式。最新实测为后端395/前端114通过、真实旧答影子评分与教学成功；完整项目模型报告及真人新题复测仍有阻塞。个人库未部署本轮修改。以 [docs/ai-reports/01-assessment/README.md](docs/ai-reports/01-assessment/README.md) 为当前验收入口。
 >
-> 本轮变更见 [PROJECT_AUTOPILOT_CHANGELOG.md](PROJECT_AUTOPILOT_CHANGELOG.md)，实际验证范围见 [PROJECT_AUTOPILOT_ACCEPTANCE.md](PROJECT_AUTOPILOT_ACCEPTANCE.md)，使用步骤见 [QUICK_START_PROJECT_INTELLIGENCE.md](QUICK_START_PROJECT_INTELLIGENCE.md)。[PROJECT_INTELLIGENCE_REPORT.md](PROJECT_INTELLIGENCE_REPORT.md)保留上一轮历史。旧版自动记忆、能力计分或自动发布描述与当前代码冲突时，以本轮更新报告和代码为准。
+> 本轮变更、验证范围与使用步骤见 [docs/ai-reports/03-project-autopilot/README.md](docs/ai-reports/03-project-autopilot/README.md)。旧版自动记忆、能力计分或自动发布描述与当前代码冲突时，以本轮更新报告和代码为准。
 
 > 供代码审计使用。本文与代码同步于 commit `52309390fe02c6780fdd7a6ee7022a0ffafb0688`（master）。
 > 可视化架构图：`.archify/architecture-careerpilot-*/careerpilot-architecture.html`（archify 渲染，证据标注版）。
@@ -258,4 +258,4 @@ collect_signals(真实 DB) → propose(确定性, <3 样本拒绝) → evaluate(
 2. 发布安全：`services/content_validation.py:119` + `api/v1/career_assets.py`（approve 的 auto_merge 闸门）+ `api/v1/public_content.py:348`
 3. LLM 边界：`services/llm.py`（配置解析+Span）+ `services/llm_judge.py:39`（fail-closed）+ 各规则降级路径
 4. 确定性纪律：`services/scorer.py:62` / `services/evolution.py:90` / `services/benchmark_jd.py:37`（永不下调）
-5. 测试基线：`server/tests/test_engines.py`（19 用例）+ `E2E_TEST_REPORT.md`（8 场景）
+5. 测试基线：`server/tests/test_engines.py`（19 用例）+ `docs/ai-reports/05-architecture/README.md`（8 场景）
