@@ -349,3 +349,37 @@ async def test_questionless_coach_preserves_the_selected_library_direction(coach
     path = await make_thread(owner, mode="study")
     row = await detail(owner, path)
     assert (row["role"], row["direction"]) == ("产品运营", "用户增长")
+
+
+async def test_public_note_snapshot_edit_history_and_isolation(coach, monkeypatch, db_session):
+    owner, other, service, api, workspaces, _ = coach
+    thread_path = await make_thread(owner, mode="study", direction="学习笔记")
+
+    async def stream(*args, **kwargs):
+        yield "笔记原文"
+
+    monkeypatch.setattr(service, "stream_text", stream)
+    turn = await submit(owner, thread_path, "chat", text="请解释观察指标")
+    save_path = f"{thread_path}/turns/{turn['id']}/note"
+    assert (await other.post(save_path)).status_code == 404
+    snapshot = await owner.post(save_path)
+    assert snapshot.status_code == 200, snapshot.text
+    assert (await owner.post(save_path)).json() == snapshot.json()
+    path = f"/coach/notes/{snapshot.json()['id']}"
+    first = await detail(owner, path)
+    assert first["body"] == "笔记原文"
+    assert (await other.get("/coach/notes")).json() == {"items": []}
+    assert (await other.get(path)).status_code == 404
+    version = path + f"/versions/{first['version_id']}"
+    assert (await other.get(version)).status_code == 404
+    edit = {"expected_version_id": first["version_id"], "title": "我的版本", "body": "我自己的总结"}
+    assert (await other.patch(path, json=edit)).status_code == 404
+    response = await owner.patch(path, json=edit)
+    assert response.status_code == 200, response.text
+    assert (await owner.patch(path, json=edit)).status_code == 409
+    assert (await detail(owner, version))["body"] == "笔记原文"
+    assert len((await detail(owner, "/coach/notes?q=我的版本"))["items"]) == 1
+
+    exported = await api.export_coach(db_session, workspaces[0].id)
+    assert [version["body"] for version in exported["notes"][0]["versions"]] == ["笔记原文", "我自己的总结"]
+    assert "notes" not in await api.export_coach(db_session, workspaces[1].id)

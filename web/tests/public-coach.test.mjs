@@ -47,11 +47,13 @@ function makeFixture(t, request) {
   });
   return {
     calls, sources,
-    async render() {
+    async render(props = {}) {
       await act(async () => {
-        view = create(createElement(WorkspaceApiContext.Provider, { value: api },
-          createElement(Coach, { mode: 'study', onLibrary() {} }),
-        ));
+        const element = createElement(WorkspaceApiContext.Provider, { value: api },
+          createElement(Coach, { mode: 'study', onLibrary() {}, ...props }),
+        );
+        if (view) view.update(element);
+        else view = create(element);
       });
       return view.root;
     },
@@ -138,4 +140,53 @@ test('sends conversational requests to candidate generation and collects one rev
     ['/coach/threads/1/candidates/9/collect']);
   assert.equal(button(root, '收藏第 2 题'), undefined);
   assert.ok(root.findAllByProps({ role: 'status' }).some(node => node.children.includes('已收藏到我的题库')));
+});
+
+test('uses the route thread even when outside the first page and reports a history selection', async t => {
+  const older = { ...study, id: 51, title: '更早的练习', mode: 'study', turns: [
+    turn(9, 'chat', '较早的问题', 'completed', '较早的回复'),
+  ] };
+  const changed = [];
+  const fixture = makeFixture(t, ({ path }) => {
+    if (path === '/coach/threads/51') return older;
+    if (path === '/coach/threads/1') return study;
+    assert.fail(path);
+  });
+  const onThreadChange = id => changed.push(id);
+  const root = await fixture.render({ threadId: 51, onThreadChange });
+  assert.ok(root.findAllByType('p').some(node => node.children.includes('较早的回复')));
+  await act(async () => button(root, summary.title).props.onClick());
+  assert.deepEqual(changed, [1]);
+  await fixture.render({ threadId: 1, onThreadChange });
+  assert.equal(root.findAllByType('p').some(node => node.children.includes('较早的回复')), false);
+  await fixture.render({ threadId: 51, onThreadChange });
+  assert.ok(root.findAllByType('p').some(node => node.children.includes('较早的回复')));
+});
+
+test('never renders a deep-linked interview in study mode', async t => {
+  const fixture = makeFixture(t, ({ path }) => {
+    assert.equal(path, '/coach/threads/51');
+    return { ...study, id: 51, mode: 'interview', turns: [
+      turn(9, 'answer', '面试作答', 'completed', '面试追问'),
+    ] };
+  });
+  const root = await fixture.render({ threadId: 51 });
+  assert.ok(root.findAllByProps({ role: 'alert' }).some(node => node.children.includes('这段记录不属于当前练习。')));
+  assert.equal(root.findAllByType('p').some(node => node.children.includes('面试追问')), false);
+});
+
+test('saves an assistant reply as a note only on explicit action and opens the returned note', async t => {
+  const opened = [];
+  const fixture = makeFixture(t, ({ path, method }) => {
+    if (path === '/coach/threads/1') return {
+      ...study, turns: [turn(9, 'chat', '我的问题', 'completed', '这条回复可以保存。')],
+    };
+    assert.equal(path, '/coach/threads/1/turns/9/note');
+    assert.equal(method, 'POST');
+    return { id: 18 };
+  });
+  const root = await fixture.render({ onNote: id => opened.push(id) });
+  assert.equal(fixture.calls.some(call => call.method === 'POST'), false);
+  await act(async () => button(root, '保存为笔记').props.onClick());
+  assert.deepEqual(opened, [18]);
 });

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, readMessageStream, type MessageStreamEvent } from '../api/client';
-import StudyShell, { draftKey, stored, remember, submitKey } from '../components/StudyShell';
+import StudyShell, { draftKey, stored, remember } from '../components/StudyShell';
+import { StudyComposerInput, StudyTurn, submitKey } from '../components/StudyConversation';
 import StudyText from '../components/StudyText';
 import StudyPracticePanel, { type PracticeRequest } from '../components/StudyPracticePanel';
 import StudyInterviewQuestion from '../components/StudyInterviewQuestion';
@@ -215,7 +216,7 @@ function SessionView({id}:{id:number}) {
       const content=stream?.content??m.content;
       const stage=stream?.stage||m.trace?.stage;
       const error=stream?.error||m.error;
-      return <article className={'study-turn '+m.role+(target===String(m.id)?' is-focused':'')} key={m.id} id={'study-message-'+m.id} tabIndex={-1}>
+      return <StudyTurn speaker={m.role} className={target===String(m.id)?'is-focused':''} key={m.id} id={'study-message-'+m.id} tabIndex={-1}>
       <h4>{m.role==='user'?'我':'学习助手'} <small>#{m.id} · {({completed:'已保存',generating:'生成中',failed:'失败',interrupted:'已中断'} as Record<string,string>)[status]||status}{m.trace?.tier?' · '+String(m.trace.tier):''}{status==='generating'&&stage?' · '+(stages[String(stage)]||String(stage)):''}</small></h4>
       {m.role==='assistant'&&status==='generating'&&(stream?.reasoning?<details className="coach-reasoning" open><summary>思考中…（{stream.reasoning.length} 字）</summary><pre>{stream.reasoning}</pre></details>:!content?<p className="coach-reasoning-hint">正在思考…</p>:null)}
       {m.role==='assistant'?<StudyText {...{text:content,blocks:m.blocks,sources:m.sources,streaming:status==='generating'}}/>:<div className="study-content">{content}</div>}{m.role==='assistant'&&<Sources items={m.sources}/>}
@@ -229,7 +230,7 @@ function SessionView({id}:{id:number}) {
       </div>}
       {m.trace&&Object.keys(m.trace).length>0&&<RunDetails trace={m.trace}/>}
       <div className="coach-turn-actions"><button onClick={async()=>{try{await navigator.clipboard.writeText(content);setCopied(m.id)}catch{setError('复制失败，可以手动选择消息文字。')}}}>{copied===m.id?'已复制':'复制'}</button>{!ended&&status==='completed'&&<><button onClick={()=>setContext(m)}>围绕这条追问</button>{m.role==='user'?<button onClick={()=>setContext(m,true)}>编辑并重新发送</button>:<button disabled={busy||generating} onClick={()=>{const original=data.messages.find(x=>x.role==='user'&&x.request_id===m.request_id);if(original)send(original.action||'explain',original.content,original.id,m.id)}}>重新生成</button>}</>}</div>
-    </article>})}</section>
+    </StudyTurn>})}</section>
     <StudyInterviewQuestion sessionId={id} canOrganize={!!savedReply && !busy && !generating} />
     </div></div>
     <footer className="coach-compose">
@@ -238,7 +239,7 @@ function SessionView({id}:{id:number}) {
     {more&&<div className="coach-chips"><button disabled={busy||ongoing||!data.messages.length||!!cardJob} onClick={()=>organize(false,true)}>整理复习卡</button><button disabled={busy||generating} onClick={()=>requestPractice('quiz')}>测一下</button>{actions.filter(([a])=>!['simplify','mechanism','project','diagram'].includes(a)).map(([a,label])=><button disabled={busy||generating} key={a} onClick={()=>send(a,label)}>{label}</button>)}</div>}
     {(anchor||revision)&&<small>围绕消息 #{revision||anchor} {revision?'编辑副本，保留原文':'追问'} <button onClick={()=>{setAnchor(undefined);setRevision(undefined)}}>取消关联</button></small>}
     {(cardJob||cardState)&&<small role="status">{cardTarget?.status==='FAILED'?'本次笔记失败，请在笔记与练习中重试本次整理。':cardState}{cardState.startsWith('卡片生成失败')&&<button onClick={()=>setCardRetry(r=>r+1)}>重试卡片</button>}{!!cardJob&&<button onClick={()=>{remember(draftKey(id)+':cards','');setCardJob(0);setCardState('')}}>取消后续生成</button>}</small>}
-    <div className="coach-input"><textarea ref={composer} aria-label="继续问" rows={2} maxLength={8000} value={content} onKeyDown={e=>submitKey(e,()=>send('explain',content))} onChange={e=>setContent(e.target.value)} placeholder="继续问，或用自己的话解释……"/><div className="study-actions">{speech.supported&&<button className="btn btn-ghost" onClick={speech.listening?speech.stop:speech.start}>{speech.listening?'停止听写':'语音输入'}</button>}{generating?<button className="btn btn-outline" disabled={busy} onClick={()=>perform('stop',async()=>{await api.post(path+'/messages/'+data.messages.find(m=>m.status==='generating')!.id+'/interrupt')})}>停止生成</button>:<button className="btn btn-primary" disabled={busy||!content.trim()} onClick={()=>send('explain',content)}>发送</button>}</div></div>{speech.interim||speech.error}</>:<div className="study-actions"><button className="btn btn-primary" onClick={()=>perform('resume',async()=>{await api.patch(path,{status:'active'})})}>继续学习</button><button className="btn" onClick={()=>document.getElementById('coach-tools-'+id)?.showPopover?.()}>笔记与练习</button></div>}</footer>
+    <div className="coach-input"><StudyComposerInput ref={composer} aria-label="继续问" rows={2} maxLength={8000} value={content} onSend={()=>send('explain',content)} onChange={e=>setContent(e.target.value)} placeholder="继续问，或用自己的话解释……"/><div className="study-actions">{speech.supported&&<button className="btn btn-ghost" onClick={speech.listening?speech.stop:speech.start}>{speech.listening?'停止听写':'语音输入'}</button>}{generating?<button className="btn btn-outline" disabled={busy} onClick={()=>perform('stop',async()=>{await api.post(path+'/messages/'+data.messages.find(m=>m.status==='generating')!.id+'/interrupt')})}>停止生成</button>:<button className="btn btn-primary" disabled={busy||!content.trim()} onClick={()=>send('explain',content)}>发送</button>}</div></div>{speech.interim||speech.error}</>:<div className="study-actions"><button className="btn btn-primary" onClick={()=>perform('resume',async()=>{await api.patch(path,{status:'active'})})}>继续学习</button><button className="btn" onClick={()=>document.getElementById('coach-tools-'+id)?.showPopover?.()}>笔记与练习</button></div>}</footer>
     <div ref={toolsPanel} className="coach-tools" id={'coach-tools-'+id} {...{popover:"auto"}}><button className="btn btn-ghost" onClick={()=>document.getElementById('coach-tools-'+id)?.hidePopover?.()}>关闭</button>    <section className="card"><div className="study-actions"><button className="btn btn-primary" disabled={busy||ongoing||!data.messages.length} onClick={()=>organize(false)}>整理成笔记</button>
       {!ended&&<button className="btn btn-outline" disabled={busy||ongoing||generating||!data.messages.length} onClick={()=>organize(true)}>结束并整理</button>}
       <button className="btn btn-ghost" onClick={()=>{setChoosingNote(!choosingNote);if(!choosingNote)api.get('/study/notes').then(d=>setNotes(d.items)).catch(e=>setError(e.message))}}>关联已有笔记</button>

@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import Markdown from 'react-markdown';
+import StudyMarkdown from '../components/StudyMarkdown';
+import { StudyHistory, StudyComposerInput, StudyTurn } from '../components/StudyConversation';
+import './study.css';
 import { useWorkspaceApi } from './api';
 
 type CoachProps = {
   question?: { id: number; title: string };
   mode: 'study' | 'interview';
   onLibrary: () => void;
+  threadId?: number;
+  onNote?: (noteId: number) => void;
+  onThreadChange?: (threadId: number) => void;
 };
 type Action = 'chat' | 'generate' | 'hint' | 'answer' | 'followup_answer' | 'finish';
 type Status = 'generating' | 'completed' | 'failed';
@@ -44,6 +49,9 @@ type ThreadSummary = {
   role: string;
   direction: string;
   question_title: string | null;
+  updated_at?: string;
+  mode?: CoachProps['mode'];
+  question_id?: number | null;
 };
 type Thread = ThreadSummary & {
   actions: Action[];
@@ -88,7 +96,7 @@ function ReplyText({ text, streaming = false }: { text: string; streaming?: bool
   if (streaming) return <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{text}</div>;
   return (
     <div style={{ overflowWrap: 'anywhere' }}>
-      <Markdown skipHtml disallowedElements={['a', 'img']} unwrapDisallowed>{text}</Markdown>
+      <StudyMarkdown text={text} allowLinks={false} />
     </div>
   );
 }
@@ -123,20 +131,21 @@ function ReviewFeedback({ feedback }: { feedback: Feedback }) {
 }
 
 function Transcript({
-  turn, canRetry, pending, onRetry, onMemory,
+  turn, canRetry, pending, onRetry, onMemory, onNote,
 }: {
   turn: Turn;
   canRetry: boolean;
   pending: boolean;
   onRetry: () => void;
   onMemory: (text: string) => void;
+  onNote?: () => void;
 }) {
   const assistantLabel = turn.action === 'answer' ? '面试官追问'
     : turn.action === 'hint' || turn.action === 'finish' ? turnLabels[turn.action] : '学习助手';
   return (
-    <article className="card stack">
+    <>
       {turn.user_text && (
-        <div>
+        <StudyTurn speaker="user" className="stack">
           <div className="row">
             <strong>{turnLabels[turn.action]}</strong>
             {turn.assisted !== null && <small className="muted">{turn.assisted ? '已获提示' : '独立作答'}</small>}
@@ -145,14 +154,17 @@ function Transcript({
           <button type="button" className="secondary" onClick={() => onMemory(turn.user_text ?? '')}>
             选作项目经历
           </button>
-        </div>
+        </StudyTurn>
       )}
       {turn.action !== 'followup_answer' && (
-        <div>
+        <StudyTurn speaker="assistant" className="stack">
           <strong>{assistantLabel}</strong>
           {turn.action === 'answer' && turn.result && <blockquote>依据原答 · {turn.result.quote}</blockquote>}
           {turn.reply && <ReplyText text={turn.reply} streaming={turn.status === 'generating'} />}
           {turn.action === 'finish' && turn.result && <ReviewFeedback feedback={turn.result} />}
+          {onNote && turn.status === 'completed' && turn.reply && (
+            <button type="button" className="secondary" disabled={pending} onClick={onNote}>保存为笔记</button>
+          )}
           {turn.status === 'generating' && <p className="muted" role="status">正在生成回复…</p>}
           {turn.status === 'failed' && (
             <div className="actions">
@@ -160,9 +172,9 @@ function Transcript({
               {canRetry && <button type="button" className="secondary" disabled={pending} onClick={onRetry}>重试这轮</button>}
             </div>
           )}
-        </div>
+        </StudyTurn>
       )}
-    </article>
+    </>
   );
 }
 
@@ -204,11 +216,14 @@ function MemoryReview({ initial, onClose }: { initial: string; onClose: (saved: 
   );
 }
 
-function CoachSession({ question, mode, onLibrary }: CoachProps) {
+function CoachSession({ question, mode, onLibrary, threadId, onThreadChange, onNote }: CoachProps) {
   const { request, send, events } = useWorkspaceApi();
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
-  const [selected, setSelected] = useState<number | null>(null);
+  const [routeThread, setRouteThread] = useState(threadId);
+  const selectionVersion = useRef(0);
+  const [selected, setSelected] = useState<number | null>(threadId ?? null);
+  const [historySearch, setHistorySearch] = useState('');
   const [thread, setThread] = useState<Thread | null>(null);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyAttempt, setHistoryAttempt] = useState(0);
@@ -231,7 +246,7 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
   if (question) threadList.set('question_id', String(question.id));
   const listPath = '/coach/threads?' + threadList;
   const detailPath = selected === null ? null : '/coach/threads/' + selected;
-  const active = thread?.id === selected ? thread : null;
+  const active = thread?.id === selected && routeThread === threadId ? thread : null;
   const latest = active?.turns[active.turns.length - 1];
   const streamingId = latest?.status === 'generating' ? latest.id : null;
   const streamingAttempt = latest?.status === 'generating' ? latest.attempt : null;
@@ -250,13 +265,36 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
   }, [request, listPath, historyAttempt]);
 
   useEffect(() => {
+    if (routeThread === threadId) return;
+    setRouteThread(threadId);
+    const target = threadId ?? threads[0]?.id ?? null;
+    if (target === selected) return;
+    selectionVersion.current++;
+    setSelected(target);
+    setInput('');
+    setRevision(null);
+    setStudyAction('auto');
+    setNewStudy(false);
+    setMemory(null);
+    setNotice('');
+    setError('');
+  }, [threadId, routeThread, selected, threads]);
+
+  useEffect(() => {
     if (!detailPath) return;
     const controller = new AbortController();
     request<Thread>(detailPath, { signal: controller.signal })
-      .then(value => { if (!controller.signal.aborted) setThread(value); })
+      .then(value => {
+        if (controller.signal.aborted) return;
+        if ((value.mode && value.mode !== mode) || (question && value.question_id !== undefined && value.question_id !== question.id)) {
+          setError('这段记录不属于当前练习。');
+          return;
+        }
+        setThread(value);
+      })
       .catch(error => { if (!controller.signal.aborted) setError(messageOf(error)); });
     return () => controller.abort();
-  }, [request, detailPath, detailAttempt]);
+  }, [request, detailPath, detailAttempt, mode, question?.id]);
 
   useEffect(() => {
     if (!detailPath || streamingId === null) return;
@@ -331,6 +369,7 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
   }
 
   function openThread(id: number) {
+    selectionVersion.current++;
     setInput('');
     setRevision(null);
     setStudyAction('auto');
@@ -339,20 +378,23 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
     setNotice('');
     setError('');
     setSelected(id);
+    onThreadChange?.(id);
   }
 
   async function start() {
     if (pending) return;
     setPending(true);
     setError('');
+    const version = selectionVersion.current;
     try {
       const result = await send<Thread>('/coach/threads', 'POST', { mode, question_id: question?.id, direction });
+      if (version !== selectionVersion.current) return;
       openThread(result.id);
       setThread(result);
       setThreads(current => [result, ...current]);
       setDirection('');
     } catch (error) {
-      setError(messageOf(error));
+      if (version === selectionVersion.current) setError(messageOf(error));
     } finally {
       setPending(false);
     }
@@ -368,15 +410,18 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
     submission.current = { thread: active.id, draft, id };
     setPending(true);
     setError('');
+    const version = selectionVersion.current;
     try {
       const turn = await send<Turn>(detailPath + '/turns', 'POST', { ...draft, request_id: id });
+      if (version !== selectionVersion.current) return;
       submission.current = null;
       if (draft.text) {
         setInput('');
         setRevision(null);
       }
       if (turn.status !== 'generating') {
-        setThread(await request<Thread>(detailPath));
+        const value = await request<Thread>(detailPath);
+        if (version === selectionVersion.current) setThread(value);
       } else {
         setThread(current => current ? {
           ...current,
@@ -386,7 +431,7 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
       }
       transcriptEnd.current?.scrollIntoView({ block: 'nearest' });
     } catch (error) {
-      setError(messageOf(error));
+      if (version === selectionVersion.current) setError(messageOf(error));
     } finally {
       setPending(false);
     }
@@ -396,10 +441,13 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
     if (!detailPath || pending) return;
     setPending(true);
     setError('');
+    const version = selectionVersion.current;
     try {
       const result = await send<Turn>(detailPath + '/turns/' + turn.id + '/retry', 'POST', { attempt: turn.attempt });
+      if (version !== selectionVersion.current) return;
       if (result.status !== 'generating') {
-        setThread(await request<Thread>(detailPath));
+        const value = await request<Thread>(detailPath);
+        if (version === selectionVersion.current) setThread(value);
       } else {
         setThread(current => current ? {
           ...current, actions: [],
@@ -407,7 +455,22 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
         } : current);
       }
     } catch (error) {
-      setError(messageOf(error));
+      if (version === selectionVersion.current) setError(messageOf(error));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function saveNote(turn: Turn) {
+    if (!detailPath || pending || !onNote) return;
+    setPending(true);
+    setError('');
+    const version = selectionVersion.current;
+    try {
+      const note = await send<{ id: number }>(detailPath + '/turns/' + turn.id + '/note', 'POST', {});
+      if (version === selectionVersion.current) onNote(note.id);
+    } catch (error) {
+      if (version === selectionVersion.current) setError(messageOf(error));
     } finally {
       setPending(false);
     }
@@ -418,17 +481,19 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
     const id = selected;
     setCollecting(candidate.id);
     setError('');
+    const version = selectionVersion.current;
     try {
       const result = await send<{ question_id: number }>(
         detailPath + '/candidates/' + candidate.id + '/collect', 'POST', {},
       );
+      if (version !== selectionVersion.current) return;
       setThread(current => current && current.id === id ? {
         ...current,
         candidates: current.candidates.map(row => row.id === candidate.id ? { ...row, ...result } : row),
       } : current);
       setNotice('已收藏到我的题库');
     } catch (error) {
-      setError(messageOf(error));
+      if (version === selectionVersion.current) setError(messageOf(error));
     } finally {
       setCollecting(null);
     }
@@ -439,6 +504,8 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
   const answerAction = active?.actions.includes('answer') ? 'answer'
     : active?.actions.includes('followup_answer') ? 'followup_answer' : null;
   const canCompose = active && streamingId === null && (study || answerAction !== null);
+  const visibleThreads = (active && !threads.some(item => item.id === active.id) ? [active, ...threads] : threads)
+    .filter(item => item.title.toLocaleLowerCase().includes(historySearch.trim().toLocaleLowerCase()));
   const candidates = active?.candidates.filter(item => !item.superseded) ?? [];
   const revisions = active?.candidates.filter(item => item.superseded) ?? [];
 
@@ -451,161 +518,171 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
   }
 
   return (
-    <section className="panel stack">
+    <section className="panel stack public-study">
       <div className="row">
         <h2>{study ? '学习助手' : '模拟面试'}</h2>
         <button type="button" className="secondary" onClick={onLibrary}>回到我的题库</button>
       </div>
       {question && !active && <p>{question.title}</p>}
-      <div className="actions">
-        {historyLoading && <p className="muted" role="status">正在读取历史…</p>}
-        {threads.length > 0 && (
-          <label className="stack">
-            {study ? '学习历史' : '面试历史'}
-            <select value={selected ?? ''} disabled={pending} onChange={event => openThread(Number(event.target.value))}>
-              {threads.map(item => <option value={item.id} key={item.id}>{item.title} · {item.role} · #{item.id}</option>)}
-            </select>
-          </label>
-        )}
-        {nextOffset !== null &&
-          <button type="button" className="secondary" disabled={pending} onClick={() => void loadOlder()}>更早的记录</button>}
-        {canStart && (question || active) && (
-          <button type="button" className="secondary" disabled={pending || historyLoading} onClick={() => {
-            if (study && !question) setNewStudy(value => !value);
-            else void start();
-          }}>
-            {study ? newStudy ? '取消新建' : '新建学习对话' : '开始一轮面试'}
-          </button>
-        )}
-      </div>
-      {error && (
-        <div className="actions">
-          <p className="error" role="alert">{error}</p>
-          {!active && !historyLoading && (
-            <button type="button" className="secondary" onClick={() => {
-              setError('');
-              if (selected === null) {
-                setHistoryLoading(true);
-                setHistoryAttempt(value => value + 1);
-              } else {
-                setDetailAttempt(value => value + 1);
-              }
-            }}>重新读取</button>
+      <div className="public-study-layout">
+        <aside className="workspace-rail" aria-label={study ? '学习历史' : '面试历史'}>
+          <strong>{study ? '学习历史' : '面试历史'}</strong>
+          <input className="workspace-search" type="search" aria-label="搜索会话" placeholder="搜索已加载会话"
+            value={historySearch} onChange={event => setHistorySearch(event.target.value)} />
+          <nav className="workspace-history" aria-label="历史会话">
+            <StudyHistory rows={visibleThreads} renderRow={item => (
+              <div className={'workspace-history-item' + (item.id === selected ? ' selected' : '')} key={item.id}>
+                <button type="button" title={item.title} aria-current={item.id === selected ? 'true' : undefined}
+                  disabled={pending} onClick={() => openThread(item.id)}>{item.title}</button>
+              </div>
+            )} />
+            {historyLoading && <p className="muted" role="status">正在读取历史…</p>}
+            {!historyLoading && !visibleThreads.length && <p className="muted">{historySearch ? '没有匹配的会话' : '还没有历史记录'}</p>}
+          </nav>
+          {nextOffset !== null &&
+            <button type="button" className="secondary" disabled={pending} onClick={() => void loadOlder()}>更早的记录</button>}
+          {canStart && (question || active) && (
+            <button type="button" className="secondary" disabled={pending || historyLoading} onClick={() => {
+              if (study && !question) setNewStudy(value => !value);
+              else void start();
+            }}>
+              {study ? newStudy ? '取消新建' : '新建学习对话' : '开始一轮面试'}
+            </button>
           )}
-        </div>
-      )}
-      {notice && <p className="muted" role="status">{notice}</p>}
-      {!active && selected !== null && !error && <p className="muted" role="status">正在读取这段记录…</p>}
-      {(newStudy || !active && selected === null) && study && !question && !historyLoading && (
-        <form className="stack" onSubmit={event => { event.preventDefault(); void start(); }}>
-          <label className="stack">
-            练习方向（选填）
-            <input value={direction} maxLength={64} onChange={event => setDirection(event.target.value)}
-              placeholder="留空沿用题库中选中的方向" />
-          </label>
-          <button className="primary" disabled={pending}>开始学习对话</button>
-        </form>
-      )}
-      {!canStart && !active && !historyLoading && <p className="muted">从题库选一道题，开始独立作答。</p>}
-      {active && (
-        <>
-          <p className="muted">{[active.role, active.direction].filter(Boolean).join(' · ')}</p>
-          {active.question_title && <h3>{active.question_title}</h3>}
-          {active.ability_status === 'unknown' && <p className="muted">能力状态：未知 · 本轮仅提供练习点评</p>}
-          {study && active.turns.length === 0 && (
-            <p className="muted">可以交流一道题，也可以生成一组候选题，挑选满意的收藏。</p>
-          )}
-          <div className="stack" aria-label={study ? '对话记录' : '面试记录'}>
-            {active.turns.map(turn => (
-              <Transcript key={turn.id} turn={turn} canRetry={turn.id === latest?.id} pending={pending}
-                onRetry={() => void retry(turn)} onMemory={setMemory} />
-            ))}
-            <div ref={transcriptEnd} />
+        </aside>
+        <div className="public-study-content stack">
+        {error && (
+          <div className="actions">
+            <p className="error" role="alert">{error}</p>
+            {!active && !historyLoading && (
+              <button type="button" className="secondary" onClick={() => {
+                setError('');
+                if (selected === null) {
+                  setHistoryLoading(true);
+                  setHistoryAttempt(value => value + 1);
+                } else {
+                  setDetailAttempt(value => value + 1);
+                }
+              }}>重新读取</button>
+            )}
           </div>
-          {memory !== null && (
-            <MemoryReview key={memory} initial={memory} onClose={saved => {
-              setMemory(null);
-              if (saved) setNotice('已保存项目经历');
-            }} />
-          )}
-          {canCompose && (
-            <form className="stack" onSubmit={compose}>
-              {study && (
-                <label className="stack">
-                  对话用途
-                  <select value={studyAction} onChange={event => {
-                    const choice = event.target.value;
-                    setStudyAction(choice === 'generate' || choice === 'chat' ? choice : 'auto');
-                    setRevision(null);
-                  }}>
-                    <option value="auto">按消息内容识别</option>
-                    <option value="chat">交流学习</option>
-                    <option value="generate">生成或修改候选题</option>
-                  </select>
-                </label>
-              )}
-              <label className="stack">
-                {study ? (revision ? '修改第 ' + revision + ' 题' : studyAction === 'generate' ? '出题或修改要求' : '想讨论什么')
-                  : answerAction === 'answer' ? '你的独立作答' : '追问作答'}
-                <textarea ref={composer} rows={4} maxLength={6000} required value={input}
-                  onChange={event => setInput(event.target.value)}
-                  placeholder={study && studyAction !== 'chat' ? '例如，出三道活动复盘题，或把第二题换成实习场景' : undefined} />
-              </label>
-              <div className="actions">
-                <button className="primary" disabled={pending || !input.trim()}>
-                  {study ? '发送' : '提交作答'}
-                </button>
-                {revision !== null && <button type="button" className="secondary" onClick={() => setRevision(null)}>取消指定题号</button>}
-              </div>
-            </form>
-          )}
-          {!study && (active.actions.includes('hint') || active.actions.includes('finish')) && (
-            <div className="actions">
-              {active.actions.includes('hint') && <button type="button" className="secondary" disabled={pending}
-                onClick={() => void submitTurn({ action: 'hint' })}>给我一条提示</button>}
-              {active.actions.includes('finish') && <button type="button" className="primary" disabled={pending}
-                onClick={() => void submitTurn({ action: 'finish' })}>
-                {active.actions.includes('followup_answer') ? '跳过追问并查看点评' : '结束并查看点评'}
-              </button>}
+        )}
+        {notice && <p className="muted" role="status">{notice}</p>}
+        {!active && selected !== null && !error && <p className="muted" role="status">正在读取这段记录…</p>}
+        {(newStudy || !active && selected === null) && study && !question && !historyLoading && (
+          <form className="stack" onSubmit={event => { event.preventDefault(); void start(); }}>
+            <label className="stack">
+              练习方向（选填）
+              <input value={direction} maxLength={64} onChange={event => setDirection(event.target.value)}
+                placeholder="留空沿用题库中选中的方向" />
+            </label>
+            <button className="primary" disabled={pending}>开始学习对话</button>
+          </form>
+        )}
+        {!canStart && !active && !historyLoading && <p className="muted">从题库选一道题，开始独立作答。</p>}
+        {active && (
+          <>
+            <p className="muted">{[active.role, active.direction].filter(Boolean).join(' · ')}</p>
+            {active.question_title && <h3>{active.question_title}</h3>}
+            {active.ability_status === 'unknown' && <p className="muted">能力状态：未知 · 本轮仅提供练习点评</p>}
+            {study && active.turns.length === 0 && (
+              <p className="muted">可以交流一道题，也可以生成一组候选题，挑选满意的收藏。</p>
+            )}
+            <div className="study-thread" aria-label={study ? '对话记录' : '面试记录'}>
+              {active.turns.map(turn => (
+                <Transcript key={turn.id} turn={turn} canRetry={turn.id === latest?.id} pending={pending}
+                  onRetry={() => void retry(turn)} onMemory={setMemory}
+                  onNote={study && onNote ? () => void saveNote(turn) : undefined} />
+              ))}
+              <div ref={transcriptEnd} />
             </div>
-          )}
-          {candidates.length > 0 && (
-            <section className="stack" aria-label="候选题">
-              <h3>候选题</h3>
-              <div className="grid">
-                {candidates.map(candidate => (
-                  <article className="card stack" key={candidate.id}>
-                    <strong>{candidate.number}. {candidate.title}</strong>
-                    {candidate.reference && (
-                      <details>
-                        <summary>参考答法 · AI 生成</summary>
-                        <ReplyText text={candidate.reference} />
-                      </details>
-                    )}
-                    <div className="actions">
-                      {candidate.question_id ? <span className="muted">已收藏</span>
-                        : <button type="button" className="primary" disabled={collecting !== null}
-                          onClick={() => void collect(candidate)}>收藏第 {candidate.number} 题</button>}
-                      <button type="button" className="secondary" disabled={streamingId !== null || pending}
-                        onClick={() => {
-                          setStudyAction('generate');
-                          setRevision(candidate.number);
-                          composer.current?.focus();
-                        }}>修改第 {candidate.number} 题</button>
-                    </div>
-                  </article>
-                ))}
+            {memory !== null && (
+              <MemoryReview key={memory} initial={memory} onClose={saved => {
+                setMemory(null);
+                if (saved) setNotice('已保存项目经历');
+              }} />
+            )}
+            {canCompose && (
+              <form className="coach-compose stack" onSubmit={compose}>
+                {study && (
+                  <label className="stack">
+                    对话用途
+                    <select value={studyAction} onChange={event => {
+                      const choice = event.target.value;
+                      setStudyAction(choice === 'generate' || choice === 'chat' ? choice : 'auto');
+                      setRevision(null);
+                    }}>
+                      <option value="auto">按消息内容识别</option>
+                      <option value="chat">交流学习</option>
+                      <option value="generate">生成或修改候选题</option>
+                    </select>
+                  </label>
+                )}
+                <label className="stack">
+                  {study ? (revision ? '修改第 ' + revision + ' 题' : studyAction === 'generate' ? '出题或修改要求' : '想讨论什么')
+                    : answerAction === 'answer' ? '你的独立作答' : '追问作答'}
+                  <StudyComposerInput ref={composer} rows={4} maxLength={6000} required value={input}
+                    onChange={event => setInput(event.target.value)}
+                    onSend={() => { if (!pending) composer.current?.form?.requestSubmit(); }}
+                    placeholder={study && studyAction !== 'chat' ? '例如，出三道活动复盘题，或把第二题换成实习场景' : undefined} />
+                </label>
+                <div className="actions">
+                  <button className="primary" disabled={pending || !input.trim()}>
+                    {study ? '发送' : '提交作答'}
+                  </button>
+                  {revision !== null && <button type="button" className="secondary" onClick={() => setRevision(null)}>取消指定题号</button>}
+                </div>
+              </form>
+            )}
+            {!study && (active.actions.includes('hint') || active.actions.includes('finish')) && (
+              <div className="actions">
+                {active.actions.includes('hint') && <button type="button" className="secondary" disabled={pending}
+                  onClick={() => void submitTurn({ action: 'hint' })}>给我一条提示</button>}
+                {active.actions.includes('finish') && <button type="button" className="primary" disabled={pending}
+                  onClick={() => void submitTurn({ action: 'finish' })}>
+                  {active.actions.includes('followup_answer') ? '跳过追问并查看点评' : '结束并查看点评'}
+                </button>}
               </div>
-              {revisions.length > 0 && (
-                <details>
-                  <summary>查看已替换的题目</summary>
-                  <ul>{revisions.map(item => <li key={item.id}>{item.number}. {item.title}{item.question_id ? ' · 已收藏' : ''}</li>)}</ul>
-                </details>
-              )}
-            </section>
-          )}
-        </>
-      )}
+            )}
+            {candidates.length > 0 && (
+              <section className="stack" aria-label="候选题">
+                <h3>候选题</h3>
+                <div className="grid">
+                  {candidates.map(candidate => (
+                    <article className="card stack" key={candidate.id}>
+                      <strong>{candidate.number}. {candidate.title}</strong>
+                      {candidate.reference && (
+                        <details>
+                          <summary>参考答法 · AI 生成</summary>
+                          <ReplyText text={candidate.reference} />
+                        </details>
+                      )}
+                      <div className="actions">
+                        {candidate.question_id ? <span className="muted">已收藏</span>
+                          : <button type="button" className="primary" disabled={collecting !== null}
+                            onClick={() => void collect(candidate)}>收藏第 {candidate.number} 题</button>}
+                        <button type="button" className="secondary" disabled={streamingId !== null || pending}
+                          onClick={() => {
+                            setStudyAction('generate');
+                            setRevision(candidate.number);
+                            composer.current?.focus();
+                          }}>修改第 {candidate.number} 题</button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                {revisions.length > 0 && (
+                  <details>
+                    <summary>查看已替换的题目</summary>
+                    <ul>{revisions.map(item => <li key={item.id}>{item.number}. {item.title}{item.question_id ? ' · 已收藏' : ''}</li>)}</ul>
+                  </details>
+                )}
+              </section>
+            )}
+          </>
+        )}
+        </div>
+      </div>
     </section>
   );
 }

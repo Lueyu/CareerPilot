@@ -3,6 +3,7 @@ import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client';
 import { StudyCards, type StudyCard } from '../components/StudyCards';
 import StudyShell, { draftKey, remember, stored } from '../components/StudyShell';
+import { NotebookFields, NotebookList } from '../components/NotebookPresentation';
 import StudyCompare, { comparePath } from './StudyCompare';
 import './studyNotebook.css';
 
@@ -205,14 +206,8 @@ function NoteEditor({ id, onSaved, onGenerated }: {
     {notice && <p role="status">{notice}</p>}
     {note && text && <>
       <form onSubmit={event => { event.preventDefault(); void save(); }}>
-        <label className="study-notebook-field">标题
-          <input className="inp" required value={text.title} disabled={busy}
-            onChange={event => updateDraft({ base: note.version_id, ...draft, text: { title: event.target.value, body: text.body } })} />
-        </label>
-        <label className="study-notebook-field">正文
-          <textarea aria-label="正文" className="inp" rows={12} value={text.body} disabled={busy}
-            onChange={event => updateDraft({ base: note.version_id, ...draft, text: { title: text.title, body: event.target.value } })} />
-        </label>
+        <NotebookFields text={text} disabled={busy}
+          onChange={next => updateDraft({ base: note.version_id, ...draft, text: next })} />
         {dirty && <p className="hint">{recovered ? '已恢复上次未保存的编辑。' : '有未保存的编辑。'}{draft?.source !== undefined && '草稿来自版本 ' + draft.source + '。'}</p>}
         {stale && <div>
           <p role="alert">已保存版本发生变化。请核对后决定是否继续保留当前编辑。</p>
@@ -336,12 +331,7 @@ export function StudyNotebook() {
           {query.trim() ? <button type="button" className="btn btn-outline" onClick={() => setQuery('')}>清除搜索</button>
             : <Link className="btn btn-outline" to="/study/chat">去学习聊天 →</Link>}
         </div>}
-        <ul className="study-notebook-list study-notebook-library">{notes.map(note => (
-          <li key={note.id}><Link to={notePath(note.id)}>
-            <strong>{note.title}</strong><span className="study-notebook-library-date">{note.updated_at && <time dateTime={note.updated_at}>
-              {new Date(note.updated_at).toLocaleDateString('zh-CN')}</time>} <span aria-hidden="true">→</span></span>
-          </Link></li>
-        ))}</ul>
+        <NotebookList notes={notes} renderLink={(note, content) => <Link to={notePath(note.id)}>{content}</Link>} />
       </section>}
       {id && <NoteEditor key={draftKey(`note:${id}`)} id={id} onSaved={() => setRefresh(value => value + 1)}
         onGenerated={cards => setGenerated(cards)} />}

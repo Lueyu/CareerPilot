@@ -13,9 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import lazyload
 
 from app.api.public_auth import current_workspace
+from app.api.v1 import study_notes as notebook
 from app.db import get_session
 from app.models.public_coach import CoachCandidate, CoachThread, CoachTurn
 from app.models.question import SOURCE_GENERATED, Question
+from app.models.study_chat import StudySession
+from app.models.study_notes import StudyNote, StudyNoteVersion
 from app.models.workspace import Workspace
 from app.services.public_coach import (
     STUDY_ACTIONS,
@@ -333,4 +336,82 @@ async def export_coach(db: AsyncSession, workspace_id: int) -> dict:
             .order_by(CoachCandidate.number, CoachCandidate.id)
         ):
             candidates_by_thread[item.thread_id].append(item)
-    return {"threads": [_detail(row, turns_by_thread[row.id], candidates_by_thread[row.id]) for row in rows]}
+    note_versions = (await db.execute(
+        select(StudyNote.id, StudyNote.current_version_id, StudySession.context, StudyNoteVersion)
+        .select_from(StudyNote)
+        .join(StudySession, StudySession.id == StudyNote.origin_session_id)
+        .join(StudyNoteVersion, StudyNoteVersion.note_id == StudyNote.id)
+        .where(StudyNote.workspace_id == workspace_id, StudySession.workspace_id == workspace_id)
+        .order_by(StudyNote.id, StudyNoteVersion.id)
+    )).all()
+    notes = {}
+    for note_id, current_version_id, context, version in note_versions:
+        entry = notes.setdefault(note_id, {
+            "id": note_id, "current_version_id": current_version_id,
+            "thread_id": context.get("public_coach_thread_id"), "turn_id": context.get("public_coach_turn_id"),
+            "versions": [],
+        })
+        entry["versions"].append({**notebook.version_view(version), "body": version.body})
+    export = {"threads": [_detail(row, turns_by_thread[row.id], candidates_by_thread[row.id]) for row in rows]}
+    if notes:
+        export["notes"] = list(notes.values())
+    return export
+
+
+@router.post("/threads/{thread_id}/turns/{turn_id}/note")
+async def save_reply(thread_id: int, turn_id: int, db: Database, ws: MemberWorkspace):
+    thread = await _thread(db, ws.id, thread_id, lock=True)
+    turn = await db.scalar(select(CoachTurn).where(CoachTurn.thread_id == thread.id, CoachTurn.id == turn_id))
+    if thread.mode != "study" or not turn or turn.status != "completed" or not turn.reply.strip():
+        raise HTTPException(404, "找不到可保存的学习回复")
+
+    # The native notebook owns version history. Its origin session anchors this explicit snapshot.
+    existing = await db.scalar(
+        select(StudyNote.id)
+        .join(StudySession, StudySession.id == StudyNote.origin_session_id)
+        .where(
+            StudyNote.workspace_id == ws.id,
+            StudySession.workspace_id == ws.id,
+            StudySession.context["public_coach_turn_id"].as_integer() == turn.id,
+        )
+    )
+    if existing is not None:
+        return {"id": existing}
+    origin = StudySession(
+        workspace_id=ws.id, title=thread.title, status="ended",
+        context={"public_coach_thread_id": thread.id, "public_coach_turn_id": turn.id},
+    )
+    db.add(origin)
+    await db.flush()
+    note = StudyNote(workspace_id=ws.id, title=thread.title, origin_session_id=origin.id)
+    db.add(note)
+    await db.flush()
+    version = StudyNoteVersion(
+        note_id=note.id, title=note.title, body=turn.reply,
+        author="AI", sources=[], session_ids=[], coverage=[],
+    )
+    db.add(version)
+    await db.flush()
+    note.current_version_id = version.id
+    await db.commit()
+    return {"id": note.id}
+
+
+@router.get("/notes")
+async def list_notes(db: Database, ws: MemberWorkspace, q: str = ""):
+    return await notebook.list_notes(q=q, ws=ws, db=db)
+
+
+@router.get("/notes/{note_id}")
+async def get_note(note_id: int, db: Database, ws: MemberWorkspace):
+    return await notebook.get_note(note_id, ws, db)
+
+
+@router.get("/notes/{note_id}/versions/{version_id}")
+async def get_version(note_id: int, version_id: int, db: Database, ws: MemberWorkspace):
+    return await notebook.get_version(note_id, version_id, ws, db)
+
+
+@router.patch("/notes/{note_id}")
+async def edit_note(note_id: int, body: notebook.EditIn, db: Database, ws: MemberWorkspace):
+    return await notebook.edit_note(note_id, body, ws, db)

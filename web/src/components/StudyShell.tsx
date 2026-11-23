@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, getWorkspace } from '../api/client';
 import './studyWorkspace.css';
+import { StudyHistory } from './StudyConversation';
 
 export function draftKey(id: string | number) {
   return 'cp:study:' + encodeURIComponent(getWorkspace()) + ':' + id;
@@ -15,12 +16,7 @@ export function remember(key: string, value: string) {
     else localStorage.removeItem(key);
   } catch { /* The workspace also works with browser storage disabled. */ }
 }
-export function submitKey(event: KeyboardEvent<HTMLTextAreaElement>, send: () => void) {
-  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
-    event.preventDefault();
-    if (!event.repeat) send();
-  }
-}
+export { submitKey } from './StudyConversation';
 
 interface SessionRow { id: number; title: string; updated_at: string }
 const sections = {
@@ -31,14 +27,6 @@ const sections = {
 type Section = keyof typeof sections;
 const narrowScreen = '(max-width: 1024px)';
 const pageSize = 50;
-const dayGroups = ['今天', '昨天', '近七天', '较早'];
-function dayGroup(value: string) {
-  const date = new Date(value);
-  const midnight = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
-  const days = (midnight(new Date()) - midnight(date)) / 86400000;
-  return dayGroups[days <= 0 ? 0 : days === 1 ? 1 : days <= 7 ? 2 : 3];
-}
-
 export default function StudyShell({ id, section = 'chat', children }: {
   id?: string; section?: Section; children: ReactNode;
 }) {
@@ -160,17 +148,14 @@ export default function StudyShell({ id, section = 'chat', children }: {
         <div className="workspace-history-label"><span>最近会话</span></div>
         <input className="workspace-search" type="search" aria-label="搜索会话" placeholder="搜索会话" value={term} onChange={e => setTerm(e.target.value)} />
         <nav className="workspace-history" aria-label="历史会话">
-          {dayGroups.map(group => {
-            const items = visibleRows.filter(row => dayGroup(row.updated_at) === group);
-            return items.length > 0 && <section key={group}><h2>{group}</h2>{items.map(row =>
+          <StudyHistory rows={visibleRows} renderRow={row =>
               <div key={row.id} className={'workspace-history-item' + (String(row.id) === id ? ' selected' : '')}>
                 <Link title={row.title} aria-current={String(row.id) === id ? 'page' : undefined} to={'/study/chat/' + row.id} onClick={closeAfterNavigation}>{row.title}</Link>
                 <details><summary aria-label={'管理会话：' + row.title}>⋯</summary><div>
                   <button onClick={e => { e.currentTarget.closest('details')?.removeAttribute('open'); void manage(row, 'rename'); }}>重命名</button>
                   <button onClick={e => { e.currentTarget.closest('details')?.removeAttribute('open'); void manage(row, 'remove'); }}>删除会话</button>
                 </div></details>
-              </div>)}</section>;
-          })}
+              </div>} />
           {loading && <small role="status">正在加载会话…</small>}
           {error && <p role="alert">{error} <button onClick={() => setList(s => ({ ...s, revision: s.revision + 1 }))}>重试</button></p>}
           {!loading && !error && !visibleRows.length && <p>{term ? '没有匹配的会话' : '还没有学习会话'}</p>}
