@@ -24,7 +24,7 @@ os.environ["LLM_API_KEY"] = ""
 os.environ["GITHUB_TOKEN"] = ""
 os.environ["PORTAL_AUTO_MERGE"] = "false"
 
-from app.models import Base, Exam, ImportSession, Workspace  # noqa: E402
+from app.models import Base, Exam, ImportSession, Question, Workspace  # noqa: E402
 
 _schema_ready = False
 
@@ -57,6 +57,24 @@ async def db_session():
         yield session
         await session.rollback()
     await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def track_public_question(db_session):
+    """Clean up only public question rows explicitly created by the caller."""
+    short_codes = []
+
+    def track(question):
+        assert question.workspace_id is None
+        short_codes.append(question.short_code)
+        return question
+
+    yield track
+    await db_session.rollback()
+    await db_session.execute(delete(Question).where(
+        Question.workspace_id.is_(None), Question.short_code.in_(short_codes),
+    ))
+    await db_session.commit()
 
 
 @pytest_asyncio.fixture

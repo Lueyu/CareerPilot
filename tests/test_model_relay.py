@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import ClientDisconnect
 
-from deploy.tenant.model_relay import MAX_REQUEST_BYTES, ROUTE, RelayConfig, create_app
+from deploy.tenant.model_relay import MAX_REQUEST_BYTES, ROUTE, STRONG_ROUTE, RelayConfig, create_app
 
 TOKEN = "synthetic-tenant-token-0123456789"
 KEY = "synthetic-provider-key"
@@ -14,6 +14,44 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 BASE = "https://approved-model.example/v1"
 MODEL = "approved-model"
 PAYLOAD = {"model": MODEL, "messages": [{"role": "user", "content": "plain text"}]}
+
+
+def test_registered_tiers_use_only_the_configured_connection():
+    received = []
+
+    async def provider(request):
+        received.append((request.url.host, request.headers["authorization"], json.loads(request.content)["model"]))
+        return httpx.Response(200, json={"choices": []})
+
+    slow_key = "synthetic-strong-provider-key"
+    other = RelayConfig("https://strong.example/v1", MODEL, slow_key, TOKEN)
+    app = create_app(RelayConfig(BASE, MODEL, KEY, TOKEN), flash_model="quick", strong_connection=other,
+                     transport=httpx.MockTransport(provider))
+    with TestClient(app) as client:
+        for route, model, status in ((ROUTE, "quick", 200), (ROUTE, MODEL, 200),
+                                     (STRONG_ROUTE, MODEL, 200), (STRONG_ROUTE, "quick", 400),
+                                     (ROUTE, "unconfigured", 400)):
+            assert client.post(route, json={**PAYLOAD, "model": model}, headers=AUTH).status_code == status
+    assert received == [("approved-model.example", "Bearer " + KEY, "quick"),
+                        ("approved-model.example", "Bearer " + KEY, MODEL),
+                        ("strong.example", "Bearer " + slow_key, MODEL)]
+
+
+def test_tenant_only_receives_relay_credentials_for_both_tiers():
+    from deploy.tenant.runtime import _compose
+
+    upstream = {"MODEL_UPSTREAM_MODEL": MODEL, "MODEL_UPSTREAM_BASE_URL": BASE, "MODEL_UPSTREAM_API_KEY": KEY,
+                "MODEL_FLASH_MODEL": "quick", "MODEL_STRONG_MODEL": MODEL,
+                "MODEL_STRONG_BASE_URL": "https://strong.example/v1", "MODEL_STRONG_API_KEY": "strong-key"}
+    networks = {"private": "10.9.0.0/28", "egress": "10.9.0.16/28", "repo_egress": "10.9.0.32/28"}
+    services = _compose("seed-unit", "运营", "auth", "db", networks, upstream, TOKEN, "repo")["services"]
+    for name in ("api", "worker"):
+        env = services[name]["environment"]
+        assert env["STUDY_FLASH_MODEL"] == "quick" and env["STUDY_STRONG_MODEL"] == MODEL
+        assert env["LLM_API_KEY"] == env["STUDY_STRONG_API_KEY"] == TOKEN
+        assert env["STUDY_STRONG_BASE_URL"] == "http://10.9.0.14:8080/strong/v1"
+        assert KEY not in env.values() and "strong-key" not in env.values()
+    assert services["model-relay"]["environment"]["MODEL_STRONG_API_KEY"] == "strong-key"
 
 
 class FixtureSSE(httpx.AsyncByteStream):
@@ -100,12 +138,12 @@ def test_invalid_calls_never_reach_provider(relay, path, payload, headers, statu
     assert requests == []
 
 
-@pytest.mark.parametrize("prompt", ["provider redirect", "provider failure"])
-def test_upstream_errors_never_redirect_or_expose_provider_body(relay, prompt):
+@pytest.mark.parametrize(("prompt", "expected"), [("provider redirect", 502), ("provider failure", 400)])
+def test_upstream_errors_never_redirect_or_expose_provider_body(relay, prompt, expected):
     client, requests, _ = relay
     payload = {**PAYLOAD, "messages": [{"role": "user", "content": prompt}]}
     response = client.post(ROUTE, json=payload, headers=AUTH)
-    assert response.status_code == 502
+    assert response.status_code == expected
     assert KEY not in response.text
     assert "location" not in response.headers
     assert len(requests) == 1

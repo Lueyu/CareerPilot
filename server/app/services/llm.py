@@ -22,6 +22,7 @@ import httpx
 from sqlalchemy import select
 
 from app.config import MAX_STUDY_TIMEOUT_SECONDS, get_settings
+from app.services.llm_endpoint_config import resolve_llm_config
 from app.services.llm_stream import ChatCompletionStream, StreamFailure
 
 # 生效配置缓存(TTL 内不再查库; 设置页保存后立即 refresh)
@@ -38,13 +39,7 @@ async def get_llm_config() -> dict[str, Any]:
         return _CACHE
 
     cfg = get_settings()
-    merged: dict[str, Any] = {
-        "provider": cfg.llm_provider or "",
-        "api_key": cfg.llm_api_key or "",
-        "base_url": cfg.llm_base_url or "",
-        "model": cfg.llm_model or "",
-        "source": "env" if (cfg.llm_provider and cfg.llm_api_key) else "none",
-    }
+    merged = resolve_llm_config(cfg)
     try:
         from app.db import SessionLocal
         from app.models import AppSetting
@@ -52,12 +47,7 @@ async def get_llm_config() -> dict[str, Any]:
         async with SessionLocal() as session:
             row = (await session.execute(select(AppSetting).where(AppSetting.key == "llm"))).scalar_one_or_none()
         if row and isinstance(row.value, dict):
-            dbv = row.value
-            for k in ("provider", "api_key", "base_url", "model"):
-                if dbv.get(k):
-                    merged[k] = dbv[k]
-            if merged["provider"] and merged["api_key"]:
-                merged["source"] = "db"
+            merged = resolve_llm_config(cfg, row.value)
     except Exception:
         pass  # DB 读取失败 → 用 env 兜底
     _CACHE = merged
@@ -120,6 +110,8 @@ class AgentAdapter:
         }
         if cfg.get("output_limit"):
             payload["max_tokens"] = cfg["output_limit"]
+        if cfg.get("thinking") in ("enabled", "disabled"):
+            payload["thinking"] = {"type": cfg["thinking"]}
         if stream and cfg.get("report_usage"):
             payload["stream_options"] = {"include_usage": True}
         if json_mode:

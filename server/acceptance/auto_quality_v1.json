@@ -1,0 +1,823 @@
+{
+  "format": 1,
+  "routing": [
+    {
+      "id": "RT-01",
+      "stratum": "simple",
+      "role": "Backend Python",
+      "expected": "flash",
+      "content": "令牌桶是什么？用一句话给面试官解释。"
+    },
+    {
+      "id": "RT-02",
+      "stratum": "simple",
+      "role": "Go 后端",
+      "expected": "flash",
+      "content": "为什么 Go 的 map 遍历顺序不固定？只说结论。"
+    },
+    {
+      "id": "RT-03",
+      "stratum": "simple",
+      "role": "Data engineer",
+      "expected": "flash",
+      "content": "LEFT JOIN 返回哪些行？给一个两行例子。"
+    },
+    {
+      "id": "RT-04",
+      "stratum": "simple",
+      "role": "LLM 应用工程师",
+      "expected": "flash",
+      "content": "RAG 是什么，回答控制在三句话。"
+    },
+    {
+      "id": "RT-05",
+      "stratum": "simple",
+      "role": "SRE",
+      "expected": "flash",
+      "content": "我说了重试、恢复、故障三个词，帮我给每个词写一句定义。"
+    },
+    {
+      "id": "RT-06",
+      "stratum": "simple",
+      "role": "Frontend TypeScript",
+      "expected": "flash",
+      "content": "debounce 和 throttle 的区别是什么？用一条时间线类比，不需要画图。"
+    },
+    {
+      "id": "RT-07",
+      "stratum": "simple",
+      "role": "ML engineer",
+      "expected": "flash",
+      "content": "temperature=0 大致是什么意思，先别讲采样细节。"
+    },
+    {
+      "id": "RT-08",
+      "stratum": "simple",
+      "role": "QA 自动化",
+      "expected": "flash",
+      "content": "验收测试和单元测试分别看什么？两句话。"
+    },
+    {
+      "id": "RT-09",
+      "stratum": "simple",
+      "role": "Product analyst",
+      "expected": "flash",
+      "content": "Explain p95 with a five-request example."
+    },
+    {
+      "id": "RT-10",
+      "stratum": "simple",
+      "role": "平台工程师",
+      "expected": "flash",
+      "content": "不给代码，先把上面的术语按重要程度列成三条。"
+    },
+    {
+      "id": "RT-11",
+      "stratum": "complex",
+      "role": "支付后端",
+      "expected": "strong",
+      "content": "扣款方处理了请求但响应丢了，另一个实例马上接手。怎样保证客户只被扣一次？把边界和反例说清楚。"
+    },
+    {
+      "id": "RT-12",
+      "stratum": "complex",
+      "role": "AI Agent 工程师",
+      "expected": "strong",
+      "content": "工具端已经发出退款，计划节点写回前进程被杀；恢复时如何避免外部副作用？比较检查点放置与幂等记录策略。"
+    },
+    {
+      "id": "RT-13",
+      "stratum": "complex",
+      "role": "Data platform",
+      "expected": "strong",
+      "content": "Kafka 分区迁移时旧 consumer 还在写 Snowflake，两边怎么对账？逐步推演 offset 和可见结果。"
+    },
+    {
+      "id": "RT-14",
+      "stratum": "complex",
+      "role": "SRE",
+      "expected": "strong",
+      "content": "Analyze why tail latency triples only after a regional failover. Distinguish queue delay, connection warm-up, and the data that would falsify each hypothesis."
+    },
+    {
+      "id": "RT-15",
+      "stratum": "complex",
+      "role": "Full-stack",
+      "expected": "strong",
+      "content": "如何实现离线编辑的冲突合并？对比 LWW 和三方合并，指出何时会静默丢数据。"
+    },
+    {
+      "id": "RT-16",
+      "stratum": "complex",
+      "role": "机器学习平台",
+      "expected": "strong",
+      "content": "离线 NDCG 涨了但线上长尾召回变差，拆解 leakage、切片和线上采样偏差，给验证顺序。"
+    },
+    {
+      "id": "RT-17",
+      "stratum": "complex",
+      "role": "QA 负责人",
+      "expected": "strong",
+      "content": "蓝绿发布两边同时消费同一订单。我需要能复现乱序、重复投递和半完成状态的验证计划。"
+    },
+    {
+      "id": "RT-18",
+      "stratum": "complex",
+      "role": "安全工程师",
+      "expected": "strong",
+      "content": "给出 OAuth refresh token rotation 的并发时间线，推演双端同时刷新与撤销传播，以及用户何时被迫重新登录。"
+    },
+    {
+      "id": "RT-19",
+      "stratum": "complex",
+      "role": "LLM infrastructure",
+      "expected": "strong",
+      "content": "Under streaming backpressure, compare bounded buffers and cancellation propagation. Reason through three failure orderings and resource cleanup."
+    },
+    {
+      "id": "RT-20",
+      "stratum": "complex",
+      "role": "分析工程师",
+      "expected": "strong",
+      "content": "同一会话从旧版归因切到新版，日指标突然跳涨。设计一套能区分口径变化与真实业务变化的双跑。"
+    },
+    {
+      "id": "RT-21",
+      "stratum": "ambiguity",
+      "role": "平台工程师",
+      "expected": "flash",
+      "content": "能帮我看看这个吗？"
+    },
+    {
+      "id": "RT-22",
+      "stratum": "ambiguity",
+      "role": "Backend Java",
+      "expected": "flash",
+      "content": "幂等、事务、重试，这三个我该先学哪个？先问我一个问题了解情况。"
+    },
+    {
+      "id": "RT-23",
+      "stratum": "ambiguity",
+      "role": "AI 应用",
+      "expected": "flash",
+      "content": "我说的 Agent 是不是你刚才那种？我没给你前文，先问我用了什么框架。"
+    },
+    {
+      "id": "RT-24",
+      "stratum": "ambiguity",
+      "role": "数据工程",
+      "expected": "flash",
+      "content": "offset 是文件偏移还是 Kafka 的？我还没决定问哪一个。"
+    },
+    {
+      "id": "RT-25",
+      "stratum": "ambiguity",
+      "role": "SRE",
+      "expected": "flash",
+      "content": "要不要做恢复和故障演练？只要一条是否值得的判断条件。"
+    },
+    {
+      "id": "RT-26",
+      "stratum": "ambiguity",
+      "role": "产品工程师",
+      "expected": "strong",
+      "content": "两个队伍报告同一条转化漏斗，但其中一方没说去重窗口。请明确缺失信息，再分别按用户和会话给两种推断路径。"
+    },
+    {
+      "id": "RT-27",
+      "stratum": "ambiguity",
+      "role": "Infra engineer",
+      "expected": "strong",
+      "content": "Our service is slow after rollout. Build a diagnosis that separates saturation, a network hop, and changed traffic mix, and specify what to measure before choosing."
+    },
+    {
+      "id": "RT-28",
+      "stratum": "ambiguity",
+      "role": "QA 工程师",
+      "expected": "strong",
+      "content": "现在只知道失败集中在午夜附近。列出两种可能的数据边界，并为每种设计能证伪的测试。"
+    },
+    {
+      "id": "RT-29",
+      "stratum": "followup",
+      "role": "支付平台",
+      "expected": "strong",
+      "content": "那第三次回调会怎样？",
+      "prior_user": "回调先被支付方确认，写入去重表失败，接下来两个实例如何接手？",
+      "prior_reply": "先分别看支付方确认和本地写入，后者失败会留下待补偿记录。",
+      "prior_tier": "strong"
+    },
+    {
+      "id": "RT-30",
+      "stratum": "followup",
+      "role": "Data engineer",
+      "expected": "strong",
+      "content": "继续推演，没有提交 offset 就重平衡呢？",
+      "prior_user": "解释流计算中外部写入与 offset 提交的次序。",
+      "prior_reply": "外部写入先完成，之后才提交 offset。",
+      "prior_tier": "strong"
+    },
+    {
+      "id": "RT-31",
+      "stratum": "followup",
+      "role": "前端工程师",
+      "expected": "flash",
+      "content": "刚才那些，只帮我把第一条压成一句。",
+      "prior_user": "推演跨标签页冲突与同步顺序。",
+      "prior_reply": "第一条是固定合并顺序。第二条是处理落盘失败。",
+      "prior_tier": "strong"
+    },
+    {
+      "id": "RT-32",
+      "stratum": "followup",
+      "role": "SRE",
+      "expected": "flash",
+      "content": "上面的 p99 数字是几？只复述。",
+      "prior_user": "推导两个延迟分布的差异。",
+      "prior_reply": "第二个服务的 p99 是 300 ms。",
+      "prior_tier": "strong"
+    },
+    {
+      "id": "RT-33",
+      "stratum": "followup",
+      "role": "AI Agent 工程师",
+      "expected": "strong",
+      "content": "那如果第二个调用被取消后迟到了呢？算一下后续状态。",
+      "prior_user": "取消一个并行工具调用后，另一个工具还能完成吗？",
+      "prior_reply": "完成结果和取消请求可能交错。",
+      "prior_tier": "strong"
+    },
+    {
+      "id": "RT-34",
+      "stratum": "followup",
+      "role": "测试开发",
+      "expected": "flash",
+      "content": "继续，下一题。",
+      "prior_user": "模拟面试。",
+      "prior_reply": "第一题，解释测试替身。",
+      "prior_tier": "flash",
+      "prior_action": "interview"
+    },
+    {
+      "id": "RT-35",
+      "stratum": "followup",
+      "role": "产品分析",
+      "expected": "flash",
+      "content": "那里我没听懂，用普通话讲一次就行。",
+      "prior_user": "什么是样本比例失衡？",
+      "prior_reply": "实际进入实验组的流量比例偏离配置。",
+      "prior_tier": "flash"
+    },
+    {
+      "id": "RT-36",
+      "stratum": "followup",
+      "role": "iOS 工程师",
+      "expected": "strong",
+      "content": "What changes if the process dies between those writes? Trace both paths.",
+      "prior_user": "How do I persist a draft and its sync metadata together?",
+      "prior_reply": "The draft is stored first and its sync metadata is stored separately.",
+      "prior_tier": "strong"
+    },
+    {
+      "id": "RT-37",
+      "stratum": "evidence",
+      "role": "后端工程师",
+      "expected": "strong",
+      "content": "结合这个项目，给出入站请求、落盘和重复确认在哪些文件，并区分测试与实现。",
+      "action": "project",
+      "project": "dispatch"
+    },
+    {
+      "id": "RT-38",
+      "stratum": "evidence",
+      "role": "LLM 工程师",
+      "expected": "strong",
+      "content": "指出本项目里上下文如何截取，top-k 怎么落到 citation，给实现和测试的对应位置。",
+      "action": "project",
+      "project": "answer"
+    },
+    {
+      "id": "RT-39",
+      "stratum": "evidence",
+      "role": "Data engineer",
+      "expected": "strong",
+      "content": "用当前代码和旧报告判断 offset 重放策略是否改变，列出能支持结论的来源。",
+      "action": "project",
+      "project": "ledger",
+      "storage": "stale_checkout"
+    },
+    {
+      "id": "RT-40",
+      "stratum": "evidence",
+      "role": "SRE",
+      "expected": "strong",
+      "content": "画一张时序图，把告警抑制、通知发送和下游确认画在同一时间线。",
+      "action": "diagram"
+    },
+    {
+      "id": "RT-41",
+      "stratum": "evidence",
+      "role": "平台工程师",
+      "expected": "strong",
+      "content": "做一个可调参数的演示，对比并发上限为 2 和 5 的队列等候。",
+      "action": "demo"
+    },
+    {
+      "id": "RT-42",
+      "stratum": "evidence",
+      "role": "QA 工程师",
+      "expected": "strong",
+      "content": "点评我的回答：我只测了成功返回，服务端超时和重跑都跳过。按面试岗位给出缺口证据。",
+      "action": "critique"
+    },
+    {
+      "id": "RT-43",
+      "stratum": "evidence",
+      "role": "Incident engineer",
+      "expected": "strong",
+      "content": "对照岗位描述，判断是否需要主动讲 OpenTelemetry，以及我缺什么证据。",
+      "action": "jd",
+      "jd": "Own incident telemetry, distributed tracing and on-call handover."
+    },
+    {
+      "id": "RT-44",
+      "stratum": "evidence",
+      "role": "全栈工程师",
+      "expected": "flash",
+      "content": "只复述附件中两个文件的名字，不解释内容，不比较设计。",
+      "materials": true
+    }
+  ],
+  "retrieval": [
+    {
+      "id": "IR-01",
+      "stratum": "definition_caller_test",
+      "project": "dispatch",
+      "role": "后端工程师",
+      "content": "请定位 finish_delivery 的提交/ack顺序，以及重投不重复写的测试。",
+      "storage": "checkout",
+      "relevant": [
+        {
+          "path": "server/app/queue/delivery.py",
+          "anchor": "broker.ack(job.offset)"
+        },
+        {
+          "path": "server/tests/test_delivery.py",
+          "anchor": "assert store.count_for"
+        }
+      ]
+    },
+    {
+      "id": "IR-02",
+      "stratum": "definition_caller_test",
+      "project": "dispatch",
+      "role": "Backend engineer",
+      "content": "Where does an accepted dispatch return HTTP 202, and where is its Location consumed by the web UI?",
+      "storage": "checkout",
+      "relevant": [
+        {
+          "path": "server/app/http/enqueue.py",
+          "anchor": "'status': 202"
+        },
+        {
+          "path": "web/src/dispatch.ts",
+          "anchor": "response.headers.get('Location')"
+        }
+      ]
+    },
+    {
+      "id": "IR-03",
+      "stratum": "definition_caller_test",
+      "project": "dispatch",
+      "role": "QA 工程师",
+      "content": "同一条 Idempotency-Key 发送两次会返回同一地址吗？给实现和断言的位置。",
+      "storage": "checkout",
+      "relevant": [
+        {
+          "path": "server/app/http/enqueue.py",
+          "anchor": "queue.publish_once"
+        },
+        {
+          "path": "server/tests/test_enqueue.py",
+          "anchor": "assert first['location']"
+        }
+      ]
+    },
+    {
+      "id": "IR-04",
+      "stratum": "chinese_paraphrase",
+      "project": "dispatch",
+      "role": "SRE",
+      "content": "排队的工作已经开始重试，代码在哪里让多个同时失败的实例别挤在同一时刻再发？",
+      "storage": "checkout",
+      "relevant": [
+        {
+          "path": "server/app/queue/retry.py",
+          "anchor": "return random_unit * cap"
+        }
+      ]
+    },
+    {
+      "id": "IR-05",
+      "stratum": "stale_distractor",
+      "project": "dispatch",
+      "role": "平台工程师",
+      "content": "旧方案里先确认再写。当前消息处理在什么地方体现提交在前、确认在后？",
+      "storage": "stale_checkout",
+      "relevant": [
+        {
+          "path": "server/app/queue/delivery.py",
+          "anchor": "broker.ack(job.offset)"
+        }
+      ]
+    },
+    {
+      "id": "IR-06",
+      "stratum": "negative",
+      "project": "dispatch",
+      "role": "后端工程师",
+      "content": "现在 dispatch worker 在哪里把永久失败的任务写入 dead-letter topic？请给当前实现。",
+      "storage": "checkout",
+      "relevant": []
+    },
+    {
+      "id": "IR-07",
+      "stratum": "definition_caller_test",
+      "project": "answer",
+      "role": "LLM 应用工程师",
+      "content": "找 clip_context 的预算公式、compose_answer里的调用，以及哪个测试核对被裁掉文段的引用。",
+      "storage": "checkout",
+      "relevant": [
+        {
+          "path": "server/app/context/budget.py",
+          "anchor": "available = budget.context"
+        },
+        {
+          "path": "server/app/answer/respond.py",
+          "anchor": "included = clip_context"
+        },
+        {
+          "path": "server/tests/test_citations.py",
+          "anchor": "assert set(result['citations'])"
+        }
+      ]
+    },
+    {
+      "id": "IR-08",
+      "stratum": "definition_caller_test",
+      "project": "answer",
+      "role": "RAG 工程师",
+      "content": "请指出选中文段与引用页码之间的映射代码，以及实际由哪里调用。",
+      "storage": "checkout",
+      "relevant": [
+        {
+          "path": "server/app/answer/citations.py",
+          "anchor": "return {hit.passage_id"
+        },
+        {
+          "path": "server/app/answer/respond.py",
+          "anchor": "'citations': build_citations"
+        }
+      ]
+    },
+    {
+      "id": "IR-09",
+      "stratum": "chinese_paraphrase",
+      "project": "answer",
+      "role": "数据工程师",
+      "content": "同一个段落召回来两次时，是先去重还是先截断？给出那几行。",
+      "storage": "checkout",
+      "relevant": [
+        {
+          "path": "server/app/search/ranking.py",
+          "anchor": "unique = keep_best_by_id"
+        }
+      ]
+    },
+    {
+      "id": "IR-10",
+      "stratum": "chinese_paraphrase",
+      "project": "answer",
+      "role": "AI 产品工程师",
+      "content": "系统提示和回答预留会先从可用上下文扣掉，在哪一处？",
+      "storage": "checkout",
+      "relevant": [
+        {
+          "path": "server/app/context/budget.py",
+          "anchor": "available = budget.context"
+        }
+      ]
+    },
+    {
+      "id": "IR-11",
+      "stratum": "followup",
+      "project": "answer",
+      "role": "ML engineer",
+      "content": "那前端有没有消费它？",
+      "storage": "checkout",
+      "prior_user": "刚才说的是页面如何 renderCitationBadge，也就是引用标记的展示",
+      "relevant": [
+        {
+          "path": "web/src/citation_badge.ts",
+          "anchor": "return '<sup>'"
+        }
+      ]
+    },
+    {
+      "id": "IR-12",
+      "stratum": "negative",
+      "project": "answer",
+      "role": "ML 平台工程师",
+      "content": "这条在线问答链路在哪里给 GPU HNSW index 选择 efSearch？不要只给离线工具。",
+      "storage": "checkout",
+      "relevant": []
+    },
+    {
+      "id": "IR-13",
+      "stratum": "snapshot",
+      "project": "answer",
+      "role": "LLM infrastructure",
+      "content": "Show the budget subtraction in clip_context and the call site that only builds citations for included hits.",
+      "storage": "snapshot",
+      "relevant": [
+        {
+          "path": "server/app/context/budget.py",
+          "anchor": "available = budget.context"
+        },
+        {
+          "path": "server/app/answer/respond.py",
+          "anchor": "'citations': build_citations"
+        }
+      ]
+    },
+    {
+      "id": "IR-14",
+      "stratum": "definition_caller_test",
+      "project": "ledger",
+      "role": "Data engineer",
+      "content": "After a sink succeeds but offset commit fails, show apply_batch, the event-id upsert, and the replay assertion.",
+      "storage": "checkout",
+      "relevant": [
+        {
+          "path": "stream/read.py",
+          "anchor": "consumer.commit(batch.next_offset)"
+        },
+        {
+          "path": "storage/lake.py",
+          "anchor": "transaction.upsert"
+        },
+        {
+          "path": "tests/test_replay.py",
+          "anchor": "assert lake.count_by_event"
+        }
+      ]
+    },
+    {
+      "id": "IR-15",
+      "stratum": "chinese_paraphrase",
+      "project": "ledger",
+      "role": "大数据开发",
+      "content": "分区被收回，哪里把老的写入任务停下来并等它们收尾？",
+      "storage": "checkout",
+      "relevant": [
+        {
+          "path": "stream/ownership.py",
+          "anchor": "workers.fence(partitions)"
+        }
+      ]
+    },
+    {
+      "id": "IR-16",
+      "stratum": "stale_distractor",
+      "project": "ledger",
+      "role": "Data platform",
+      "content": "Can the original consumer commit offsets before lake writes? Point me at today's ordering, including the previous analysis if it is stale.",
+      "storage": "stale_checkout",
+      "relevant": [
+        {
+          "path": "stream/read.py",
+          "anchor": "consumer.commit(batch.next_offset)"
+        }
+      ]
+    },
+    {
+      "id": "IR-17",
+      "stratum": "snapshot",
+      "project": "ledger",
+      "role": "Kafka 数据工程师",
+      "content": "旧扫描里的 old_apply_batch 能证明当前生产写入顺序吗？这里只能读旧扫描版本。",
+      "storage": "stale_snapshot",
+      "relevant": []
+    },
+    {
+      "id": "IR-18",
+      "stratum": "negative",
+      "project": "ledger",
+      "role": "分析工程师",
+      "content": "consumer offset 是在哪一层转换成事件时间 watermark 的？给代码行。",
+      "storage": "checkout",
+      "relevant": []
+    },
+    {
+      "id": "IR-19",
+      "stratum": "definition_caller_test",
+      "project": "observe",
+      "role": "SRE",
+      "content": "exportBatch 在什么位置删除队列，并且发送失败后队列保留的断言在哪里？",
+      "storage": "checkout",
+      "relevant": [
+        {
+          "path": "collector/export.go",
+          "anchor": "queue.Remove(batch)"
+        },
+        {
+          "path": "collector/export_test.go",
+          "anchor": "queue.Len() != 1"
+        }
+      ]
+    },
+    {
+      "id": "IR-20",
+      "stratum": "chinese_paraphrase",
+      "project": "observe",
+      "role": "Go 后端",
+      "content": "落链路事件时保留的是哪个时间？定位入站接收代码。",
+      "storage": "checkout",
+      "relevant": [
+        {
+          "path": "collector/receive.go",
+          "anchor": "span.WithReceivedAt(clock.Now())"
+        }
+      ]
+    },
+    {
+      "id": "IR-21",
+      "stratum": "chinese_paraphrase",
+      "project": "observe",
+      "role": "可观测性工程师",
+      "content": "哪里按事件指纹决定静默，通知发送之前如何用到这个决定？",
+      "storage": "checkout",
+      "relevant": [
+        {
+          "path": "collector/window.go",
+          "anchor": "state.SilenceUntil(rule.Fingerprint())"
+        },
+        {
+          "path": "collector/notify.go",
+          "anchor": "if suppressAlert"
+        }
+      ]
+    },
+    {
+      "id": "IR-22",
+      "stratum": "negative",
+      "project": "observe",
+      "role": "SRE",
+      "content": "入站 collector 在哪里按租户做 adaptive head sampling？",
+      "storage": "checkout",
+      "relevant": []
+    },
+    {
+      "id": "IR-23",
+      "stratum": "definition_caller_test",
+      "project": "workspace",
+      "role": "Frontend engineer",
+      "content": "Locate saveDraft, its editor caller, and the rollback assertion when the outbox write fails.",
+      "storage": "checkout",
+      "relevant": [
+        {
+          "path": "src/drafts/save.ts",
+          "anchor": "tx.outbox.put"
+        },
+        {
+          "path": "src/editor/submit.ts",
+          "anchor": "await saveDraft"
+        },
+        {
+          "path": "tests/test_save.ts",
+          "anchor": "toBeUndefined"
+        }
+      ]
+    },
+    {
+      "id": "IR-24",
+      "stratum": "chinese_paraphrase",
+      "project": "workspace",
+      "role": "前端工程师",
+      "content": "草稿和同步任务如何保证不存在一个写成功另一个掉了？给事务边界。",
+      "storage": "checkout",
+      "relevant": [
+        {
+          "path": "src/drafts/save.ts",
+          "anchor": "await db.transaction"
+        }
+      ]
+    },
+    {
+      "id": "IR-25",
+      "stratum": "chinese_paraphrase",
+      "project": "workspace",
+      "role": "全栈工程师",
+      "content": "网络回执回来之前谁管着本地待上传的队列，什么时候删？",
+      "storage": "checkout",
+      "relevant": [
+        {
+          "path": "src/drafts/sync.ts",
+          "anchor": "if (receipt.ok) await db.outbox.remove"
+        }
+      ]
+    },
+    {
+      "id": "IR-26",
+      "stratum": "followup",
+      "project": "workspace",
+      "role": "iOS 转 Web",
+      "content": "那个成功才删除的条件，具体在哪一行？",
+      "storage": "checkout",
+      "prior_user": "刚才说 flushOutbox 上传草稿后收到回执，再从 outbox 删除任务",
+      "relevant": [
+        {
+          "path": "src/drafts/sync.ts",
+          "anchor": "if (receipt.ok) await db.outbox.remove"
+        }
+      ]
+    },
+    {
+      "id": "IR-27",
+      "stratum": "negative",
+      "project": "workspace",
+      "role": "Web 工程师",
+      "content": "编辑器在 Service Worker 后台自动同步的 registration 在哪个文件？",
+      "storage": "checkout",
+      "relevant": []
+    },
+    {
+      "id": "IR-28",
+      "stratum": "snapshot",
+      "project": "workspace",
+      "role": "Frontend infra",
+      "content": "Find flushOutbox for upload and mergeDraft for simultaneous edits in the available source snapshot.",
+      "storage": "snapshot",
+      "relevant": [
+        {
+          "path": "src/drafts/sync.ts",
+          "anchor": "if (receipt.ok) await db.outbox.remove"
+        },
+        {
+          "path": "src/drafts/conflict.ts",
+          "anchor": "return mergeThreeWay"
+        }
+      ]
+    }
+  ],
+  "projects": {
+    "dispatch": {
+      "server/app/http/enqueue.py": "def accept_dispatch(request, queue):\n    identity = request.headers['Idempotency-Key']\n    job = queue.publish_once(identity, request.body)\n    # RFC 9110: 202 only acknowledges acceptance, never completion.\n    return {'status': 202, 'location': f'/dispatch/{job}'}\n",
+      "server/app/queue/delivery.py": "def finish_delivery(job, store, broker):\n    # 先提交去重记录和业务写入，再确认收到消息。\n    with store.transaction() as transaction:\n        transaction.insert_once(job.id, job.payload)\n    broker.ack(job.offset)\n",
+      "server/app/queue/retry.py": "def next_attempt(attempt, maximum, random_unit):\n    # 使用 full jitter 分散重试：在 [0, cap] 选择延时。\n    cap = min(maximum, 2 ** attempt)\n    return random_unit * cap\n",
+      "server/tests/test_delivery.py": "def test_redelivery_writes_once():\n    # Simulate broker redelivery after commit and before ack.\n    finish_delivery(job, store, flaky_broker)\n    finish_delivery(job, store, healthy_broker)\n    assert store.count_for(job.id) == 1\n",
+      "server/tests/test_enqueue.py": "def test_duplicate_dispatch_reuses_location():\n    first, second = send_twice(key='same-request')\n    assert first['location'] == second['location']\n",
+      "web/src/dispatch.ts": "export const startDispatch = async (body) => {\n  const response = await fetch('/dispatch', { method: 'POST', body })\n  return response.headers.get('Location')\n}\n",
+      "demo/idempotency_key.py": "def demo_idempotency_key():\n    # Idempotency-Key examples for training slides, independent of dispatch.\n    return 'demo-request'\n",
+      "archive/legacy_delivery.py": "def preview_legacy_delivery():\n    # Archived review of an abandoned spike, outside the dispatch runtime.\n    return ['broker ack', 'transaction commit']\n",
+      "docs/dispatch.md": "# Dispatch migration notes\nThe pilot once used a dead-letter topic. It was never wired into this service.\n"
+    },
+    "answer": {
+      "server/app/context/budget.py": "def clip_context(chunks, tokenizer, budget):\n    # 先扣掉系统指令和回复预算，再按段落边界裁剪上下文。\n    available = budget.context - budget.output - budget.instruction\n    return tokenizer.take_complete_chunks(chunks, max_tokens=available)\n",
+      "server/app/search/ranking.py": "def select_passages(query, index, k):\n    candidates = index.search(query, limit=4 * k)\n    # 相同 passage_id 只保留得分最高的一条，然后再截取 top-k。\n    unique = keep_best_by_id(candidates)\n    return sorted(unique, key=lambda hit: (-hit.score, hit.passage_id))[:k]\n",
+      "server/app/answer/citations.py": "def build_citations(selected):\n    # The bibliography maps passage identifiers to original page spans.\n    return {hit.passage_id: (hit.document, hit.start, hit.end) for hit in selected}\n",
+      "server/app/answer/respond.py": "def compose_answer(query, index, tokenizer, budget):\n    hits = select_passages(query, index, budget.top_k)\n    included = clip_context(hits, tokenizer, budget)\n    return {'context': included, 'citations': build_citations(included)}\n",
+      "server/tests/test_citations.py": "def test_citations_omit_clipped_passage():\n    result = compose_answer(query, index, tokenizer, tiny_budget)\n    assert set(result['citations']) == {hit.passage_id for hit in result['context']}\n",
+      "web/src/citation_badge.ts": "export function renderCitationBadge(label) {\n  return '<sup>' + label + '</sup>'\n}\n",
+      "research/passages_demo.py": "def select_passages_demo():\n    # Placeholder for a synthetic Q&A workshop, outside the answer pipeline.\n    return []\n",
+      "tooling/gpu_index.py": "def inspect_index_build():\n    # GPU HNSW settings used by an offline benchmark exporter.\n    return 'no query service dependency'\n"
+    },
+    "ledger": {
+      "stream/read.py": "def apply_batch(batch, lake, consumer):\n    with lake.transaction() as transaction:\n        for event in batch:\n            transaction.merge_event(event.id, event.body)\n    # Commit offsets only after the sink transaction closes.\n    consumer.commit(batch.next_offset)\n",
+      "stream/ownership.py": "def handle_revoked(partitions, consumer, workers):\n    # 吊销分区所有权后，禁止旧 worker 写入，并等待本地任务退出。\n    workers.fence(partitions)\n    workers.drain(partitions)\n    consumer.release(partitions)\n",
+      "storage/lake.py": "def merge_event(row_id, body, transaction):\n    # Event id is the merge key for replay deduplication.\n    return transaction.upsert('events', key=row_id, values=body)\n",
+      "tests/test_replay.py": "def test_replay_after_commit_failure():\n    first, replay = same_event_batches()\n    apply_batch(first, lake, failing_commit)\n    apply_batch(replay, lake, consumer)\n    assert lake.count_by_event(first[0].id) == 1\n",
+      "stream/metrics.py": "def observe_offset_lag(offset, latest, metrics):\n    return metrics.gauge('consumer_lag', latest - offset)\n",
+      "tooling/file_offsets.py": "def print_file_offset(handle):\n    # File cursor report for ingestion tooling, unrelated to a consumer group.\n    return handle.tell()\n",
+      "archive/read_v1.py": "def old_apply_batch(batch, lake, consumer):\n    # Retired draft. The stream worker never imports this module.\n    consumer.commit(batch.next_offset)\n    return lake.write(batch)\n"
+    },
+    "observe": {
+      "collector/receive.go": "func receiveBatch(input []Span, clock Clock, sink Sink) error {\n    // 缺失 traceparent 不拒收，落 span 时保留原始接收时间。\n    for _, span := range input {\n        sink.Enqueue(span.WithReceivedAt(clock.Now()))\n    }\n    return nil\n}\n",
+      "collector/export.go": "func exportBatch(queue Queue, client Client) error {\n    batch := queue.Peek()\n    // 只有远端明确接受批次后才推进队列。\n    if err := client.Send(batch); err != nil { return err }\n    queue.Remove(batch)\n    return nil\n}\n",
+      "collector/window.go": "func suppressAlert(rule Rule, now Time, state State) bool {\n    // 告警抑制使用事件指纹和静默截止时间。\n    return state.SilenceUntil(rule.Fingerprint()).After(now)\n}\n",
+      "collector/notify.go": "func deliverAlert(alert Alert, state State, pager Pager) error {\n    if suppressAlert(alert.Rule, alert.Time, state) { return nil }\n    return pager.Notify(alert)\n}\n",
+      "collector/export_test.go": "func TestFailedExportLeavesBatch(t T) {\n    err := exportBatch(queue, unreachableClient)\n    if err == nil || queue.Len() != 1 { t.Fail() }\n}\n",
+      "ui/alerts.ts": "export function toggleSilenceFlag(widget) {\n  return widget.setPreviewMuted(true)\n}\n",
+      "tooling/span_csv.go": "func dumpTraceparent(span Span) string {\n    // CSV debugging utility only.\n    return span.TraceParent\n}\n"
+    },
+    "workspace": {
+      "src/drafts/save.ts": "export async function saveDraft(db, draft) {\n  // 同一事务内写入草稿与待同步任务，避免只落盘一半。\n  await db.transaction(['drafts', 'outbox'], async tx => {\n    await tx.drafts.put(draft)\n    await tx.outbox.put({id: draft.id})\n  })\n}\n",
+      "src/drafts/sync.ts": "export async function flushOutbox(db, remote) {\n  for (const job of await db.outbox.pending()) {\n    const receipt = await remote.upload(job.id)\n    if (receipt.ok) await db.outbox.remove(job.id)\n  }\n}\n",
+      "src/editor/submit.ts": "export async function submitEdit(draft, db, sync) {\n  await saveDraft(db, draft)\n  await sync.requestFlush()\n}\n",
+      "src/drafts/conflict.ts": "export function mergeDraft(base, local, remote) {\n  // Same-field divergent edits stay visible as a conflict.\n  return mergeThreeWay(base.body, local.body, remote.body)\n}\n",
+      "tests/test_save.ts": "export async function testFailedOutboxRollsBack() {\n  await expect(saveDraft(failingDB, draft)).rejects.toThrow()\n  expect(await failingDB.drafts.get(draft.id)).toBeUndefined()\n}\n",
+      "ui/outbox.ts": "export function formatOutboxBadge(outboxCount) {\n  return String(outboxCount)\n}\n",
+      "legacy/draft_preview.ts": "export function saveDraftPreview(draft) {\n  // Preview changes memory only.\n  return {...draft}\n}\n"
+    }
+  }
+}

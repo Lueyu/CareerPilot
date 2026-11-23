@@ -10,13 +10,31 @@ import { useSpeechRecognition } from '../lib/speech';
 import './studyChat.css';
 
 interface Source {kind:string;id:number;label:string;text:string;revision?:string;path?:string;line_start?:number;line_end?:number;symbol?:string;provenance?:string}
-interface Message {id:number;role:string;content:string;status:string;error?:string;sources:Source[];action?:string;model?:string;request_id?:string;revision_of?:number;parent_message_id?:number;blocks?:any[];trace?:Record<string,unknown>}
+interface Message {id:number;role:string;content:string;status:string;attempt?:number;error?:string;sources:Source[];action?:string;model?:string;request_id?:string;revision_of?:number;parent_message_id?:number;blocks?:any[];trace?:Record<string,unknown>}
 interface Session {mode?:string;project_id?:number;id:number;title:string;status:string;context:{topic:string;source_type:string;sources:Source[]};messages:Message[]}
 interface Job {id:number;status:string;note_id:number;version_id?:number;message_ids:number[];conflict:boolean;error?:string}
+interface TurnTicket {user_message_id:number;assistant_message_id:number;status:string;attempt?:number}
 const actions=[['simplify','讲得直白一点'],['example','换个例子'],['project','结合我的项目'],['mechanism','讲实现机制'],['why','讲设计缘由'],['diagram','画图讲解'],['demo','交互演示'],['interview','面试官追问'],['critique','点评我的表达'],['jd','对照岗位 JD'],['improve','项目补强建议']] as const;
 function RunDetails({trace}:{trace:Record<string,unknown>}){
   const calls=Array.isArray(trace.calls)?trace.calls:[];
-  return <details><summary>模型与运行记录{trace.tier?' · '+String(trace.tier):''}</summary><p>{String(trace.reason||'未记录路由原因')}</p>{!!trace.error_kind&&<p>异常：{String(trace.error_kind)}</p>}{calls.map((call,i)=><dl className="coach-trace" key={i}><dt>调用 {i+1}{call.escalation ? " · 已升级" : ""}</dt><dd>提供商：{call.provider||'未知'} · 请求：{call.requested_model||'未知'} · 实际报告：{call.reported_model||'未验证'}</dd><dd>耗时：{typeof call.elapsed_ms==='number'?call.elapsed_ms+' ms':'未知'} · 用量：{call.usage?JSON.stringify(call.usage):'未知'} · 费用：{call.cost!=null?JSON.stringify(call.cost):'未知'}</dd>{call.error&&<dd>错误：{String(call.error)}</dd>}</dl>)}</details>;
+  return <details>
+    <summary>模型与运行记录{trace.tier ? ' · '+String(trace.tier) : ''}</summary>
+    <p>{String(trace.reason || '未记录路由原因')}</p>
+    {!!trace.policy_version && <p>策略 {String(trace.policy_version)}
+      {!!trace.preferred_tier && <> · 首选 {String(trace.preferred_tier)}</>}
+      {!!trace.initial_tier && <> · 首次调用 {String(trace.initial_tier)}</>}
+    </p>}
+    {!!trace.error_kind && <p>异常：{String(trace.error_kind)}</p>}
+    {calls.map((call,i) => <dl className="coach-trace" key={i}>
+      <dt>调用 {i+1}{call.tier && ' · '+call.tier}{call.escalation ? ' · 已升级' : ''}</dt>
+      <dd>提供商：{call.provider || '未知'} · 请求：{call.requested_model || '未知'} · 实际报告：{call.reported_model || '未验证'}</dd>
+      {typeof call.first_reasoning_ms === 'number' && <dd>收到首段推理：{Math.round(call.first_reasoning_ms)} ms</dd>}
+      {typeof call.first_nonwhitespace_content_ms === 'number' && <dd>收到首段非空正文：{Math.round(call.first_nonwhitespace_content_ms)} ms</dd>}
+      {typeof call.first_visible_body_ms === 'number' && <dd>服务端发出首段正文：{Math.round(call.first_visible_body_ms)} ms</dd>}
+      <dd>调用耗时：{typeof call.elapsed_ms === 'number' ? call.elapsed_ms+' ms' : '未知'} · 用量：{call.usage ? JSON.stringify(call.usage) : '未知'} · 费用：{call.cost != null ? JSON.stringify(call.cost) : '未知'}</dd>
+      {call.error && <dd>错误：{String(call.error)}</dd>}
+    </dl>)}
+  </details>;
 }
 const MemoRunDetails=memo(RunDetails);
 function SourceMeta({source:s}:{source:Source}){if(!s.revision&&!s.path&&!s.provenance)return null;return <div className="coach-source-meta"><code>{s.path||s.label}{s.line_start?':'+s.line_start+(s.line_end?'–'+s.line_end:''):''} {s.symbol}</code><small>版本：{s.revision||'未验证'} · {s.provenance||'来源材料'}</small></div>}
@@ -67,7 +85,7 @@ function SessionView({id}:{id:number}) {
   const [error,setError]=useState<string>(location.state?.error || '');
   const [loadError,setLoadError]=useState('');
   const [live,setLive]=useState<MessageStreamEvent|null>(null);
-  const [streamFailed,setStreamFailed]=useState(false);
+  const [pollReply,setPollReply]=useState(false);
   const [cardJob,setCardJob]=useState(()=>Number(stored(draftKey(id)+':cards'))||0);
   const [cardState,setCardState]=useState('');
   const [cardRetry,setCardRetry]=useState(0);
@@ -76,18 +94,34 @@ function SessionView({id}:{id:number}) {
   const [choosingNote,setChoosingNote]=useState(false);
   const keys=useRef(new Map<string,string>());
   const version=useRef(0);
+  const noteScope=useRef<{request?:Promise<void>}|null>(null);
   const liveLatest=useRef<MessageStreamEvent|null>(null);
   const liveFrame=useRef<number|null>(null);
   const liveStartedAt=useRef(0);
   const speech=useSpeechRecognition(delta=>setContent(prev=>prev+delta));
-  async function load(){
+  async function refreshJobs(afterWrite=false){
+    const scope=noteScope.current;
+    if(!scope)return;
+    if(afterWrite)await scope.request;
+    if(noteScope.current!==scope||scope.request)return;
+    const request=api.get<{items:Job[]}>(path+'/note-jobs').then(
+      result=>{if(noteScope.current===scope)setJobs(result.items)},
+      error=>{if(noteScope.current===scope)setLoadError(error.message)},
+    );
+    scope.request=request;
+    try{await request}finally{scope.request=undefined}
+  }
+  async function load(afterNoteWrite=false){
     const current=++version.current;
-    const [s,j]=await Promise.all([api.get<Session>(path),api.get<{items:Job[]}>(path+'/note-jobs')]);
-    if(current===version.current){setData(s);setJobs(j.items);setLoadError('');try{const pending=JSON.parse(stored(draftKey(id)+':pending')||'null');const accepted=pending&&s.messages.find(m=>m.role==='user'&&m.request_id===pending.ticket);if(accepted){remember(draftKey(id)+':pending','');setContent(prev=>prev.trim()===accepted.content?'':prev)}}catch{/* Storage may be unavailable. */}}
+    const sessionRequest=api.get<Session>(path);
+    void refreshJobs(afterNoteWrite);
+    const s=await sessionRequest;
+    if(current===version.current){setData(s);setLoadError('');try{const pending=JSON.parse(stored(draftKey(id)+':pending')||'null');const accepted=pending&&s.messages.find(m=>m.role==='user'&&m.request_id===pending.ticket);if(accepted){remember(draftKey(id)+':pending','');setContent(prev=>prev.trim()===accepted.content?'':prev)}}catch{/* Storage may be unavailable. */}}
   }
   useEffect(()=>{
+    noteScope.current={};
     load().catch(e=>setLoadError(e.message));
-    return ()=>{++version.current};
+    return ()=>{noteScope.current=null;++version.current};
   },[path]);
   const generating=data?.messages.some(m=>m.status==='generating');
   const job=jobs[0];
@@ -98,7 +132,7 @@ function SessionView({id}:{id:number}) {
   useEffect(()=>{
     if(!generatingMessage)return;
     setLive(null);
-    setStreamFailed(false);
+    setPollReply(false);
     if(liveFrame.current!==null){cancelAnimationFrame(liveFrame.current);liveFrame.current=null}
     liveLatest.current=null;
     liveStartedAt.current=Date.now();
@@ -112,12 +146,12 @@ function SessionView({id}:{id:number}) {
       setLive(event);
       if(event.status!=='generating'){
         live=false;
-        load().catch(e=>{if(live)setLoadError((e as Error).message)});
+        setPollReply(true);
       }
     };
     const schedule=()=>{if(liveFrame.current===null)liveFrame.current=requestAnimationFrame(flush)};
     const onEvent=(event:MessageStreamEvent)=>{
-      if(!live)return;
+      if(!live||event.id!==generatingMessage.id||event.attempt<(generatingMessage.attempt??1))return;
       if(event.status!=='generating'){
         liveLatest.current=event;
         if(liveFrame.current!==null){cancelAnimationFrame(liveFrame.current);liveFrame.current=null}
@@ -139,23 +173,23 @@ function SessionView({id}:{id:number}) {
           await new Promise(r=>setTimeout(r,400*2**attempt));
           if(live&&!controller.signal.aborted)return connect();
         }
-        setStreamFailed(true);setLive(null);
+        setPollReply(true);setLive(null);
       }
     };
     connect();
     return ()=>{live=false;controller.abort();if(liveFrame.current!==null){cancelAnimationFrame(liveFrame.current);liveFrame.current=null}};
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[path,generatingMessage?.id]);
-  // 兜底: SSE 不可用时退回轮询; 笔记整理任务仍按 1s 轮询。
+  },[path,generatingMessage?.id,generatingMessage?.attempt]);
+  // 收到终态或重连耗尽后读取已存回复；读取失败时继续轮询。
   useEffect(()=>{
-    if(!((generating&&streamFailed)||ongoing))return;
+    if(!((generating&&pollReply)||ongoing))return;
     let active=true;
     let timer:ReturnType<typeof setTimeout>;
     const poll=async()=>{try{await load()}catch(e){if(active)setLoadError((e as Error).message)}if(active)timer=setTimeout(poll,1000)};
-    timer=setTimeout(poll,650);
+    timer=setTimeout(poll,generating&&pollReply?0:650);
     return ()=>{active=false;clearTimeout(timer)};
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[generating,ongoing,streamFailed,path]);
+  },[generating,ongoing,pollReply,path]);
   useEffect(()=>{const sync=()=>load().catch(e=>setLoadError(e.message));window.addEventListener('online',sync);window.addEventListener('study-history-changed',sync);return()=>{window.removeEventListener('online',sync);window.removeEventListener('study-history-changed',sync)}},[id]);
   const target=params.get('message');
   const ready=!!data;
@@ -177,10 +211,19 @@ function SessionView({id}:{id:number}) {
   }
   useEffect(()=>{if(target && ready)document.getElementById('study-message-'+target)?.scrollIntoView({block:'center'})},[target,ready]);
   useEffect(()=>{api.get('/projects').then(d=>setProjects(d.items||[])).catch(()=>{})},[]);
-  async function perform(label:string,fn:(key:string)=>Promise<void>){
+  async function perform(label:string,fn:(key:string)=>Promise<void>,afterNoteWrite=false){
     if(locked.current)return;locked.current=true;setBusy(true);setError('');
     const key=keys.current.get(label)||crypto.randomUUID();keys.current.set(label,key);
-    try{await fn(key);keys.current.delete(label);await load()}catch(e){setError((e as Error).message)}finally{locked.current=false;setBusy(false)}
+    try{await fn(key);keys.current.delete(label);await load(afterNoteWrite)}catch(e){setError((e as Error).message)}finally{locked.current=false;setBusy(false)}
+  }
+  function streamFor(message:Message){
+    return message.status==='generating'&&live?.id===message.id&&live.attempt>=(message.attempt??1)?live:null;
+  }
+  function stop(message:Message){
+    const attempt=streamFor(message)?.attempt??message.attempt??1;
+    return perform('stop',async()=>{
+      await api.post(path+'/messages/'+message.id+'/interrupt?expected_attempt='+attempt);
+    });
   }
   function send(action:string,question:string,parent=anchor,rev=revision){
     const q=question.trim(); if(!q||generating||busy)return;
@@ -198,7 +241,16 @@ function SessionView({id}:{id:number}) {
       const pendingKey=draftKey(id)+':pending';let ticket=key;
       try {const pending=JSON.parse(stored(pendingKey)||'null');if(pending?.signature===signature)ticket=pending.ticket}catch{/* A stale local draft is optional. */}
       remember(pendingKey,JSON.stringify({signature,ticket}));
-      await api.post(path+'/messages',{content:q,action,request_id:ticket,mode:data?.mode||'auto',project_id:project?Number(project):undefined,parent_message_id:parent,revision_of:rev});
+      const accepted=await api.post<TurnTicket>(path+'/messages',{content:q,action,request_id:ticket,mode:data?.mode||'auto',project_id:project?Number(project):undefined,parent_message_id:parent,revision_of:rev});
+      if(accepted.status==='generating'){
+        ++version.current;
+        setData(current=>{
+          if(!current||current.messages.some(message=>message.id===accepted.assistant_message_id))return current;
+          const user:Message={id:accepted.user_message_id,role:'user',content:q,status:'completed',sources:[],request_id:ticket,action,parent_message_id:parent,revision_of:rev};
+          const reply:Message={id:accepted.assistant_message_id,role:'assistant',content:'',status:accepted.status,sources:[],attempt:accepted.attempt,parent_message_id:user.id,revision_of:rev};
+          return {...current,messages:[...current.messages,user,reply]};
+        });
+      }
       remember(pendingKey,'');if(content.trim()===q)setContent(prev=>prev.trim()===q?'':prev);setAnchor(undefined);setRevision(undefined);follow.current=true;setAway(false);window.dispatchEvent(new Event('study-history-changed'));
     });
   }
@@ -212,7 +264,7 @@ function SessionView({id}:{id:number}) {
       const queued=await api.post<Job>(path+'/note-jobs',{request_id:key,focus_message_id:focus,note_id:selectNote?Number(selectNote):undefined});
       if(cards){remember(draftKey(id)+':cards',String(queued.id));setCardJob(queued.id);setCardState('正在整理本次笔记，完成后生成候选卡…')}
       if(end)await api.patch(path,{status:'ended'});
-    });
+    },true);
   }
   if(!data)return <div className="card">{loadError||'正在打开学习会话…'} {loadError&&<button onClick={()=>load().catch(e=>setLoadError(e.message))}>重试</button>}</div>;
   const ended=data.status==='ended';
@@ -245,7 +297,7 @@ function SessionView({id}:{id:number}) {
     <MemoSources items={data.context.sources}/>{!data.messages.length&&<p className="coach-empty">输入一个问题，开始这次学习。</p>}
     {loadError && <p role="alert">同步失败：{loadError}</p>}
     <section className="study-thread" aria-label="聊天记录">{data.messages.map(m=>{
-      const stream=live&&live.id===m.id?live:null;
+      const stream=streamFor(m);
       const status=stream?.status||m.status;
       const content=stream?.content??m.content;
       const stage=stream?.stage||m.trace?.stage;
@@ -254,7 +306,7 @@ function SessionView({id}:{id:number}) {
       <h4>{m.role==='user'?'我':'学习助手'} <small>#{m.id} · {status==='generating'?<span className="coach-status-live"><ThinkingDots/>生成中</span>:({completed:'已保存',failed:'失败',interrupted:'已中断'} as Record<string,string>)[status]||status}{m.trace?.tier?' · '+String(m.trace.tier):''}{status==='generating'&&stage?' · '+(stages[String(stage)]||String(stage)):''}</small></h4>
       {m.role==='assistant'&&status==='generating'&&(stream?.reasoning?<ThinkingPanel text={stream.reasoning} startedAt={liveStartedAt.current||Date.now()} open={!content}/>:!content?<p className="coach-reasoning-hint"><ThinkingDots/> 正在思考…</p>:null)}
       {m.role==='assistant'?((content||(m.blocks?.length??0))?<StudyText {...{text:content,blocks:m.blocks,sources:m.sources,streaming:status==='generating'}}/>:null):<div className="study-content">{content}</div>}{m.role==='assistant'&&<MemoSources items={m.sources}/>}
-      {error&&<p role="alert">{error}</p>}{status==='generating'&&<button className="btn btn-outline" disabled={busy} onClick={()=>perform('stop',async()=>{await api.post(path+'/messages/'+m.id+'/interrupt')})}>中断回复</button>}
+      {error&&<p role="alert">{error}</p>}{status==='generating'&&<button className="btn btn-outline" disabled={busy} onClick={()=>stop(m)}>中断回复</button>}
       {['interrupted','failed'].includes(status)&&!ended&&<button className="btn btn-outline" disabled={busy||generating} onClick={()=>perform('retry',async()=>{await api.post(path+'/messages/'+m.id+'/retry')})}>重试回复</button>}
       {m.revision_of&&<small>本版源自消息 #{m.revision_of} · 原文保留</small>}
       {m.role==='assistant'&&status==='completed'&&<div className={'coach-note-bridge'+(m.id===savedReply?.id?' is-latest':'')}>
@@ -273,15 +325,15 @@ function SessionView({id}:{id:number}) {
     {more&&<div className="coach-chips"><button disabled={busy||ongoing||!data.messages.length||!!cardJob} onClick={()=>organize(false,true)}>整理复习卡</button><button disabled={busy||generating} onClick={()=>requestPractice('quiz')}>测一下</button>{actions.filter(([a])=>!['simplify','mechanism','project','diagram'].includes(a)).map(([a,label])=><button disabled={busy||generating} key={a} onClick={()=>send(a,label)}>{label}</button>)}</div>}
     {(anchor||revision)&&<small>围绕消息 #{revision||anchor} {revision?'编辑副本，保留原文':'追问'} <button onClick={()=>{setAnchor(undefined);setRevision(undefined)}}>取消关联</button></small>}
     {(cardJob||cardState)&&<small role="status">{cardTarget?.status==='FAILED'?'本次笔记失败，请在笔记与练习中重试本次整理。':cardState}{cardState.startsWith('卡片生成失败')&&<button onClick={()=>setCardRetry(r=>r+1)}>重试卡片</button>}{!!cardJob&&<button onClick={()=>{remember(draftKey(id)+':cards','');setCardJob(0);setCardState('')}}>取消后续生成</button>}</small>}
-    {job&&(ongoing||job.status==='FAILED')&&<small role="status" className="coach-note-status">{ongoing?<><ThinkingDots/> 正在整理笔记…（已冻结 {job.message_ids.length} 条消息，完成后可打开笔记）</>:<><span>整理失败：{job.error||'请重试'}</span><button className="btn btn-outline" disabled={busy} onClick={()=>perform('retry-note',async()=>{await api.post('/study/note-jobs/'+job.id+'/retry')})}>重试整理</button></>}</small>}
-    <div className="coach-input"><StudyComposerInput ref={composer} aria-label="继续问" rows={2} maxLength={8000} value={content} onSend={()=>send('explain',content)} onChange={e=>setContent(e.target.value)} placeholder="继续问，或用自己的话解释……"/><div className="study-actions">{speech.supported&&<button className="btn btn-ghost" onClick={speech.listening?speech.stop:speech.start}>{speech.listening?'停止听写':'语音输入'}</button>}{generating?<button className="btn btn-outline" disabled={busy} onClick={()=>perform('stop',async()=>{await api.post(path+'/messages/'+data.messages.find(m=>m.status==='generating')!.id+'/interrupt')})}>停止生成</button>:<button className="btn btn-primary" disabled={busy||!content.trim()} onClick={()=>send('explain',content)}>发送</button>}</div></div>{speech.interim||speech.error}</>:<div className="study-actions"><button className="btn btn-primary" onClick={()=>perform('resume',async()=>{await api.patch(path,{status:'active'})})}>继续学习</button><button className="btn" onClick={()=>document.getElementById('coach-tools-'+id)?.showPopover?.()}>笔记与练习</button></div>}</footer>
+    {job&&(ongoing||job.status==='FAILED')&&<small role="status" className="coach-note-status">{ongoing?<><ThinkingDots/> 正在整理笔记…（已冻结 {job.message_ids.length} 条消息，完成后可打开笔记）</>:<><span>整理失败：{job.error||'请重试'}</span><button className="btn btn-outline" disabled={busy} onClick={()=>perform('retry-note',async()=>{await api.post('/study/note-jobs/'+job.id+'/retry')},true)}>重试整理</button></>}</small>}
+    <div className="coach-input"><StudyComposerInput ref={composer} aria-label="继续问" rows={2} maxLength={8000} value={content} onSend={()=>send('explain',content)} onChange={e=>setContent(e.target.value)} placeholder="继续问，或用自己的话解释……"/><div className="study-actions">{speech.supported&&<button className="btn btn-ghost" onClick={speech.listening?speech.stop:speech.start}>{speech.listening?'停止听写':'语音输入'}</button>}{generatingMessage?<button className="btn btn-outline" disabled={busy} onClick={()=>stop(generatingMessage)}>停止生成</button>:<button className="btn btn-primary" disabled={busy||!content.trim()} onClick={()=>send('explain',content)}>发送</button>}</div></div>{speech.interim||speech.error}</>:<div className="study-actions"><button className="btn btn-primary" onClick={()=>perform('resume',async()=>{await api.patch(path,{status:'active'})})}>继续学习</button><button className="btn" onClick={()=>document.getElementById('coach-tools-'+id)?.showPopover?.()}>笔记与练习</button></div>}</footer>
     <div ref={toolsPanel} className="coach-tools" id={'coach-tools-'+id} {...{popover:"auto"}}><button className="btn btn-ghost" onClick={()=>document.getElementById('coach-tools-'+id)?.hidePopover?.()}>关闭</button>    <section className="card"><div className="study-actions"><button className="btn btn-primary" disabled={busy||ongoing||!data.messages.length} onClick={()=>organize(false)}>整理成笔记</button>
       {!ended&&<button className="btn btn-outline" disabled={busy||ongoing||generating||!data.messages.length} onClick={()=>organize(true)}>结束并整理</button>}
       <button className="btn btn-ghost" onClick={()=>{setChoosingNote(!choosingNote);if(!choosingNote)api.get('/study/notes').then(d=>setNotes(d.items)).catch(e=>setError(e.message))}}>关联已有笔记</button>
       {choosingNote&&<select aria-label="关联已有笔记" value={selectNote} onChange={e=>setSelectNote(e.target.value)}><option value="">本会话的笔记</option>{notes.map(n=><option key={n.id} value={n.id}>{n.title}</option>)}</select>}</div>
       {job&&<p role="status">{ongoing?'笔记整理中':job.status==='FAILED'?'整理失败，可重试':job.conflict?'已生成更新草稿，保留了手工编辑':'笔记已生成'}  {job.version_id?` · 笔记版本 #${job.version_id}`:""} · 冻结 {job.message_ids.length} 条消息
         {job.status==='SUCCEEDED'&&<><Link to={'/study/notes/'+job.note_id}> 打开笔记</Link>{!job.conflict&&savedReply&&job.message_ids.includes(savedReply.id)&&<Link to={comparePath(job.note_id,savedReply.id)}> 对照原聊</Link>}</>}
-        {job.status==='FAILED'&&<><span> {job.error}</span><button className="btn btn-outline" onClick={()=>perform('retry-note',async()=>{await api.post('/study/note-jobs/'+job.id+'/retry')})}>重试整理</button></>}</p>}</section>
+        {job.status==='FAILED'&&<><span> {job.error}</span><button className="btn btn-outline" onClick={()=>perform('retry-note',async()=>{await api.post('/study/note-jobs/'+job.id+'/retry')},true)}>重试整理</button></>}</p>}</section>
     {toolsVisible && <StudyPracticePanel initialRequest={practiceRequest} focusMessageId={practiceRequest?.messageId??anchor} sessionId={id} ended={ended} cardId={practiceRequest?undefined:cardId}/>}
 </div></div>
 }

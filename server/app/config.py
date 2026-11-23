@@ -4,6 +4,7 @@
 """
 import re
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -37,12 +38,15 @@ class Settings(BaseSettings):
     llm_base_url: str = ""
     llm_model: str = ""
 
-    # Application runtime tutoring routes. An empty strong model disables that seat.
+    # Flash inherits the active connection and model unless explicitly overridden.
+    # An empty strong model disables that seat.
     study_flash_model: str = ""
+    study_flash_thinking: Literal["", "enabled", "disabled"] = ""
     study_strong_model: str = ""
     study_strong_base_url: str = ""
     study_strong_api_key: str = ""
     study_strong_provider: str = ""
+    study_relay_same_upstream: bool = False
     study_output_budget: int = 16000
     # 单档最大输出 token。reasoning 模型会把思考 token 计入 max_tokens,
     # 预算过小会导致思考阶段就触顶截断, 触发不必要的档位升级重跑。
@@ -52,7 +56,8 @@ class Settings(BaseSettings):
     study_timeout_seconds: int = Field(default=MAX_STUDY_TIMEOUT_SECONDS, ge=1, le=MAX_STUDY_TIMEOUT_SECONDS)
     study_flash_context: int = 24000
     study_strong_context: int = 48000
-    # Explicit deployment capabilities. Chat uses text SSE and bounded local tools.
+    # Deployment-declared capabilities. Text and stream are required for chat.
+    # Specialist capabilities guide Auto selection when a matching seat is available.
     study_flash_capabilities: list[str] = ["text", "stream"]
     study_strong_capabilities: list[str] = ["text", "stream", "structured_text", "code_reasoning"]
     study_project_roots: dict[str, str] = {}

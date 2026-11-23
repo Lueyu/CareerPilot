@@ -20,7 +20,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.services import project_autopilot_sources as sources
 from app.services import project_claim_registry as claim_registry
 from app.services import project_stage_splits as stage_splits
-from app.services import study_routing
 from app.services.llm import AgentAdapter
 from app.services.project_prompts import PROMPT_BUNDLE_VERSION, system_prompt
 from app.services.project_sources import redact_value
@@ -469,14 +468,20 @@ async def _ask(task, payload, model, runtime):
     cfg = runtime.llm_config
     route_meta = {}
     if 'auto_profiles' in cfg:
-        action = 'project' if task in ('analyze_module', 'verify_cross_module', 'analyze_change_impact', 'explain_project_section') else 'organize'
-        tier, reason, _ = study_routing.decide('auto', action, '', [], payload.get('sources', []))
+        synthesis = task in {'analyze_module', 'verify_cross_module', 'analyze_change_impact', 'explain_project_section'}
+        tier = 'strong' if synthesis or runtime.repair_diagnostic else 'flash'
+        reason = ('校验失败，按诊断修复结构化结果' if runtime.repair_diagnostic else
+                  '分析项目实现与证据' if synthesis else '整理清单或提取候选记录')
         profiles = cfg['auto_profiles']
-        selected = tier if profiles.get(tier) else 'flash'
+        other = 'flash' if tier == 'strong' else 'strong'
+        selected = next((name for name in (tier, other) if all(
+            (profiles.get(name) or {}).get(key) for key in ('provider', 'api_key', 'base_url', 'model')
+        )), tier)
         if tier != selected:
-            reason += '；深入档未配置，使用快速档'
+            reason += '；首选档位未配置，使用另一已配置档位'
         cfg = profiles.get(selected) or {}
-        route_meta = {'routing_mode': 'auto', 'requested_tier': tier, 'tier': selected, 'routing_reason': reason}
+        route_meta = {'routing_mode': 'auto', 'routing_policy': 'project-stage-v2',
+                      'requested_tier': tier, 'tier': selected, 'routing_reason': reason}
     if not all(cfg.get(k) for k in ('provider', 'api_key', 'base_url', 'model')):
         raise StageError('NOT_CONFIGURED', '尚未配置可用的模型服务')
     value = {'task': task, **payload, 'output_schema': model.model_json_schema(), 'prompt_version': PROMPT_BUNDLE_VERSION}

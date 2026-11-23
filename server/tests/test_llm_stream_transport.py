@@ -119,6 +119,21 @@ async def test_stream_reasoning_deltas_surface_via_callback_but_are_never_retain
     assert meta['reasoning_chars']==len('SECRET_REASONING')
     assert 'SECRET' not in json.dumps({'meta':meta,'error':adapter.last_error})
 
+
+@pytest.mark.asyncio
+async def test_first_nonwhitespace_content_excludes_reasoning_and_blank_frames(monkeypatch):
+    class LaterBody(Body):
+        async def __aiter__(self):
+            yield frame(reasoning_content="fixture reasoning") + frame(" \n")
+            await asyncio.sleep(0.02)
+            yield frame("正文") + frame(finish="stop") + DONE
+
+    install(monkeypatch, LaterBody([]))
+    adapter = AgentAdapter()
+    assert await adapter.chat_with(CONFIG, "s", "u", stream=True) == {"content": " \n正文"}
+    meta = adapter.last_response_meta
+    assert meta["first_content_ms"] < meta["first_nonwhitespace_content_ms"] <= meta["stream_done_ms"]
+
 @pytest.mark.asyncio
 async def test_stream_reasoning_callback_still_bounded_and_absent_without_opt_in(monkeypatch):
     from app.services import llm_stream

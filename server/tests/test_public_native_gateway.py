@@ -85,7 +85,7 @@ async def register(client, db, username):
     return await db.get(Workspace, response.json()["workspace_id"])
 
 
-async def test_bound_and_ordinary_targets_and_private_projection(gateway, db_session, monkeypatch):
+async def test_bound_and_ordinary_targets_and_private_projection(gateway, db_session, monkeypatch, track_public_question):
     client, calls, tenants = gateway
     path = NATIVE + "/settings/workspaces"
     assert (await client.get(path)).status_code == 401
@@ -119,8 +119,9 @@ async def test_bound_and_ordinary_targets_and_private_projection(gateway, db_ses
     tenants.ensure.assert_not_called()
     assert (await client.get(NATIVE + "/bank/legacy-data")).json() == {"topics": [], "questions": []}
 
-    for ws_id, title in [(peer.id, "my-question"), (owner.id, "owner-private"), (None, "shared")]:
+    for ws_id, title in [(peer.id, "my-question"), (owner.id, "owner-private")]:
         db_session.add(Question(workspace_id=ws_id, title=title, topic="fixture", short_code=uuid4().hex))
+    db_session.add(track_public_question(Question(title="shared", topic="fixture", short_code=uuid4().hex)))
     await db_session.commit()
 
     tenant_name = "gateway_" + uuid4().hex + "_test"

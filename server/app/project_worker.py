@@ -285,18 +285,16 @@ async def serve(poll_seconds=2,lease_seconds=None,heartbeat_seconds=10,once=Fals
                 await assessment_worker.execute_claim(grading,worker_id,factory,scoring_lease,heartbeat_seconds)
                 await assessment_worker.reconcile(factory)
                 if once:return
-                continue
             from app.services.study_notes import process_next_note_job
-            if await process_next_note_job(factory):
-                if once: return
-                continue
+            note = await process_next_note_job(factory)
+            if note and once: return
             await reconcile(factory)
             async with factory() as session:claim=await jobs.claim_step(session,worker_id,project_lease)
             if claim:
                 await execute_claim(claim,worker_id,factory,project_lease,heartbeat_seconds)
                 await reconcile(factory)
             if once:return
-            if not claim:await asyncio.sleep(poll_seconds)
+            if not (grading or note or claim):await asyncio.sleep(poll_seconds)
     finally:
         if scheduler:
             scheduler.cancel()

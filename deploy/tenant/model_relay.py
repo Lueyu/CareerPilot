@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import Response, StreamingResponse
 
 ROUTE = "/v1/chat/completions"
+STRONG_ROUTE = "/strong" + ROUTE
 MAX_REQUEST_BYTES = 2 * 1024 * 1024
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 TOTAL_TIMEOUT = 1800
@@ -71,6 +72,10 @@ class ResponseFormat(StrictInput):
     type: Literal["text", "json_object"]
 
 
+class Thinking(StrictInput):
+    type: Literal["enabled", "disabled"]
+
+
 class Completion(StrictInput):
     model: str
     messages: Annotated[list[Message], Field(min_length=1, max_length=256)]
@@ -80,6 +85,7 @@ class Completion(StrictInput):
     max_tokens: Annotated[int, Field(ge=1, le=131072)] | None = None
     response_format: ResponseFormat | None = None
     reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None = None
+    thinking: Thinking | None = None
 
 
 class RelayStream(StreamingResponse):
@@ -112,15 +118,24 @@ async def _read_input(request: Request) -> Completion:
         raise HTTPException(400, "Invalid completion request") from None
 
 
-def create_app(config: RelayConfig, *, transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
+def create_app(config: RelayConfig, *, flash_model: str = "", strong_model: str = "",
+               strong_connection: RelayConfig | None = None,
+               transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
     endpoint = config.endpoint()
+    approved = {(ROUTE, model): (endpoint, config.upstream_api_key)
+                for model in (config.upstream_model, flash_model, strong_model) if model}
+    if strong_connection is not None:
+        approved[(STRONG_ROUTE, strong_connection.upstream_model)] = (
+            strong_connection.endpoint(), strong_connection.upstream_api_key)
     expected_auth = ("Bearer " + config.tenant_token).encode("ascii")
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, redirect_slashes=False)
     slots = asyncio.Semaphore(4)
 
     @app.post(ROUTE)
+    @app.post(STRONG_ROUTE)
     async def complete(request: Request):
-        if request.scope.get("raw_path", b"") != ROUTE.encode() or request.scope.get("query_string"):
+        path = request.scope["path"]
+        if request.scope.get("raw_path", b"") != path.encode() or request.scope.get("query_string"):
             raise HTTPException(404, "Unknown model route")
         auth = request.headers.getlist("authorization")
         if len(auth) != 1 or not compare_digest(auth[0].encode("latin-1"), expected_auth):
@@ -168,14 +183,16 @@ def create_app(config: RelayConfig, *, transport: httpx.AsyncBaseTransport | Non
         try:
             async with asyncio.timeout_at(deadline):
                 payload = await _read_input(request)
-                if payload.model != config.upstream_model or (payload.stream_options and not payload.stream):
+                destination = approved.get((path, payload.model))
+                if destination is None or (payload.stream_options and not payload.stream):
                     raise HTTPException(400, "Unsupported completion request")
+                url, key = destination
                 upstream = await client.send(
                     client.build_request(
-                        "POST", endpoint,
+                        "POST", url,
                         json=payload.model_dump(exclude_none=True, exclude_unset=True),
                         headers={
-                            "Authorization": "Bearer " + config.upstream_api_key,
+                            "Authorization": "Bearer " + key,
                             "Accept": "text/event-stream" if payload.stream else "application/json",
                             "Accept-Encoding": "identity",
                         },
@@ -184,6 +201,8 @@ def create_app(config: RelayConfig, *, transport: httpx.AsyncBaseTransport | Non
                 )
                 if upstream.status_code == 429:
                     raise HTTPException(429, "Upstream model is rate limited")
+                if 400 <= upstream.status_code < 500:
+                    raise HTTPException(upstream.status_code, "Upstream model rejected the request")
                 media_type = "text/event-stream" if payload.stream else "application/json"
                 if (
                     upstream.status_code != 200
@@ -216,12 +235,18 @@ def main():
     bind_ip = ip_address(os.environ["MODEL_RELAY_BIND_IP"])
     if not isinstance(bind_ip, IPv4Address) or not any(bind_ip in network for network in PRIVATE_NETWORKS):
         raise ValueError("MODEL_RELAY_BIND_IP must be the relay's private tenant IPv4 address")
+    token = os.environ["MODEL_RELAY_TOKEN"]
+    strong = os.environ.get("MODEL_STRONG_MODEL", "")
+    other = None
+    if os.environ.get("MODEL_STRONG_BASE_URL"):
+        other = RelayConfig(os.environ["MODEL_STRONG_BASE_URL"], strong, os.environ["MODEL_STRONG_API_KEY"], token)
     app = create_app(RelayConfig(
         upstream_base_url=os.environ["MODEL_UPSTREAM_BASE_URL"],
         upstream_model=os.environ["MODEL_UPSTREAM_MODEL"],
         upstream_api_key=os.environ["MODEL_UPSTREAM_API_KEY"],
-        tenant_token=os.environ["MODEL_RELAY_TOKEN"],
-    ))
+        tenant_token=token,
+    ), flash_model=os.environ.get("MODEL_FLASH_MODEL", ""), strong_model="" if other else strong,
+        strong_connection=other)
     uvicorn.run(
         app, host=str(bind_ip), port=int(os.environ.get("MODEL_RELAY_PORT", "8080")),
         proxy_headers=False, access_log=False, server_header=False,
