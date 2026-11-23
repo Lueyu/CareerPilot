@@ -3,10 +3,15 @@
 Run both suites from this repository root with the CareerPilot server environment.
 
 ```powershell
-$python = 'D:/agent-interview/server/.venv/Scripts/python.exe'
+$python = 'python'  # Run in the activated CareerPilot server environment.
 $out = Join-Path ([System.IO.Path]::GetTempPath()) 'careerpilot-auto-quality'
 New-Item -ItemType Directory -Force -Path $out | Out-Null
-$frozenRouter = 'ddf3be9076b4c9706528ec6755b257707c40762bb888313565abb29540d6a33f'
+$frozenRouter = (Get-FileHash server/app/services/study_routing.py -Algorithm SHA256).Hash.ToLowerInvariant()
+$acceptedRouterBytes = @(
+    '487edc2928fa906111595f41f8f21182d650d63904802220b10499a3eb1c9312', # LF
+    'ddf3be9076b4c9706528ec6755b257707c40762bb888313565abb29540d6a33f'  # CRLF
+)
+if ($frozenRouter -notin $acceptedRouterBytes) { throw 'Unexpected study-auto-v2.2 router content' }
 foreach ($suite in 'primary', 'confirmation') {
     & $python server/acceptance/auto_quality.py --suite $suite --baseline 70660b2 --output (Join-Path $out "$suite-baseline.json")
     if ($LASTEXITCODE -ne 0) { throw "Baseline failed for $suite" }
