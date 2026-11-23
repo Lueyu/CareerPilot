@@ -117,7 +117,9 @@ function ReviewFeedback({ feedback }: { feedback: Feedback }) {
         <div key={title}>
           <strong>{title}</strong>
           {items.length ? <ul>{items.map((item, index) => <li key={index}>{item}</li>)}</ul>
-            : <p className="muted">暂无足够证据</p>}
+            : <p className="muted">{title === '可以补充' ? '这次作答还不足以判断具体遗漏。'
+              : feedback.covered[0] ? `练习建议：以“${feedback.covered[0].quote}”为例，说明你会用哪项结果检验这个判断。`
+              : '练习建议：再选一个具体场景作答，说明判断依据和验证方法。'}</p>}
         </div>
       ))}
     </section>

@@ -16,12 +16,7 @@ from app.db import get_session
 from app.models import Question, Workspace
 from app.services import public_coach as service
 
-try:
-    from app.models.public_library import PublicLibraryRole
-except ModuleNotFoundError as exc:
-    if exc.name != "app.models.public_library":
-        raise
-    PublicLibraryRole = None
+from app.models.public_library import PublicLibraryRole
 
 pytestmark = pytest.mark.asyncio
 
@@ -337,7 +332,6 @@ async def test_quota_recovery_keeps_the_submitted_message(coach, monkeypatch):
     assert (saved["status"], saved["error"], saved["user_text"]) == ("failed", recovery, "出两道用户增长题")
 
 
-@pytest.mark.skipif(PublicLibraryRole is None, reason="Public library integrates on the app branch")
 async def test_questionless_coach_preserves_the_selected_library_direction(coach, db_session):
     owner, _, _, _, workspaces, _ = coach
     db_session.add_all(
