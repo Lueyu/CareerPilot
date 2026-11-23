@@ -15,7 +15,7 @@ from sqlalchemy import select, update
 
 from app.db import SessionLocal
 from app.models.public_coach import CoachCandidate, CoachThread, CoachTurn
-from app.services.public_model import PublicModelError, complete_text, stream_text
+from app.services.public_model import _MAX_INPUT_BYTES, PublicModelError, complete_text, stream_text
 
 log = logging.getLogger(__name__)
 MODEL_TIMEOUT = 135
@@ -237,14 +237,31 @@ _TASKS = {
 }
 
 
-def _fit_context(items, byte_limit):
-    retained = []
-    for item in items:
-        size = len(json.dumps(item, ensure_ascii=False).encode("utf-8")) + 2
-        if size <= byte_limit:
-            retained.append(item)
-            byte_limit -= size
-    return retained
+def _json_bytes(value):
+    return len(json.dumps(value, ensure_ascii=False).encode("utf-8"))
+
+
+def _fit_context(retained, items, byte_limit):
+    used = 0
+    for key, item in items:
+        if used >= byte_limit:
+            break
+        # json.dumps separates list entries with a comma and a space.
+        size = _json_bytes(item) + (2 if retained else 0)
+        if used + size <= byte_limit:
+            retained[key] = item
+            used += size
+    return used
+
+
+def _prompt_turn(item, study):
+    return {
+        "动作": item.action,
+        "用户原文": item.user_text[:1200] if study and item.user_text else item.user_text,
+        "助手回复": item.reply[:1600],
+        "结构化结果": item.result,
+        "已获提示": item.assisted,
+    }
 
 
 @dataclass
@@ -256,42 +273,58 @@ class TurnContext:
     memories: list[str]
 
     def messages(self):
+        action = self.turn.action
         study = self.thread.mode == "study"
-        history = [
-            {
-                "动作": item.action,
-                "用户原文": item.user_text[:1200] if study and item.user_text else item.user_text,
-                "助手回复": item.reply[:1600],
-                "结构化结果": item.result,
-                "已获提示": item.assisted,
-            }
-            for item in self.history[-8:]
-            if item.status == "completed" or item.action == "hint" and item.reply
-        ]
-        if study:
-            history = _fit_context(reversed(history), 16_000)[::-1]
+        system = f"{_SYSTEM}\n{_TASKS[action]}"
+        history = {
+            item.id: _prompt_turn(item, study)
+            for item in self.history
+            if not study and item.action in {"answer", "followup_answer"} and item.status == "completed"
+        }
         context = {
             "岗位": self.thread.role,
             "方向": self.thread.direction or None,
             "题目": self.thread.question_title,
-            "用户确认的经历": _fit_context(self.memories, 12_000),
-            "近几轮记录": history,
+            "用户确认的经历": [],
+            "近几轮记录": list(history.values()),
             "当前用户原文": self.turn.user_text,
             "已获提示": self.turn.assisted,
         }
-        if self.turn.action == "generate":
-            active = sorted(
-                (item for item in self.candidates if not item.superseded),
-                key=lambda item: (item.number != self.turn.target_number, item.number),
-            )
-            shortlisted = _fit_context(
-                ({"题号": item.number, "题干": item.title} for item in active),
-                12_000,
-            )
-            context["当前候选题"] = sorted(shortlisted, key=lambda item: item["题号"])
+        active = {}
+        selected = {}
+        if action == "generate":
+            active = {item.number: item for item in self.candidates if not item.superseded}
+            target = active.get(self.turn.target_number)
+            if target is not None:
+                selected[target.number] = {"题号": target.number, "题干": target.title}
+            context["当前候选题"] = list(selected.values())
             context["明确指定的修改题号"] = self.turn.target_number
+
+        remaining = _MAX_INPUT_BYTES - len(system.encode("utf-8")) - _json_bytes(context)
+        recent = (
+            (item.id, _prompt_turn(item, study))
+            for item in reversed(self.history[-8:])
+            if item.id not in history and (item.status == "completed" or item.action == "hint" and item.reply)
+        )
+        remaining -= _fit_context(history, recent, min(remaining, 16_000) if study else remaining)
+        context["近几轮记录"] = [history[turn_id] for turn_id in sorted(history)]
+
+        memories = {}
+        remaining -= _fit_context(memories, enumerate(self.memories), min(remaining, 12_000))
+        context["用户确认的经历"] = list(memories.values())
+
+        if action == "generate":
+            candidates = (
+                (number, {"题号": number, "题干": active[number].title})
+                for number in sorted(active)
+                if number not in selected
+            )
+            target_bytes = _json_bytes(context["当前候选题"]) - 2
+            _fit_context(selected, candidates, min(remaining, 12_000 - target_bytes))
+            context["当前候选题"] = [selected[number] for number in sorted(selected)]
+
         return [
-            {"role": "system", "content": f"{_SYSTEM}\n{_TASKS[self.turn.action]}"},
+            {"role": "system", "content": system},
             {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
         ]
 
