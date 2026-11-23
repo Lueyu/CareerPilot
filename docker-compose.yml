@@ -19,6 +19,8 @@ services:
   server:
     build: &backend-build ./server
     container_name: careerpilot-api
+    volumes:
+      - ./web/src/data/bank.json:/web/src/data/bank.json:ro
     environment: &backend-environment
       DATABASE_URL: postgresql+asyncpg://careerpilot:careerpilot_dev@postgres:5432/careerpilot
       API_TOKEN: ${API_TOKEN:-cp-dev-token}

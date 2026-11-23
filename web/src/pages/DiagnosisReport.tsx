@@ -1,7 +1,8 @@
 import StudyRetestResult from '../components/StudyRetestResult';
 import StudyEntryButton from '../components/StudyEntryButton';
 import React, { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { experiencedBankPath, hasExperiencedBankOrigin } from '../lib/experiencedBankPath';
 import { DemoBanner, PageHead, plainLevel } from '../components/ui';
 import { api, ExamReportData, ScoringTaskAck } from '../api/client';
 import { clearExamCreation } from '../lib/coreLoop';
@@ -46,6 +47,11 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
   const [rescoreErr, setRescoreErr] = useState<string | null>(null);
   const [pollPaused,setPollPaused]=useState(false);
   const reportId=params.get('id');const currentId=useRef(reportId);currentId.current=reportId;
+  const currentReport = report && String(report.id) === reportId ? report : null;
+  const experiencedPractice = !studyMode && currentReport?.experienced_bank_practice === true;
+  const openingBankReport = !studyMode && !currentReport && hasExperiencedBankOrigin(params);
+  const reportTitle = '题库练习报告';
+  const bankReturn = experiencedPractice || openingBankReport ? <Link className="btn btn-outline" to={experiencedBankPath(params)}>返回题库</Link> : null;
   const retryPending=useRef(false);
   const toggle = (i: number) =>
     setOpen((o) => (o.includes(i) ? o.filter((x) => x !== i) : [...o, i]));
@@ -105,9 +111,7 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
     if (report?.status === 'COMPLETED') clearExamCreation();
   }, [report]);
 
-  const linkedQuestionIndex = report && String(report.id) === reportId
-    ? report.questions.findIndex(q => hash === `#exam-question-${q.order_no}`)
-    : -1;
+  const linkedQuestionIndex = currentReport?.questions.findIndex(q => hash === `#exam-question-${q.order_no}`) ?? -1;
   useEffect(() => {
     if (linkedQuestionIndex < 0) return;
     setOpen(current => current.includes(linkedQuestionIndex) ? current : [...current, linkedQuestionIndex]);
@@ -115,8 +119,8 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
   }, [reportId, hash, linkedQuestionIndex]);
 
   // 后端报告
-  if (report && String(report.id) === reportId) {
-    const r = report;
+  if (currentReport) {
+    const r = currentReport;
     const studyPracticeId = r.questions[0]?.frozen?.study_practice_id;
     if (studyMode && r.status === 'COMPLETED' && Number.isSafeInteger(studyPracticeId) && studyPracticeId > 0) {
       return <StudyRetestResult key={r.id} report={r} practiceId={studyPracticeId} />;
@@ -147,9 +151,9 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
       : '评分来源见逐题结果';
     return (
       <div>
-        <PageHead title={r.title?.trim() || reportTitles[r.kind || ''] || '本次答题报告'} sub={`考试 #${r.id} · ${STATUS_LABELS[r.status] || r.status} · ${r.completed_at ? new Date(r.completed_at).toLocaleString('zh-CN', { hour12: false }) : '—'}`}>
-          <button className="btn btn-outline" onClick={() => navigate('/exam')}>返回考试中心</button>
-          {!degraded && <button className="btn btn-primary" onClick={() => navigate('/learning')}>查看今日任务</button>}
+        <PageHead title={experiencedPractice ? reportTitle : (r.title === '社招专项' ? '题库练习' : r.title?.trim()) || reportTitles[r.kind || ''] || '本次答题报告'} sub={`${experiencedPractice ? '练习' : '考试'} #${r.id} · ${STATUS_LABELS[r.status] || r.status} · ${r.completed_at ? new Date(r.completed_at).toLocaleString('zh-CN', { hour12: false }) : '—'}`}>
+          {bankReturn ?? <button className="btn btn-outline" onClick={() => navigate('/exam')}>返回考试中心</button>}
+          {!degraded && !experiencedPractice && <button className="btn btn-primary" onClick={() => navigate('/learning')}>查看今日任务</button>}
           {returnLink}
         </PageHead>
         <DemoBanner />
@@ -160,10 +164,10 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
         {/* SCORING_FAILED: 显式失败态, 不给假分, 提供重评入口 */}
         {degraded && (
           <div style={{ padding: '14px 18px', borderRadius: 12, marginBottom: 18, background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.3)' }}>
-            <div role="status" style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>{STATUS_LABELS[r.status] || '本次评分尚未完成'}，当前尚无有效成绩，没有有效总分</div>
+            <div role="status" style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>{STATUS_LABELS[r.status] || '本次评分尚未完成'}{experiencedPractice ? '，练习得分待确认' : '，当前尚无有效成绩，没有有效总分'}</div>
             <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.75, marginBottom: 10 }}>
-              {pending?'答卷已冻结，后台任务将保存每题进度。':'失败题目：'+((r.scoring_failed || []).map(n=>`Q${n}`).join('、') || '见下方逐题状态')+'。'} 已完成的逐题结果保留；全部完成前不展示正式总分或完整能力结论。
-              {canRetry?' 可以安全重试尚未成功的题目，不会重复评分已成功题目。':pending?' 可以关闭页面，之后从考试中心回来查看。':' 当前未提供安全重试，请先按具体错误处理或等待复核。'}
+              {pending?'答卷已冻结，后台任务将保存每题进度。':'失败题目：'+((r.scoring_failed || []).map(n=>`Q${n}`).join('、') || '见下方逐题状态')+'。'} {experiencedPractice ? '已完成的逐题结果会保留。' : '已完成的逐题结果保留；全部完成前不展示正式总分或完整能力结论。'}
+              {canRetry?' 可以安全重试尚未成功的题目，不会重复评分已成功题目。':pending?(experiencedPractice?' 可保留当前报告链接，稍后回来查看。':' 可以关闭页面，之后从考试中心回来查看。'):' 当前未提供安全重试，请先按具体错误处理或等待复核。'}
             </div>
             {r.scoring_task && <div><p>已评分 {r.scoring_task.completed_count} / {r.scoring_task.total_count} 题{r.scoring_task.next_retry_at?`；下次重试：${new Date(r.scoring_task.next_retry_at).toLocaleString()}`:''}</p>{r.scoring_task.error && <p role="alert">{r.scoring_task.error.message}</p>}{r.scoring_task.questions.filter(q=>q.error).map(q=><p role="alert" key={q.order_no}>Q{q.order_no}：{q.error?.message}。{q.can_retry?'可安全重试':'请处理原因或等待复核'}</p>)}</div>}
             {rescoreErr && <div className="hint" style={{ color: 'var(--red)', marginBottom: 8 }}>上次重试失败：{rescoreErr}</div>}
@@ -175,15 +179,15 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
 
         <div className="report-hero">
           <div>
-            <div className="hero-label">本次得分 · {r.title}</div>
+            <div className="hero-label">{experiencedPractice ? '本次练习得分' : `本次得分 · ${r.title === '社招专项' ? '题库练习' : r.title}`}</div>
             <div style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>
               {!degraded && r.score != null ? `${r.score} 分` : '评分未完成'}
               <span className="hero-chip" style={{ marginLeft: 10 }}>{r.questions.length} 题 · {!degraded?r.gained_points??'—':'—'}/{totalPoints} 分</span>
             </div>
             <div className="hint" style={{ color: 'rgba(255,255,255,0.55)', marginTop: 8 }}>
-              {r.selection_reason}
+              {experiencedPractice ? '评分仅用于本题的练习与复盘。可保留当前报告链接，之后回来查看。' : r.selection_reason}
             </div>
-            {!degraded && (
+            {!degraded && !experiencedPractice && (
               <div className="hint" style={{ color: 'rgba(255,255,255,0.75)', marginTop: 6 }}>
                 本次答卷表现已记录；单题分数不能代表整个能力域。整体估计仍可能为未知，请查看具体失分项。
               </div>
@@ -201,17 +205,17 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
           {partialEvidence.length>0 && <div><h4>已有部分依据（不等于达到合格档位）</h4>{partialEvidence.map(item=><div key={`${item.order_no}:${item.id}`}><p>Q{item.order_no} · {item.title}：{item.score}/{item.maximum}</p>{item.quotes.map((quote,index)=><blockquote key={index} style={{whiteSpace:'pre-wrap'}}>{quote}</blockquote>)}</div>)}</div>}
           {recordedStrengths.length>0 && <p><b>评分器已记录的可取之处：</b>{recordedStrengths.join('；')}</p>}
           {gaps.length?gaps.map((gap,i)=>{
-            const task=gap.exam_question_id?r.learning_tasks?.find(t=>t.source_exam_question_id===gap.exam_question_id && (gap.criterion_id && t.criterion_id?t.criterion_id===gap.criterion_id:t.source_criterion===gap.title || (!!gap.criterion_id && t.source_criterion===gap.criterion_id))):undefined;
+            const task=!experiencedPractice && gap.exam_question_id?r.learning_tasks?.find(t=>t.source_exam_question_id===gap.exam_question_id && (gap.criterion_id && t.criterion_id?t.criterion_id===gap.criterion_id:t.source_criterion===gap.title || (!!gap.criterion_id && t.source_criterion===gap.criterion_id))):undefined;
             return <article key={`${gap.order_no}:${i}`}><h4>{i+1}. Q{gap.order_no} · {gap.title}</h4><p>{gap.detail}</p>{gap.quote && <blockquote>{gap.quote}</blockquote>}
               <a href={`#exam-question-${gap.order_no}`} onClick={()=>setOpen(old=>[...new Set([...old,r.questions.findIndex(q=>q.order_no===gap.order_no)])])}>查看本题的原答与评分依据</a>
               {task && <button className="btn btn-primary btn-sm" style={{marginLeft:12}} onClick={()=>navigate(`/learning/task/${task.id}`)}>学习这一项 →</button>}
             </article>;
-          }):<p>本次没有记录缺失评分项；这不表示已证明整个能力域掌握。</p>}
+          }):<p>{experiencedPractice ? '本次没有记录缺失评分项。' : '本次没有记录缺失评分项；这不表示已证明整个能力域掌握。'}</p>}
           <p className="hint">这些结论只针对本次作答。评分标准未经过充分校准时，应结合原答和标准复核。</p>
         </section>}
 
         {/* 诊断结论(确定性) */}
-        {!degraded && ob && (
+        {!experiencedPractice && !degraded && ob && (
           <div className="card" style={{ marginBottom: 18 }}>
             <div className="card-head">
               <span className="card-title">诊断结论</span>
@@ -233,7 +237,7 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
         )}
 
         {/* 能力域得分 */}
-        {!!r.skill_breakdown?.length && (
+        {!experiencedPractice && !!r.skill_breakdown?.length && (
           <div className="card" style={{ marginBottom: 18 }}>
             <div className="card-head">
               <span className="card-title">本次作答按能力域汇总</span>
@@ -266,7 +270,7 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
         )}
 
         {/* 深度诊断(LLM) */}
-        {!degraded && (
+        {!experiencedPractice && !degraded && (
         <div className="card" style={{ marginBottom: 18 }}>
           <div className="card-head">
             <span className="card-title">AI 深度诊断</span>
@@ -351,7 +355,7 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
         </div>
         )}
 
-        {!degraded && <div className="card" style={{ marginBottom: 18 }}>
+        {!experiencedPractice && !degraded && <div className="card" style={{ marginBottom: 18 }}>
           <div className="card-head"><span className="card-title">本次失分对应任务</span><span className="card-sub">观察 {r.observations?.length ?? r.questions.filter(q => q.answer?.evidence_refs?.length).length} 条</span></div>
           {(r.learning_tasks ?? []).length === 0 && <p className="hint">本次暂无关联任务；这不表示整体能力已经达标。</p>}
           {(r.learning_tasks ?? []).map(task => <div className="list-row" key={task.id}>
@@ -381,7 +385,7 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
                 <span className="report-q-score" style={{ color: ok ? 'var(--green)' : 'var(--amber)' }}>{evaluated?a?.points:'—'}<small style={{ fontSize: 13, color: 'var(--text-4)' }}>/{q.frozen?.rubric?.max_points ?? a?.max_points ?? '—'}</small></span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 600 }}>Q{q.order_no} · {q.title}</div>
-                  <div className="hint" style={{ margin: 0 }}>{q.skill} · 引用证据 {evaluated?(a?.evidence_refs || []).join(', ') || '—':'尚未生成有效评分证据'}</div>
+                  <div className="hint" style={{ margin: 0 }}>{experiencedPractice ? q.short_code : <>{q.skill} · 引用证据 {evaluated?(a?.evidence_refs || []).join(', ') || '—':'尚未生成有效评分证据'}</>}</div>
                 </div>
                 <span style={{ color: 'var(--text-4)', fontSize: 12 }}>{open.includes(i) ? '收起 ▴' : '展开 ▾'}</span>
               </div>
@@ -451,7 +455,7 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
           );
         })}
 
-        {!degraded && (
+        {!experiencedPractice && !degraded && (
         <div className="card" style={{ marginTop: 18, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div>
             <div className="card-title" style={{ margin: 0 }}>下一步</div>
@@ -468,8 +472,8 @@ export default function DiagnosisReport({ studyMode = false }: { studyMode?: boo
   }
 
   return <div>
-    <PageHead title="本次诊断报告" sub={reportId ? `考试 #${reportId}` : '未指定考试'}>
-      <button className="btn btn-outline" onClick={() => navigate('/exam')}>返回考试中心</button>
+    <PageHead title={openingBankReport ? reportTitle : '本次诊断报告'} sub={reportId ? `${openingBankReport ? '练习' : '考试'} #${reportId}` : '未指定考试'}>
+      {bankReturn ?? <button className="btn btn-outline" onClick={() => navigate('/exam')}>返回考试中心</button>}
       {returnLink}
     </PageHead>
     <div className="card">{err ? <><p role="alert">无法读取本次报告：{err}</p>{reportId && <button className="btn btn-primary" onClick={() => setReload(x => x + 1)}>重试本次报告</button>}</> : <p>正在读取本次报告…</p>}</div>

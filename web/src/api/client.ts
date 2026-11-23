@@ -141,6 +141,7 @@ export interface ExamQuestionView {
 
 export interface ExamDetail {
   id: number; title: string; kind: string; status: string; duration_minutes: number;
+  experienced_bank_practice?: boolean;
   selection_reason?: string | null; started_at?: string | null;
   interview_set_id?: string | null;
   questions: ExamQuestionView[];
@@ -160,6 +161,7 @@ export interface CriterionScore {
 
 export interface ExamReportData {
   id: number; title: string; status: string; kind?: string; score: number | null;
+  experienced_bank_practice?: boolean;
   total_points: number; gained_points: number | null;
   scoring_failed?: number[] | null;
   scoring_task?:ScoringTaskView|null;
@@ -212,6 +214,7 @@ export interface ExamsData {
   kinds: { kind: string; title: string; desc?: string; default_minutes: number; history_count: number }[];
   history: {
     id: number; title: string; kind: string; status: string; question_count?: number;
+    experienced_bank_practice?: boolean;
     score: number | null; started_at?: string | null; completed_at?: string | null;
   }[];
 }

@@ -503,11 +503,11 @@ button.daily-plan-cell:hover { border-color: var(--primary); }
 .learning-mobile-drawer { display: none; }
 
 @media (max-width: 760px) {
-  .app-learning-calendar > .sidebar,
-  .app-learning-calendar .topbar .search-box,
-  .app-learning-calendar .topbar .btn-primary,
-  .app-learning-calendar .crumb > span:not(.crumb-cur) { display: none; }
-  .app-learning-calendar .topbar { min-height: 54px; padding: 8px 16px; }
+  .app-drawer-nav > .sidebar,
+  .app-drawer-nav .topbar .search-box,
+  .app-drawer-nav .topbar .btn-primary,
+  .app-drawer-nav .crumb > span:not(.crumb-cur) { display: none; }
+  .app-drawer-nav .topbar { min-height: 54px; padding: 8px 16px; }
   .learning-mobile-nav-button.btn { display: inline-flex; }
   .learning-mobile-drawer[open] {
     display: block;

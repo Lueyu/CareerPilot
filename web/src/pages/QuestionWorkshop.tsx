@@ -176,7 +176,7 @@ export default function QuestionWorkshop() {
   const taskProjects=task?.input_snapshot?.project_context || [];
 
   return <div className="question-workshop">
-    <PageHead title="面经与补题工作台" sub="结合真实项目整理面经，或按缺口补充题目；审核后进入个人题库。"><Link className="btn btn-outline" to="/bank">返回面经库</Link></PageHead>
+    <PageHead title="面经与补题工作台" sub="结合真实项目整理面经，或按缺口补充题目；审核后进入个人题库。"><Link className="btn btn-outline" to="/bank">返回题库</Link></PageHead>
     <p className="hint" style={{marginBottom:18}}>通用问题直接回答，项目问题依据你的资料改写。生成的参考答案需要审核；新增题目不会改变能力分数。</p>
     {error && <div role="alert" className="demo-banner demo-banner-err" style={{marginBottom:16}}>{error}<button className="btn btn-ghost btn-sm" onClick={()=>setError('')}>关闭提示</button></div>}
     {notice && <div role="status" className="demo-banner" style={{marginBottom:16}}>{notice}</div>}
@@ -241,7 +241,7 @@ export default function QuestionWorkshop() {
           <h3>审核答案 · {task.review.short_code}</h3>
           <p className="hint">检查具体答案、追问与评分要点，再选择入库。项目变体沿用原题关系，不能当成独立能力证据。</p>
           {task.input_snapshot.source_analysis_id && <div className="demo-banner" style={{marginBottom:14}}><b>项目问题专项考核</b><p>本批次已有 {assessedBatchQuestionIds(rows).length} 道审核通过的题目可用于考核。新答卷会经过现有评分与学习安排流程。</p><button className="btn btn-primary" disabled={busy || !assessedBatchQuestionIds(rows).length} onClick={assessBatch}>开始本批次考核</button></div>}
-          <div style={{...toolbar,marginBottom:16}}><Link className="btn btn-outline btn-sm" to="/bank?review=1">打开待审核队列</Link><Link className="btn btn-ghost btn-sm" to="/bank">查看私有题库</Link></div>
+          <div style={{...toolbar,marginBottom:16}}><Link className="btn btn-outline btn-sm" to="/bank?review=1">打开待审核队列</Link><Link className="btn btn-ghost btn-sm" to="/bank?scope=mine">查看我的题目</Link></div>
           {rows.length===0 && <p>本次没有审核题目。</p>}
           {rows.map(row=>{
             const item=row.generation_meta?.item;
