@@ -16,6 +16,13 @@ from app.db import get_session
 from app.models import Question, Workspace
 from app.services import public_coach as service
 
+try:
+    from app.models.public_library import PublicLibraryRole
+except ModuleNotFoundError as exc:
+    if exc.name != "app.models.public_library":
+        raise
+    PublicLibraryRole = None
+
 pytestmark = pytest.mark.asyncio
 
 
@@ -211,6 +218,7 @@ async def test_revision_retry_collection_and_tenant_isolation(coach, monkeypatch
     q = await db_session.get(Question, question_id)
     assert (q.workspace_id, q.role, q.topic) == (workspaces[0].id, "产品运营", "用户增长")
     assert q.generation_meta["assessment_use"] == "PRACTICE_ONLY"
+    assert q.generation_meta["library_answer"] == "先核对 <渠道> 数据"
     assert q.answer_html == "<p>先核对 &lt;渠道&gt; 数据</p>"
     assert (
         await db_session.scalar(
@@ -313,3 +321,33 @@ async def test_interview_preserves_hints_original_answers_feedback_and_memories(
     assert again["user_origin"] == "independent_answer" and again["assisted"] is False
     export = await api.export_coach(db_session, workspaces[0].id)
     assert export["threads"][0]["turns"] == finished["turns"]
+
+
+async def test_quota_recovery_keeps_the_submitted_message(coach, monkeypatch):
+    owner, _, service, _, _, _ = coach
+    path = await make_thread(owner, mode="study", direction="用户增长")
+    recovery = "模型额度已用完，预计北京时间 2026-11-24 00:00 恢复。"
+
+    async def complete(*args, **kwargs):
+        raise service.PublicModelError(429, recovery, headers={"Retry-After": "600"})
+
+    monkeypatch.setattr(service, "complete_text", complete)
+    await submit(owner, path, "generate", text="出两道用户增长题")
+    saved = (await detail(owner, path))["turns"][0]
+    assert (saved["status"], saved["error"], saved["user_text"]) == ("failed", recovery, "出两道用户增长题")
+
+
+@pytest.mark.skipif(PublicLibraryRole is None, reason="Public library integrates on the app branch")
+async def test_questionless_coach_preserves_the_selected_library_direction(coach, db_session):
+    owner, _, _, _, workspaces, _ = coach
+    db_session.add_all(
+        [
+            PublicLibraryRole(workspace_id=workspaces[0].id, name="产品运营", selected_topic="用户增长", directions=[]),
+            PublicLibraryRole(workspace_id=workspaces[0].id, name="旧岗位", selected_topic="内容审核", directions=[]),
+            PublicLibraryRole(workspace_id=workspaces[1].id, name="后端开发", selected_topic="接口设计", directions=[]),
+        ]
+    )
+    await db_session.commit()
+    path = await make_thread(owner, mode="study")
+    row = await detail(owner, path)
+    assert (row["role"], row["direction"]) == ("产品运营", "用户增长")

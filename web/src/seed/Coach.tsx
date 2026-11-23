@@ -172,10 +172,12 @@ function MemoryReview({ initial, onClose }: { initial: string; onClose: (saved: 
   const [text, setText] = useState(initial);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const limit = 2400;
+  const length = [...text.trim()].length;
   async function confirm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const reviewed = text.trim();
-    if (!reviewed || pending) return;
+    if (!reviewed || length > limit || pending) return;
     setPending(true);
     setError('');
     try {
@@ -191,12 +193,12 @@ function MemoryReview({ initial, onClose }: { initial: string; onClose: (saved: 
       <strong>确认项目经历</strong>
       <p className="muted">保留你能确认的事实。保存后，助手可在练习时引用这段经历。</p>
       <label className="stack">
-        从你的原文中摘取或修改
+        从你的原文中摘取或修改（最多 {limit} 字）
         <textarea value={text} onChange={event => setText(event.target.value)} required rows={4} autoFocus />
       </label>
       {error && <p className="error" role="alert">{error}</p>}
       <div className="actions">
-        <button className="primary" disabled={pending || !text.trim()}>确认并保存</button>
+        <button className="primary" disabled={pending || length === 0 || length > limit}>确认并保存</button>
         <button type="button" className="secondary" disabled={pending} onClick={() => onClose(false)}>取消</button>
       </div>
     </form>
@@ -499,8 +501,8 @@ function CoachSession({ question, mode, onLibrary }: CoachProps) {
         <form className="stack" onSubmit={event => { event.preventDefault(); void start(); }}>
           <label className="stack">
             练习方向（选填）
-            <input value={direction} maxLength={120} onChange={event => setDirection(event.target.value)}
-              placeholder="例如，用户增长或接口设计" />
+            <input value={direction} maxLength={64} onChange={event => setDirection(event.target.value)}
+              placeholder="留空沿用题库中选中的方向" />
           </label>
           <button className="primary" disabled={pending}>开始学习对话</button>
         </form>

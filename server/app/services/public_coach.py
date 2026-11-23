@@ -15,10 +15,10 @@ from sqlalchemy import select, update
 
 from app.db import SessionLocal
 from app.models.public_coach import CoachCandidate, CoachThread, CoachTurn
-from app.services.public_model import complete_text, stream_text
+from app.services.public_model import PublicModelError, complete_text, stream_text
 
 log = logging.getLogger(__name__)
-MODEL_TIMEOUT = 120
+MODEL_TIMEOUT = 135
 TURN_LEASE = timedelta(seconds=MODEL_TIMEOUT + 15)
 POLL_INTERVAL = 0.25
 
@@ -63,7 +63,7 @@ class InputModel(BaseModel):
 class ThreadInput(InputModel):
     mode: Mode
     question_id: int | None = Field(default=None, gt=0)
-    direction: str = Field(default="", max_length=120, pattern=r"^[^\x00]*$")
+    direction: str = Field(default="", max_length=64, pattern=r"^[^\x00]*$")
 
 
 class TurnInput(InputModel):
@@ -236,6 +236,16 @@ _TASKS = {
 }
 
 
+def _fit_context(items, byte_limit):
+    retained = []
+    for item in items:
+        size = len(json.dumps(item, ensure_ascii=False).encode("utf-8")) + 2
+        if size <= byte_limit:
+            retained.append(item)
+            byte_limit -= size
+    return retained
+
+
 @dataclass
 class TurnContext:
     thread: CoachThread
@@ -245,29 +255,38 @@ class TurnContext:
     memories: list[str]
 
     def messages(self):
+        study = self.thread.mode == "study"
+        history = [
+            {
+                "动作": item.action,
+                "用户原文": item.user_text[:1200] if study and item.user_text else item.user_text,
+                "助手回复": item.reply[:1600],
+                "结构化结果": item.result,
+                "已获提示": item.assisted,
+            }
+            for item in self.history[-8:]
+            if item.status == "completed" or item.action == "hint" and item.reply
+        ]
+        if study:
+            history = _fit_context(reversed(history), 16_000)[::-1]
         context = {
             "岗位": self.thread.role,
             "方向": self.thread.direction or None,
             "题目": self.thread.question_title,
-            "用户确认的经历": self.memories,
-            "近几轮记录": [
-                {
-                    "动作": item.action,
-                    "用户原文": item.user_text,
-                    "助手回复": item.reply[:2500],
-                    "结构化结果": item.result,
-                    "已获提示": item.assisted,
-                }
-                for item in self.history[-8:]
-                if item.status == "completed" or item.action == "hint" and item.reply
-            ],
+            "用户确认的经历": _fit_context(self.memories, 12_000),
+            "近几轮记录": history,
             "当前用户原文": self.turn.user_text,
             "已获提示": self.turn.assisted,
         }
         if self.turn.action == "generate":
-            context["当前候选题"] = [
-                {"题号": item.number, "题干": item.title} for item in self.candidates if not item.superseded
-            ]
+            active = sorted(
+                (item for item in self.candidates if not item.superseded),
+                key=lambda item: (item.number != self.turn.target_number, item.number),
+            )
+            context["当前候选题"] = _fit_context(
+                ({"题号": item.number, "题干": item.title} for item in active),
+                12_000,
+            )
             context["明确指定的修改题号"] = self.turn.target_number
         return [
             {"role": "system", "content": f"{_SYSTEM}\n{_TASKS[self.turn.action]}"},
@@ -405,6 +424,8 @@ async def _finish_turn(context, reply, result=None):
 
 
 def _public_error(exc):
+    if isinstance(exc, PublicModelError) and isinstance(exc.detail, str):
+        return exc.detail
     status = getattr(exc, "status_code", None)
     if status == 429:
         return "模型额度或频率已达上限，请稍后重试"

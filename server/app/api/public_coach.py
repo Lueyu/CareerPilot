@@ -137,6 +137,18 @@ async def create_thread(body: ThreadInput, db: Database, ws: MemberWorkspace):
         meta = question.generation_meta or {}
         role = meta.get("target_role") or question.role or role
         direction = meta.get("direction") or question.topic or direction
+    elif not direction:
+        from app.models.public_library import PublicLibraryRole
+
+        direction = (
+            await db.scalar(
+                select(PublicLibraryRole.selected_topic).where(
+                    PublicLibraryRole.workspace_id == ws.id,
+                    PublicLibraryRole.name == role,
+                )
+            )
+            or ""
+        )
 
     title = question.title if question is not None else direction or "学习对话"
     row = CoachThread(
@@ -287,6 +299,7 @@ async def collect_candidate(thread_id: int, candidate_id: int, db: Database, ws:
             "turn_id": candidate.turn_id,
             "target_role": thread.role,
             "direction": thread.direction or "待分类",
+            "library_answer": candidate.reference or "",
         },
     )
     db.add(question)
