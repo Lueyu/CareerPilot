@@ -64,7 +64,7 @@ def model(monkeypatch):
     calls, outcomes = [], []
 
     async def config():
-        return {"model": "fixture-model"}
+        return {"model": "fixture-model", "provider": "fixture", "api_key": "fixture", "base_url": "https://fixture.invalid"}
 
     async def chat_with(self, cfg, system, user, **kwargs):
         assert cfg["model"] == "fixture-model" and kwargs["json_mode"]
@@ -78,24 +78,123 @@ def model(monkeypatch):
     return calls, outcomes
 
 
-async def new_chat(client, headers):
-    response = await client.post("/study/sessions", headers=headers, json={})
+async def new_chat(client, headers, **body):
+    response = await client.post("/study/sessions", headers=headers, json=body)
     assert response.status_code == 201, response.text
     return response.json()["id"]
 
 
-async def turn(db, sid, request, text, answer, *, status="completed", project=None, coach=None):
+async def turn(db, sid, request, text, answer, *, status="completed", project=None, coach=None,
+               reply_coach=None, reply_model=None):
     user = StudyMessage(session_id=sid, role="user", request_id=request, action="explain",
                         status="completed", content=text, project_id=project, coach=coach or {})
     db.add(user)
     await db.flush()
     reply = StudyMessage(session_id=sid, role="assistant", request_id=request, action="explain",
                          status=status, content=answer, project_id=project,
-                         coach={"parent_message_id": user.id},
+                         coach={"parent_message_id": user.id, **(reply_coach or {})}, model=reply_model,
                          sources=[{"kind": "project_code", "text": "RAW-PRIVATE-SOURCE"}])
     db.add(reply)
     await db.commit()
     return user, reply
+
+
+@pytest.mark.parametrize(("global_enabled", "strong_enabled", "session_mode", "latest_metadata", "expected"), [
+    (False, True, "auto", {"mode": "auto", "trace": {"tier": "strong"}}, "strong"),
+    (True, True, "flash", {"mode": "auto", "trace": {"tier": "strong"}}, "strong"),
+    (True, True, "auto", {"mode": "strong", "trace": {"tier": "flash"}}, "strong"),
+    (True, True, "strong", {"mode": "flash", "trace": {"tier": "strong"}}, "global"),
+    (True, False, "auto", {}, "global"),
+    (False, True, "auto", {}, "strong"),
+    (True, True, "strong", {}, "strong"),
+    (True, False, "auto", {"mode": "strong"}, None),
+    (True, False, "auto", {"mode": "auto", "trace": {"tier": "strong"}}, None),
+    (True, False, "strong", {}, None),
+    (True, "partial", "auto", {"mode": "strong"}, None),
+    (True, True, "auto", {"model": "strong-model"}, "strong"),
+])
+@pytest.mark.asyncio
+async def test_organizer_routes_the_latest_completed_turn(
+    chat_client, db_session, monkeypatch, global_enabled, strong_enabled, session_mode, latest_metadata, expected,
+):
+    client, owner, _ = chat_client
+    global_cfg = {"provider": "global-fixture", "api_key": "global-key", "base_url": "https://global.invalid",
+                  "model": "global-model"}
+    strong_cfg = {"provider": "strong-fixture", "api_key": "strong-key", "base_url": "https://strong.invalid",
+                  "model": "strong-model"}
+    settings = get_settings()
+    monkeypatch.setattr(settings, "study_flash_model", "")
+    for name, value in strong_cfg.items():
+        enabled = strong_enabled is True or (strong_enabled == "partial" and name in ("model", "provider"))
+        monkeypatch.setattr(settings, f"study_strong_{name}", value if enabled else "")
+
+    async def config():
+        return global_cfg if global_enabled else {}
+
+    calls = []
+
+    async def chat_with(self, cfg, system, user, **kwargs):
+        assert kwargs["json_mode"]
+        calls.append((cfg, json.loads(user)))
+        return {"content": json.dumps(GUIDE)}
+
+    monkeypatch.setattr(study_interview_questions, "get_llm_config", config)
+    monkeypatch.setattr(study_notes.AgentAdapter, "chat_with", chat_with)
+    sid = await new_chat(client, owner, mode=session_mode)
+    await turn(db_session, sid, "older", "较早的问题", "较早的回答", reply_coach={"trace": {"tier": "flash"}})
+    _, latest = await turn(db_session, sid, "latest", "最新已完成的问题", "最新的回答",
+                           reply_coach={key: value for key, value in latest_metadata.items() if key != "model"},
+                           reply_model=latest_metadata.get("model"))
+    await turn(db_session, sid, "pending", "正在生成的问题", "部分回答",
+               status="generating", reply_coach={"mode": "flash"})
+    response = await client.post(f"/study/sessions/{sid}/interview-question", headers=owner)
+    if expected is None:
+        assert response.status_code == 502, response.text
+        assert not calls
+        return
+    assert response.status_code == 200, response.text
+    [(cfg, payload)] = calls
+    expected_cfg = strong_cfg if expected == "strong" else global_cfg
+    assert {key: cfg[key] for key in expected_cfg} == expected_cfg
+    assert payload["turns"][-1]["assistant"] == {"id": latest.id, "text": "最新的回答"}
+
+
+@pytest.mark.asyncio
+async def test_late_generation_cannot_hide_a_newer_snapshot(chat_client, db_session, model):
+    client, owner, _ = chat_client
+    calls, outcomes = model
+    sid = await new_chat(client, owner)
+    path = f"/study/sessions/{sid}/interview-question"
+    await turn(db_session, sid, "first", "第一轮", "最初的回答")
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def slow():
+        entered.set()
+        await release.wait()
+        return {"content": json.dumps({**GUIDE, "title": "最初的题目"})}
+
+    outcomes.append(slow)
+    old_request = asyncio.create_task(client.post(path, headers=owner))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        await turn(db_session, sid, "correction", "纠正第一轮", "更正的回答")
+        newer = await asyncio.wait_for(client.post(path, headers=owner), timeout=5)
+        assert newer.status_code == 200, newer.text
+        _, pending = await turn(db_session, sid, "third", "第三轮", "正在生成的回答", status="generating")
+    finally:
+        release.set()
+        older = await old_request
+
+    assert older.status_code == 200, older.text
+    assert older.json()["id"] > newer.json()["id"]
+    assert [len(payload["turns"]) for _, payload in calls] == [1, 2]
+    assert (await client.get(path, headers=owner)).json() == newer.json()
+    pending.status = "completed"
+    await db_session.commit()
+    # The current completed transcript has no saved question yet.
+    assert (await client.get(path, headers=owner)).json() == newer.json()
+    bank = await client.get("/bank", headers=owner, params={"scope": "mine"})
+    assert {item["id"] for item in bank.json()["items"]} == {older.json()["id"], newer.json()["id"]}
 
 
 @pytest.mark.asyncio

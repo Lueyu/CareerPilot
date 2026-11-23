@@ -4,3 +4,5 @@ CREATE TABLE IF NOT EXISTS study_interview_questions (
     snapshot_hash VARCHAR(64) NOT NULL,
     CONSTRAINT uq_study_interview_question_snapshot UNIQUE (session_id, snapshot_hash)
 );
+
+ALTER TABLE study_interview_questions ADD COLUMN IF NOT EXISTS last_message_id INTEGER;

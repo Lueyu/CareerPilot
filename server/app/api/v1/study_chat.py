@@ -162,8 +162,8 @@ async def get_interview_question(session_id: int, session: Db, ws: Owner) -> Int
 async def create_interview_question(
     session_id: int, session: Db, ws: Owner, body: InterviewQuestionRequest | None = None,
 ) -> InterviewQuestionResult:
-    await owned(session, ws.id, session_id)
-    return await generate_question(session, ws.id, session_id)
+    row = await owned(session, ws.id, session_id)
+    return await generate_question(session, ws.id, session_id, session_mode=row.context.get("mode", "auto"))
 
 
 @router.delete("/{session_id}")

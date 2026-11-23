@@ -33,6 +33,7 @@ class StudyInterviewQuestion(Base):
     question_id: Mapped[int] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"), primary_key=True)
     session_id: Mapped[int] = mapped_column(ForeignKey("study_sessions.id", ondelete="CASCADE"))
     snapshot_hash: Mapped[str] = mapped_column(String(64))
+    last_message_id: Mapped[int | None] = mapped_column(Integer)
 
 
 class StudyMessage(Base):

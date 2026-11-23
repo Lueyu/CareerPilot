@@ -16,6 +16,7 @@ from app.models.study_chat import StudyInterviewQuestion, StudyMessage, StudySes
 from app.services.assessment_versions import digest
 from app.services.llm import get_llm_config
 from app.services.study_notes import GenerationError, read_json
+from app.services.study_routing import profile
 from app.services.study_teaching import teaching_prompt
 
 
@@ -119,6 +120,7 @@ async def complete_turns(db, session_id):
     )).where(StudyMessage.session_id == session_id, StudyMessage.role == "user",
              StudyMessage.status == "completed").order_by(StudyMessage.id))
     turns = []
+    latest = None
     for user, assistant in rows:
         if not user.content.strip() or not assistant.content.strip():
             continue
@@ -129,21 +131,56 @@ async def complete_turns(db, session_id):
             answer["blocks"] = blocks
         turns.append({"project_id": user.project_id, "user": {"id": user.id, "text": user.content, **lineage},
                       "assistant": answer})
-    return turns
+        latest = user, assistant
+    return turns, latest
+
+
+def organizer_profile(base, user, assistant, session_mode):
+    coach = assistant.coach or {}
+    trace = coach.get("trace") or {}
+    mode = coach.get("mode") or (user.coach or {}).get("mode") or trace.get("mode")
+    tier = mode if mode in ("flash", "strong") else trace.get("tier")
+    if tier not in ("flash", "strong") and mode is None:
+        tier = session_mode
+
+    def usable(selected):
+        cfg = profile(base, selected)
+        return cfg if cfg and all(cfg.get(key) for key in ("model", "provider", "base_url", "api_key")) else None
+
+    if tier in ("flash", "strong"):
+        return usable(tier)
+    # Older turns can have a model name but no routing trace.
+    settings = get_settings()
+    flash_model = settings.study_flash_model or base.get("model")
+    if assistant.model and assistant.model == settings.study_strong_model and assistant.model != flash_model:
+        return usable("strong")
+    return usable("flash") or usable("strong")
 
 
 async def saved_result(db, workspace_id, session_id, snapshot_hash=None):
-    stmt = select(Question.id, Question.short_code, Question.title, Question.answer_html).join(
+    stmt = select(Question.id, Question.short_code, Question.title, Question.answer_html,
+                  StudyInterviewQuestion.last_message_id).join(
         StudyInterviewQuestion, StudyInterviewQuestion.question_id == Question.id,
     ).where(StudyInterviewQuestion.session_id == session_id, Question.workspace_id == workspace_id)
     if snapshot_hash is not None:
         stmt = stmt.where(StudyInterviewQuestion.snapshot_hash == snapshot_hash)
-    result = (await db.execute(stmt.order_by(StudyInterviewQuestion.question_id.desc()).limit(1))).mappings().first()
-    return InterviewQuestionResult(**result) if result else None
+    else:
+        stmt = stmt.order_by(StudyInterviewQuestion.last_message_id.desc().nulls_last(), Question.id.desc())
+    result = (await db.execute(stmt.limit(1))).mappings().first()
+    if result is None:
+        return None
+    if snapshot_hash is None and result["last_message_id"] is None:
+        # Migration 019 may already have been applied before progress was tracked.
+        turns, _ = await complete_turns(db, session_id)
+        if turns:
+            exact = await saved_result(db, workspace_id, session_id, digest({"turns": turns}))
+            if exact is not None:
+                return exact
+    return InterviewQuestionResult(**result)
 
 
-async def generate_question(db, workspace_id, session_id):
-    turns = await complete_turns(db, session_id)
+async def generate_question(db, workspace_id, session_id, *, session_mode):
+    turns, latest = await complete_turns(db, session_id)
     if not turns:
         raise HTTPException(409, "学习会话尚无完整的提问和回复")
     payload = {"turns": turns}
@@ -155,8 +192,8 @@ async def generate_question(db, workspace_id, session_id):
         raise HTTPException(422, "完整对话超出一次整理的范围，请另建短一些的主题会话")
 
     # Resolve the model outside the transaction that will hold the advisory lock.
+    cfg = organizer_profile(await get_llm_config(), *latest, session_mode)
     await db.commit()
-    cfg = await get_llm_config()
     lock_hash = digest(["study-interview-question", session_id, snapshot_hash])
     lock_key = int.from_bytes(bytes.fromhex(lock_hash[:16]), byteorder="big", signed=True)
     await db.execute(select(func.pg_advisory_xact_lock(lock_key)))
@@ -164,6 +201,8 @@ async def generate_question(db, workspace_id, session_id):
     if saved:
         await db.commit()
         return saved
+    if cfg is None:
+        raise HTTPException(502, "当前学习档位未配置可用模型，请检查配置后重试")
 
     instruction = teaching_prompt("interview_question") + "\n仅输出符合以下 JSON Schema 的对象：\n" + json.dumps(
         Guide.model_json_schema(), ensure_ascii=False)
@@ -188,7 +227,8 @@ async def generate_question(db, workspace_id, session_id):
                         answer_html=answer_html, generation_meta={**STUDY_CHAT_REVIEW_META, "study_session_id": session_id})
     db.add(question)
     await db.flush()
-    db.add(StudyInterviewQuestion(question_id=question.id, session_id=session_id, snapshot_hash=snapshot_hash))
+    db.add(StudyInterviewQuestion(question_id=question.id, session_id=session_id, snapshot_hash=snapshot_hash,
+                                   last_message_id=turns[-1]["assistant"]["id"]))
     await db.commit()
     return InterviewQuestionResult(id=question.id, short_code=question.short_code,
                                    title=question.title, answer_html=question.answer_html)

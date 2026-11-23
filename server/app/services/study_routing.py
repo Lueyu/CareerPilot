@@ -33,8 +33,8 @@ def profile(base, tier):
     if not settings.study_strong_model:
         return None
     # A different provider must supply its own endpoint AND credential.
-    if settings.study_strong_base_url:
-        if not settings.study_strong_api_key:
+    if any((settings.study_strong_base_url, settings.study_strong_api_key, settings.study_strong_provider)):
+        if not (settings.study_strong_base_url and settings.study_strong_api_key):
             return None
         return {"model": settings.study_strong_model, "provider": settings.study_strong_provider or "compatible",
                 "base_url": settings.study_strong_base_url, "api_key": settings.study_strong_api_key}
