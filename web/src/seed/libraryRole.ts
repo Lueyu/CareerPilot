@@ -2,7 +2,7 @@ import type { Locale, t } from "../i18n";
 import { useEffect, useState, type FormEvent } from "react";
 import { messageFor, useWorkspaceApi, type MessageKey, type UiMessage } from "./api";
 
-type Direction = { name: string; example: string; origin: "preset" | "model" };
+type Direction = { name: string; example: string; examples?: Partial<Record<Locale, string>>; origin: "preset" | "model" };
 export type LibraryRole = {
   role: string;
   jd: string | null;
@@ -47,9 +47,8 @@ export function directionLabel(direction: Direction, translate: typeof t) {
   return preset ? translate(`registered.${preset}Topic`) : direction.name;
 }
 
-export function directionExample(direction: Direction, role: string, locale: Locale, translate: typeof t) {
-  const preset = direction.origin === "preset" ? presetKeys.get(direction.name) : undefined;
-  return preset && locale === "en" ? translate(`registered.${preset}Example`, { role }) : direction.example;
+export function directionExample(direction: Direction, locale: Locale) {
+  return direction.examples?.[locale] ?? direction.example;
 }
 
 export function useLibraryRole() {

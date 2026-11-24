@@ -174,7 +174,7 @@ def _quota_error(now: datetime, reset: date) -> PublicModelError:
     retry_after = max(1, math.ceil((recovery - now).total_seconds()))
     return PublicModelError(
         429,
-        f"模型额度已用完，预计北京时间 {recovery:%Y-%m-%d %H:%M} 恢复。",
+        localized_message("coach.quota_reset").format(time=recovery.strftime("%Y-%m-%d %H:%M")),
         headers={"Retry-After": str(retry_after)},
     )
 

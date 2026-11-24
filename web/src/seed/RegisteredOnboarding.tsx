@@ -68,7 +68,7 @@ export function RegisteredOnboarding({ onComplete }: { onComplete: () => void })
         </fieldset>
       )}
       {saved && direction && (
-        <p className="registered-onboarding-example"><strong>{t('registered.sampleQuestion')}</strong>{directionExample(direction, active.role, locale, t)}</p>
+        <p className="registered-onboarding-example"><strong>{t('registered.sampleQuestion')}</strong>{directionExample(direction, locale)}</p>
       )}
       {busy && <p role="status">{t(busy)}</p>}
       {!roles && !error && <p role="status">{t('registered.loading')}</p>}

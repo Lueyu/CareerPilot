@@ -764,7 +764,7 @@ export default function Library({ onPractice, onCoach, openImport = false }: Pro
                     {" · "}
                     <span className="muted">{item.origin === "preset" ? t('registered.presetTopic') : t('registered.aiSuggestedTopic')}</span>
                   </div>
-                  <p>{directionExample(item, active.role, locale, t)}</p>
+                  <p>{directionExample(item, locale)}</p>
                   <button
                     type="button"
                     className={item.name === active.selected_topic ? "btn btn-primary" : "btn btn-outline"}

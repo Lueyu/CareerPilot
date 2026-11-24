@@ -6,8 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, text
 
-from app.i18n import message as localized_message
-from app.i18n import request_language
+from app.i18n import message as localized_message, request_language
 from app.models import AnalysisStep, Exam, ExamAnswer, ScoringRun, ScoringStep, Workspace
 from app.services.assessment_rubric import JUDGE_VERSION
 from app.services.assessment_versions import digest, ensure_revision, question_snapshot

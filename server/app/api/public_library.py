@@ -32,7 +32,7 @@ from app.models.public_library import PublicLibraryRole, PublicLibraryStarter
 from app.models.question import SOURCE_GENERATED, SOURCE_PRIVATE
 from app.services.interview_import_text import extract_structured_questions, read_json
 from app.services.public_library_extract import MAX_UPLOAD_BYTES, SUFFIXES
-from app.services.public_library_presets import preset_directions
+from app.services.public_library_presets import example_titles, preset_directions
 from app.services.public_model import complete_text
 
 router = APIRouter(prefix="/library", tags=["public-library"])
@@ -125,7 +125,8 @@ def _direction(role: PublicLibraryRole, topic: str) -> dict[str, str]:
 
 
 def _role_view(role: PublicLibraryRole) -> dict:
-    return dict(role=role.name, jd=role.jd, selected_topic=role.selected_topic, directions=role.directions)
+    return dict(role=role.name, jd=role.jd, selected_topic=role.selected_topic,
+                directions=[{**d, "examples": example_titles(d, role.name)} for d in role.directions])
 
 
 @router.get("/roles")
@@ -290,9 +291,11 @@ async def _by_title(db: AsyncSession, workspace_id: int, role: str, topic: str) 
 
 
 def _starter_inputs(role: PublicLibraryRole, topic: str) -> dict:
-    inputs = {"role": role.name, "jd": role.jd, "topic": topic, "example": _direction(role, topic)["example"]}
-    if request_language() != "zh-CN":
-        inputs["response_language"] = request_language()
+    language = request_language()
+    example = example_titles(_direction(role, topic), role.name)[language]
+    inputs = {"role": role.name, "jd": role.jd, "topic": topic, "example": example}
+    if language != "zh-CN":
+        inputs["response_language"] = language
     return inputs
 
 
@@ -327,7 +330,7 @@ async def save_example(body: DirectionInput, db: Db, ws: Space):
     await _lock_space(db, ws.id)
     role = await _role(db, ws.id, body.role)
     direction = _direction(role, body.topic)
-    title = direction["example"]
+    title = example_titles(direction, role.name)[request_language()]
     known = await _by_title(db, ws.id, body.role, body.topic)
     question = known.get(_title_key(title))
     if question is None:

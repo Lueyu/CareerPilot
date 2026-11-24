@@ -8,9 +8,8 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 
-from app.i18n import message as localized_message
 from app.generation_i18n import with_output_language
-from app.i18n import request_language
+from app.i18n import message as localized_message, request_language
 from app.models import ImportItem, QuestionGeneration, Skill
 from app.services import question_generation as protocol
 from app.services.answer_gen import build_rubric, render_html

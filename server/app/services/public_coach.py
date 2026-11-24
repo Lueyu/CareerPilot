@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 from sqlalchemy import select, update
 
-from app.i18n import message as localized_message, request_language
+from app.i18n import message as localized_message, request_language, using_language
 from app.db import SessionLocal
 from app.models.public_coach import CoachCandidate, CoachThread, CoachTurn
 from app.services.public_model import _MAX_INPUT_BYTES, PublicModelError, complete_text, stream_text
@@ -450,30 +450,31 @@ async def run_turn(workspace_id, thread_id, turn_id, attempt):
             context = await _load_context(workspace_id, thread_id, turn_id, attempt)
             if context is None:
                 return
-            action = context.turn.action
-            key = f"coach:{turn_id}:{attempt}"
-            messages = context.messages()
-            if action in {"chat", "hint"}:
-                reply = ""
-                last_saved = 0.0
-                async for fragment in stream_text(
-                    workspace_id,
-                    key,
-                    messages,
-                    max_tokens=OUTPUT_BUDGET[action],
-                ):
-                    reply += fragment.replace("\x00", "")
-                    if reply.strip() and monotonic() - last_saved >= 0.15:
-                        if not await _update_turn(turn_id, attempt, reply=reply):
-                            return
-                        last_saved = monotonic()
-                if not reply.strip():
-                    raise EmptyReply
-                await _finish_turn(context, reply)
-            else:
-                raw = await complete_text(workspace_id, key, messages, max_tokens=OUTPUT_BUDGET[action])
-                reply, result = _structured_result(context, raw)
-                await _finish_turn(context, reply, result)
+            with using_language(context.turn.response_language or "zh-CN"):
+                action = context.turn.action
+                key = f"coach:{turn_id}:{attempt}"
+                messages = context.messages()
+                if action in {"chat", "hint"}:
+                    reply = ""
+                    last_saved = 0.0
+                    async for fragment in stream_text(
+                        workspace_id,
+                        key,
+                        messages,
+                        max_tokens=OUTPUT_BUDGET[action],
+                    ):
+                        reply += fragment.replace("\x00", "")
+                        if reply.strip() and monotonic() - last_saved >= 0.15:
+                            if not await _update_turn(turn_id, attempt, reply=reply):
+                                return
+                            last_saved = monotonic()
+                    if not reply.strip():
+                        raise EmptyReply
+                    await _finish_turn(context, reply)
+                else:
+                    raw = await complete_text(workspace_id, key, messages, max_tokens=OUTPUT_BUDGET[action])
+                    reply, result = _structured_result(context, raw)
+                    await _finish_turn(context, reply, result)
     except Exception as exc:
         log.warning(
             "Public coach turn failed",

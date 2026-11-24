@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api import public_library as library
 from app.db import get_session
+from app.i18n import LanguageMiddleware
 from app.models import Question, Workspace
 
 
@@ -52,6 +53,7 @@ async def browser(db_session, test_workspace, monkeypatch):
         )
 
     app = FastAPI()
+    app.add_middleware(LanguageMiddleware)
     app.include_router(library.router, prefix="/api/v1")
 
     async def current_workspace(x_test_space: int = Header(), db=Depends(get_session)):
@@ -93,6 +95,25 @@ async def _role(client, role="产品运营", topic="用户增长", **body):
 
 async def _upload(client, selection, filename, raw):
     return await client.post("imports", data=selection, files={"file": (filename, raw)})
+
+
+@pytest.mark.asyncio
+async def test_preset_preview_matches_opened_question_in_both_languages(browser):
+    owner, peer, *_ = browser
+    selection = await _role(owner)
+    role = (await owner.get("roles")).json()["roles"][0]
+    direction = next(item for item in role["directions"] if item["name"] == selection["topic"])
+    saved = {}
+    for language in ("zh-CN", "en", "zh-CN"):
+        opened = await owner.post("example", json=selection, headers={"Accept-Language": language})
+        assert opened.is_success, opened.text
+        question = opened.json()
+        assert question["title"] == direction["examples"][language]
+        if language in saved:
+            assert question["id"] == saved[language]["id"]
+        saved[language] = question
+    assert saved["en"]["title"] != saved["zh-CN"]["title"]
+    assert (await peer.get(f"questions/{saved['en']['id']}")).status_code == 404
 
 
 def _pdf(text_lines):

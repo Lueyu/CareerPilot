@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api import public_coach as api, public_memory
 from app.db import get_session
+from app.i18n import LanguageMiddleware, message
 from app.models import Question, Workspace
 from app.services import public_coach as service
 
@@ -50,6 +51,7 @@ async def coach(monkeypatch, db_session):
             yield db
 
     app = FastAPI()
+    app.add_middleware(LanguageMiddleware)
     app.include_router(api.router, prefix="/api/v1")
     app.dependency_overrides[get_session] = session
     app.dependency_overrides[api.current_workspace] = identity
@@ -334,6 +336,24 @@ async def test_quota_recovery_keeps_the_submitted_message(coach, monkeypatch):
     await submit(owner, path, "generate", text="出两道用户增长题")
     saved = (await detail(owner, path))["turns"][0]
     assert (saved["status"], saved["error"], saved["user_text"]) == ("failed", recovery, "出两道用户增长题")
+
+
+async def test_retry_reports_gateway_failure_in_the_admitted_language(coach, monkeypatch):
+    owner, _, service, _, _, _ = coach
+    owner.headers["Accept-Language"] = "en-US"
+    path = await make_thread(owner, mode="study")
+
+    async def unavailable_model(*args, **kwargs):
+        raise service.PublicModelError(503, message("errors.the_model_service_is_not_configured_yet_try_again"))
+
+    monkeypatch.setattr(service, "complete_text", unavailable_model)
+    await submit(owner, path, "generate", text="请保留我的问题")
+    saved = (await detail(owner, path))["turns"][0]
+    owner.headers["Accept-Language"] = "zh-CN"
+    assert (await owner.post(path + f"/turns/{saved['id']}/retry", json={"attempt": 1})).is_success
+    retried = (await detail(owner, path))["turns"][0]
+    assert retried["attempt"] == 2 and retried["user_text"] == "请保留我的问题"
+    assert retried["error"] == saved["error"] == message("errors.the_model_service_is_not_configured_yet_try_again", "en")
 
 
 async def test_questionless_coach_preserves_the_selected_library_direction(coach, db_session):
