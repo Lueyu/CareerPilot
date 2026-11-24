@@ -1,6 +1,6 @@
 # 睡前审核与夜间开发
 
-北京时间 21:00，Codex 研究 CareerPilot 和 Squabble，目标在 22:00 给你第一批建议，留出睡前审核时间。22:45 开始执行已经采纳的任务。你可以在任意聊天回复「批准 CP01、SQ02，先做 SQ02」，也可以写「CP03 改成只做本地导出，按这个版本开工」。Codex 把原话登记为决定，逐项验证并合入各项目的 `dev`。早晨你打开两个 `dev` 的本地部署，确认后统一合入正式主干。CareerPilot 的主干为 `master`，Squabble 的主干为 `main`。
+北京时间 21:00，Codex 研究 CareerPilot 和 Squabble，目标在 22:00 给你第一批建议，留出睡前审核时间。22:45 开始执行已经采纳的任务。你可以在任意聊天回复「批准 CP01、SQ02，先做 SQ02」，也可以写「CP03 改成只做本地导出，按这个版本开工」。Codex 把原话登记为决定，逐项验证、审核并合入各项目的 `dev`。晨报提供两个 `dev` 的本地体验入口。CareerPilot 由负责人定期测试并按[主干发布流程](release.md)将已验收版本合入 `master`。Squabble 仍由你体验确认后合入 `main`。
 
 两条自动化均从 CareerPilot 主检出调用 `scripts/agent/nightly.py`，共享本地账本 `.agent-runs/nightly.sqlite3`。从开发工作树或其他聊天处理回复时也要调用这个控制器。工作区和候选分支属于各自产品。历史单任务运行通过 `legacy` 查阅。
 
