@@ -1,12 +1,25 @@
 import { createContext, useContext } from 'react';
+import { getLocale, t } from '../i18n';
 
 export type AccountInfo = { username: string; workspace_id: number };
 export const sessionChangeKey = 'careerpilot-public-session-change';
 
+export type MessageKey = `registered.${string}`;
+export type UiMessage = string | { key: MessageKey };
+
+export function renderMessage(message: UiMessage, translate: typeof t) {
+  return typeof message === 'string' ? message : translate(message.key);
+}
+
 export class SeedApiError extends Error {
-  constructor(public status: number, detail: string, public code?: string) {
-    super(detail);
+  constructor(public status: number, public detail: UiMessage, public code?: string) {
+    super(renderMessage(detail, t));
   }
+}
+
+export function messageFor(error: unknown, fallback: MessageKey): UiMessage {
+  if (error instanceof SeedApiError) return error.detail;
+  return error instanceof Error && error.message ? error.message : { key: fallback };
 }
 
 async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -17,12 +30,14 @@ async function requestJson<T>(path: string, options: RequestInit = {}): Promise<
 
 async function fetchResponse(path: string, options: RequestInit) {
   const headers = new Headers(options.headers);
+  headers.set('Accept-Language', getLocale());
   if (typeof options.body === 'string') headers.set('Content-Type', 'application/json');
   const response = await fetch('/api/v1' + path, { ...options, headers, credentials: 'same-origin', cache: 'no-store' });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
     const detail = typeof data.detail === 'string' ? data.detail : data.detail?.message;
-    throw new SeedApiError(response.status, detail || (response.status === 422 ? '请检查输入内容后重试。' : '请求未完成，请稍后重试。'), data.detail?.code);
+    const fallback = response.status === 422 ? 'registered.invalidRequest' : 'registered.requestIncomplete';
+    throw new SeedApiError(response.status, typeof detail === 'string' && detail ? detail : { key: fallback }, data.detail?.code);
   }
   return response;
 }
@@ -67,7 +82,7 @@ export function createWorkspaceApi(workspaceId: number, onSessionInvalid: () => 
   async function request<T>(path: string, options?: RequestInit, expectedStatus?: number): Promise<T> {
     const result = await response(path, options);
     if (expectedStatus !== undefined && result.status !== expectedStatus) {
-      throw new SeedApiError(result.status, '请求未完成，请稍后重试。');
+      throw new SeedApiError(result.status, { key: 'registered.requestIncomplete' });
     }
     const data = result.status === 204 ? undefined : await result.json();
     lifetime.signal.throwIfAborted();

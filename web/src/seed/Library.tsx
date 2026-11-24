@@ -1,11 +1,14 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { useLocale, useT } from "../i18n";
 import { PageHead } from "../components/PageHead";
 import { BankQuestionRow, BankSearch, BankUploadPicker } from "../components/BankPresentation";
 import "../styles/bank-presentation.css";
-import { useWorkspaceApi } from "./api";
-import { useLibraryRole, type LibraryRole, type Selection } from "./libraryRole";
+import { messageFor, renderMessage, useWorkspaceApi, type MessageKey, type UiMessage } from "./api";
+import { directionExample, directionLabel, useLibraryRole, type LibraryRole, type Selection } from "./libraryRole";
 
 export { RegisteredOnboarding } from "./RegisteredOnboarding";
+
+type TopicLabel = (role: string | null, topic: string) => string;
 
 type Mode = "study" | "interview";
 type PracticeQuestion = { id: number; title: string };
@@ -44,39 +47,38 @@ type ImportDraft = ImportSummary & { source_text: string; items: Candidate[] };
 type ImportPage = { imports: ImportSummary[]; next_before: number | null };
 type Privacy = { region: string; provider: string };
 
-const messages = {
-  load: "正在加载…",
-  request: "操作失败，请重试。",
-};
-const importStatus = { FAILED: "解析失败", REVIEW: "待审核", APPROVED: "已审核" };
+const importStatusKeys = { FAILED: 'registered.importFailed', REVIEW: 'registered.importPending', APPROVED: 'registered.importReviewed' };
 
 function errorMessage(error: unknown) {
-  return error instanceof Error && error.message ? error.message : messages.request;
+  return messageFor(error, 'registered.actionFailed');
 }
 
 function QuestionCard({
   question,
+  topicLabel,
   onPractice,
 }: {
   question: Question;
+  topicLabel: string;
   onPractice: Props["onPractice"];
 }) {
+  const t = useT();
   const { send } = useWorkspaceApi();
   const [feedback, setFeedback] = useState("");
-  const [status, setStatus] = useState("");
-  const [error, setError] = useState("");
+  const [status, setStatus] = useState<MessageKey | null>(null);
+  const [error, setError] = useState<UiMessage | null>(null);
   const [sending, setSending] = useState(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!feedback.trim()) return;
     setSending(true);
-    setError("");
-    setStatus("");
+    setError(null);
+    setStatus(null);
     try {
       await send("/feedback", "POST", { question_id: question.id, text: feedback.trim() });
       setFeedback("");
-      setStatus("反馈已发送。");
+      setStatus('registered.feedbackSent');
     } catch (failure) {
       setError(errorMessage(failure));
     } finally {
@@ -88,30 +90,30 @@ function QuestionCard({
     <BankQuestionRow
       title={question.title}
       metadata={<>
-        <span>{question.topic}</span>
-        <span>私有</span>
-        {question.filename && <small>来源 · {question.filename}</small>}
+        <span>{topicLabel}</span>
+        <span>{t('registered.privateQuestion')}</span>
+        {question.filename && <small>{t('registered.importedQuestionSource', { filename: question.filename })}</small>}
       </>}
       actions={<>
         <button type="button" className="btn btn-primary" onClick={() => onPractice(question, "study")}>
-          学习
+          {t('registered.study')}
         </button>
         <button type="button" className="btn btn-outline" onClick={() => onPractice(question, "interview")}>
-          面试
+          {t('registered.interview')}
         </button>
       </>}
     >
       {question.answer && (
         <details>
-          <summary>查看参考答案</summary>
+          <summary>{t('registered.viewReferenceAnswer')}</summary>
           <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{question.answer}</p>
         </details>
       )}
       <details>
-        <summary>有问题</summary>
+        <summary>{t('registered.reportQuestion')}</summary>
         <form className="stack" onSubmit={submit}>
           <label>
-            反馈内容
+            {t('registered.questionFeedback')}
             <textarea
               value={feedback}
               onChange={(event) => setFeedback(event.target.value)}
@@ -119,16 +121,16 @@ function QuestionCard({
               required
             />
           </label>
-          <small className="muted">反馈会附上这道题和你填写的文字。</small>
+          <small className="muted">{t('registered.questionFeedbackHelp')}</small>
           <button type="submit" className="btn btn-outline" disabled={sending}>
-            {sending ? "发送中…" : "发送反馈"}
+            {sending ? t('registered.sendingFeedback') : t('registered.sendFeedback')}
           </button>
           {error && (
             <p role="alert" className="error">
-              {error}
+              {renderMessage(error, t)}
             </p>
           )}
-          {status && <p role="status">{status}</p>}
+          {status && <p role="status">{t(status)}</p>}
         </form>
       </details>
     </BankQuestionRow>
@@ -139,16 +141,19 @@ function QuestionList({
   role,
   topic,
   query,
+  topicLabel,
   onPractice,
 }: {
   role: string;
   topic: string | null;
   query: string;
+  topicLabel: TopicLabel;
   onPractice: Props["onPractice"];
 }) {
+  const t = useT();
   const { request } = useWorkspaceApi();
   const [page, setPage] = useState<QuestionPage>();
-  const [error, setError] = useState("");
+  const [error, setError] = useState<UiMessage | null>(null);
   const [loading, setLoading] = useState(false);
   const [retry, setRetry] = useState(0);
 
@@ -165,7 +170,7 @@ function QuestionList({
     request<QuestionPage>(path(), { signal: lifetime.signal }).then(
       (result) => {
         setPage(result);
-        setError("");
+        setError(null);
       },
       (failure: unknown) => {
         if (!lifetime.signal.aborted) setError(errorMessage(failure));
@@ -176,7 +181,7 @@ function QuestionList({
 
   async function more(before: number) {
     setLoading(true);
-    setError("");
+    setError(null);
     try {
       const result = await request<QuestionPage>(path(before));
       setPage((previous) => ({
@@ -194,23 +199,23 @@ function QuestionList({
     <>
       {error && (
         <div role="alert" className="error">
-          {error}{" "}
+          {renderMessage(error, t)}{" "}
           <button
             type="button"
             className="btn btn-outline"
             onClick={() => setRetry((count) => count + 1)}
           >
-            重试
+            {t('registered.retry')}
           </button>
         </div>
       )}
       {page ? (
         page.questions.length === 0 ? (
-          <p className="muted">{query ? "没有匹配的题目" : "这里还没有题。试做例题、生成起步题，或导入你自己的面经。"}</p>
+          <p className="muted">{query ? t('registered.noMatchingQuestions') : t('registered.emptyQuestionBank')}</p>
         ) : (
           <div className="stack">
             {page.questions.map((question) => (
-              <QuestionCard key={question.id} question={question} onPractice={onPractice} />
+              <QuestionCard key={question.id} question={question} topicLabel={topicLabel(question.role ?? role, question.topic)} onPractice={onPractice} />
             ))}
             {page.next_before !== null && (
               <button
@@ -221,30 +226,31 @@ function QuestionList({
                   if (page.next_before !== null) void more(page.next_before);
                 }}
               >
-                加载更多题目
+                {t('registered.loadMoreQuestions')}
               </button>
             )}
           </div>
         )
       ) : (
-        !error && <p role="status">{messages.load}</p>
+        !error && <p role="status">{t('registered.loading')}</p>
       )}
     </>
   );
 }
 
-function Imports({ selection, onSaved }: { selection: Selection | null; onSaved: () => void }) {
+function Imports({ selection, topicLabel, onSaved }: { selection: Selection | null; topicLabel: TopicLabel; onSaved: () => void }) {
+  const t = useT();
   const { request, send } = useWorkspaceApi();
   const [history, setHistory] = useState<ImportPage>();
   const [draft, setDraft] = useState<ImportDraft>();
   const [privacy, setPrivacy] = useState<Privacy>();
-  const [privacyError, setPrivacyError] = useState("");
+  const [privacyError, setPrivacyError] = useState(false);
   const [privacyRetry, setPrivacyRetry] = useState(0);
   const [historyRetry, setHistoryRetry] = useState(0);
   const [file, setFile] = useState<File>();
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState<MessageKey | null>(null);
+  const [error, setError] = useState<UiMessage | null>(null);
+  const [status, setStatus] = useState<MessageKey | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -252,11 +258,11 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
       (result) => {
         if (active) {
           setPrivacy(result);
-          setPrivacyError("");
+          setPrivacyError(false);
         }
       },
-      (failure: unknown) => {
-        if (active) setPrivacyError(errorMessage(failure));
+      () => {
+        if (active) setPrivacyError(true);
       },
     );
     return () => {
@@ -279,16 +285,16 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
     };
   }, [request, historyRetry]);
 
-  async function operate(label: string, action: () => Promise<void>) {
+  async function operate(label: MessageKey, action: () => Promise<void>) {
     setBusy(label);
-    setError("");
-    setStatus("");
+    setError(null);
+    setStatus(null);
     try {
       await action();
     } catch (failure) {
       setError(errorMessage(failure));
     } finally {
-      setBusy("");
+      setBusy(null);
     }
   }
 
@@ -312,12 +318,12 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
     body.set("file", file);
     body.set("role", selection.role);
     body.set("topic", selection.topic);
-    void operate("正在解析文件…", async () => {
+    void operate('registered.importParsing', async () => {
       const result = await request<ImportDraft>("/library/imports", { method: "POST", body });
       show(result);
       if (result.status === "FAILED") return;
       setFile(undefined);
-      setStatus("已提取正文，可以审核候选题。");
+      setStatus('registered.importParsed');
     });
   }
 
@@ -341,7 +347,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
         answer,
         selected,
       }));
-    void operate(approve ? "正在保存题目…" : "正在保存草稿…", async () => {
+    void operate(approve ? 'registered.importSavingQuestions' : 'registered.importSavingDraft', async () => {
       const result = await send<ImportDraft>(
         "/library/imports/" + draft.id + (approve ? "/approve" : "/draft"),
         approve ? "POST" : "PUT",
@@ -349,7 +355,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
       );
       show(result);
       if (approve) onSaved();
-      setStatus(approve ? "已保存勾选题目。其他候选题仍可继续审核。" : "草稿已保存。");
+      setStatus(approve ? 'registered.importSavedQuestions' : 'registered.importSavedDraft');
     });
   }
 
@@ -362,85 +368,84 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
         answer,
         selected,
       }));
-    void operate("正在识别题目…", async () => {
+    void operate('registered.importExtractingQuestions', async () => {
       if (items.length) {
         await send("/library/imports/" + batch.id + "/draft", "PUT", { items });
       }
       show(await send<ImportDraft>("/library/imports/" + batch.id + "/suggest", "POST", {}));
-      setStatus("识别完成。请核对原文以及标出的 AI 补充内容。");
+      setStatus('registered.importQuestionsExtracted');
     });
   }
 
   return (
     <section className="panel stack" aria-labelledby="library-import-heading">
       <div>
-        <p className="eyebrow">私有题库</p>
-        <h2 id="library-import-heading">导入面经</h2>
-        <p className="muted">支持文本型 PDF、DOCX 和 Markdown。每次上传一份，文件上限 6 MB。</p>
+        <p className="eyebrow">{t('registered.privateQuestionBank')}</p>
+        <h2 id="library-import-heading">{t('registered.importInterviewNotes')}</h2>
+        <p className="muted">{t('registered.supportedImportFiles')}</p>
       </div>
       {privacy ? (
         <p className="muted">
-          文件在 {privacy.region} 临时解析，原文件随即清除。系统保留提取的正文和草稿。 只有点击「AI
-          识别题目」才会把正文发给 {privacy.provider}。可在账户设置删除账号和资料。
+          {t('registered.importPrivacyDetails', { region: privacy.region, provider: privacy.provider })}
         </p>
       ) : privacyError ? (
         <div className="error" role="alert">
-          暂时无法确认资料处理信息。
+          {t('registered.importPrivacyUnavailable')}
           <button
             type="button"
             className="btn btn-outline"
             onClick={() => setPrivacyRetry((count) => count + 1)}
           >
-            重试
+            {t('registered.retry')}
           </button>
         </div>
       ) : (
-        <p role="status">正在读取资料处理信息…</p>
+        <p role="status">{t('registered.importPrivacyLoading')}</p>
       )}
       {selection ? (
         <form className="stack" onSubmit={upload}>
           <p>
-            归入「{selection.role}」的「{selection.topic}」
+            {t('registered.importDestination', { role: selection.role, topic: topicLabel(selection.role, selection.topic) })}
           </p>
           <BankUploadPicker
             accept=".pdf,.docx,.md,.markdown"
-            description="PDF / DOCX / Markdown · 单份文件 ≤ 6 MB"
+            description={t('registered.importFileRequirements')}
             disabled={!privacy || !!busy}
             onFiles={(files) => {
               if (files && files.length > 1) {
-                setError("每次只能上传一份面经。");
+                setError({ key: 'registered.importOneFileOnly' });
                 return;
               }
               setFile(files?.[0]);
-              setError("");
+              setError(null);
             }}
           />
           {file && <p className="muted">{file.name}</p>}
           <div className="actions">
             <button type="submit" className="btn btn-primary" disabled={!privacy || !file || !!busy}>
-              上传并预览
+              {t('registered.uploadAndPreview')}
             </button>
           </div>
         </form>
       ) : (
-        <p className="muted">先选一个练习方向，就可以上传面经。</p>
+        <p className="muted">{t('registered.selectTopicToImport')}</p>
       )}
-      {busy && <p role="status">{busy}</p>}
+      {busy && <p role="status">{t(busy)}</p>}
       {error && (
         <div className="error" role="alert">
-          {error}
+          {renderMessage(error, t)}
           {!history && (
             <button
               type="button"
               className="btn btn-outline"
               onClick={() => setHistoryRetry((count) => count + 1)}
             >
-              重试加载
+              {t('registered.retryImportLoad')}
             </button>
           )}
         </div>
       )}
-      {status && <p role="status">{status}</p>}
+      {status && <p role="status">{t(status)}</p>}
 
       {draft && (
         <div className="card stack">
@@ -452,11 +457,11 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
               disabled={!!busy}
               onClick={() => setDraft(undefined)}
             >
-              关闭预览
+              {t('registered.closeImportPreview')}
             </button>
           </div>
           <p className="muted">
-            {draft.role} · {draft.topic} · {importStatus[draft.status]}
+            {t('registered.importRecordContext', { role: draft.role, topic: topicLabel(draft.role, draft.topic), status: t(importStatusKeys[draft.status]) })}
           </p>
           {draft.error && (
             <p role="alert" className="error">
@@ -465,7 +470,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
           )}
           {!!draft.source_text && (
             <details>
-              <summary>查看提取的原文</summary>
+              <summary>{t('registered.viewExtractedText')}</summary>
               <pre
                 style={{
                   whiteSpace: "pre-wrap",
@@ -486,11 +491,11 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
                 disabled={!privacy || !!busy}
                 onClick={() => suggest(draft)}
               >
-                AI 识别题目
+                {t('registered.extractQuestionsWithAi')}
               </button>
               {!draft.items.length && (
                 <small className="muted">
-                  未识别到标准问答。可以查看正文，或让 AI 从正文识别题目。
+                  {t('registered.noStructuredQuestions')}
                 </small>
               )}
             </div>
@@ -510,9 +515,9 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
                   disabled={item.status !== "DRAFT" || !!busy}
                 >
                   <legend>
-                    候选题 {index + 1}
-                    {item.status === "APPROVED" ? " · 已入库" : ""}
-                    {item.status === "MERGED" ? " · 题库已有，保留原答案" : ""}
+                    {t(item.status === "APPROVED" ? 'registered.importCandidateApproved'
+                      : item.status === "MERGED" ? 'registered.importCandidateMerged'
+                      : 'registered.importCandidateNumber', { number: index + 1 })}
                   </legend>
                   <label className="row">
                     <input
@@ -520,10 +525,10 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
                       checked={item.selected}
                       onChange={(event) => update(item.id, { selected: event.target.checked })}
                     />
-                    保存这道题
+                    {t('registered.saveThisQuestion')}
                   </label>
                   <label>
-                    题目
+                    {t('registered.question')}
                     <input
                       value={item.title}
                       required
@@ -533,7 +538,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
                     />
                   </label>
                   <label>
-                    参考答案
+                    {t('registered.referenceAnswer')}
                     <textarea
                       value={item.answer}
                       maxLength={4000}
@@ -542,20 +547,20 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
                     />
                   </label>
                   {item.ai_title && (
-                    <small className="muted">题目由 AI 整理，请对照原文核查。</small>
+                    <small className="muted">{t('registered.verifyAiDraftQuestion')}</small>
                   )}
                   {item.ai_answer && (
                     <details>
-                      <summary>AI 补充的参考思路</summary>
+                      <summary>{t('registered.aiAnswerApproach')}</summary>
                       <p>{item.ai_answer}</p>
                     </details>
                   )}
                   {(item.source_title || item.source_answer) && (
                     <details>
-                      <summary>原文题目与答案</summary>
+                      <summary>{t('registered.originalQuestionAndAnswer')}</summary>
                       {item.source_title && <p>{item.source_title}</p>}
                       <p style={{ whiteSpace: "pre-wrap" }}>
-                        {item.source_answer || "原文未提供答案。"}
+                        {item.source_answer || t('registered.noOriginalAnswer')}
                       </p>
                     </details>
                   )}
@@ -569,7 +574,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
                     disabled={!!busy}
                     onClick={() => save(false)}
                   >
-                    保存草稿
+                    {t('registered.saveDraft')}
                   </button>
                   <button
                     type="submit"
@@ -579,7 +584,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
                       !draft.items.some((item) => item.status === "DRAFT" && item.selected)
                     }
                   >
-                    保存勾选题目
+                    {t('registered.saveSelectedQuestions')}
                   </button>
                 </div>
               )}
@@ -589,13 +594,13 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
       )}
       {!!history?.imports.length && (
         <div className="stack">
-          <h3>导入记录</h3>
+          <h3>{t('registered.importHistory')}</h3>
           {history.imports.map((entry) => (
             <div className="card row" key={entry.id}>
               <div>
                 <strong>{entry.filename}</strong>
                 <p className="muted">
-                  {entry.role} · {entry.topic} · {importStatus[entry.status]}
+                  {t('registered.importRecordContext', { role: entry.role, topic: topicLabel(entry.role, entry.topic), status: t(importStatusKeys[entry.status]) })}
                 </p>
               </div>
               <button
@@ -603,12 +608,12 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
                 className="btn btn-outline"
                 disabled={!!busy}
                 onClick={() =>
-                  void operate("正在打开记录…", async () =>
+                  void operate('registered.importOpening', async () =>
                     show(await request<ImportDraft>("/library/imports/" + entry.id)),
                   )
                 }
               >
-                打开记录
+                {t('registered.openImportRecord')}
               </button>
             </div>
           ))}
@@ -618,7 +623,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
               className="btn btn-outline"
               disabled={!!busy}
               onClick={() =>
-                void operate(messages.load, async () => {
+                void operate('registered.loading', async () => {
                   const result = await request<ImportPage>(
                     "/library/imports?before=" + history.next_before,
                   );
@@ -629,7 +634,7 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
                 })
               }
             >
-              加载更多记录
+              {t('registered.loadMoreImports')}
             </button>
           )}
         </div>
@@ -639,6 +644,8 @@ function Imports({ selection, onSaved }: { selection: Selection | null; onSaved:
 }
 
 export default function Library({ onPractice, onCoach, openImport = false }: Props) {
+  const t = useT();
+  const locale = useLocale();
   const { send } = useWorkspaceApi();
   const {
     roles, roleInput, setRoleInput, jd, setJd, busy, error, status, setStatus, setRetry,
@@ -652,15 +659,21 @@ export default function Library({ onPractice, onCoach, openImport = false }: Pro
     if (openImport && roles) document.getElementById("registered-import")?.scrollIntoView();
   }, [openImport, roles?.selected_role]);
 
+  function topicLabel(role: string | null, topic: string) {
+    const saved = roles?.roles.find(item => item.role === role);
+    const matching = saved?.directions.find(item => item.name === topic);
+    return matching ? directionLabel(matching, t) : topic;
+  }
+
   return (
     <div className="registered-bank stack">
-      <PageHead title="面试题库" sub={active ? [active.role, direction?.name].filter(Boolean).join(" · ") : "管理自己的面试题与面经"}>
-        <button type="button" className="btn btn-outline" onClick={() => document.getElementById("registered-import")?.scrollIntoView()}>导入面经</button>
-        <button type="button" className="btn btn-primary" onClick={onCoach}>打开学习助手</button>
+      <PageHead title={t('registered.interviewQuestionBank')} sub={active ? (direction ? t('registered.questionBankScope', { role: active.role, topic: directionLabel(direction, t) }) : active.role) : t('registered.questionBankSubtitle')}>
+        <button type="button" className="btn btn-outline" onClick={() => document.getElementById("registered-import")?.scrollIntoView()}>{t('registered.importInterviewNotes')}</button>
+        <button type="button" className="btn btn-primary" onClick={onCoach}>{t('registered.openStudyCoach')}</button>
       </PageHead>
       <details className="card bank-role-options">
-        <summary>调整岗位与练习方向</summary>
-        <div className="stack" role="region" aria-label="按目标岗位练习">
+        <summary>{t('registered.editRoleAndTopic')}</summary>
+        <div className="stack" role="region" aria-label={t('registered.practiceByRole')}>
         {!roles &&
           (error ? (
             <button
@@ -668,31 +681,31 @@ export default function Library({ onPractice, onCoach, openImport = false }: Pro
               className="btn btn-outline"
               onClick={() => setRetry((count) => count + 1)}
             >
-              重新加载岗位
+              {t('registered.reloadRoles')}
             </button>
           ) : (
-            <p role="status">{messages.load}</p>
+            <p role="status">{t('registered.loading')}</p>
           ))}
 
         {roles && (
           <>
             {!!roles.roles.length && (
               <label>
-                已保存的岗位
+                {t('registered.savedRoles')}
                 <select
                   value={roles.selected_role ?? ""}
                   disabled={!!busy}
                   onChange={(event) => {
                     const role = event.target.value;
                     if (!role) return;
-                    void operate("正在切换岗位…", async () => {
+                    void operate('registered.switchingRoles', async () => {
                       applyRole(await send<LibraryRole>("/library/role", "PUT", { role }));
                       setShowAll(false);
                     });
                   }}
                 >
                   <option value="" disabled>
-                    选择岗位
+                    {t('registered.selectRole')}
                   </option>
                   {roles.roles.map((role) => (
                     <option key={role.role}>{role.role}</option>
@@ -705,7 +718,7 @@ export default function Library({ onPractice, onCoach, openImport = false }: Pro
               void saveRole(event);
             }}>
               <label>
-                目标岗位
+                {t('registered.targetRole')}
                 <input
                   value={roleInput}
                   onChange={(event) => {
@@ -714,24 +727,24 @@ export default function Library({ onPractice, onCoach, openImport = false }: Pro
                       roles.roles.find((role) => role.role === event.target.value.trim())?.jd ?? "",
                     );
                   }}
-                  placeholder="例如 产品运营、后端开发、建筑设计"
+                  placeholder={t('registered.rolePlaceholder')}
                   maxLength={120}
                   required
                 />
               </label>
               <label>
-                招聘要求（选填）
+                {t('registered.optionalJobRequirements')}
                 <textarea
                   value={jd}
                   onChange={(event) => setJd(event.target.value)}
                   rows={3}
                   maxLength={6000}
-                  placeholder="贴入岗位职责或你想重点准备的要求"
+                  placeholder={t('registered.jobRequirementsPlaceholder')}
                 />
               </label>
               <div className="actions">
                 <button type="submit" className="btn btn-primary" disabled={!!busy || !roleInput.trim()}>
-                  保存岗位
+                  {t('registered.saveRole')}
                 </button>
               </div>
             </form>
@@ -740,18 +753,18 @@ export default function Library({ onPractice, onCoach, openImport = false }: Pro
         {active && (
           <>
             <div>
-              <h3>练习方向</h3>
-              <p className="muted">可以直接使用预设。点击 AI 推荐会提交已保存的岗位和招聘要求。</p>
+              <h3>{t('registered.practiceTopic')}</h3>
+              <p className="muted">{t('registered.topicRecommendationsHelp')}</p>
             </div>
             <div className="grid">
               {active.directions.map((item) => (
                 <div key={item.name} className="card stack">
                   <div>
-                    <strong>{item.name}</strong>
+                    <strong>{directionLabel(item, t)}</strong>
                     {" · "}
-                    <span className="muted">{item.origin === "preset" ? "预设" : "AI 推荐"}</span>
+                    <span className="muted">{item.origin === "preset" ? t('registered.presetTopic') : t('registered.aiSuggestedTopic')}</span>
                   </div>
-                  <p>{item.example}</p>
+                  <p>{directionExample(item, active.role, locale, t)}</p>
                   <button
                     type="button"
                     className={item.name === active.selected_topic ? "btn btn-primary" : "btn btn-outline"}
@@ -759,7 +772,7 @@ export default function Library({ onPractice, onCoach, openImport = false }: Pro
                     disabled={!!busy}
                     onClick={() => void selectDirection(item.name, () => setShowAll(false))}
                   >
-                    {item.name === active.selected_topic ? "已选方向" : "选择方向"}
+                    {item.name === active.selected_topic ? t('registered.selectedTopic') : t('registered.selectTopic')}
                   </button>
                 </div>
               ))}
@@ -772,31 +785,31 @@ export default function Library({ onPractice, onCoach, openImport = false }: Pro
                   !!busy || roleInput.trim() !== active.role || jd.trim() !== (active.jd ?? "")
                 }
                 onClick={() =>
-                  void operate("正在推荐练习方向…", async () => {
+                  void operate('registered.topicRecommendationsLoading', async () => {
                     applyRole(
                       await send<LibraryRole>("/library/directions", "POST", { role: active.role }),
                     );
-                    setStatus("已更新推荐方向。");
+                    setStatus('registered.topicRecommendationsUpdated');
                   })
                 }
               >
-                AI 推荐方向
+                {t('registered.suggestTopics')}
               </button>
               {(roleInput.trim() !== active.role || jd.trim() !== (active.jd ?? "")) && (
-                <small className="muted">保存修改后可以获取 AI 推荐。</small>
+                <small className="muted">{t('registered.saveBeforeSuggestions')}</small>
               )}
             </div>
           </>
         )}
         </div>
       </details>
-        {busy && <p role="status">{busy}</p>}
+        {busy && <p role="status">{t(busy)}</p>}
         {error && (
           <p role="alert" className="error">
-            {error}
+            {renderMessage(error, t)}
           </p>
         )}
-        {status && <p role="status">{status}</p>}
+        {status && <p role="status">{t(status)}</p>}
         {selection && (
           <div className="actions">
             <button
@@ -804,28 +817,28 @@ export default function Library({ onPractice, onCoach, openImport = false }: Pro
               className="btn btn-primary"
               disabled={!!busy}
               onClick={() =>
-                void operate("正在打开例题…", async () => {
+                void operate('registered.sampleOpening', async () => {
                   const question = await send<Question>("/library/example", "POST", selection);
                   setRevision((count) => count + 1);
                   onPractice(question, "study");
                 })
               }
             >
-              练习例题
+              {t('registered.trySampleQuestion')}
             </button>
             <button
               type="button"
               className="btn btn-outline"
               disabled={!!busy}
               onClick={() =>
-                void operate("正在生成起步题…", async () => {
+                void operate('registered.starterQuestionsGenerating', async () => {
                   await send<{ questions: Question[] }>("/library/starter", "POST", selection);
                   setRevision((count) => count + 1);
-                  setStatus("起步题已保存到我的题库。");
+                  setStatus('registered.starterQuestionsSaved');
                 })
               }
             >
-              生成起步题
+              {t('registered.generateStarterQuestions')}
             </button>
           </div>
         )}
@@ -833,9 +846,9 @@ export default function Library({ onPractice, onCoach, openImport = false }: Pro
         <section className="panel stack" aria-labelledby="library-questions-heading">
           <div className="row">
             <div>
-              <h2 id="library-questions-heading">我的题库</h2>
+              <h2 id="library-questions-heading">{t('registered.myQuestionBank')}</h2>
               <p className="muted">
-                {active.role} · {showAll || !direction ? "全部方向" : direction.name}
+                {t('registered.questionBankScope', { role: active.role, topic: showAll || !direction ? t('registered.allTopics') : directionLabel(direction, t) })}
               </p>
             </div>
             {direction && (
@@ -844,7 +857,7 @@ export default function Library({ onPractice, onCoach, openImport = false }: Pro
                 className="btn btn-outline"
                 onClick={() => setShowAll((value) => !value)}
               >
-                {showAll ? "只看当前方向" : "查看全部方向"}
+                {showAll ? t('registered.currentTopicOnly') : t('registered.showAllTopics')}
               </button>
             )}
           </div>
@@ -852,13 +865,14 @@ export default function Library({ onPractice, onCoach, openImport = false }: Pro
           <QuestionList
             key={JSON.stringify([active.role, showAll ? null : direction?.name, query.trim(), revision])}
             role={active.role}
+            topicLabel={topicLabel}
             topic={showAll ? null : (direction?.name ?? null)}
             query={query.trim()}
             onPractice={onPractice}
           />
         </section>
       )}
-      <div id="registered-import"><Imports selection={selection} onSaved={() => setRevision((count) => count + 1)} /></div>
+      <div id="registered-import"><Imports selection={selection} topicLabel={topicLabel} onSaved={() => setRevision((count) => count + 1)} /></div>
     </div>
   );
 }

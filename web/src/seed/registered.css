@@ -3,6 +3,7 @@
   padding: 38px 48px 64px;
   background: var(--bg);
 }
+.account-entry-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .account-entry .ob-brand { gap: 10px; margin: 0; }
 .account-entry .brand-logo { width: 38px; height: 38px; font-size: 15px; }
 .account-entry .ob-brand-name { font-size: 18px; }
