@@ -36,4 +36,3 @@ test('switching languages updates the selected copy immediately', () => {
     setLocale(previous);
   }
 });
-

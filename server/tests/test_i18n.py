@@ -3,14 +3,15 @@ import asyncio
 import json
 import secrets
 from pathlib import Path
+from uuid import uuid4
 
 import httpx
 import pytest
 
 from app.i18n import message, negotiated_language, request_language, using_language
-from app.models.public_coach import CoachThread, CoachTurn
+from app.models.public_coach import CoachThread
 from app.public_main import app as public_app
-from app.services.public_coach import TurnContext
+from app.services.public_coach import TurnContext, TurnInput, admit_turn
 from app.services.study_chat import teaching_action
 from app.services.study_notes import Citation, NoteOutput, NotePoint, render_note
 
@@ -49,7 +50,8 @@ async def test_concurrent_registered_auth_errors_use_request_language(monkeypatc
 def test_registered_interviewer_uses_admitted_language_and_preserves_quotes():
     original = "我实现了任务去重。"
     thread = CoachThread(mode="interview", role="工程师", direction="", question_title="哪一部分由你负责？")
-    turn = CoachTurn(action="answer", user_text=original, response_language="en")
+    with using_language("en"):
+        turn = admit_turn(thread, [], TurnInput(action="answer", request_id=uuid4(), text=original))
     with using_language("zh-CN"):
         system, transcript = TurnContext(thread, turn, [], [], []).messages()
     assert message("language", "en") in system["content"]
