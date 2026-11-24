@@ -24,6 +24,7 @@
   "guide.attribution": "以下引文保留对话中的归因。个人贡献及项目实绩有待独立核实。",
   "guide.citation": "项目 {project_id} · {speaker} · 消息 {message_id}",
   "guide.no_output_budget": "所选模型没有可用于生成面试题的输出预算，请检查学习模型设置。",
+  "guide.insufficient_context": "所选学习模型没有足够的上下文空间根据完整对话生成面试题。请检查模型的上下文设置，或另建较短的会话。",
   "guide.output_instruction": "只输出一个符合下列 JSON Schema 的完整对象。建议写 2 至 4 个步骤、2 至 3 行对照和 1 至 2 个追问。各字段尽量简洁，保留必填内容和原文引用。",
   "diagram.title": "队列与 Worker 的故障恢复示例",
   "diagram.summary": "这是通用教学示例。关键窗口在持久化结果之后、确认任务之前；此时崩溃可能导致重新投递，所以结果写入应支持幂等。",

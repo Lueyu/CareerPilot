@@ -136,7 +136,7 @@ async def complete_turns(db, session_id):
     return turns, latest
 
 
-def organizer_profile(base, user, assistant, session_mode):
+def organizer_profile(base, user, assistant, session_mode) -> tuple[dict, int] | None:
     settings = get_settings()
     coach = assistant.coach or {}
     trace = coach.get("trace") or {}
@@ -152,7 +152,7 @@ def organizer_profile(base, user, assistant, session_mode):
         output_limit = min(settings.study_output_budget, getattr(settings, f"study_{selected}_output_tokens"))
         if cfg.get("output_limit") is not None:
             output_limit = min(output_limit, cfg["output_limit"])
-        return {**cfg, "output_limit": output_limit}
+        return {**cfg, "output_limit": output_limit}, getattr(settings, f"study_{selected}_context")
 
     if tier in ("flash", "strong"):
         return usable(tier)
@@ -196,11 +196,12 @@ async def generate_question(db, workspace_id, session_id, *, session_mode):
     saved = await saved_result(db, workspace_id, session_id, snapshot_hash)
     if saved:
         return saved
-    if len(json.dumps(payload, ensure_ascii=False).encode()) > MAX_SNAPSHOT_BYTES:
+    transcript_bytes = len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+    if transcript_bytes > MAX_SNAPSHOT_BYTES:
         raise HTTPException(422, localized_message("errors.the_conversation_is_too_long_to_organize_in_one"))
 
     # Resolve the model outside the transaction that will hold the advisory lock.
-    cfg = organizer_profile(await get_llm_config(), *latest, session_mode)
+    resolved = organizer_profile(await get_llm_config(), *latest, session_mode)
     await db.commit()
     lock_hash = digest(["study-interview-question", session_id, snapshot_hash])
     lock_key = int.from_bytes(bytes.fromhex(lock_hash[:16]), byteorder="big", signed=True)
@@ -209,8 +210,9 @@ async def generate_question(db, workspace_id, session_id, *, session_mode):
     if saved:
         await db.commit()
         return saved
-    if cfg is None:
+    if resolved is None:
         raise HTTPException(502, localized_message("errors.no_model_is_configured_for_this_study_tier_check"))
+    cfg, context = resolved
     if cfg["output_limit"] <= 0:
         raise HTTPException(502, localized_message("guide.no_output_budget"))
 
@@ -219,8 +221,14 @@ async def generate_question(db, workspace_id, session_id, *, session_mode):
         localized_message("guide.output_instruction"),
         json.dumps(Guide.model_json_schema(), ensure_ascii=False),
     ))
+    # Count the transcript as serialized by read_json and reserve chat's 64-token framing margin.
+    context_remaining = context - len(instruction.encode("utf-8")) - transcript_bytes - 64
+    if context_remaining <= 0:
+        raise HTTPException(422, localized_message("guide.insufficient_context"))
     try:
-        guide, _ = await read_json(instruction, payload, Guide, config=cfg)
+        guide, _ = await read_json(instruction, payload, Guide, config={
+            **cfg, "output_limit": min(cfg["output_limit"], context_remaining),
+        })
         answer_html = render_guide(guide, turns)
     except GenerationError:
         raise HTTPException(502, localized_message("errors.could_not_generate_the_interview_question_try_again")) from None

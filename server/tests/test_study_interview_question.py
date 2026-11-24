@@ -8,6 +8,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from test_llm_stream_transport import DONE, frame
 
 from app.config import get_settings
 from app.db import get_session
@@ -194,6 +195,63 @@ async def test_interview_question_respects_budget_and_rejects_truncation(
     if sent:
         assert sent[0]["model"] == f"{tier}-fixture"
         assert sent[0].get("thinking") == ({"type": "enabled"} if tier == "flash" else None)
+
+
+@pytest.mark.parametrize(("context", "language"), [(8192, "en"), (512, "en"), (0, "zh-CN"), (-1, "en")])
+@pytest.mark.asyncio
+async def test_interview_question_fits_full_prompt_in_context(chat_client, db_session, monkeypatch, context, language):
+    client, owner, _ = chat_client
+    settings = get_settings()
+    monkeypatch.setattr(settings, "study_flash_context", context)
+    monkeypatch.setattr(settings, "study_flash_output_tokens", 6000)
+    monkeypatch.setattr(settings, "study_output_budget", 16000)
+    headers = {**owner, "Accept-Language": language}
+    sid = await new_chat(client, headers)
+    question = '原始引文包含 "café"。'
+    answer = "原始回答第一行\n第二行 🧪"
+    user, reply = await turn(db_session, sid, "context-fixture", question, answer, project=15)
+    path = f"/study/sessions/{sid}/interview-question"
+    title = "How do you preserve the original evidence?"
+
+    async def config():
+        return {"model": "fixture-model", "provider": "fixture", "api_key": "fixture",
+                "base_url": "https://fixture.invalid"}
+
+    sent = []
+    original_client = httpx.AsyncClient
+
+    def upstream(request):
+        payload = json.loads(request.content)
+        prompt_bytes = sum(len(item["content"].encode("utf-8")) for item in payload["messages"])
+        sent.append((payload, prompt_bytes))
+        if prompt_bytes + 64 + payload["max_tokens"] > context:
+            return httpx.Response(400, json={"error": "Synthetic context limit exceeded"})
+        guide = {**GUIDE, "title": title, "project_context": [{"message_id": user.id, "quote": question}]}
+        raw = frame(json.dumps(guide, ensure_ascii=False)) + frame(finish="stop") + DONE
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=raw)
+
+    monkeypatch.setattr(study_interview_questions, "get_llm_config", config)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(
+        transport=httpx.MockTransport(upstream), **kwargs))
+
+    response = await client.post(path, headers=headers)
+    if context == 8192:
+        assert response.status_code == 200, response.text
+        [(payload, prompt_bytes)] = sent
+        assert payload["max_tokens"] == context - prompt_bytes - 64 < 6000
+        system, transcript = [item["content"] for item in payload["messages"]]
+        assert "in English" in system and '"project_context"' in system
+        assert json.loads(transcript) == {"turns": [{
+            "user": {"id": user.id, "text": question}, "assistant": {"id": reply.id, "text": answer},
+            "project_id": 15,
+        }], "response_language": "en"}
+        assert "&quot;café&quot;" in response.json()["answer_html"]
+    else:
+        assert not sent
+        assert response.status_code == 422
+        expected = "没有足够的上下文空间" if language == "zh-CN" else "does not have enough context space"
+        assert expected in response.json()["detail"]
+        assert (await client.get(path, headers=headers)).json() is None
 
 
 @pytest.mark.parametrize(("global_enabled", "strong_enabled", "session_mode", "latest_metadata", "expected"), [
