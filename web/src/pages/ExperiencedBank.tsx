@@ -351,7 +351,7 @@ export default function ExperiencedBank({
                     <div>
                       <h3 id={`experienced-question-${question.id}`} className="experienced-prompt">{question.title}</h3>
                       <div className="q-meta">
-                        <span>{domainName}</span>
+                        <span>{experiencedDomainLabel(referenceDomainKey, domainName)}</span>
                         <span>{experiencedLevelLabel(question)}</span>
                         <span className="experienced-question-code">{question.short_code}</span>
                       </div>
