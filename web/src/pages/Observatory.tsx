@@ -1,10 +1,15 @@
+import { getLocale, t, useT } from '../i18n';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHead, StatCard } from '../components/ui';
 import { api, ObservatoryData, TracesData } from '../api/client';
 
 const HEALTH_CLS: Record<string, string> = { HEALTHY: 'chip-green', IDLE: 'chip-slate', DEGRADED: 'chip-amber' };
-const HEALTH_NAME: Record<string, string> = { HEALTHY: '健康', IDLE: '空闲', DEGRADED: '降级' };
+const HEALTH_NAME: Record<string, string> = {
+  get HEALTHY() { return t('progress.observatoryHealthy'); },
+  get IDLE() { return t('progress.observatoryIdle'); },
+  get DEGRADED() { return t('progress.observatoryDegraded'); },
+};
 const ENGINE_IC: Record<string, string> = {
   job_intelligence: '🎯', memory_engine: '🧠', project_analyzer: '💼', competency_engine: '📊', learning_planner: '🧩',
 };
@@ -23,6 +28,7 @@ interface DecisionApi {
 }
 
 export default function Observatory() {
+  const t = useT();
   const navigate = useNavigate();
   const [obs, setObs] = useState<ObservatoryData | null>(null);
   const [traces, setTraces] = useState<TraceApi[]>([]);
@@ -60,55 +66,61 @@ export default function Observatory() {
     }
   };
 
+  const runTime = (value?: string | null) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (getLocale() === 'zh-CN' || Number.isNaN(date.getTime())) return value.replace('T', ' ').slice(5, 16);
+    return date.toLocaleString(getLocale(), { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  };
   const fmtDur = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`);
-  const fmtCost = (c?: number | null) => (c != null ? `¥${c < 0.01 && c > 0 ? c.toFixed(3) : c.toFixed(2)}` : '未知');
+  const fmtCost = (c?: number | null) => (c != null ? `¥${c < 0.01 && c > 0 ? c.toFixed(3) : c.toFixed(2)}` : t('progress.unknown'));
 
   // v3.1 M6: 通俗摘要(默认视图的人话版)
   const summary: { ic: string; text: string }[] = [];
   if (obs && !err) {
-    summary.push({ ic: '🟢', text: `最近 30 天系统共执行 ${obs.stats.total_runs.toLocaleString()} 次，成功 ${obs.stats.success_rate.toFixed(1)}%，平均每次 ${fmtDur(obs.stats.avg_latency_ms)} 完成。` });
-    summary.push({ ic: '💰', text: obs.stats.cost_cny==null ? '费用未知：部分运行未提供完整用量或计价，不能计算总费用与平均费用。' : `累计花费 ¥${obs.stats.cost_cny.toFixed(2)}（大模型 + 工具调用），平均每次约 ¥${(obs.stats.cost_cny / Math.max(1, obs.stats.total_runs)).toFixed(3)}。` });
+    summary.push({ ic: '🟢', text: t('progress.observatoryRunSummary', { runs: obs.stats.total_runs.toLocaleString(getLocale()), success: obs.stats.success_rate.toFixed(1), duration: fmtDur(obs.stats.avg_latency_ms) }) });
+    summary.push({ ic: '💰', text: obs.stats.cost_cny==null ? t('progress.observatoryCostUnknown') : t('progress.observatoryCostSummary', { total: obs.stats.cost_cny.toFixed(2), average: (obs.stats.cost_cny / Math.max(1, obs.stats.total_runs)).toFixed(3) }) });
     if (obs.stats.failures > 0) {
       const f = obs.recent_failures[0];
-      summary.push({ ic: '⚠️', text: `有 ${obs.stats.failures} 次执行失败${f ? `，最近一次是「${f.title}」(${f.fail_reason || '原因未知'})，可以重试` : ''}。` });
+      summary.push({ ic: '⚠️', text: f ? t('progress.observatoryFailureSummary', { count: obs.stats.failures, title: f.title, reason: f.fail_reason || t('progress.observatoryReasonUnknown') }) : t('progress.observatoryFailureCount', { count: obs.stats.failures }) });
     } else {
-      summary.push({ ic: '✅', text: '当前范围没有失败记录。未运行的功能不据此判断正常。' });
+      summary.push({ ic: '✅', text: t('progress.observatoryNoFailureSummary') });
     }
     const degraded = obs.engines.filter((e) => e.health === 'DEGRADED');
     summary.push({ ic: '⚙️', text: degraded.length
-      ? `${degraded.length} 个引擎处于降级状态：${degraded.map((e) => e.name).join('、')}，功能可用但建议检查模型连接。`
-      : obs.engines.length ? '当前返回的引擎记录没有标记降级，具体运行情况见下方。' : '尚无可用于判断引擎状态的运行记录。' });
+      ? t('progress.observatoryDegradedSummary', { count: degraded.length, engines: degraded.map(engine => engine.name).join(getLocale() === 'zh-CN' ? '、' : ', ') })
+      : obs.engines.length ? t('progress.observatoryNoDegraded') : t('progress.observatoryNoEngineData') });
   } else {
-    summary.push({ic:'ℹ️',text:loading?'正在读取真实运行记录…':err?'运行记录暂不可用，请刷新重试。':'暂无运行记录。'});
+    summary.push({ic:'ℹ️',text:loading?t('progress.observatoryLoadingRecords'):err?t('progress.observatoryRecordsUnavailable'):t('progress.observatoryNoRecordsPeriod')});
   }
 
   return (
     <div>
       <PageHead
-        title="系统观测台"
-        sub="每一次执行、决策、证据写入都可追踪 · 失败可定位、成本可核算"
+        title={t('progress.observatoryHeading')}
+        sub={t('progress.observatoryDescription')}
       >
-        <button className="btn btn-outline" onClick={() => setTick((t) => t + 1)}>↻ 刷新</button>
-        <button className="btn btn-primary" onClick={() => navigate('/evolution')}>查看实验</button>
+        <button className="btn btn-outline" onClick={() => setTick((t) => t + 1)}>{t('progress.observatoryRefresh')}</button>
+        <button className="btn btn-primary" onClick={() => navigate('/evolution')}>{t('progress.observatoryViewExperiments')}</button>
       </PageHead>
 
-      {loading && <div className="demo-banner" style={{ marginBottom: 12 }}>正在从后端加载运行数据…</div>}
+      {loading && <div className="demo-banner" style={{ marginBottom: 12 }}>{t('progress.observatoryLoadingRuns')}</div>}
       {err && (
         <div className="demo-banner demo-banner-err" style={{ marginBottom: 12 }}>
-          无法读取当前运行数据（{err}）。请刷新重试。
+          {t('progress.observatoryLoadError', { error: err })}
         </div>
       )}
 
       {/* v3.1 M6: 通俗摘要(默认) + 高级模式开关 */}
       <div className="card obs-summary" style={{ marginBottom: 18 }}>
         <div className="card-head">
-          <span className="card-title">最近发生了什么（通俗版）</span>
+          <span className="card-title">{t('progress.observatorySummary')}</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>高级数据（Trace / 成本明细）</span>
+            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{t('progress.observatoryAdvanced')}</span>
             <button
               type="button"
               className={`switch ${advanced ? 'on' : ''}`}
-              aria-label="切换高级数据"
+              aria-label={t('progress.observatoryToggleAdvanced')}
               onClick={() => setAdvanced((v) => !v)}
             />
           </span>
@@ -119,17 +131,17 @@ export default function Observatory() {
             <span>{s.text}</span>
           </div>
         ))}
-        <div className="hint" style={{ marginTop: 8 }}>摘要为默认视图；开启「高级数据」后显示每次执行的耗时、成本与 span 明细。</div>
+        <div className="hint" style={{ marginTop: 8 }}>{t('progress.observatoryAdvancedDescription')}</div>
       </div>
 
       {/* 统计卡(高级数据) */}
       {advanced && (obs && !err ? (
         <div className="grid-4" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0,1fr))', gap: 14, marginBottom: 18 }}>
-          <StatCard label="执行次数" value={obs.stats.total_runs.toLocaleString()} ic="⚡" foot="所有引擎累计" />
-          <StatCard label="成功率" value={`${obs.stats.success_rate.toFixed(1)}%`} ic="✅" foot={err ? '' : '近 30 天'} />
-          <StatCard label="平均延迟" value={fmtDur(obs.stats.avg_latency_ms)} ic="⏱" foot="端到端" />
-          <StatCard label="成本" value={fmtCost(obs.stats.cost_cny)} ic="💰" foot="LLM + 工具调用" />
-          <StatCard label="失败" value={String(obs.stats.failures)} ic="⚠️" foot="查看失败原因" />
+          <StatCard label={t('progress.observatoryRuns')} value={obs.stats.total_runs.toLocaleString(getLocale())} ic="⚡" foot={t('progress.observatoryAllEngines')} />
+          <StatCard label={t('progress.observatorySuccessRate')} value={`${obs.stats.success_rate.toFixed(1)}%`} ic="✅" foot={err ? '' : t('progress.observatoryLast30Days')} />
+          <StatCard label={t('progress.observatoryLatency')} value={fmtDur(obs.stats.avg_latency_ms)} ic="⏱" foot={t('progress.observatoryEndToEnd')} />
+          <StatCard label={t('progress.observatoryCost')} value={fmtCost(obs.stats.cost_cny)} ic="💰" foot={t('progress.observatoryModelAndTool')} />
+          <StatCard label={t('progress.observatoryFailures')} value={String(obs.stats.failures)} ic="⚠️" foot={t('progress.observatorySeeCauses')} />
         </div>
       ) : null
       )}
@@ -139,54 +151,56 @@ export default function Observatory() {
           {/* 运行追踪 */}
           <div className="card">
             <div className="card-head">
-              <span className="card-title">运行追踪{advanced ? '' : '（精简）'}</span>
-              <span className="card-sub">{advanced ? '点击展开 span 明细' : '开启上方「高级数据」查看耗时 / 成本 / span 明细'}</span>
+              <span className="card-title">{t('progress.observatoryTraces')}{advanced ? '' : t('progress.observatoryCompact')}</span>
+              <span className="card-sub">{advanced ? t('progress.observatoryTraceExpand') : t('progress.observatoryTraceAdvanced')}</span>
             </div>
             {!err && traces.length > 0 ? (
-              traces.map((t) => (
-                <div key={t.id} className="trace-item">
-                  <div className="list-row" style={{ borderBottom: 'none', cursor: 'pointer' }} onClick={() => toggleTrace(t)}>
-                    <div className="list-ic">{t.status === 'SUCCESS' ? '✅' : t.status === 'RUNNING' ? '⏳' : '⚠️'}</div>
+              traces.map((trace) => (
+                <div key={trace.id} className="trace-item">
+                  <div className="list-row" style={{ borderBottom: 'none', cursor: 'pointer' }} onClick={() => toggleTrace(trace)}>
+                    <div className="list-ic">{trace.status === 'SUCCESS' ? '✅' : trace.status === 'RUNNING' ? '⏳' : '⚠️'}</div>
                     <div className="list-main">
-                      <div className="list-title">{t.short_code} · {t.title}</div>
+                      <div className="list-title">{trace.short_code} · {trace.title}</div>
                       <div className="list-sub">
-                        {t.kind} · {(t.started_at || '').replace('T', ' ').slice(5, 16)}
-                        {advanced && ` · 耗时 ${fmtDur(t.duration_ms)} · 成本 ${fmtCost(t.cost_cny)}${t.span_count ? ` · ${t.span_count} 个 span` : ''}`}
+                        {trace.kind} · {runTime(trace.started_at)}
+                        {advanced && (trace.span_count
+                          ? t('progress.observatoryTraceStatsWithSpans', { duration: fmtDur(trace.duration_ms), cost: fmtCost(trace.cost_cny), count: trace.span_count })
+                          : t('progress.observatoryTraceStats', { duration: fmtDur(trace.duration_ms), cost: fmtCost(trace.cost_cny) }))}
                       </div>
                     </div>
-                    <span className={`chip ${t.status === 'SUCCESS' ? 'chip-green' : t.status === 'RUNNING' ? 'chip-purple' : 'chip-red'}`}>
-                      {t.status === 'SUCCESS' ? '成功' : t.status === 'RUNNING' ? '运行中' : '失败'}
+                    <span className={`chip ${trace.status === 'SUCCESS' ? 'chip-green' : trace.status === 'RUNNING' ? 'chip-purple' : 'chip-red'}`}>
+                      {trace.status === 'SUCCESS' ? t('progress.observatorySuccess') : trace.status === 'RUNNING' ? t('progress.observatoryRunning') : t('progress.observatoryFailed')}
                     </span>
-                    <span style={{ color: 'var(--text-4)', fontSize: 12 }}>{openTrace === t.id ? '▴' : '▾'}</span>
+                    <span style={{ color: 'var(--text-4)', fontSize: 12 }}>{openTrace === trace.id ? '▴' : '▾'}</span>
                   </div>
-                  {openTrace === t.id && (
+                  {openTrace === trace.id && (
                     <div className="trace-spans">
-                      {(t.spans || []).map((s) => (
+                      {(trace.spans || []).map((s) => (
                         <div className="span-row" key={s.id}>
                           <span className={`status-dot ${s.status === 'OK' ? 'dot-green' : 'dot-red'}`} />
                           <span className="span-name">{s.name}</span>
                           <span className="span-bar">
-                            <span className="span-bar-fill" style={{ width: `${Math.min(100, (s.duration_ms / Math.max(1, t.duration_ms)) * 100)}%`, background: s.status === 'OK' ? 'var(--primary)' : 'var(--red)' }} />
+                            <span className="span-bar-fill" style={{ width: `${Math.min(100, (s.duration_ms / Math.max(1, trace.duration_ms)) * 100)}%`, background: s.status === 'OK' ? 'var(--primary)' : 'var(--red)' }} />
                           </span>
                           <span className="span-dur">{fmtDur(s.duration_ms)}</span>
                           {advanced && <span className="span-cost">{fmtCost(s.cost_cny)}</span>}
                         </div>
                       ))}
-                      {t.fail_reason && <div className="trace-fail">❌ 失败原因：{t.fail_reason}</div>}
+                      {trace.fail_reason && <div className="trace-fail">{t('progress.observatoryFailureReason')}{trace.fail_reason}</div>}
                     </div>
                   )}
                 </div>
               ))
             ) : (
-              <p className="hint" style={{padding:18}}>{loading ? '正在读取…' : err ? '当前记录不可用' : '暂无运行记录'}</p>
+              <p className="hint" style={{padding:18}}>{loading ? t('progress.loading') : err ? t('progress.observatoryNotAvailable') : t('progress.observatoryNoRuns')}</p>
             )}
           </div>
 
           {/* 决策记录 */}
           <div className="card">
             <div className="card-head">
-              <span className="card-title">决策记录</span>
-              <span className="card-sub">为什么选这个行动</span>
+              <span className="card-title">{t('progress.observatoryDecisions')}</span>
+              <span className="card-sub">{t('progress.observatoryDecisionWhy')}</span>
             </div>
             {!err && decisions.length > 0 ? (
               decisions.map((d) => (
@@ -195,23 +209,23 @@ export default function Observatory() {
                   <div className="list-main">
                     <div className="list-title">{d.short_code} · {d.question}</div>
                     <div className="list-sub">
-                      {(d.created_at || '').replace('T', ' ').slice(5, 16)} · 证据 {Array.isArray(d.evidence_refs) ? d.evidence_refs.join(', ') : d.evidence_refs || '—'}
+                      {t('progress.observatoryDecisionEvidence', { date: runTime(d.created_at), evidence: Array.isArray(d.evidence_refs) ? d.evidence_refs.join(', ') : d.evidence_refs || '—' })}
                     </div>
                     {openDecision === d.id && (
                       <div className="decision-body">
-                        <div className="decision-chosen">✓ 选择：{d.chosen}</div>
+                        <div className="decision-chosen">{t('progress.observatoryChosen')}{d.chosen}</div>
                         {(Array.isArray(d.alternatives) ? d.alternatives : []).map((a: any, i: number) => (
-                          <div className="decision-alt" key={i}>✗ 候选：{typeof a === 'string' ? a : a.text}{typeof a === 'object' && a.why ? <span className="hint"> — {a.why}</span> : null}</div>
+                          <div className="decision-alt" key={i}>{t('progress.observatoryAlternatives')}{typeof a === 'string' ? a : a.text}{typeof a === 'object' && a.why ? <span className="hint"> — {a.why}</span> : null}</div>
                         ))}
-                        {d.rationale && <div className="hint" style={{ marginTop: 6 }}>依据：{d.rationale}</div>}
+                        {d.rationale && <div className="hint" style={{ marginTop: 6 }}>{t('progress.observatoryRationale')}{d.rationale}</div>}
                       </div>
                     )}
                   </div>
-                  <span className="chip chip-green">已执行</span>
+                  <span className="chip chip-green">{t('progress.observatoryExecuted')}</span>
                 </div>
               ))
             ) : (
-              <p className="hint" style={{padding:18}}>{loading ? '正在读取…' : err ? '当前记录不可用' : '暂无决策记录'}</p>
+              <p className="hint" style={{padding:18}}>{loading ? t('progress.loading') : err ? t('progress.observatoryNotAvailable') : t('progress.observatoryNoDecisions')}</p>
             )}
           </div>
         </div>
@@ -220,14 +234,14 @@ export default function Observatory() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           <div className="card">
             <div className="card-head">
-              <span className="card-title">引擎检查</span>
-              <span className="card-sub">{obs && !err ? '健康状态由最近运行推断' : '暂无运行数据'}</span>
+              <span className="card-title">{t('progress.observatoryEngineCheck')}</span>
+              <span className="card-sub">{obs && !err ? t('progress.observatoryEngineInference') : t('progress.observatoryNoRunData')}</span>
             </div>
             {obs && !err ? (
               obs.engines.map((e) => {
                 const lr = e.last_run;
                 const lrText = !lr ? '' : typeof lr === 'string' ? lr : `${lr.short_code} ${lr.title}`;
-                const lrTime = !lr ? '' : typeof lr === 'string' ? lr.slice(5, 16) : (lr.finished_at || '').replace('T', ' ').slice(5, 16);
+                const lrTime = !lr ? '' : runTime(typeof lr === 'string' ? lr : lr.finished_at);
                 return (
                   <div className="engine-card" key={e.key} style={{ border: 'none', padding: '10px 0', borderBottom: '1px solid var(--border-2)', borderRadius: 0 }}>
                     <div className="engine-ic">{ENGINE_IC[e.key] || '⚙️'}</div>
@@ -238,22 +252,22 @@ export default function Observatory() {
                       </div>
                       <div className="engine-desc">{e.health_note || e.desc || e.key}</div>
                       <div className="engine-stats">
-                        {e.runs != null && <span>运行 <b>{e.runs}</b></span>}
-                        {lrText && <span>最近 {lrTime} · {lrText}</span>}
+                        {e.runs != null && <span>{t('progress.observatoryRunsLabel') + ' '}<b>{e.runs}</b></span>}
+                        {lrText && <span>{t('progress.observatoryLastRun') + ' '}{lrTime} · {lrText}</span>}
                       </div>
                     </div>
                   </div>
                 );
               })
             ) : (
-              <p className="hint" style={{padding:18}}>{loading ? '正在读取…' : err ? '当前记录不可用' : '暂无可判断的引擎记录'}</p>
+              <p className="hint" style={{padding:18}}>{loading ? t('progress.loading') : err ? t('progress.observatoryNotAvailable') : t('progress.observatoryNoEngines')}</p>
             )}
           </div>
 
           <div className="card">
             <div className="card-head">
-              <span className="card-title">最近失败</span>
-              <span className="card-sub">运行记录</span>
+              <span className="card-title">{t('progress.observatoryRecentFailures')}</span>
+              <span className="card-sub">{t('progress.observatoryRunRecord')}</span>
             </div>
             {obs && !err && obs.recent_failures.length > 0 ? (
               obs.recent_failures.map((f) => (
@@ -261,13 +275,13 @@ export default function Observatory() {
                   <div className="list-ic">⚠️</div>
                   <div className="list-main">
                     <div className="list-title">{f.short_code} · {f.title}</div>
-                    <div className="list-sub">{f.fail_reason || '失败'} · {(f.finished_at || '').replace('T', ' ').slice(5, 16)}</div>
+                    <div className="list-sub">{f.fail_reason || t('progress.observatoryFailed')} · {runTime(f.finished_at)}</div>
                   </div>
-                  <span className="chip chip-red">失败</span>
+                  <span className="chip chip-red">{t('progress.observatoryFailed')}</span>
                 </div>
               ))
             ) : (
-              <p className="hint" style={{padding:18}}>{loading?'正在读取…':err?'当前记录不可用':'暂无失败记录'}</p>
+              <p className="hint" style={{padding:18}}>{loading?t('progress.loading'):err?t('progress.observatoryNotAvailable'):t('progress.observatoryNoFailures')}</p>
             )}
           </div>
         </div>

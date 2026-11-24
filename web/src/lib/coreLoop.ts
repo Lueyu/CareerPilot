@@ -1,4 +1,12 @@
+import { getLocale, t } from '../i18n';
 import { api, ExamDetail, ExamQuestionView, getWorkspace, ScoringTaskAck } from '../api/client';
+
+export function formatProgressDate(value?: string | null) {
+  const day = value?.slice(0, 10) ?? '';
+  if (!day || getLocale() === 'zh-CN') return day;
+  const date = new Date(day + 'T12:00:00');
+  return Number.isNaN(date.getTime()) ? day : date.toLocaleDateString(getLocale(), { dateStyle: 'medium' });
+}
 
 type Answers = (number | string)[];
 type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
@@ -11,7 +19,7 @@ export function clearExamCreation(storage: StorageLike = sessionStorage, workspa
 
 export async function loadOrCreateExam(id: string | null, transport = api, storage: StorageLike = sessionStorage, workspace = getWorkspace()): Promise<ExamDetail> {
   if (id) {
-    if (!/^\d+$/.test(id)) throw new Error('考试 ID 无效');
+    if (!/^\d+$/.test(id)) throw new Error(t('progress.coreLoopInvalidExamId'));
     return transport.get<ExamDetail>(`/exams/${id}`);
   }
   // Establish the request identity before the first await (including StrictMode replays).

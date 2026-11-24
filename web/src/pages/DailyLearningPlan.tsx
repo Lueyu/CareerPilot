@@ -1,3 +1,4 @@
+import { useT } from '../i18n';
 import { api, useApi, type SettingsOverview } from '../api/client';
 import { DemoBanner } from '../components/ui';
 import DailyLearningPlanView, { type Plan } from './DailyLearningPlanView';
@@ -5,10 +6,11 @@ import DailyLearningPlanView, { type Plan } from './DailyLearningPlanView';
 const endpoint = '/learning/daily-plan';
 
 export default function DailyLearningPlan() {
+  const t = useT();
   const { data, loading, error } = useApi<Plan>(endpoint);
   const { data: settings } = useApi<SettingsOverview>('/settings/overview');
   const goal = [settings?.workspace?.target_role, settings?.workspace?.target_level].filter(Boolean).join(' · ')
-    || '待设置目标岗位';
+    || t('progress.dailyLearningPlanRoleUnset');
 
   return <DailyLearningPlanView data={data} loading={loading} loadError={error}
     mode={{ kind: 'personal', goal, banner: <DemoBanner /> }}
