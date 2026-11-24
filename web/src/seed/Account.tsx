@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { useT } from '../i18n';
 import { announceSessionChange, messageFor, renderMessage, requestAuth, type AccountInfo, type MessageKey, type UiMessage } from './api';
+import { track } from '../telemetry';
 
 type Mode = 'login' | 'register' | 'recover';
 type RecoveryInfo = AccountInfo & { recovery_code: string };
@@ -87,8 +88,10 @@ export default function Account({ onStart, onFinish }: { onStart: () => void; on
     try {
       if (mode === 'login') {
         await requestAuth<AccountInfo>('/auth/login', options);
+        track('auth.login');
       } else {
         const result = await requestAuth<RecoveryInfo>(`/auth/${mode}`, options);
+        track(mode === 'register' ? 'auth.register' : 'auth.recover');
         awaitingConfirmation = true;
         setRecoveryCode(result.recovery_code);
       }

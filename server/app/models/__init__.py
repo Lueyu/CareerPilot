@@ -35,6 +35,7 @@ from app.models.skill import JobStandard, JobStandardTarget, Skill, SkillState  
 from app.models.study_chat import StudyInterviewQuestion, StudyMessage, StudySession
 from app.models.study_notes import StudyCard, StudyCardEvent, StudyNote, StudyNoteJob, StudyNoteVersion
 from app.models.study_practice import StudyPractice
+from app.models.telemetry import TelemetryEvent  # noqa: F401
 from app.models.trace import DecisionRecord, Event, Trace, TraceSpan  # noqa: F401
 from app.models.workspace import User, Workspace, WorkspaceMember  # noqa: F401
 
@@ -44,7 +45,7 @@ __all__ = [
     "Question", "ImportSession", "ImportItem", "RetestCriterionMapping",
     "Evidence", "Exam", "ExamQuestion", "ExamAnswer",
     "LearningTask", "MemoryItem",
-    "Trace", "TraceSpan", "DecisionRecord", "Event",
+    "Trace", "TraceSpan", "DecisionRecord", "Event", "TelemetryEvent",
     "PublicContentSource", "PublicContentDraft", "ContentPublication",
     "ContentPublicationRule", "ContentReleaseAudit",
     "Project", "ProjectScan", "ProjectFinding", "ProjectAnalysis", "ProjectResumeDraft", "CareerAsset", "AssetUpdateRun",

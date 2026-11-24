@@ -2,6 +2,7 @@ import { useT } from '../i18n';
 import { memo, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, readMessageStream, type MessageStreamEvent } from '../api/client';
+import { track } from '../telemetry';
 import StudyShell, { draftKey, stored, remember } from '../components/StudyShell';
 import { StudyComposerInput, StudyTurn, submitKey } from '../components/StudyConversation';
 import StudyText from '../components/StudyText';
@@ -250,6 +251,7 @@ function SessionView({id}:{id:number}) {
   }
   function send(action:string,question:string,parent=anchor,rev=revision){
     const q=question.trim(); if(!q||generating||busy)return;
+    try { track('chat.send', undefined, { action }); } catch { /* best-effort telemetry */ }
     if(action==='explain' && !/(不要|不用|别|不想).{0,5}(测|考|练|复述|提问)/.test(q)){
       const mode=/(让我|我想|请让我).{0,5}(试着解释|复述|用自己的话解释)/.test(q)?'study-restate':
         /^(请|现在|接下来|可以|先|帮我|来|想)?[，, ]*(测一下|测测我|考考我|考我一道|出一道.{0,5}题|给我一道.{0,5}题)/.test(q)?'study-quiz':

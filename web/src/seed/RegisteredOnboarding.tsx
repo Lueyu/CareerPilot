@@ -1,6 +1,7 @@
 import { useLocale, useT } from '../i18n';
 import { renderMessage } from './api';
 import { directionExample, directionLabel, useLibraryRole } from "./libraryRole";
+import { track } from '../telemetry';
 import "../styles/bank-presentation.css";
 
 export function RegisteredOnboarding({ onComplete }: { onComplete: () => void }) {
@@ -79,7 +80,7 @@ export function RegisteredOnboarding({ onComplete }: { onComplete: () => void })
           {t('registered.reloadRoles')}
         </button>
       )}
-      <button type="button" className="btn btn-primary registered-onboarding-continue" disabled={!saved || !direction || !!busy} onClick={onComplete}>
+      <button type="button" className="btn btn-primary registered-onboarding-continue" disabled={!saved || !direction || !!busy} onClick={() => { track('onboarding.complete', undefined, { role: active?.role, direction }); onComplete(); }}>
         {t('registered.enterWorkspace')}
       </button>
     </section>

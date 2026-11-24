@@ -27,6 +27,17 @@ interface DecisionApi {
   evidence_refs?: string[] | string; rationale?: string; created_at?: string;
 }
 
+interface AnalyticsData {
+  users: { total: number; active_1d: number; active_7d: number; active_30d: number };
+  events_total: number;
+  top_events: { name: string; count: number }[];
+  top_pages: { page: string; count: number }[];
+  devices: { device: string; count: number }[];
+  regions: { region: string; count: number }[];
+  locales: { locale: string; count: number }[];
+  trend: { date: string; events: number; users: number }[];
+}
+
 export default function Observatory() {
   const t = useT();
   const navigate = useNavigate();
@@ -39,6 +50,16 @@ export default function Observatory() {
   const [openDecision, setOpenDecision] = useState<number | null>(null);
   const [tick, setTick] = useState(0);
   const [advanced, setAdvanced] = useState(false);
+  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
+  const [analyticsErr, setAnalyticsErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!analytics) {
+      api.get<AnalyticsData>('/telemetry/summary')
+        .then((a) => { setAnalytics(a); setAnalyticsErr(null); })
+        .catch((e) => setAnalyticsErr(String(e.message || e)));
+    }
+  }, [analytics]);
 
   const load = () => {
     Promise.all([
@@ -132,6 +153,94 @@ export default function Observatory() {
           </div>
         ))}
         <div className="hint" style={{ marginTop: 8 }}>{t('progress.observatoryAdvancedDescription')}</div>
+      </div>
+
+      {/* 产品分析(匿名遥测): 用户数/功能使用/地域分布 */}
+      <div className="card" style={{ marginBottom: 18 }}>
+        <div className="card-head">
+          <span className="card-title">{t('progress.analyticsHeading')}</span>
+          <span className="card-sub">{t('progress.analyticsDescription')}</span>
+        </div>
+        {analytics && analytics.users ? (
+          <>
+            <div className="grid grid-4" style={{ marginBottom: 16 }}>
+              <StatCard label={t('progress.analyticsUsers')} value={t('progress.analyticsUsersCount', { count: analytics.users.total.toLocaleString(getLocale()) })} ic="👥" foot={t('progress.analyticsTotal')} />
+              <StatCard label={t('progress.analyticsActive1d')} value={analytics.users.active_1d.toLocaleString(getLocale())} ic="🔥" foot={t('progress.analyticsTotal')} />
+              <StatCard label={t('progress.analyticsActive7d')} value={analytics.users.active_7d.toLocaleString(getLocale())} ic="📈" foot={t('progress.analyticsTotal')} />
+              <StatCard label={t('progress.analyticsActive30d')} value={analytics.users.active_30d.toLocaleString(getLocale())} ic="🌙" foot={t('progress.analyticsEventsTotal') + ': ' + analytics.events_total.toLocaleString(getLocale())} />
+            </div>
+            <div className="grid grid-2">
+              <div>
+                <div className="card-title" style={{ fontSize: 14, marginBottom: 8 }}>{t('progress.analyticsTopEvents')}</div>
+                {analytics.top_events.length ? analytics.top_events.slice(0, 8).map((e) => (
+                  <div className="list-row" key={e.name} style={{ borderBottom: '1px solid var(--border-2)' }}>
+                    <div className="list-main"><div className="list-title" style={{ fontSize: 13 }}>{e.name}</div></div>
+                    <span className="chip chip-purple">{t('progress.analyticsCount', { count: e.count.toLocaleString(getLocale()) })}</span>
+                  </div>
+                )) : <p className="hint" style={{ padding: 12 }}>{t('progress.analyticsNoData')}</p>}
+              </div>
+              <div>
+                <div className="card-title" style={{ fontSize: 14, marginBottom: 8 }}>{t('progress.analyticsTopPages')}</div>
+                {analytics.top_pages.length ? analytics.top_pages.slice(0, 8).map((e) => (
+                  <div className="list-row" key={e.page} style={{ borderBottom: '1px solid var(--border-2)' }}>
+                    <div className="list-main"><div className="list-title" style={{ fontSize: 13 }}>{e.page}</div></div>
+                    <span className="chip chip-green">{t('progress.analyticsCount', { count: e.count.toLocaleString(getLocale()) })}</span>
+                  </div>
+                )) : <p className="hint" style={{ padding: 12 }}>{t('progress.analyticsNoData')}</p>}
+              </div>
+            </div>
+            <div className="grid grid-3" style={{ marginTop: 16 }}>
+              <div>
+                <div className="card-title" style={{ fontSize: 14, marginBottom: 8 }}>{t('progress.analyticsDevices')}</div>
+                {analytics.devices.length ? analytics.devices.slice(0, 6).map((r) => (
+                  <div className="list-row" key={r.device} style={{ borderBottom: '1px solid var(--border-2)' }}>
+                    <div className="list-main"><div className="list-title" style={{ fontSize: 13 }}>{r.device}</div></div>
+                    <span className="chip chip-slate">{t('progress.analyticsCount', { count: r.count.toLocaleString(getLocale()) })}</span>
+                  </div>
+                )) : <p className="hint" style={{ padding: 12 }}>{t('progress.analyticsNoData')}</p>}
+              </div>
+              <div>
+                <div className="card-title" style={{ fontSize: 14, marginBottom: 8 }}>{t('progress.analyticsRegions')}</div>
+                {analytics.regions.length ? analytics.regions.slice(0, 6).map((r) => (
+                  <div className="list-row" key={r.region} style={{ borderBottom: '1px solid var(--border-2)' }}>
+                    <div className="list-main"><div className="list-title" style={{ fontSize: 13 }}>{r.region}</div></div>
+                    <span className="chip chip-slate">{t('progress.analyticsCount', { count: r.count.toLocaleString(getLocale()) })}</span>
+                  </div>
+                )) : <p className="hint" style={{ padding: 12 }}>{t('progress.analyticsNoData')}</p>}
+              </div>
+              <div>
+                <div className="card-title" style={{ fontSize: 14, marginBottom: 8 }}>{t('progress.analyticsLocales')}</div>
+                {analytics.locales.length ? analytics.locales.slice(0, 6).map((r) => (
+                  <div className="list-row" key={r.locale} style={{ borderBottom: '1px solid var(--border-2)' }}>
+                    <div className="list-main"><div className="list-title" style={{ fontSize: 13 }}>{r.locale}</div></div>
+                    <span className="chip chip-slate">{t('progress.analyticsCount', { count: r.count.toLocaleString(getLocale()) })}</span>
+                  </div>
+                )) : <p className="hint" style={{ padding: 12 }}>{t('progress.analyticsNoData')}</p>}
+              </div>
+            </div>
+            {analytics.trend.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <div className="card-title" style={{ fontSize: 14, marginBottom: 8 }}>{t('progress.analyticsTrend')}</div>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 90, overflowX: 'auto' }}>
+                  {analytics.trend.map((d) => {
+                    const max = Math.max(1, ...analytics.trend.map((x) => Math.max(x.events, x.users)));
+                    return (
+                      <div key={d.date} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 34 }}>
+                        <div style={{ fontSize: 10, color: 'var(--text-3)' }}>{d.users}</div>
+                        <div style={{ width: 12, height: `${Math.max(2, (d.users / max) * 56)}px`, background: 'var(--primary)', borderRadius: 3, opacity: 0.85 }} title={d.date} />
+                        <div style={{ fontSize: 9, color: 'var(--text-4)', marginTop: 2 }}>{d.date.slice(5)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
+        ) : analyticsErr ? (
+          <p className="hint" style={{ padding: 18 }}>{t('progress.analyticsLoadError', { error: analyticsErr })}</p>
+        ) : (
+          <p className="hint" style={{ padding: 18 }}>{t('progress.loading')}</p>
+        )}
       </div>
 
       {/* 统计卡(高级数据) */}

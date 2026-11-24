@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { DemoBanner, PageHead } from '../components/ui';
 import { api, useApi, type ExamHistoryPage } from '../api/client';
 import { EXPERIENCED_BANK_PATH, experiencedHistoryPath } from '../lib/experiencedBankPath';
+import { track } from '../telemetry';
 
 
 const STATUS_CLS: Record<string, string> = {
@@ -112,7 +113,7 @@ export default function ExamCenter() {
             </div>
             <button
               className={`btn ${e.primary ? 'btn-primary' : 'btn-outline'}`}
-              onClick={() => (e.id === 'diagnosis' ? navigate('/exam/diagnosis') : navigate('/exam/diagnosis'))}
+              onClick={() => (track('exam.start', undefined, { kind: e.id }), navigate('/exam/diagnosis'))}
             >
               {e.primary ? t("study.startDiagnostic") : t("study.startExam")}
             </button>
