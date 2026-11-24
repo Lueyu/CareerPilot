@@ -28,6 +28,7 @@ import ProjectReview from './pages/ProjectReview';
 import Pipeline from './pages/Pipeline';
 import Memory from './pages/Memory';
 import Observatory from './pages/Observatory';
+import Ops from './pages/Ops';
 import Evolution from './pages/Evolution';
 import Settings from './pages/Settings';
 import QuestionWorkshop from './pages/QuestionWorkshop';
@@ -101,6 +102,7 @@ export function NativeWorkspace({ registered }: { registered?: RegisteredPages }
         <Route path="/assets/project/:id" element={<ProjectReview />} />
         <Route path="/assets/pipeline" element={<Pipeline />} />
         <Route path="/observatory" element={<Observatory />} />
+        <Route path="/ops" element={<Ops />} />
         <Route path="/evolution" element={<Evolution />} />
         {registered?.routes}
       </WorkspaceRoutes>

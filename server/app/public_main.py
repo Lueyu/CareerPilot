@@ -19,7 +19,7 @@ from app.api import (
     public_memory,
     public_native,
 )
-from app.api.v1 import telemetry
+from app.api.v1 import ops, telemetry
 from app.db import Base, engine
 from app.i18n import LanguageMiddleware
 from app.services.public_native_runtime import close_native_runtime, invalidate_transfer, validate_native_config
@@ -64,7 +64,7 @@ app.middleware("http")(public_auth.public_origin_guard)
 app.add_middleware(LanguageMiddleware)
 for routes in (public_auth.router, public_library.router, public_coach.router, public_memory.router,
                public_dashboard.router, public_learning.router, public_native.router, public_feedback.router,
-               telemetry.router):
+               telemetry.router, ops.router):
     app.include_router(routes, prefix="/api/v1")
 
 

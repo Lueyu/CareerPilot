@@ -24,6 +24,7 @@ from app.api.v1 import (
     learning_projects,
     memory,
     observatory,
+    ops,
     profile,
     project_analysis,
     project_autopilot,
@@ -76,7 +77,7 @@ app.add_middleware(
 )
 
 # 认证在 get_workspace 依赖链内(require_auth), /healthz 开放
-for router in (study_chat.router, study_notes.router, study_practice.router, dashboard.router, benchmark.router, profile.router, exams.router, bank.router, learning.router, memory.router, observatory.router, public_content.router, settings.router, projects.router, career_assets.router, evolution.router, telemetry.router):
+for router in (study_chat.router, study_notes.router, study_practice.router, dashboard.router, benchmark.router, profile.router, exams.router, bank.router, learning.router, memory.router, observatory.router, ops.router, public_content.router, settings.router, projects.router, career_assets.router, evolution.router, telemetry.router):
     app.include_router(router, prefix="/api/v1")
 app.include_router(question_generation.router, prefix="/api/v1")
 app.include_router(project_analysis.router, prefix="/api/v1")

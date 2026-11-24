@@ -11,6 +11,7 @@ from app.models.learning import LearningTask  # noqa: F401
 from app.models.learning_feedback import LearningActivity, LearningGoal, LearningSubmission  # noqa: F401
 from app.models.learning_project import LearningProjectSnapshot  # noqa: F401
 from app.models.memory import MemoryItem  # noqa: F401
+from app.models.metric import AgentMetric  # noqa: F401
 from app.models.project import (  # noqa: F401
     AssetUpdateRun,
     CareerAsset,
@@ -45,7 +46,7 @@ __all__ = [
     "Question", "ImportSession", "ImportItem", "RetestCriterionMapping",
     "Evidence", "Exam", "ExamQuestion", "ExamAnswer",
     "LearningTask", "MemoryItem",
-    "Trace", "TraceSpan", "DecisionRecord", "Event", "TelemetryEvent",
+    "Trace", "TraceSpan", "DecisionRecord", "Event", "TelemetryEvent", "AgentMetric",
     "PublicContentSource", "PublicContentDraft", "ContentPublication",
     "ContentPublicationRule", "ContentReleaseAudit",
     "Project", "ProjectScan", "ProjectFinding", "ProjectAnalysis", "ProjectResumeDraft", "CareerAsset", "AssetUpdateRun",

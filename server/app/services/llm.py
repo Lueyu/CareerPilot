@@ -265,13 +265,14 @@ class AgentAdapter:
             # fallback is valid for their operation.
             return None
         finally:
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            usage = (result or {}).get("usage") or {}
+            total_tokens = usage.get("total_tokens") or 0
+            cost = round(total_tokens * 2e-6, 6)
             if trace is not None and session is not None:
                 try:
                     from app.services.tracing import add_span
 
-                    duration_ms = int((time.perf_counter() - t0) * 1000)
-                    usage = (result or {}).get("usage") or {}
-                    total_tokens = usage.get("total_tokens") or 0
                     detail = {
                         "agent": True,
                         "provider": cfg.get("provider"),
@@ -283,12 +284,59 @@ class AgentAdapter:
                         "ok": result is not None,
                         "cost_note": "estimate ¥2/M tokens",
                     }
-                    cost = round(total_tokens * 2e-6, 6)
                     add_span(session, trace, span_name or f"llm:{cfg.get('model') or 'unknown'}",
                              duration_ms=duration_ms, cost_cny=cost, detail=detail,
                              status="OK" if result is not None else "ERROR")
                 except Exception:  # span 记录失败不影响主流程
                     pass
+            # 工业级观测: 每次调用一行指标(尽力而为, 不阻断主流程)。
+            try:
+                await self._record_metric(
+                    kind=span_name or "llm",
+                    provider=cfg.get("provider"),
+                    model=cfg.get("model"),
+                    duration_ms=duration_ms,
+                    ttft_ms=self.last_response_meta.get("response_headers_ms"),
+                    usage=usage,
+                    ok=result is not None,
+                    error_kind=(self.last_error or {}).get("kind"),
+                    finish_reason=self.last_response_meta.get("finish_reason"),
+                    stream=bool(stream),
+                    session=session,
+                )
+            except Exception:
+                pass
+
+    async def _record_metric(self, *, kind: str, provider: str | None, model: str | None,
+                             duration_ms: int, ttft_ms: int | None, usage: dict,
+                             ok: bool, error_kind: str | None, finish_reason: str | None,
+                             stream: bool, session: Any | None) -> None:
+        """写入 agent_metrics 一行。优先复用调用方会话; 否则开独立会话提交。"""
+        from app.models.metric import AgentMetric
+
+        metric = AgentMetric(
+            kind=(kind or "llm")[:48],
+            provider=(provider or "")[:48] or None,
+            model=(model or "")[:120] or None,
+            duration_ms=int(duration_ms),
+            ttft_ms=int(ttft_ms) if ttft_ms is not None else None,
+            prompt_tokens=usage.get("prompt_tokens"),
+            completion_tokens=usage.get("completion_tokens"),
+            total_tokens=usage.get("total_tokens") or 0,
+            cost_cny=round((usage.get("total_tokens") or 0) * 2e-6, 6),
+            ok=bool(ok),
+            error_kind=(error_kind or "")[:48] or None,
+            finish_reason=(finish_reason or "")[:32] or None,
+            stream=bool(stream),
+        )
+        if session is not None:
+            session.add(metric)
+            return
+        from app.db import SessionLocal
+
+        async with SessionLocal() as own:
+            own.add(metric)
+            await own.commit()
 
     async def chat(self, system: str, user: str, json_mode: bool = False, timeout: float = 60.0,
                    trace: Any = None, session: Any = None, span_name: str | None = None) -> dict[str, Any] | None:
