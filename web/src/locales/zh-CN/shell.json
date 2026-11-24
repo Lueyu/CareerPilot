@@ -286,5 +286,14 @@
   "workspaceTypePersonal": "正式工作空间",
   "workspaceUpdated": "工作空间已更新",
   "workspaceWithSlug": "{label} · {slug}",
+  "createWorkspace": "新建工作空间",
+  "workspaceName": "工作空间名称",
+  "workspaceNameRequired": "请输入工作空间名称",
+  "workspaceCreated": "工作空间已创建",
+  "workspaceCreateFailed": "创建失败: {error}",
+  "creating": "创建中…",
+  "editWorkspace": "编辑工作空间",
+  "enterWorkspace": "进入",
+  "create": "创建",
   "yourFeedback": "你的意见"
 }

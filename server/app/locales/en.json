@@ -116,6 +116,7 @@
   "errors.the_import_record_could_not_be_found": "The import record could not be found.",
   "errors.revisions_must_refer_to_a_selected_original_question_and": "Revisions must refer to a selected original question and contain 6–1,000 characters.",
   "errors.enter_a_name_for_the_question_set": "Enter a name for the question set.",
+  "errors.enter_a_workspace_name": "Enter a workspace name.",
   "errors.the_imported_questions_are_not_ready_to_rewrite": "The imported questions are not ready to rewrite.",
   "errors.no_available_project_found": "No available project found.",
   "errors.the_selected_question_belongs_to_a_different_import_or": "The selected question belongs to a different import or has been rejected.",

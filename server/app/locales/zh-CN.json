@@ -116,6 +116,7 @@
   "errors.the_import_record_could_not_be_found": "未找到导入记录",
   "errors.revisions_must_refer_to_a_selected_original_question_and": "修订只能用于已选原题，长度须为 6–1000 字",
   "errors.enter_a_name_for_the_question_set": "请输入套题名称",
+  "errors.enter_a_workspace_name": "请输入工作空间名称",
   "errors.the_imported_questions_are_not_ready_to_rewrite": "导入题目尚不可用于改写",
   "errors.no_available_project_found": "未找到可用项目",
   "errors.the_selected_question_belongs_to_a_different_import_or": "选择的原题不属于这个导入批次，或已被驳回",

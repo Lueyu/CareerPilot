@@ -286,5 +286,14 @@
   "workspaceTypePersonal": "Personal workspace",
   "workspaceUpdated": "Workspace updated.",
   "workspaceWithSlug": "{label} · {slug}",
+  "createWorkspace": "New workspace",
+  "workspaceName": "Workspace name",
+  "workspaceNameRequired": "Enter a workspace name",
+  "workspaceCreated": "Workspace created",
+  "workspaceCreateFailed": "Couldn’t create: {error}",
+  "creating": "Creating…",
+  "editWorkspace": "Edit workspace",
+  "enterWorkspace": "Enter",
+  "create": "Create",
   "yourFeedback": "Your feedback"
 }
