@@ -1,8 +1,9 @@
+import {useT} from '../i18n';
 import React, {useEffect, useRef, useState} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {api} from '../api/client';
 import {Modal} from './ui';
-import type {AutopilotSettings, AutopilotSummary} from '../lib/projectIntelligence';
+import {projectProviderName, type AutopilotSettings, type AutopilotSummary} from '../lib/projectIntelligence';
 import {messageOf} from '../lib/questionWorkshop';
 
 interface Props {
@@ -14,6 +15,7 @@ interface Props {
   onQueued?: () => void;
 }
 export default function ProjectScanButton({projectId, name, analysis, onQueued, repository, branch}: Props) {
+  const t = useT();
   const navigate = useNavigate();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -53,20 +55,20 @@ export default function ProjectScanButton({projectId, name, analysis, onQueued, 
       if (active) navigate(processUrl);
       else if (consented) void start();
       else { setError(''); setConfirming(true); }
-    }}>{active ? '查看扫描进度' : busy ? '正在提交…' : 'AI 扫描'}</button>
+    }}>{active ? t('projects.scanProgress') : busy ? t('projects.submitting') : t('projects.aiScan')}</button>
     {error && !confirming && <span role="alert">{error}</span>}
-    {confirming && <Modal title={'扫描「' + name + '」'} onClose={() => {if (!busy) setConfirming(false);}} footer={<>
-      <button className="btn btn-outline" disabled={busy} onClick={() => setConfirming(false)}>取消</button>
-      <button className="btn btn-primary" disabled={busy} onClick={() => void start()}>{busy ? '正在提交…' : '确认并扫描此项目'}</button>
+    {confirming && <Modal title={t('projects.scanProjectTitle', {name})} onClose={() => {if (!busy) setConfirming(false);}} footer={<>
+      <button className="btn btn-outline" disabled={busy} onClick={() => setConfirming(false)}>{t('projects.cancel')}</button>
+      <button className="btn btn-primary" disabled={busy} onClick={() => void start()}>{busy ? t('projects.submitting') : t('projects.confirmStartScan')}</button>
     </>}>
       <dl className="scan-scope">
-        <div><dt>仓库与分支</dt><dd>{repository || name} / {branch || '默认分支'}</dd></div>
-        <div><dt>读取范围</dt><dd>当前仓库可分析的源码</dd></div>
-        <div><dt>模型路由</dt><dd>{settings?.provider_display_name || 'Auto · 学习聊天模型配置'}</dd></div>
-        <div><dt>整次扫描预算</dt><dd>{settings?.budget ? [settings.budget.max_model_calls ? settings.budget.max_model_calls+' 次调用' : '调用次数不限', settings.budget.max_source_bytes ? settings.budget.max_source_bytes+' 字节' : '读取总量不限'].join(' · ') : '沿用已保存的设置，默认不限'}</dd></div>
+        <div><dt>{t('projects.repositoryAndBranch')}</dt><dd>{repository || name} / {branch || t('projects.defaultBranch')}</dd></div>
+        <div><dt>{t('projects.scanScope')}</dt><dd>{t('projects.eligibleSourceCode')}</dd></div>
+        <div><dt>{t('projects.modelRouting')}</dt><dd>{projectProviderName(settings) || t('projects.autoStudyModelConfig')}</dd></div>
+        <div><dt>{t('projects.totalScanBudget')}</dt><dd>{settings?.budget ? [settings.budget.max_model_calls ? t('projects.scanBudgetCalls', {count: settings.budget.max_model_calls}) : t('projects.unlimitedModelCalls'), settings.budget.max_source_bytes ? t('projects.scanBudgetBytes', {count: settings.budget.max_source_bytes}) : t('projects.unlimitedSourceBytes')].join(' · ') : t('projects.savedScanBudget')}</dd></div>
       </dl>
-      <p>Auto 会将这个仓库的相关源码片段发送给已配置的模型服务，按扫描阶段选择模型。任务在后台运行，可在分析过程中暂停。</p>
-      <p className="hint">只授权此次扫描。</p>
+      <p>{t('projects.scanConsent')}</p>
+      <p className="hint">{t('projects.thisScanOnly')}</p>
       {error && <p role="alert">{error}</p>}
     </Modal>}
   </>;

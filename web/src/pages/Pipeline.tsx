@@ -1,3 +1,4 @@
+import {t as translate, useLocale, useT} from '../i18n';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState } from '../components/AppState';
@@ -14,7 +15,7 @@ interface RunView {
 }
 
 const RISK_CLS: Record<string, string> = { LOW: 'chip-green', MEDIUM: 'chip-amber', HIGH: 'chip-red' };
-const RISK_TEXT: Record<string, string> = { LOW: '低风险', MEDIUM: '中风险', HIGH: '高风险' };
+const RISK_LABEL_KEYS: Record<string, string> = { LOW: 'projects.riskLow', MEDIUM: 'projects.riskMedium', HIGH: 'projects.riskHigh' };
 const DRAFT_CHECK_CLS: Record<string, string> = { PASS: 'chip-green', WARN: 'chip-amber', FAIL: 'chip-red', info: 'chip-green', warning: 'chip-amber', error: 'chip-red' };
 
 /** 由 run 状态推导流水线步骤(0=检测变更 … 7=发布完成)。 */
@@ -29,9 +30,24 @@ function stepOf(run: RunView | null): number {
   if (run.status === 'DRAFT_CREATED') return 4;
   return 0;
 }
-const STEPS = ['检测项目变更', '提取证据', '映射能力', '生成内容草稿', '风险分级与审核', '创建 PR', '发布', '完成'];
+const STATUS_KEYS: Partial<Record<string, string>> = {
+  PENDING_DIFF: 'projects.pipelinePendingDiff', DRAFT_CREATED: 'projects.pipelineDraftCreated',
+  PUBLISHED: 'projects.pipelinePublished', FAILED: 'projects.analysisRunFailed', ROLLED_BACK: 'projects.pipelineRolledBack',
+  CREATED: 'projects.pipelineCreated', PR_CREATED: 'projects.pipelinePrCreated', BUILDING: 'projects.pipelineBuilding',
+  DRY_RUN: 'projects.pipelineDryRun', DRAFT: 'projects.draft', APPROVED: 'projects.pipelineApproved',
+  REJECTED: 'projects.pipelineRejected', ARCHIVED: 'projects.pipelineArchived',
+  NONE: 'projects.none', PENDING: 'projects.pendingAnalysis', RUNNING: 'projects.pipelineRunning',
+  SUCCESS: 'projects.pipelineSucceeded', FAILURE: 'projects.analysisRunFailed',
+};
+
+const REMOVED_DIFF_PREFIX = '移除';
+const STEPS = ['projects.stepDetectChange', 'projects.stepExtractEvidence', 'projects.stepMapSkills', 'projects.stepDraftContent', 'projects.stepRiskReview', 'projects.stepCreatePr', 'projects.stepPublish', 'projects.stepFinish'];
 
 export default function Pipeline() {
+  const t = useT();
+  const locale = useLocale();
+  const riskLabel = (risk: string) => RISK_LABEL_KEYS[risk] ? t(RISK_LABEL_KEYS[risk]) : risk;
+  const statusLabel = (status: string) => locale === 'en' ? t(STATUS_KEYS[status] ?? 'projects.statusUnknown', {status}) : status;
   const navigate = useNavigate();
   const { toast } = useAppState();
   const [runs, setRuns] = useState<RunView[] | null>(null);
@@ -54,11 +70,11 @@ export default function Pipeline() {
     setBusy(true);
     try {
       await api.post(`/career-assets/updates/${r.id}/rollback`);
-      toast('↩️', '已回滚：站点恢复上一可用版本');
+      toast('↩️', translate('projects.rollbackSucceeded'));
       setRollbackOpen(null);
       reload();
     } catch (e: any) {
-      toast('⚠️', `回滚失败：${e.message || e}`);
+      toast('⚠️', translate('projects.rollbackFailed', {error: String(e instanceof Error ? e.message : e)}));
       setRollbackOpen(null);
     } finally {
       setBusy(false);
@@ -71,17 +87,17 @@ export default function Pipeline() {
   return (
     <div>
       <PageHead
-        title="职业资产更新流水线"
-        sub={latest?.project ? `${latest.project.name} · ${latest.short_code}` : '项目扫描 → 草稿 → 风险分级 → 发布'}
+        title={t('projects.portfolioPipeline')}
+        sub={latest?.project ? `${latest.project.name} · ${latest.short_code}` : t('projects.pipelineSubtitle')}
       >
-        <button className="btn btn-outline" onClick={() => navigate('/assets')}>← 返回项目资产</button>
+        <button className="btn btn-outline" onClick={() => navigate('/assets')}>{t('projects.backToProjectAssets')}</button>
       </PageHead>
-      {loading && <div className="hint" style={{ marginBottom: 14 }}>正在从后端加载流水线状态…</div>}
-      {err && <div className="card" style={{ padding: '24px 20px', marginBottom: 16 }}><b>⚠️ 无法加载流水线</b><p className="hint" style={{ marginTop: 6 }}>{err}</p></div>}
+      {loading && <div className="hint" style={{ marginBottom: 14 }}>{t('projects.loadingPipeline')}</div>}
+      {err && <div className="card" style={{ padding: '24px 20px', marginBottom: 16 }}><b>{t('projects.pipelineLoadFailed')}</b><p className="hint" style={{ marginTop: 6 }}>{err}</p></div>}
       {!loading && !err && (!runs || runs.length === 0) && (
         <div className="card" style={{ padding: '28px 20px' }}>
-          <b>还没有资产更新记录</b>
-          <p className="hint" style={{ marginTop: 6 }}>先扫描一个仓库，然后在「项目与职业资产」页点「更新职业资产」。</p>
+          <b>{t('projects.noAssetUpdates')}</b>
+          <p className="hint" style={{ marginTop: 6 }}>{t('projects.startAssetUpdate')}</p>
         </div>
       )}
 
@@ -93,7 +109,7 @@ export default function Pipeline() {
                 <React.Fragment key={s}>
                   {i > 0 && <span className="pl-arrow">→</span>}
                   <span className={`pl-step ${i < step ? 'done' : i === step ? 'now' : ''}`}>
-                    {i < step ? '✓' : i === step ? '⟳' : `${i + 1}`} {s}
+                    {i < step ? '✓' : i === step ? '⟳' : i + 1} {t(s)}
                   </span>
                 </React.Fragment>
               ))}
@@ -102,8 +118,8 @@ export default function Pipeline() {
 
           <div className="card" style={{ marginBottom: 18 }}>
             <div className="card-head">
-              <span className="card-title">{latest.draft?.title || '内容草稿'}</span>
-              <span className={`chip ${RISK_CLS[latest.risk_level] || 'chip-slate'}`}>风险分级：{RISK_TEXT[latest.risk_level] || latest.risk_level}</span>
+              <span className="card-title">{latest.draft?.title || t('projects.contentDraft')}</span>
+              <span className={`chip ${RISK_CLS[latest.risk_level] || 'chip-slate'}`}>{t('projects.riskClassification', {risk: riskLabel(latest.risk_level)})}</span>
             </div>
             {latest.risk_reason && <div className="hint" style={{ margin: '4px 0 10px' }}>{latest.risk_reason}</div>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
@@ -114,11 +130,11 @@ export default function Pipeline() {
                 </div>
               ))}
             </div>
-            <div className="hint" style={{ marginBottom: 6 }}>与上一版差异</div>
+            <div className="hint" style={{ marginBottom: 6 }}>{t('projects.diffFromPrevious')}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {(latest.diff_markdown || '').split('\n').filter(Boolean).slice(0, 12).map((c, i) => (
                 <div className="list-row" key={i} style={{ padding: '7px 2px' }}>
-                  <span className={`chip ${c.startsWith('移除') ? 'chip-red' : 'chip-green'}`}>{c.startsWith('移除') ? '移除' : '变更'}</span>
+                  <span className={`chip ${c.startsWith(REMOVED_DIFF_PREFIX) ? 'chip-red' : 'chip-green'}`}>{t(c.startsWith(REMOVED_DIFF_PREFIX) ? 'projects.diffRemoved' : 'projects.diffChanged')}</span>
                   <span style={{ fontSize: 13 }}>{c.replace(/^移除:\s*/, '')}</span>
                 </div>
               ))}
@@ -128,57 +144,56 @@ export default function Pipeline() {
           {latest.publication && (
             <div className="card" style={{ marginBottom: 18 }}>
               <div className="card-head">
-                <span className="card-title">发布记录 · {latest.publication.short_code}</span>
+                <span className="card-title">{t('projects.publicationNumber', {code: latest.publication.short_code})}</span>
                 <span className={`chip ${latest.publication.status === 'PUBLISHED' ? 'chip-green' : latest.publication.status === 'DRY_RUN' ? 'chip-blue' : 'chip-amber'}`}>
-                  {latest.publication.status}
+                  {statusLabel(latest.publication.status)}
                 </span>
               </div>
               <div className="q-meta" style={{ marginBottom: 8 }}>
-                {latest.publication.pr_url && <a className="chip chip-slate" href={latest.publication.pr_url} target="_blank" rel="noreferrer">🔀 PR #{latest.publication.pr_number}</a>}
-                {latest.publication.commit_sha && <span className="chip chip-slate">commit {latest.publication.commit_sha.slice(0, 8)}</span>}
-                <span className="chip chip-slate">构建 {latest.publication.build_status}</span>
-                {latest.draft && <span className="chip chip-slate">草稿 {latest.draft.short_code} · {latest.draft.status}</span>}
+                {latest.publication.pr_url && <a className="chip chip-slate" href={latest.publication.pr_url} target="_blank" rel="noreferrer">{t('projects.pipelinePrNumber', {number: latest.publication.pr_number ?? ''})}</a>}
+                {latest.publication.commit_sha && <span className="chip chip-slate">{t('projects.pipelineCommit', {sha: latest.publication.commit_sha.slice(0, 8)})}</span>}
+                <span className="chip chip-slate">{t('projects.buildState', {status: statusLabel(latest.publication.build_status)})}</span>
+                {latest.draft && <span className="chip chip-slate">{t('projects.pipelineDraftDetails', {code: latest.draft.short_code, status: statusLabel(latest.draft.status)})}</span>}
               </div>
               {latest.publication.status === 'DRY_RUN' && (
-                <div className="hint">这是一次 dry-run：只生成发布计划（分支名/写入路径），未写入 GitHub。</div>
+                <div className="hint">{t('projects.dryRunNotice')}</div>
               )}
             </div>
           )}
 
-          <div className="card"><div className="card-title">公共发布已关闭</div><p className="hint">仅保留本地草稿和预览，不会创建、合并或回滚公共仓库内容。</p></div>
+          <div className="card"><div className="card-title">{t('projects.publishingDisabled')}</div><p className="hint">{t('projects.localDraftsOnly')}</p></div>
         </>
       )}
 
       {runs && runs.length > 1 && (
         <div className="card mt-18">
-          <div className="card-head"><span className="card-title">历史运行</span></div>
+          <div className="card-head"><span className="card-title">{t('projects.runHistory')}</span></div>
           {runs.map((r) => (
             <div className="list-row" key={r.id}>
               <div className="list-ic">{r.status === 'PUBLISHED' ? '🚀' : r.status === 'ROLLED_BACK' ? '↩️' : r.status === 'FAILED' ? '⚠️' : '📝'}</div>
               <div className="list-main">
-                <div className="list-title">{r.short_code} · {r.project?.name || '未关联项目'}</div>
+                <div className="list-title">{r.short_code} · {r.project?.name || t('projects.noLinkedProject')}</div>
                 <div className="list-sub">
-                  {r.created_at ? new Date(r.created_at).toLocaleString('zh-CN') : ''} · 草稿 {r.draft?.short_code || '-'} · 风险 {RISK_TEXT[r.risk_level] || r.risk_level}
-                  {r.publication?.pr_number ? ` · PR #${r.publication.pr_number}` : ''}
+                  {t('projects.pipelineRunDetails', {date: r.created_at ? new Date(r.created_at).toLocaleString(locale) : '', draft: r.draft?.short_code || '-', risk: riskLabel(r.risk_level)})}
+                  {r.publication?.pr_number ? t('projects.pipelinePrSuffix', {number: r.publication.pr_number}) : ''}
                 </div>
               </div>
-              <span className={`chip ${r.status === 'PUBLISHED' ? 'chip-green' : r.status === 'ROLLED_BACK' ? 'chip-slate' : 'chip-amber'}`}>{r.status}</span>
+              <span className={`chip ${r.status === 'PUBLISHED' ? 'chip-green' : r.status === 'ROLLED_BACK' ? 'chip-slate' : 'chip-amber'}`}>{statusLabel(r.status)}</span>
             </div>
           ))}
         </div>
       )}
 
       {rollbackOpen && (
-        <Modal title="回滚发布？" size="sm" onClose={() => setRollbackOpen(null)}
+        <Modal title={t('projects.rollbackTitle')} size="sm" onClose={() => setRollbackOpen(null)}
           footer={
             <>
-              <button className="btn btn-outline" onClick={() => setRollbackOpen(null)}>取消</button>
-              <button className="btn btn-danger" disabled={busy} onClick={() => rollback(rollbackOpen)}>确认回滚</button>
+              <button className="btn btn-outline" onClick={() => setRollbackOpen(null)}>{t('projects.cancel')}</button>
+              <button className="btn btn-danger" disabled={busy} onClick={() => rollback(rollbackOpen)}>{t('projects.confirmRollback')}</button>
             </>
           }>
           <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.7 }}>
-            将职业展示回滚至<b>上一个可用发布版本</b>（创建回滚分支 + PR，不自动合并）。
-            本次发布产生的证据仍保留，不会删除能力画像数据。
+            {t('projects.pipelineRollbackDescription')}
           </p>
         </Modal>
       )}
