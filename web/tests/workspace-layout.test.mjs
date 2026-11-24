@@ -115,10 +115,7 @@ test('navigating from the drawer closes it and updates the breadcrumb', t => {
   assert.equal(root.findByProps({ className: 'crumb-cur' }).children[0], '面试题库');
 });
 
-for (const [route, usesDrawer] of [
-  ['/', true], ['/exam', true], ['/settings', true], ['/bank', true], ['/learning', true],
-  ['/study/chat', false], ['/memory', false],
-]) {
+for (const route of registeredRoutes) {
   test(`personal mobile navigation remains available at ${route}`, t => {
     const { root, dialog } = renderShell(t, route, h(WorkspaceLayout, {
       workspace: {
@@ -127,17 +124,21 @@ for (const [route, usesDrawer] of [
         actions: { search() {}, quick() {}, notifications() {} },
       },
     }));
+    const compact = route.startsWith('/study/') || route === '/memory' || route.startsWith('/assets');
     const menu = root.findAllByProps({ className: 'btn btn-outline workspace-mobile-nav-button' });
-    assert.equal(menu.length, usesDrawer ? 1 : 0);
+    assert.equal(menu.length, 1);
     assert.ok(root.findByProps({ className: 'btn feedback-entry' }));
-    if (usesDrawer) {
-      act(() => menu[0].props.onClick());
-      assert.equal(dialog.open, true);
-      const drawer = root.findByProps({ className: 'workspace-mobile-drawer' });
-      assert.deepEqual(navDestinations(drawer.findByType('aside')), navDestinations(root.findAllByType('aside')[0]));
-    } else {
+    if (compact) {
       assert.ok(root.findByProps({ className: 'app app-compact-nav' }));
       assert.ok(navDestinations(root.findByType('aside')).includes('/study/chat'));
+    } else {
+      assert.ok(root.findByProps({ className: 'app app-drawer-nav' }));
     }
+    act(() => menu[0].props.onClick());
+    assert.equal(dialog.open, true);
+    const drawer = root.findByProps({ className: 'workspace-mobile-drawer' });
+    assert.deepEqual(navDestinations(drawer.findByType('aside')), navDestinations(root.findAllByType('aside')[0]));
+    act(() => drawer.findByProps({ className: 'btn btn-outline workspace-mobile-nav-close' }).props.onClick());
+    assert.equal(dialog.open, false);
   });
 }
