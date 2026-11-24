@@ -1,0 +1,16 @@
+.language-selector {
+  max-width: 8rem;
+  min-height: 34px;
+  padding: 3px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.language-selector:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .topbar .language-selector { font-size: 12px; max-width: 5rem; }
+}

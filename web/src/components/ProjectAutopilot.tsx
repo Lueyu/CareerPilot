@@ -1,27 +1,34 @@
+import {t, useT} from '../i18n';
 import React,{useEffect,useRef,useState} from 'react';
 import {Link} from 'react-router-dom';
 import {api} from '../api/client';
-import {AutopilotRun,AutopilotSettings,WorkerStatus} from '../lib/projectIntelligence';
+import {AutopilotRun,AutopilotSettings,WorkerStatus,PROJECT_SOURCE_NOTICE,projectProviderName} from '../lib/projectIntelligence';
 import {messageOf} from '../lib/questionWorkshop';
 
-export const RUN_LABELS:Record<string,string>={WAITING_WORKER:'等待后台升级，扫描已排队',QUEUED:'已导入，等待分析',RUNNING:'正在了解项目',RETRY_WAIT:'暂时无法继续，进度已保存',COMPLETED:'已完成，可查看报告',PAUSED_USER:'已暂停，进度已保存',PAUSED_BUDGET:'达到自动分析预算，进度已保存',BLOCKED:'暂时无法继续，进度已保存',CANCELLED:'分析任务已取消',FAILED_FINAL:'本次分析未完成，进度已保存'};
+const RUN_LABEL_KEYS:Record<string,string>={WAITING_WORKER:'projects.waitingWorker',QUEUED:'projects.queuedAnalysis',RUNNING:'projects.runningAnalysis',RETRY_WAIT:'projects.analysisInterrupted',COMPLETED:'projects.analysisCompleted',PAUSED_USER:'projects.analysisPaused',PAUSED_BUDGET:'projects.analysisBudgetReached',BLOCKED:'projects.analysisInterrupted',CANCELLED:'projects.analysisCancelled',FAILED_FINAL:'projects.analysisFailed'};
+export function projectRunStatusLabel(status: string) {
+  const key = RUN_LABEL_KEYS[status];
+  return key ? t(key) : undefined;
+}
+
 export function projectRunLabel(run: AutopilotRun) {
   if (run.report_id === run.id && run.coverage_status === 'COMPLETE' && run.status !== 'COMPLETED') {
     const preparing = ['RUNNING', 'QUEUED', 'RETRY_WAIT'].includes(run.status);
-    return preparing ? '报告已生成，正在整理候选记忆' : '报告已生成，候选记忆尚未完成';
+    return preparing ? t('projects.reportPreparingMemories') : t('projects.reportMissingMemories');
   }
-  if (run.status === 'COMPLETED' && run.coverage_status === 'PARTIAL') return '已完成部分分析，仍有内容未覆盖';
-  return RUN_LABELS[run.status] || '正在读取任务状态';
+  if (run.status === 'COMPLETED' && run.coverage_status === 'PARTIAL') return t('projects.analysisPartial');
+  return projectRunStatusLabel(run.status) || t('projects.loadingRun');
 }
-const STAGES:Record<string,string>={resolve:'读取仓库版本',manifest_page:'分页盘点项目文件',manifest:'整理文件目录',plan_modules:'划分分析模块',read_source:'阅读模块源码',analyze_module:'分析模块实现与问题',module:'保存模块分析',cross_module:'核对跨模块调用与数据流',explain_section:'整理项目报告章节',report:'汇总并核对完整报告',candidates:'整理待确认的项目记忆',fetch_repo:'读取仓库版本与目录',snapshot:'读取仓库版本与目录',inventory:'梳理目录与模块',select_files:'梳理重点模块',read_initial:'阅读首批源码',followup_files:'寻找关联代码',read_followup:'补读关联代码',review_modules:'分组分析模块与问题',module_analysis:'分组分析模块与问题',final_report:'形成架构与问题报告',synthesis:'汇总项目报告',validate_report:'核对报告与代码引用',memory_candidates:'整理待确认的项目记忆'};
+const STAGES:Record<string,string>={resolve:'projects.stageResolve',manifest_page:'projects.stageManifestPage',manifest:'projects.stageManifest',plan_modules:'projects.stagePlanModules',read_source:'projects.stageReadSource',analyze_module:'projects.stageAnalyzeModule',module:'projects.stageSaveModule',cross_module:'projects.stageCrossModule',explain_section:'projects.stageExplainSection',report:'projects.stageReport',candidates:'projects.stageCandidates',fetch_repo:'projects.stageRepoTree',snapshot:'projects.stageRepoTree',inventory:'projects.stageInventory',select_files:'projects.stageSelectFiles',read_initial:'projects.stageInitialRead',followup_files:'projects.stageFindRelated',read_followup:'projects.stageReadRelated',review_modules:'projects.stageReviewModules',module_analysis:'projects.stageReviewModules',final_report:'projects.stageFinalReport',synthesis:'projects.stageSynthesis',validate_report:'projects.stageValidateReport',memory_candidates:'projects.stageCandidates'};
 export function ProjectRunStatus({run,worker,compact=false}: {run:AutopilotRun|null;worker?:WorkerStatus;compact?:boolean}) {
+  const t = useT();
   return <div>
-    {worker && !worker.online && <p role="status" className="hint">尚未启动本地后台服务。已有进度会保留；启动 Worker 后继续处理。</p>}
+    {worker && !worker.online && <p role="status" className="hint">{t('projects.workerNotStarted')}</p>}
     {run && <div role={run.error?'alert':'status'}>
       <p><strong>{projectRunLabel(run)}</strong></p>
       {!compact && <>
-        {run.stage && <p className="hint">{run.error?'停留阶段':'当前阶段'}：{STAGES[run.stage] || '后台处理项目资料'}</p>}
-        {run.total_modules>0 && <p className="hint">已保存 {run.completed_modules} / {run.total_modules} 个模块的分析。{run.coverage_status==='PARTIAL'?'当前是部分分析，不能视为完整项目结论。':''}</p>}
+        {run.stage && <p className="hint">{t(run.error ? 'projects.stageStoppedAt' : 'projects.stageCurrent', {stage: t(STAGES[run.stage] || 'projects.stageBackground')})}</p>}
+        {run.total_modules>0 && <p className="hint">{t(run.coverage_status === 'PARTIAL' ? 'projects.partialModulesSaved' : 'projects.modulesSaved', {completed: run.completed_modules, total: run.total_modules})}</p>}
       </>}
       {run.error && <p>{run.error.message}</p>}
     </div>}
@@ -29,6 +36,7 @@ export function ProjectRunStatus({run,worker,compact=false}: {run:AutopilotRun|n
 }
 
 export function ProjectActions({projectId,run,allowedActions,onChanged,onHistory,onRemove}: {projectId:number;run:AutopilotRun|null;allowedActions:string[];onChanged:()=>void|Promise<void>;onHistory?:()=>void;onRemove?:()=>void}) {
+  const t = useT();
   const [busy,setBusy]=useState(false);const [error,setError]=useState('');const pending=useRef(false);const fullKey=useRef('');
   const allowed=(action:string)=>allowedActions.includes(action) || !!run?.allowed_actions?.includes(action);
   const perform=async(action:string)=>{
@@ -41,45 +49,47 @@ export function ProjectActions({projectId,run,allowedActions,onChanged,onHistory
     }catch(e){setError(messageOf(e));}finally{pending.current=false;setBusy(false);}
   };
   return <div>
-    {run?.allowed_actions?.includes('resume') && ['PAUSED_USER','PAUSED_BUDGET','BLOCKED','FAILED_FINAL'].includes(run.status) && <button className="btn btn-outline btn-sm" disabled={busy} onClick={()=>perform('resume')}>恢复分析</button>}
-    <details style={{marginTop:10}}><summary>更多操作</summary><div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}>
-      {allowed('check_updates') && <button className="btn btn-outline btn-sm" disabled={busy} onClick={()=>perform('check_updates')}>检查更新</button>}
-      {allowed('reanalyze') && <button className="btn btn-outline btn-sm" disabled={busy} onClick={()=>perform('reanalyze')}>完整重新分析</button>}
-      {run && allowed('pause') && <button className="btn btn-outline btn-sm" disabled={busy} onClick={()=>perform('pause')}>暂停分析</button>}
-      {run && allowed('resume') && <button className="btn btn-outline btn-sm" disabled={busy} onClick={()=>perform('resume')}>继续分析</button>}
-      {run && allowed('cancel') && <button className="btn btn-outline btn-sm" disabled={busy} onClick={()=>perform('cancel')}>取消本次任务</button>}
-      {onHistory && <button className="btn btn-outline btn-sm" disabled={busy} onClick={onHistory}>分析历史</button>}
-      {onRemove && allowed('remove') && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={onRemove}>移除项目</button>}
-      <Link className="btn btn-ghost btn-sm" to="/settings?tab=rules">自动分析设置</Link>
+    {run?.allowed_actions?.includes('resume') && ['PAUSED_USER','PAUSED_BUDGET','BLOCKED','FAILED_FINAL'].includes(run.status) && <button className="btn btn-outline btn-sm" disabled={busy} onClick={()=>perform('resume')}>{t('projects.resumeAnalysis')}</button>}
+    <details style={{marginTop:10}}><summary>{t('projects.moreActions')}</summary><div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}>
+      {allowed('check_updates') && <button className="btn btn-outline btn-sm" disabled={busy} onClick={()=>perform('check_updates')}>{t('projects.checkUpdates')}</button>}
+      {allowed('reanalyze') && <button className="btn btn-outline btn-sm" disabled={busy} onClick={()=>perform('reanalyze')}>{t('projects.reanalyze')}</button>}
+      {run && allowed('pause') && <button className="btn btn-outline btn-sm" disabled={busy} onClick={()=>perform('pause')}>{t('projects.pauseAnalysis')}</button>}
+      {run && allowed('resume') && <button className="btn btn-outline btn-sm" disabled={busy} onClick={()=>perform('resume')}>{t('projects.continueAnalysis')}</button>}
+      {run && allowed('cancel') && <button className="btn btn-outline btn-sm" disabled={busy} onClick={()=>perform('cancel')}>{t('projects.cancelRun')}</button>}
+      {onHistory && <button className="btn btn-outline btn-sm" disabled={busy} onClick={onHistory}>{t('projects.analysisHistory')}</button>}
+      {onRemove && allowed('remove') && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={onRemove}>{t('projects.removeProject')}</button>}
+      <Link className="btn btn-ghost btn-sm" to="/settings?tab=rules">{t('projects.autopilotSettings')}</Link>
     </div></details>
-    {error && <p role="alert">操作未完成：{error}</p>}
+    {error && <p role="alert">{t('projects.actionFailed', {error})}</p>}
   </div>;
 }
 
 export function AutopilotSettingsForm({onSaved,onLoaded,compact=false}: {onSaved?:(settings:AutopilotSettings)=>void;onLoaded?:(settings:AutopilotSettings)=>void;compact?:boolean}) {
-  const [config,setConfig]=useState<AutopilotSettings|null>(null);const [error,setError]=useState('');const [busy,setBusy]=useState(false);
+  const t = useT();
+  const [config,setConfig]=useState<AutopilotSettings|null>(null);const [error,setError]=useState('');
+  const [invalidResponse, setInvalidResponse] = useState(false);const [busy,setBusy]=useState(false);
   const [ack,setAck]=useState(false);const [calls,setCalls]=useState('');const [bytes,setBytes]=useState('');const [interval,setIntervalHours]=useState(6);
-  useEffect(()=>{let active=true;api.get<AutopilotSettings>('/project-autopilot/settings').then(s=>{if(active){if(!s.budget || typeof s.enabled!=='boolean')throw new Error('自动分析设置响应不完整，请重新打开后重试');setConfig(s);setCalls(String(s.budget.max_model_calls ?? ''));setBytes(String(s.budget.max_source_bytes ?? ''));setIntervalHours(s.check_interval_hours);onLoaded?.(s);}}).catch(e=>{if(active)setError(messageOf(e));});return()=>{active=false;};},[]);
+  useEffect(()=>{let active=true;api.get<AutopilotSettings>('/project-autopilot/settings').then(s=>{if(active){if(!s.budget || typeof s.enabled!=='boolean'){setInvalidResponse(true);return;}setConfig(s);setCalls(String(s.budget.max_model_calls ?? ''));setBytes(String(s.budget.max_source_bytes ?? ''));setIntervalHours(s.check_interval_hours);onLoaded?.(s);}}).catch(e=>{if(active)setError(messageOf(e));});return()=>{active=false;};},[]);
   const save=async(enabled:boolean)=>{setBusy(true);setError('');try{const next=await api.put<AutopilotSettings>('/project-autopilot/settings',{enabled,acknowledge_source_transfer:ack || !!config?.consented_at,budget:{max_model_calls:calls ? Number(calls) : null,max_source_bytes:bytes ? Number(bytes) : null},check_interval_hours:interval});setConfig(next);onSaved?.(next);}catch(e){setError(messageOf(e));}finally{setBusy(false);}};
   const valid=[calls,bytes].every(raw=>raw === '' || (Number.isSafeInteger(Number(raw)) && Number(raw)>0)) && Number.isFinite(interval) && interval>0;
   return <section className={compact?undefined:'card'} style={{padding:compact?0:20}}>
-    <h3>项目自动分析</h3>
-    {error && <p role="alert">无法保存或读取自动分析设置：{error}</p>}
-    {!config && !error && <p role="status">正在读取自动分析设置…</p>}
+    <h3>{t('projects.autopilotHeading')}</h3>
+    {(error || invalidResponse) && <p role="alert">{t('projects.autopilotSettingsFailed', {error: invalidResponse ? t('projects.invalidAutopilotSettings') : error})}</p>}
+    {!config && !error && !invalidResponse && <p role="status">{t('projects.loadingAutopilot')}</p>}
     {config && <>
-      <p>{config.source_notice || '项目源码片段会发送给已配置的模型服务。本地运行不代表源码只留在本机。'}</p>
-      <p className="hint">当前模型服务：{config.provider_display_name || '尚未配置模型，请到模型与 Agent 连接设置'}。请仅导入有权交给该服务分析的仓库。不会执行或修改仓库代码。</p>
+      <p>{config.source_notice === PROJECT_SOURCE_NOTICE ? t('projects.configuredSourceTransferNotice') : config.source_notice || t('projects.sourceTransferNotice')}</p>
+      <p className="hint">{t('projects.providerAuthorization', {provider: projectProviderName(config) || t('projects.providerUnconfigured')})}</p>
       {(!compact || !config.enabled) && <>
-        {!config.consented_at && <label style={{display:'flex',gap:8,alignItems:'flex-start',margin:'12px 0'}}><input type="checkbox" aria-label="确认源码发送与自动分析预算" checked={ack} onChange={e=>setAck(e.target.checked)}/>我了解源码片段将发送给配置的模型服务，并确认以下自动分析预算。</label>}
-        <details><summary>可选预算与自动检查</summary><p className="hint">留空表示不限整次扫描总量。模型上下文和单次请求限制仍然适用。</p>
-          <label className="field"><span>每次扫描的模型调用上限</span><input className="inp" type="number" min={1} placeholder="不限" aria-label="自动分析模型调用预算" value={calls} onChange={e=>setCalls(e.target.value)}/></label>
-          <label className="field"><span>每次扫描的源码字节上限</span><input className="inp" type="number" min={1} placeholder="不限" value={bytes} onChange={e=>setBytes(e.target.value)}/></label><label className="field"><span>本地后台运行时检查更新间隔（小时）</span><input className="inp" type="number" min={1} value={interval} onChange={e=>setIntervalHours(Number(e.target.value))}/></label></details>
-        <p className="hint">达到预算后保留进度并暂停，不会自动增加额度。费用取决于配置服务的计价；这里不估算金额。</p>
-        <button className="btn btn-primary" disabled={busy || !valid || (!config.consented_at && !ack)} onClick={()=>save(true)}>{busy?'保存中…':config.enabled?'保存自动分析设置':'确认并启用自动分析'}</button>
-        {!config.enabled && <button className="btn btn-outline" disabled={busy || !valid} onClick={()=>save(false)}>只保存预算</button>}
-        {config.enabled && <button className="btn btn-outline" style={{marginLeft:8}} disabled={busy} onClick={()=>save(false)}>关闭自动排队</button>}
+        {!config.consented_at && <label style={{display:'flex',gap:8,alignItems:'flex-start',margin:'12px 0'}}><input type="checkbox" aria-label={t('projects.sourceBudgetConsentLabel')} checked={ack} onChange={e=>setAck(e.target.checked)}/>{t('projects.sourceBudgetConsent')}</label>}
+        <details><summary>{t('projects.budgetAndUpdates')}</summary><p className="hint">{t('projects.budgetBlank')}</p>
+          <label className="field"><span>{t('projects.budgetModelCalls')}</span><input className="inp" type="number" min={1} placeholder={t('projects.unlimited')} aria-label={t('projects.budgetCallsLabel')} value={calls} onChange={e=>setCalls(e.target.value)}/></label>
+          <label className="field"><span>{t('projects.budgetSourceBytes')}</span><input className="inp" type="number" min={1} placeholder={t('projects.unlimited')} value={bytes} onChange={e=>setBytes(e.target.value)}/></label><label className="field"><span>{t('projects.updateInterval')}</span><input className="inp" type="number" min={1} value={interval} onChange={e=>setIntervalHours(Number(e.target.value))}/></label></details>
+        <p className="hint">{t('projects.budgetPauseNotice')}</p>
+        <button className="btn btn-primary" disabled={busy || !valid || (!config.consented_at && !ack)} onClick={()=>save(true)}>{busy?t('projects.saving'):config.enabled?t('projects.saveAutopilot'):t('projects.enableAutopilot')}</button>
+        {!config.enabled && <button className="btn btn-outline" disabled={busy || !valid} onClick={()=>save(false)}>{t('projects.saveBudgetOnly')}</button>}
+        {config.enabled && <button className="btn btn-outline" style={{marginLeft:8}} disabled={busy} onClick={()=>save(false)}>{t('projects.disableAutoQueue')}</button>}
       </>}
-      {compact && config.enabled && <p className="hint">已启用自动分析，新导入仓库会排队处理。预算可在设置中调整。</p>}
+      {compact && config.enabled && <p className="hint">{t('projects.autoQueueEnabled')}</p>}
     </>}
   </section>;
 }

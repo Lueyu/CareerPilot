@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.api.v1.project_autopilot import freshness
 from app.api.v1.public_content import publish_draft
@@ -194,7 +195,7 @@ async def run_update_pipeline(
         if observations:
             break
     else:
-        raise HTTPException(status_code=409, detail="缺少包含代码引用的有效 AI 项目报告，请先完成 AI 分析")
+        raise HTTPException(status_code=409, detail=localized_message("errors.run_ai_project_analysis_to_produce_a_report_with"))
 
     t0 = time.perf_counter()
     trace = await start_trace(session, ws.id, "asset_update", f"更新职业资产: {project.name}")
@@ -220,21 +221,21 @@ async def approve_update(
 ):
     """审批资产更新: 校验草稿 → APPROVED → (低风险+auto_merge)自动发布(复用 public_content.publish_draft)。"""
     if auto_merge is not False and dry_run is not True:
-        raise HTTPException(403, "public_writes_disabled: 可显式 auto_merge=false 保存本地审批")
+        raise HTTPException(403, localized_message("errors.public_writes_disabled_set_auto_merge_false_to_save"))
     r = await _get_run(session, ws, run_id)
     if not r.draft_id:
-        raise HTTPException(status_code=409, detail="该运行无内容草稿")
+        raise HTTPException(status_code=409, detail=localized_message("errors.this_run_has_no_content_draft"))
     d = await session.scalar(select(PublicContentDraft).where(
         PublicContentDraft.id == r.draft_id, PublicContentDraft.workspace_id == ws.id,
     ))
     if not d:
-        raise HTTPException(status_code=404, detail="草稿不存在")
+        raise HTTPException(status_code=404, detail=localized_message("errors.draft_not_found"))
     if not (r.stats or {}).get("analysis_id"):
-        raise HTTPException(status_code=409, detail="历史扫描生成的职业资产仅供查看，请根据 AI 项目报告生成新草稿")
+        raise HTTPException(status_code=409, detail=localized_message("errors.assets_from_older_scans_are_read_only_create_a"))
     if await session.scalar(
         select(Project.id).where(Project.id == r.project_id, Project.workspace_id == ws.id, Project.archived_at.is_(None))
     ) is None:
-        raise HTTPException(status_code=409, detail="已归档项目的职业资产仅供查看")
+        raise HTTPException(status_code=409, detail=localized_message("errors.assets_from_archived_projects_are_read_only"))
     if d.status not in ("DRAFT", "NEEDS_REVIEW", "APPROVED"):
         raise HTTPException(status_code=409, detail=f"草稿状态 {d.status} 不可审批")
     # 高风险必须人工审核: 不允许 auto_merge 跳过(即便参数为 true)
@@ -278,4 +279,4 @@ async def rollback_update(
     session: AsyncSession = Depends(get_session),
 ):
     """回滚资产发布: 复用 public_content.rollback_publication(进程内)。"""
-    raise HTTPException(403, "public_writes_disabled: 本轮关闭远程回滚")
+    raise HTTPException(403, localized_message("errors.public_writes_disabled_remote_rollback_is_disabled_for_this"))

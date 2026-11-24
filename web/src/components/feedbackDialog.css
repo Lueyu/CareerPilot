@@ -11,6 +11,8 @@
   background: var(--hover);
 }
 
+.feedback-entry-icon { display: none; }
+
 .feedback-dialog {
   position: fixed;
   inset: 0;
@@ -100,4 +102,9 @@
   .topbar .topbar-right { flex-shrink: 0; gap: 4px; }
   .feedback-entry.btn { padding-inline: 6px; }
   .feedback-dialog { padding: 16px; }
+}
+
+@media (max-width: 400px) {
+  .topbar .feedback-entry.btn { font-size: 0; }
+  .topbar .feedback-entry-icon { display: inline; font-size: 16px; }
 }

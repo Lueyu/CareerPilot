@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import MemoryItem, Workspace
@@ -19,11 +20,11 @@ router = APIRouter()
 
 async def own_goal(session, ws, goal_id):
     if await session.scalar(select(Workspace.id).where(Workspace.id == ws.id).with_for_update()) is None:
-        raise HTTPException(404, '工作空间不存在')
+        raise HTTPException(404, localized_message("errors.this_workspace_does_not_exist"))
     goal = await session.scalar(select(LearningGoal).where(LearningGoal.workspace_id == ws.id,
         LearningGoal.id == goal_id).with_for_update().execution_options(populate_existing=True))
     if goal is None:
-        raise HTTPException(404, '学习目标不存在')
+        raise HTTPException(404, localized_message("errors.learning_goal_not_found"))
     return goal
 
 
@@ -85,11 +86,11 @@ class AdjustIn(BaseModel):
 async def adjust_goal(goal_id: int, body: AdjustIn, ws=Depends(get_workspace), session=Depends(get_session)):
     goal = await own_goal(session, ws, goal_id)
     if goal.plan_revision != body.expected_plan_revision:
-        raise HTTPException(409, '计划已更新，请查看最新反馈后再调整')
+        raise HTTPException(409, localized_message("errors.the_plan_has_changed_read_the_latest_feedback_before"))
     if not body.reason.strip():
-        raise HTTPException(422, '请记录简短调整原因')
+        raise HTTPException(422, localized_message("errors.give_a_brief_reason_for_the_adjustment"))
     if goal.status in ('NEEDS_REVIEW','WITHDRAWN'):
-        raise HTTPException(409, '来源需要复核，不能用恢复计划绕过')
+        raise HTTPException(409, localized_message("errors.review_the_source_before_resuming_the_plan"))
     activities = (await session.scalars(select(LearningActivity).where(LearningActivity.goal_id == goal.id,
         LearningActivity.workspace_id == ws.id).with_for_update().order_by(LearningActivity.position,LearningActivity.id))).all()
     changes = []
@@ -103,18 +104,18 @@ async def adjust_goal(goal_id: int, body: AdjustIn, ws=Depends(get_workspace), s
         if body.activity_id:
             row = next((r for r in activities if r.id == body.activity_id), None)
             if row is None:
-                raise HTTPException(404, '活动不存在')
+                raise HTTPException(404, localized_message("errors.activity_not_found"))
             if row.status not in ('DEFERRED','SKIPPED'):
-                raise HTTPException(409, '只能恢复已暂缓或跳过的活动')
+                raise HTTPException(409, localized_message("errors.only_deferred_or_skipped_activities_can_be_resumed"))
             changes.append({'activity_id':row.id,'from':row.status,'to':'READY'}); row.status = 'READY'
         if goal.status == 'PAUSED':
             changes.append({'from':'PAUSED','to':'ACTIVE'}); goal.status = 'ACTIVE'
     else:
         row = next((r for r in activities if r.id == body.activity_id), None)
         if row is None:
-            raise HTTPException(404, '请选择当前目标下的活动')
+            raise HTTPException(404, localized_message("errors.choose_an_activity_under_the_current_goal"))
         if row.status in ('RUNNING','QUEUED'):
-            raise HTTPException(409, '当前提交仍在检查，完成或失败后可跳过后续活动')
+            raise HTTPException(409, localized_message("errors.this_submission_is_being_checked_you_can_skip_later"))
         changes.append({'activity_id':row.id,'from':row.status,'to':'SKIPPED'}); row.status = 'SKIPPED'
     goal.plan_revision += 1
     history = list((goal.meta or {}).get('plan_history', []))

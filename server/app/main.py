@@ -40,6 +40,7 @@ from app.api.v1 import (
 )
 from app.config import get_settings
 from app.db import engine
+from app.i18n import LanguageMiddleware
 from app.models import Base  # noqa: F401  (注册全部模型)
 from app.services.study_chat import recover_interrupted as recover_study_chat
 
@@ -63,6 +64,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(LanguageMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

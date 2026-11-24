@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import EvolutionCandidate, EvolutionRun, Workspace
@@ -140,7 +141,7 @@ async def approve(
     ws: Workspace = Depends(get_workspace),
     session: AsyncSession = Depends(get_session),
 ):
-    raise HTTPException(403, "evolution_activation_disabled: 本轮仅保留候选与评估记录")
+    raise HTTPException(403, localized_message("errors.evolution_activation_disabled_only_candidates_and_evaluation_records_are"))
 
 
 @router.post("/candidates/{cid}/reject")
@@ -166,7 +167,7 @@ async def rollback(
 ):
     c = await _get_candidate(session, ws, cid)
     if c.status != evo.STATUS_ACTIVE:
-        raise HTTPException(409, "只有生效中的候选可以回滚")
+        raise HTTPException(409, localized_message("errors.only_active_candidates_can_be_rolled_back"))
     await evo.rollback_candidate(session, ws.id, c)
     await session.commit()
     await session.refresh(c)  # func.now() 列需异步刷新, 否则视图访问触发 MissingGreenlet

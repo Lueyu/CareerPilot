@@ -1,25 +1,27 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { announceSessionChange, requestAuth, type AccountInfo } from './api';
+import { useT } from '../i18n';
+import { announceSessionChange, messageFor, renderMessage, requestAuth, type AccountInfo, type MessageKey, type UiMessage } from './api';
 
 type Mode = 'login' | 'register' | 'recover';
 type RecoveryInfo = AccountInfo & { recovery_code: string };
 
-const modes: ReadonlyArray<{ mode: Mode; label: string }> = [
-  { mode: 'login', label: '登录' },
-  { mode: 'register', label: '注册' },
-  { mode: 'recover', label: '找回账号' },
+const modes: ReadonlyArray<{ mode: Mode; labelKey: MessageKey }> = [
+  { mode: 'login', labelKey: 'registered.login' },
+  { mode: 'register', labelKey: 'registered.register' },
+  { mode: 'recover', labelKey: 'registered.recoverAccount' },
 ];
 
-const submitLabels: Record<Mode, string> = {
-  login: '登录',
-  register: '创建账号',
-  recover: '重置密码',
+const submitLabelKeys: Record<Mode, MessageKey> = {
+  login: 'registered.login',
+  register: 'registered.createAccount',
+  recover: 'registered.resetPassword',
 };
 
 function RecoveryCode({ code, onContinue }: { code: string; onContinue: () => void }) {
+  const t = useT();
   const titleId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
-  const [copyStatus, setCopyStatus] = useState('');
+  const [copyStatus, setCopyStatus] = useState<MessageKey>();
 
   useEffect(() => {
     heading.current?.focus();
@@ -28,36 +30,37 @@ function RecoveryCode({ code, onContinue }: { code: string; onContinue: () => vo
   async function copyCode() {
     try {
       await navigator.clipboard.writeText(code);
-      setCopyStatus('已复制。');
+      setCopyStatus('registered.recoveryCopied');
     } catch {
-      setCopyStatus('复制失败，请手动选中并保存恢复码。');
+      setCopyStatus('registered.recoveryCopyFailed');
     }
   }
 
   return (
     <section className="card account-card" aria-labelledby={titleId}>
       <h2 ref={heading} id={titleId} tabIndex={-1}>
-        保存你的恢复码
+        {t('registered.saveRecoveryCode')}
       </h2>
-      <p>恢复码只显示这一次。忘记密码时，可凭用户名和恢复码重置密码。每个恢复码只能用一次。</p>
+      <p>{t('registered.recoveryCodeInstructions')}</p>
       <code style={{ overflowWrap: 'anywhere' }}>{code}</code>
       <div className="account-actions">
         <button className="btn btn-outline" type="button" onClick={copyCode}>
-          复制恢复码
+          {t('registered.copyRecoveryCode')}
         </button>
         <button className="btn btn-primary" type="button" onClick={onContinue}>
-          我已保存，继续
+          {t('registered.confirmRecoveryCodeSaved')}
         </button>
       </div>
-      <span role="status">{copyStatus}</span>
+      <span role="status">{copyStatus && t(copyStatus)}</span>
     </section>
   );
 }
 
 export default function Account({ onStart, onFinish }: { onStart: () => void; onFinish: () => void }) {
+  const t = useT();
   const [mode, setMode] = useState<Mode>('login');
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<UiMessage | null>(null);
   const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
   const titleId = useId();
   const usernameHint = useId();
@@ -78,7 +81,7 @@ export default function Account({ onStart, onFinish }: { onStart: () => void; on
     const options = { method: 'POST', body: JSON.stringify(body) };
     onStart();
     setPending(true);
-    setError('');
+    setError(null);
 
     let awaitingConfirmation = false;
     try {
@@ -91,7 +94,7 @@ export default function Account({ onStart, onFinish }: { onStart: () => void; on
       }
       announceSessionChange();
     } catch (cause) {
-      setError(cause instanceof Error && cause.message ? cause.message : '账号服务暂不可用，请稍后再试。');
+      setError(messageFor(cause, 'registered.accountUnavailable'));
     } finally {
       setPending(false);
       if (!awaitingConfirmation) onFinish();
@@ -112,9 +115,9 @@ export default function Account({ onStart, onFinish }: { onStart: () => void; on
 
   return (
     <section className="card account-card" aria-labelledby={titleId}>
-      <h2 id={titleId}>{mode === 'register' ? '创建 CareerPilot 账号' : mode === 'recover' ? '找回 CareerPilot 账号' : '登录 CareerPilot'}</h2>
-      <div className="account-modes" role="group" aria-label="账号操作">
-        {modes.map(({ mode: candidate, label }) => (
+      <h2 id={titleId}>{mode === 'register' ? t('registered.createCareerPilotAccount') : mode === 'recover' ? t('registered.recoverCareerPilotAccount') : t('registered.loginToCareerPilot')}</h2>
+      <div className="account-modes" role="group" aria-label={t('registered.accountActions')}>
+        {modes.map(({ mode: candidate, labelKey }) => (
           <button
             key={candidate}
             type="button"
@@ -123,19 +126,19 @@ export default function Account({ onStart, onFinish }: { onStart: () => void; on
             disabled={pending}
             onClick={() => {
               setMode(candidate);
-              setError('');
+              setError(null);
             }}
           >
-            {label}
+            {t(labelKey)}
           </button>
         ))}
       </div>
       <form key={mode} className="account-form" onSubmit={submit} aria-busy={pending}>
         <label className="account-form">
-          用户名
+          {t('registered.username')}
           <input
             name="username"
-            placeholder={mode === 'register' ? '3 到 32 位英文字母、数字或下划线' : undefined}
+            placeholder={mode === 'register' ? t('registered.usernamePlaceholder') : undefined}
             autoComplete="username"
             autoCapitalize="none"
             spellCheck={false}
@@ -147,11 +150,11 @@ export default function Account({ onStart, onFinish }: { onStart: () => void; on
           />
         </label>
         {mode === 'register' && (
-          <small id={usernameHint} className="account-input-hint">3 到 32 位英文字母、数字或下划线。</small>
+          <small id={usernameHint} className="account-input-hint">{t('registered.usernameHint')}</small>
         )}
         {mode === 'recover' && (
           <label className="account-form">
-            恢复码
+            {t('registered.recoveryCode')}
             <input
               name="recovery_code"
               autoComplete="off"
@@ -163,11 +166,11 @@ export default function Account({ onStart, onFinish }: { onStart: () => void; on
           </label>
         )}
         <label className="account-form">
-          {mode === 'recover' ? '新密码' : '密码'}
+          {mode === 'recover' ? t('registered.newPassword') : t('registered.password')}
           <input
             type="password"
             name="password"
-            placeholder={mode !== 'login' ? '至少 12 个字符' : undefined}
+            placeholder={mode !== 'login' ? t('registered.passwordPlaceholder') : undefined}
             autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             minLength={mode === 'login' ? undefined : 12}
             maxLength={128}
@@ -177,12 +180,12 @@ export default function Account({ onStart, onFinish }: { onStart: () => void; on
           />
         </label>
         {mode !== 'login' && (
-          <small id={passwordHint} className="account-input-hint">至少 12 个字符。</small>
+          <small id={passwordHint} className="account-input-hint">{t('registered.passwordHint')}</small>
         )}
-        {error && <p className="error" role="alert">{error}</p>}
+        {error && <p className="error" role="alert">{renderMessage(error, t)}</p>}
         <div className="account-actions">
           <button type="submit" className="btn btn-primary" disabled={pending}>
-            {pending ? '处理中…' : submitLabels[mode]}
+            {pending ? t('registered.accountSubmitting') : t(submitLabelKeys[mode])}
           </button>
         </div>
       </form>

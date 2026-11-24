@@ -1,7 +1,9 @@
+import { t } from '../i18n';
+
 export const workspaceLogin = false;
 
 function unavailable(): never {
-  throw new Error('Registered build requires a bound session');
+  throw new Error(t('registered.workspaceSessionRequired'));
 }
 
 export const localFetch: (path: string, options: RequestInit) => Promise<Response> = unavailable;

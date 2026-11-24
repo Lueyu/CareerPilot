@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 // ============================================================
 // CareerPilot 演示数据（DEMO）
 // 全部为示例数据，非真实能力评估或行业统计。
@@ -30,10 +31,10 @@ export const DOMAINS: DomainSkill[] = [
 
 export const STATUS_META: Record<DomainSkill['status'], { label: string; cls: string; dot: string }> = {
   UNKNOWN: { label: 'UNKNOWN', cls: 'chip-slate', dot: 'dot-gray' },
-  NEEDS_VALIDATION: { label: '待验证', cls: 'chip-amber', dot: 'dot-amber' },
-  BELOW_TARGET: { label: '低于目标', cls: 'chip-red', dot: 'dot-red' },
-  MEETS_TARGET: { label: '达到目标', cls: 'chip-green', dot: 'dot-green' },
-  ABOVE_TARGET: { label: '高于目标', cls: 'chip-purple', dot: 'dot-purple' },
+  NEEDS_VALIDATION: { get label() { return t('progress.demoStatusUnknown'); }, cls: 'chip-amber', dot: 'dot-amber' },
+  BELOW_TARGET: { get label() { return t('progress.demoStatusBelow'); }, cls: 'chip-red', dot: 'dot-red' },
+  MEETS_TARGET: { get label() { return t('progress.demoStatusAt'); }, cls: 'chip-green', dot: 'dot-green' },
+  ABOVE_TARGET: { get label() { return t('progress.demoStatusAbove'); }, cls: 'chip-purple', dot: 'dot-purple' },
 };
 
 export const WS = {
@@ -51,10 +52,10 @@ export const WS = {
 };
 
 export const STATS = [
-  { label: '证据覆盖', value: 27, delta: '+3', dir: 'up', foot: '本周新增 3 条', ic: '🧾' },
-  { label: '待验证能力', value: 9, delta: '2 条低置信', dir: 'flat', foot: '置信度 < 0.6', ic: '🔎' },
-  { label: '今日任务', value: 3, delta: '1 条复测', dir: 'flat', foot: '预计 70 分钟', ic: '📌' },
-  { label: '待审核面经', value: 2, delta: '等待确认', dir: 'flat', foot: '来自导入流水线', ic: '📥' },
+  { get label() { return t('progress.demoEvidenceCoverage'); }, value: 27, delta: '+3', dir: 'up', get foot() { return t('progress.demoAddedThisWeek'); }, ic: '🧾' },
+  { get label() { return t('progress.demoUnverifiedCompetencies'); }, value: 9, get delta() { return t('progress.demoLowConfidenceRecords'); }, dir: 'flat', get foot() { return t('progress.demoConfidenceThreshold'); }, ic: '🔎' },
+  { get label() { return t('progress.demoTodayTasks'); }, value: 3, get delta() { return t('progress.demoOneRetest'); }, dir: 'flat', get foot() { return t('progress.demoEstimatedTime'); }, ic: '📌' },
+  { get label() { return t('progress.demoPendingImports'); }, value: 2, get delta() { return t('progress.demoWaitingForConfirmation'); }, dir: 'flat', get foot() { return t('progress.demoImportSource'); }, ic: '📥' },
 ];
 
 export interface Task {
@@ -140,31 +141,31 @@ export const EXAMS = [
   {
     id: 'e1',
     icon: '🎯',
-    title: '独立诊断',
-    desc: '定位当前岗位能力差距，生成个性化学习路径',
-    meta: ['3 题 · 30 分钟', '每 2 周一次'],
+    get title() { return t('progress.demoDiagnosisName'); },
+    get desc() { return t('progress.demoDiagnosisDescription'); },
+    get meta() { return [t('progress.demoDiagnosisLength'), t('progress.demoDiagnosisFrequency')]; },
     primary: true,
   },
   {
     id: 'e2',
     icon: '🧪',
-    title: '专项考试',
-    desc: '针对单一能力域深度考核，含理论 + 实践题',
-    meta: ['8 题 · 60 分钟', '可选能力域'],
+    get title() { return t('progress.demoFocusedName'); },
+    get desc() { return t('progress.demoFocusedDescription'); },
+    get meta() { return [t('progress.demoFocusedLength'), t('progress.demoFocusedDomain')]; },
   },
   {
     id: 'e3',
     icon: '📚',
-    title: '面经考试',
-    desc: '从已收录面经中抽题，还原真实面试场景',
-    meta: ['5 题 · 45 分钟', '题库 161 题'],
+    get title() { return t('progress.demoInterviewName'); },
+    get desc() { return t('progress.demoInterviewDescription'); },
+    get meta() { return [t('progress.demoInterviewLength'), t('progress.demoInterviewBankSize')]; },
   },
   {
     id: 'e4',
     icon: '💼',
-    title: '项目面试',
-    desc: '基于你的项目资产模拟项目深挖面试',
-    meta: ['4 题 · 40 分钟', '2 个项目'],
+    get title() { return t('progress.demoProjectName'); },
+    get desc() { return t('progress.demoProjectDescription'); },
+    get meta() { return [t('progress.demoProjectLength'), t('progress.demoProjectCount')]; },
   },
 ];
 
@@ -439,11 +440,11 @@ export const EVOS = [
 ];
 
 export const SETTINGS_RULES = [
-  { id: 'r1', name: '自动发布低风险内容', desc: '风险分级为「低」的内容草稿自动发布', on: true },
-  { id: 'r2', name: '仅创建 PR，不自动发布', desc: '高风险内容只创建 PR，等待人工合并', on: true },
-  { id: 'r3', name: '高风险转人工审批', desc: '含未验证声明的内容必须人工审批', on: true },
-  { id: 'r4', name: '发布前构建检查', desc: '发布前运行构建与预览检查', on: true },
-  { id: 'r5', name: '自动安排复测', desc: '根据记忆衰减自动安排 1/3/7 天复测', on: false },
+  { id: 'r1', get name() { return t('progress.demoPublishLowRisk'); }, get desc() { return t('progress.demoPublishLowRiskDescription'); }, on: true },
+  { id: 'r2', get name() { return t('progress.demoPullRequestOnly'); }, get desc() { return t('progress.demoPullRequestOnlyDescription'); }, on: true },
+  { id: 'r3', get name() { return t('progress.demoHighRiskApproval'); }, get desc() { return t('progress.demoHighRiskApprovalDescription'); }, on: true },
+  { id: 'r4', get name() { return t('progress.demoPublishBuild'); }, get desc() { return t('progress.demoPublishBuildDescription'); }, on: true },
+  { id: 'r5', get name() { return t('progress.demoAutomaticRetests'); }, get desc() { return t('progress.demoAutomaticRetestsDescription'); }, on: false },
 ];
 
 export const NOTIFICATIONS = [
@@ -454,12 +455,12 @@ export const NOTIFICATIONS = [
 ];
 
 export const QUICK_ACTIONS = [
-  { ic: '📥', label: '导入面经', desc: '解析并整理面试题', to: '/bank?import=1' },
-  { ic: '🎯', label: '开始独立诊断', desc: '定位当前能力差距', to: '/exam/diagnosis' },
-  { ic: '🛠️', label: '开始一次实践', desc: '从今日任务开始', to: '/learning' },
-  { ic: '🔁', label: '安排复测', desc: '为薄弱技能安排复测', to: '/learning' },
-  { ic: '📋', label: '创建学习任务', desc: '自定义学习内容', to: '/learning' },
-  { ic: '🔍', label: '发起项目扫描', desc: '检测项目变更与证据', to: '/assets' },
+  { ic: '📥', get label() { return t('progress.demoImportAction'); }, get desc() { return t('progress.demoImportActionDescription'); }, to: '/bank?import=1' },
+  { ic: '🎯', get label() { return t('progress.demoDiagnosisAction'); }, get desc() { return t('progress.demoDiagnosisActionDescription'); }, to: '/exam/diagnosis' },
+  { ic: '🛠️', get label() { return t('progress.demoPracticeAction'); }, get desc() { return t('progress.demoPracticeActionDescription'); }, to: '/learning' },
+  { ic: '🔁', get label() { return t('progress.demoRetestAction'); }, get desc() { return t('progress.demoRetestActionDescription'); }, to: '/learning' },
+  { ic: '📋', get label() { return t('progress.demoTaskAction'); }, get desc() { return t('progress.demoTaskActionDescription'); }, to: '/learning' },
+  { ic: '🔍', get label() { return t('progress.demoScanAction'); }, get desc() { return t('progress.demoScanActionDescription'); }, to: '/assets' },
 ];
 
 export const WORKSPACES = [

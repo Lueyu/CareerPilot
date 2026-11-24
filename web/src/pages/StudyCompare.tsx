@@ -1,3 +1,4 @@
+import { useT } from '../i18n';
 import { useEffect, useRef, useState, type ComponentProps } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
@@ -14,6 +15,8 @@ export function comparePath(noteId: Id, sessionId: Id, messageId?: Id) {
 }
 
 export default function StudyCompare({ sessionId, messageId, noteId }: { sessionId: Id; messageId?: Id; noteId: Id }) {
+  const t = useT();
+
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState(false);
   const [retry, setRetry] = useState(0);
@@ -37,24 +40,24 @@ export default function StudyCompare({ sessionId, messageId, noteId }: { session
 
   return <section className="study-notebook-panel study-notebook-paper study-notebook-conversation" id="study-conversation" aria-labelledby="study-conversation-title">
     <div className="study-notebook-actions">
-      <h2 id="study-conversation-title">来源会话</h2>
-      {session && <Link className="btn btn-outline btn-sm" to={focused && messageId !== undefined ? `${chat}?message=${encodeURIComponent(messageId)}` : chat}>打开原会话 ↗</Link>}
+      <h2 id="study-conversation-title">{t("study.sourceSession")}</h2>
+      {session && <Link className="btn btn-outline btn-sm" to={focused && messageId !== undefined ? `${chat}?message=${encodeURIComponent(messageId)}` : chat}>{t("study.openOriginalSession")}</Link>}
     </div>
-    {error ? <p role="alert">暂时无法读取来源会话。 <button className="btn btn-outline btn-sm" onClick={() => setRetry(value => value + 1)}>重试</button></p>
-      : !session ? <p role="status">正在读取来源会话…</p> : <>
+    {error ? <p role="alert">{t("study.sourceSessionUnavailable")}<button className="btn btn-outline btn-sm" onClick={() => setRetry(value => value + 1)}>{t("study.retry")}</button></p>
+      : !session ? <p role="status">{t("study.loadingSourceSession")}</p> : <>
       <p className="study-notebook-conversation-title">{session.title}</p>
-      {messageId !== undefined && !focused && <p role="status">这条消息不在当前会话中。</p>}
-      <div className="study-notebook-transcript" ref={transcript} tabIndex={0} role="region" aria-label="会话消息">
-        {!session.messages.length && <p>此会话还没有消息。</p>}
+      {messageId !== undefined && !focused && <p role="status">{t("study.messageNotInSession")}</p>}
+      <div className="study-notebook-transcript" ref={transcript} tabIndex={0} role="region" aria-label={t("study.sessionMessages")}>
+        {!session.messages.length && <p>{t("study.emptySession")}</p>}
         {session.messages.map(message => {
           const selected = String(message.id) === String(messageId);
-          const speaker = message.role === 'assistant' ? '学习助手' : message.role === 'user' ? '我' : '系统';
+          const speaker = message.role === 'assistant' ? t("study.studyAssistant") : message.role === 'user' ? t("study.me") : t("study.system");
           return <article className={'study-notebook-turn' + (selected ? ' is-focused' : '')} ref={selected ? target : undefined} key={message.id}>
             <div className="study-notebook-turn-head"><strong>{speaker}</strong>
-              <Link to={comparePath(noteId, sessionId, message.id)} aria-current={selected ? 'location' : undefined}>{selected ? '当前定位' : '定位此消息'}</Link>
-              <Link to={`${chat}?message=${encodeURIComponent(message.id)}`}>原消息 ↗</Link>
+              <Link to={comparePath(noteId, sessionId, message.id)} aria-current={selected ? 'location' : undefined}>{selected ? t("study.currentMessage") : t("study.jumpToMessage")}</Link>
+              <Link to={`${chat}?message=${encodeURIComponent(message.id)}`}>{t("study.originalMessage")}</Link>
             </div>
-            {message.content ? <StudyText text={message.content} blocks={message.blocks} sources={message.sources} streaming={message.status === 'generating'} /> : <p>暂无消息正文。</p>}
+            {message.content ? <StudyText text={message.content} blocks={message.blocks} sources={message.sources} streaming={message.status === 'generating'} /> : <p>{t("study.noMessageContent")}</p>}
           </article>;
         })}
       </div>

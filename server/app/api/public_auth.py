@@ -14,6 +14,7 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.db import get_session
 from app.models.exam import Exam
 from app.models.learning_feedback import LearningActivity
@@ -33,8 +34,6 @@ from app.services.public_identity import (
 _SESSION_AGE = timedelta(days=7)
 _ATTEMPT_WINDOW = timedelta(minutes=15)
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
-_SIGN_IN_ERROR = "用户名或密码有误。"
-_RECOVERY_ERROR = "用户名或恢复码有误，恢复码可能已使用。"
 
 
 def validate_auth_config() -> None:
@@ -46,12 +45,12 @@ async def public_origin_guard(request: Request, call_next) -> Response:
     try:
         config = auth_config()
     except RuntimeError:
-        return JSONResponse({"detail": "账号服务未配置。"}, status_code=503)
+        return JSONResponse({"detail": localized_message("auth.unconfigured")}, status_code=503)
 
     if request.headers.getlist("host") != [config.host]:
-        return JSONResponse({"detail": "请求域名不符。"}, status_code=403)
+        return JSONResponse({"detail": localized_message("auth.host")}, status_code=403)
     if request.method not in _SAFE_METHODS and request.headers.getlist("origin") != [config.origin]:
-        return JSONResponse({"detail": "请求来源不符。"}, status_code=403)
+        return JSONResponse({"detail": localized_message("auth.origin")}, status_code=403)
     return await call_next(request)
 
 
@@ -64,7 +63,7 @@ class AuthRoute(APIRoute):
                 response = await handle(request)
             except RequestValidationError:
                 response = JSONResponse(
-                    {"detail": "请检查用户名、密码或恢复码的格式。"},
+                    {"detail": localized_message("auth.format")},
                     status_code=422,
                 )
             except HTTPException as exc:
@@ -117,7 +116,7 @@ def _cookie_digest(request: Request) -> str | None:
 
 
 def _unauthenticated() -> HTTPException:
-    return HTTPException(status_code=401, detail={"code": "session_required", "message": "请先登录。"})
+    return HTTPException(status_code=401, detail={"code": "session_required", "message": localized_message("errors.sign_in_to_continue")})
 
 
 def _workspace_expectation(request: Request) -> list[str]:
@@ -138,7 +137,7 @@ async def _session_account(request: Request, session: Database) -> PublicAccount
             if expected and expected != [str(account.workspace_id)]:
                 raise HTTPException(
                     status_code=409,
-                    detail={"code": "workspace_changed", "message": "当前登录账号已切换。"},
+                    detail={"code": "workspace_changed", "message": localized_message("errors.the_signed_in_account_has_changed")},
                 )
             return account
     raise _unauthenticated()
@@ -222,7 +221,7 @@ async def register(body: RegisterInput, request: Request, response: Response, se
     )
     if account_id is None:
         await session.rollback()
-        raise HTTPException(status_code=409, detail="用户名已被使用，请换一个。")
+        raise HTTPException(status_code=409, detail=localized_message("errors.this_username_is_taken_choose_another"))
     workspace_id = workspace.id
     await _open_session(request, response, session, account_id)
     return RecoveryInfo(username=body.username, workspace_id=workspace_id, recovery_code=recovery_code)
@@ -239,9 +238,9 @@ async def login(body: LoginInput, request: Request, response: Response, session:
     password = body.password.get_secret_value()
     if account is None:
         await password_matches(password)
-        raise HTTPException(status_code=401, detail=_SIGN_IN_ERROR)
+        raise HTTPException(status_code=401, detail=localized_message("auth.credentials"))
     if not await password_matches(password, account.password_hash):
-        raise HTTPException(status_code=401, detail=_SIGN_IN_ERROR)
+        raise HTTPException(status_code=401, detail=localized_message("auth.credentials"))
 
     info = AccountInfo(username=account.username, workspace_id=account.workspace_id)
     await _open_session(request, response, session, account.id)
@@ -258,7 +257,7 @@ async def recover(body: RecoveryInput, request: Request, response: Response, ses
     account = await _lock_username(session, body.username)
     supplied = credential_digest("recovery", body.recovery_code)
     if account is None or not secrets.compare_digest(account.recovery_hash, supplied):
-        raise HTTPException(status_code=401, detail=_RECOVERY_ERROR)
+        raise HTTPException(status_code=401, detail=localized_message("auth.recovery"))
 
     recovery_code = secrets.token_urlsafe(24)
     account.password_hash = await hash_password(body.password.get_secret_value())
@@ -304,7 +303,7 @@ async def delete_account(
     if account is None or (await _session_account(request, session)).id != account_id:
         raise _unauthenticated()
     if not await password_matches(body.password.get_secret_value(), account.password_hash):
-        raise HTTPException(status_code=401, detail="密码有误，账号未删除。")
+        raise HTTPException(status_code=401, detail=localized_message("errors.incorrect_password_your_account_has_not_been_deleted"))
 
     # Imported items and exam questions can reference questions owned by this workspace.
     workspace = await session.scalar(
@@ -317,7 +316,7 @@ async def delete_account(
         .with_for_update()
     )
     if workspace is None:
-        raise HTTPException(status_code=409, detail="该工作空间不能通过公开账号删除。")
+        raise HTTPException(status_code=409, detail=localized_message("errors.this_workspace_cannot_be_deleted_through_a_registered_account"))
     from app.services.public_native_runtime import remove_native_workspace
     await remove_native_workspace(workspace)
     workspace_id = workspace.id

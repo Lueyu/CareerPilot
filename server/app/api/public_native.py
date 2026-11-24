@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from anyio import CancelScope
 
+from app.i18n import message as localized_message
 from app.api.public_auth import current_workspace
 from app.db import get_session
 from app.models import Workspace
@@ -32,7 +33,7 @@ async def native_legacy_bank(ws: Member, db: Database):
         return {"topics": [], "questions": []}
     path = Path(os.environ.get("SEED_NATIVE_OWNER_BANK", ""))
     if not path.is_file():
-        raise HTTPException(503, "本机原题库尚未连接。")
+        raise HTTPException(503, localized_message("errors.the_original_local_question_bank_is_not_connected"))
     return FileResponse(path, media_type="application/json")
 
 
@@ -52,9 +53,9 @@ async def forward(request: Request, path: str, target: NativeTarget):
     parts = path.split("/")
     if (not path or any(part in {".", ".."} for part in parts) or "\\" in path or "%" in path
             or any(ord(ch) < 32 for ch in path)):
-        raise HTTPException(400, "无效的工作台路径。")
+        raise HTTPException(400, localized_message("errors.invalid_workspace_path"))
     headers = {"X-Api-Token": target.api_token, "X-Workspace": target.workspace, "Accept-Encoding": "identity"}
-    for name in ("Content-Type", "Accept", "Last-Event-ID"):
+    for name in ("Content-Type", "Accept", "Accept-Language", "Last-Event-ID"):
         if name in request.headers:
             headers[name] = request.headers[name]
     reserved = {"expected_workspace_id", "access_token", "api_token", "x-api-token", "authorization",
@@ -67,7 +68,7 @@ async def forward(request: Request, path: str, target: NativeTarget):
     try:
         upstream = await client.send(client.build_request(request.method, url, params=query, headers=headers, content=body), stream=True)
     except httpx.RequestError:
-        raise HTTPException(503, "工作台服务暂时无法连接，请稍后重试。") from None
+        raise HTTPException(503, localized_message("errors.the_workspace_service_is_temporarily_unavailable_try_again_later")) from None
 
     async def close():
         with CancelScope(shield=True):
@@ -75,7 +76,7 @@ async def forward(request: Request, path: str, target: NativeTarget):
 
     if 300 <= upstream.status_code < 400:
         await close()
-        raise HTTPException(502, "工作台返回了意外的跳转。")
+        raise HTTPException(502, localized_message("errors.the_workspace_returned_an_unexpected_redirect"))
     if path == "settings/workspaces" and upstream.is_success:
         # The native owner service also knows about demo and other local workspaces.
         try:
@@ -94,7 +95,7 @@ async def forward(request: Request, path: str, target: NativeTarget):
 @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def native_request(path: str, request: Request, db: Database, ws: Member) -> Response:
     if request.method != "GET" and "x-expected-workspace" not in request.headers:
-        raise HTTPException(409, detail={"code": "workspace_changed", "message": "请刷新后再提交。"})
+        raise HTTPException(409, detail={"code": "workspace_changed", "message": localized_message("errors.refresh_the_page_before_submitting")})
     if path.strip("/") == "product-feedback":
         raise HTTPException(404)
     target = await native_target(db, ws)

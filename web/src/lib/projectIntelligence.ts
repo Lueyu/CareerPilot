@@ -1,3 +1,8 @@
+import {t} from '../i18n';
+export class ProjectCopyError extends Error {
+  constructor(readonly localeKey: string) { super(); }
+}
+
 export interface SourceCitation { path: string; start_line: number; end_line: number;source_id?:string;source_version?:string }
 export interface SourceExcerpt extends SourceCitation { excerpt: string; excerpt_truncated: boolean }
 export interface ProjectIssue {
@@ -67,6 +72,13 @@ export interface AutopilotSummary {
   latest_valid_report:{id:number;as_of:string|null;summary:string;source_revision:string|null;coverage_status:string;freshness:string}|null;
   pending_candidate_count:number;allowed_actions:string[];
 }
+export const PROJECT_SOURCE_NOTICE = '启用后，本空间已导入但尚无报告的仓库，以及以后新导入的仓库，会逐个自动分析；必要源码片段将发送给你当前配置的模型服务。不会执行仓库代码；报告自动保存，长期记忆需你确认。默认不限累计调用次数和读取字节；如设置单次分析预算，达到上限时暂停。';
+
+export function projectProviderName(settings?: AutopilotSettings) {
+  const name = settings?.provider_display_name;
+  return name === '尚未配置模型' ? t('projects.noModelConfigured') : name;
+}
+
 export interface AutopilotSettings {
   enabled:boolean;consent_version:string;consented_at:string|null;source_notice:string;provider_display_name:string;
   budget:{max_model_calls?:number|null;max_source_bytes?:number|null};check_interval_hours:number;
@@ -77,9 +89,16 @@ export interface MemoryCandidate {
   base_memory_id:number|null;base_memory_revision:number|null;kind:string;fact_type:string;content:string;
   citations:SourceCitation[];source_excerpts?:SourceExcerpt[];change_reason:string;suggested_use:string;
 }
-export const ANALYSIS_LABELS: Record<ProjectAnalysisRun['status'], string> = {
-  READY:'待启动', RUNNING:'正在分析', SUCCESS:'分析完成', FAILED:'本次失败',
-};
+export const PROJECT_PROFILE_COPY = {
+  background: ['projects.profileBackground', 'projects.profileBackgroundHint'],
+  role: ['projects.profileRole', 'projects.profileRoleHint'],
+  responsibilities: ['projects.profileResponsibilities', 'projects.profileResponsibilitiesHint'],
+  stack: ['projects.profileStack', 'projects.profileStackHint'],
+  decisions: ['projects.profileDecisions', 'projects.profileDecisionsHint'],
+  challenges: ['projects.profileChallenges', 'projects.profileChallengesHint'],
+  outcomes: ['projects.profileOutcomes', 'projects.profileOutcomesHint'],
+  boundaries: ['projects.profileBoundaries', 'projects.profileBoundariesHint'],
+} as const;
 export function issueWorkshopPath(projectId: number, analysisId: number, issueIds: string[]) {
   const query=new URLSearchParams({project:String(projectId),analysis:String(analysisId),issues:issueIds.join(',')});
   return `/bank/workshop?${query}`;

@@ -6,8 +6,10 @@ import './styles/base.css';
 import './styles/components.css';
 import App from './workspace-entry';
 import { currentTheme } from './components/Topbar';
+import { initializeDocumentLocale } from './i18n';
 
 document.documentElement.dataset.theme = currentTheme();
+initializeDocumentLocale();
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>

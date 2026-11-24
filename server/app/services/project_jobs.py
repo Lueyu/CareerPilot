@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, text
 
+from app.i18n import Locale, request_language
 from app.models import AnalysisStep, AppSetting, Project, ProjectAnalysis
 
 ACTIVE = ('QUEUED', 'RUNNING', 'RETRY_WAIT')
@@ -32,7 +33,9 @@ class Claim:
     fencing_token: int
 
 async def enqueue(session, project, request_key, mode='full', target_sha=None, budget=None,
-                  model_config_fingerprint='', pipeline_version=None, prompt_bundle_version=None, reuse_open=False):
+                  model_config_fingerprint='', pipeline_version=None, prompt_bundle_version=None, reuse_open=False,
+                  language: Locale | None = None):
+    language = language or request_language()
     if pipeline_version is None or prompt_bundle_version is None:
         from app.services.project_autopilot_engine import PIPELINE_VERSION, PROMPT_BUNDLE_VERSION
         pipeline_version=pipeline_version or PIPELINE_VERSION
@@ -62,9 +65,9 @@ async def enqueue(session, project, request_key, mode='full', target_sha=None, b
         if staging:
             return running
         if mode=='full' and target_sha is None and not reuse_open:
-            project.pending_update={'mode':'full','request_key':request_key}
+            project.pending_update={'mode':'full','request_key':request_key,'generation_language':language}
         if target_sha and target_sha != running.target_sha:
-            project.pending_update={**(project.pending_update or {}),'target_sha':target_sha,
+            project.pending_update={'generation_language':language,**(project.pending_update or {}),'target_sha':target_sha,
                 'mode':'full' if (project.pending_update or {}).get('mode')=='full' else mode}
         return running
     if not staging:
@@ -81,7 +84,7 @@ async def enqueue(session, project, request_key, mode='full', target_sha=None, b
     from app.services.tracing import start_trace
     trace=await start_trace(session,project.workspace_id,'project_autopilot',f'理解项目：{project.name}',
         trigger='system',trigger_ref=str(run.id))
-    run.result_meta={'trace_id':trace.id,'cost_known':False}
+    run.result_meta={'trace_id':trace.id,'cost_known':False,'generation_language':language}
     from app.services.project_prompts import PROMPT_BUNDLE_VERSION
     if prompt_bundle_version == PROMPT_BUNDLE_VERSION:
         from app.config import get_settings

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.public_auth import current_workspace
 from app.db import get_session
 from app.models import Question, Workspace
@@ -44,9 +45,9 @@ async def _load(db: AsyncSession, workspace_id: int, today: date, expected_role:
     )).scalar_one()
     role = ws.target_role or ""
     if expected_role is not None and expected_role != role:
-        raise HTTPException(409, "目标岗位已变化，请刷新学习计划后重试。")
+        raise HTTPException(409, localized_message("errors.your_target_role_has_changed_refresh_the_study_plan"))
     if expected_role is not None and not role:
-        raise HTTPException(422, "请先在题库中设置目标岗位。")
+        raise HTTPException(422, localized_message("errors.set_your_target_role_in_the_question_bank_first"))
     roles = (ws.preferences or {}).get(PREFERENCE_KEY, {}).get("roles", {})
     state = dict(roles.get(role) or {
         "start_date": today.isoformat(),
@@ -104,7 +105,7 @@ async def get_plan(db: Db, workspace: Space):
 async def update_plan(body: PlanSettings, db: Db, workspace: Space):
     today = datetime.now(LOCAL_TIME).date()
     if not today <= body.deadline <= today + timedelta(days=MAX_DAYS):
-        raise HTTPException(422, "目标日期须在今天至未来 180 天内。")
+        raise HTTPException(422, localized_message("errors.choose_a_target_date_within_the_next_180_days"))
     ws, role, state, items = await _load(db, workspace.id, today, body.target_role)
     changed = state["deadline"] != body.deadline.isoformat() or state["daily_minutes"] != body.daily_minutes
     state.update(deadline=body.deadline.isoformat(), daily_minutes=body.daily_minutes, deadline_confirmed=True)
@@ -125,7 +126,7 @@ async def record_evidence(body: EvidenceIn, db: Db, workspace: Space):
     today = now.date()
     ws, role, state, items = await _load(db, workspace.id, today, body.target_role)
     if not any(item.key == body.item_key for item in items):
-        raise HTTPException(404, "这道题不在当前岗位计划中。")
+        raise HTTPException(404, localized_message("errors.this_question_is_outside_the_plan_for_the_current"))
     plan = _schedule(state, today, items)
     note = body.note.strip()
     evidence = state.get("evidence", {})
@@ -134,7 +135,7 @@ async def record_evidence(body: EvidenceIn, db: Db, workspace: Space):
     eligible = next((item for day in plan["days"] if day["date"] <= today.isoformat()
                      for item in day["items"] if item["key"] == body.item_key and item["status"] != "completed"), None)
     if eligible is None or len(note) < 8:
-        raise HTTPException(422, "请为今日或逾期的开放练习提交具体完成依据（至少 8 个字符）。")
+        raise HTTPException(422, localized_message("errors.describe_how_you_completed_an_open_exercise_due_today"))
     state["evidence"] = {**evidence, body.item_key: {"date": today.isoformat(), "note": note}}
     state["assignments"] = plan["assignments"]
     if plan["pace_baseline"] is not None:

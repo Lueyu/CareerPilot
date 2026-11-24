@@ -9,6 +9,7 @@
  * "稍后可到待审核查看", 不再中断后端流水线(后台任务继续跑完落库)。
  */
 import { api, ImportReview, workspaceStorageKey } from '../api/client';
+import { getLocale, t } from '../i18n';
 
 export interface TrackedImport {
   id: number;
@@ -31,6 +32,18 @@ export interface ImportFinished {
 
 type Listener = (list: TrackedImport[]) => void;
 type FinishFn = (r: ImportFinished) => void;
+
+const INITIAL_IMPORT_NOTE = '已接收，后台解析中';
+
+const progressLabels = ['bank.importQueuedStage', 'bank.importReadStage', 'bank.importExtractStage', 'bank.importMappedStage', 'bank.importDeduplicatedStage'];
+
+export function importProgressNote(item: TrackedImport): string {
+  if (item.note === INITIAL_IMPORT_NOTE) return t('bank.importAccepted');
+  if (getLocale() === 'en' && item.total === 5 && (item.status === 'UPLOADED' || item.status === 'PARSING')) {
+    return t(progressLabels[item.step] ?? 'bank.parsingBackground');
+  }
+  return item.note || t('bank.parsingBackground');
+}
 
 const TRACK_TIMEOUT_MS = 15 * 60 * 1000; // 15 分钟(原 3 分钟)
 
@@ -136,7 +149,7 @@ export function trackImport(id: number, shortCode: string): void {
     shortCode,
     step: 0,
     total: 5,
-    note: '已接收，后台解析中',
+    note: INITIAL_IMPORT_NOTE,
     status: 'UPLOADED',
     startedAt: Date.now(),
     elapsedMs: 0,

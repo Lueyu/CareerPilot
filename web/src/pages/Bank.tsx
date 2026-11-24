@@ -1,3 +1,4 @@
+import { useT } from '../i18n';
 import { BankQuestionRow, BankSearch, BankUploadPicker } from '../components/BankPresentation';
 import StudyEntryButton from '../components/StudyEntryButton';
 import AnswerGuide, {type TeachingGuide} from '../components/AnswerGuide';
@@ -10,9 +11,9 @@ import { trackImport } from '../lib/importTracker';
 import BankQuestionEditor from '../components/BankQuestionEditor';
 import BankReviewQueue, { sanitizeReviewAnswer } from './BankReviewQueue';
 import RetestMappingReview from '../components/RetestMappingReview';
-import {beginQuestionPractice} from '../lib/questionWorkshop';
+import { bankMessageText, beginQuestionPractice, workshopSkillLabel, type BankMessage } from '../lib/questionWorkshop';
 import {bankSourcePresentation} from '../lib/bankSource';
-import ExperiencedBank, { EXPERIENCED_SOURCE_LABELS, experiencedLevelLabel, type ExperiencedQuestion } from './ExperiencedBank';
+import ExperiencedBank, { EXPERIENCED_SOURCE_LABELS, experiencedDomainLabel, experiencedLevelLabel, type ExperiencedQuestion } from './ExperiencedBank';
 import { experiencedPracticePath, rememberExperiencedFilters } from '../lib/experiencedBankPath';
 import { loadLegacyBank } from './legacyBank';
 
@@ -29,8 +30,11 @@ type InterviewSet = { id: string; import_id: number; title: string; project_id: 
 }[] };
 const emptyFacets: Facets = {companies: [], topics: [], sources: []};
 const pageSize = 20;
-const facetLabels: Record<Facet, string> = {companies: '公司', topics: '主题', sources: '来源'};
-const sourceLabels: Record<string, string> = {PUBLIC_LICENSED: '共享题库', VERIFIED_PUBLIC: '已验证公开题', USER_PRIVATE: '个人收录', GENERATED: '生成题'};
+const mergeExampleId = 'Q-018';
+const mergeExampleQuestion = '“重试机制如何保证幂等？”';
+const mergeExampleTitle = '工具调用超时后，如何避免重复执行？';
+const facetLabels: Record<Facet, string> = {companies: 'bank.company', topics: 'bank.topic', sources: 'bank.source'};
+const sourceLabels: Record<string, string> = {PUBLIC_LICENSED: 'bank.publicLicensed', VERIFIED_PUBLIC: 'bank.verifiedPublic', USER_PRIVATE: 'bank.userPrivate', GENERATED: 'bank.generatedSource'};
 
 /** 架构图箭头 marker: 题库 html 引用 #sd-arr 但源数据无 defs, 渲染时统一注入 */
 const SD_MARKER_DEFS =
@@ -67,6 +71,7 @@ type ExperiencedReference = {
   numericQuestionId: number;
   title: string;
   domainName: string;
+  domainKey: string;
   level: ExperiencedQuestion['level'];
   source?: ExperiencedQuestion['source'];
 };
@@ -75,16 +80,15 @@ type ReferenceQuestion = Row | ExperiencedReference;
 type Scope = 'bank' | 'mine' | 'pending' | 'sets';
 
 const TOPIC_NAME: Record<string, string> = {
-  rag: 'RAG 检索增强生成',
-  harness: 'Agent 编排与 Harness',
-  ctx: '上下文工程与记忆',
-  infer: '模型推理与部署',
-  eval: '评估与可观测',
-  sys: '系统设计与高可用',
-  algo: '算法与训练原理',
-  biz: '选型、安全与业务落地',
+  rag: 'bank.topicRag',
+  harness: 'bank.topicAgent',
+  ctx: 'bank.topicContext',
+  infer: 'bank.topicServing',
+  eval: 'bank.topicEval',
+  sys: 'bank.topicSystem',
+  algo: 'bank.topicTraining',
+  biz: 'bank.topicDelivery',
 };
-const TOPICS = Object.entries(TOPIC_NAME).map(([code, name]) => ({code, name}));
 
 function bankScope(query: URLSearchParams): Scope {
   if (query.get('review') === '1') return 'pending';
@@ -94,6 +98,8 @@ function bankScope(query: URLSearchParams): Scope {
 }
 
 export default function Bank({ registered = false }: { registered?: boolean } = {}) {
+  const t = useT();
+  const topics = Object.entries(TOPIC_NAME).map(([code, key]) => ({code, name: t(key)}));
   const navigate = useNavigate();
   const { toast } = useAppState();
   const location = useLocation();
@@ -141,9 +147,9 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
         navigate(experiencedPracticePath(exam.id, filters));
       } else navigate(`/exam/diagnosis?id=${exam.id}`);
     } catch (error) {
-      const message = `无法开始练习：${error instanceof Error ? error.message : String(error)}`;
+      const message = error instanceof Error ? error.message : String(error);
       if (catalogPractice) setPracticeError({id: row.id, message});
-      else toast('⚠️', message);
+      else toast('⚠️', t('bank.practiceFailed', { error: message }));
     }
     finally {setPracticeBusy(null);}
   };
@@ -174,10 +180,10 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
 
   // 真实文件上传
   const [files, setFiles] = useState<File[]>([]);
-  const [importErr, setImportErr] = useState<string | null>(null);
+  const [importErr, setImportErr] = useState<BankMessage[]>([]);
   const [uploading, setUploading] = useState(false);
   const [sets, setSets] = useState<InterviewSet[]>([]);
-  const [setsError, setSetsError] = useState('');
+  const [setsError, setSetsError] = useState<BankMessage>('');
   const [activeSet, setActiveSet] = useState<InterviewSet | null>(null);
   const [projects, setProjects] = useState<{id:number;name:string}[]>([]);
   const [projectId, setProjectId] = useState('');
@@ -186,7 +192,7 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
   const [edits, setEdits] = useState<Record<number,string>>({});
   const [setBusy, setSetBusy] = useState(false);
   const [paperBusy, setPaperBusy] = useState(false);
-  const [setError, setSetError] = useState('');
+  const [setError, setSetError] = useState<BankMessage>('');
   const [duration, setDuration] = useState(30);
   const [promoted, setPromoted] = useState<number[]>([]);
   const setAttempts = useRef(new Map<string, string>());
@@ -205,7 +211,7 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
   const [detailLoading,setDetailLoading]=useState(false);
   const detailRequest=useRef(0);
   const [detailBusy, setDetailBusy] = useState(false);
-  const [detailErr, setDetailErr] = useState<string | null>(null);
+  const [detailErr, setDetailErr] = useState<BankMessage | null>(null);
 
   useEffect(() => {
     if (scope !== 'mine') return;
@@ -230,7 +236,7 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
         if (requestedSet) {
           const entry = data.items.find(item => item.id === requestedSet);
           if (entry) setActiveSet(entry);
-          else setSetsError('未找到面经集');
+          else setSetsError({ key: 'bank.setNotFound' });
         }
       }
     }).catch((error: Error) => { if (alive) setSetsError(error.message); });
@@ -242,7 +248,7 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
     let alive = true;
     api.get<{items:{id:number;name:string}[]}>('/projects').then(result => {
       if (alive) setProjects(result.items ?? []);
-    }).catch((error:Error) => { if (alive) setSetError(`项目加载失败：${error.message}`); });
+    }).catch((error:Error) => { if (alive) setSetError({ key: 'bank.projectsFailed', values: { error: error.message } }); });
     return () => { alive = false; };
   }, [stage, importOpen]);
 
@@ -250,14 +256,14 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
     id: item.short_code,
     numericQuestionId: item.id,
     title: item.title,
-    company: bankSourcePresentation(item).company,
+    company: item.company ?? '',
     topic: item.topic,
     difficulty: item.difficulty ?? 3,
     tags: item.tags ?? [],
     source_type: item.source_type,
     reviewOnly: item.review_only,
     studySessionId: item.study_session_id,
-    status: item.status || '已收录',
+    status: item.status ?? '',
   })), [apiData]);
   const resultCount = apiData?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(resultCount / pageSize));
@@ -272,9 +278,10 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
     return [...options.entries()];
   };
   const facetName = (facet: Facet, name: string) => {
-    if (facet === 'topics') return TOPIC_NAME[name] ?? name;
-    if (facet === 'sources') return sourceLabels[name] ?? name;
-    return name === '所有公司' ? '原帖未限定公司' : name;
+    const labels = facet === 'topics' ? TOPIC_NAME : facet === 'sources' ? sourceLabels : undefined;
+    const key = labels && Object.prototype.hasOwnProperty.call(labels, name) ? labels[name] : undefined;
+    if (key) return t(key);
+    return name === '所有公司' ? t('bank.unspecifiedCompany') : name;
   };
 
   const openReviewFor = (imp: ImportReview) => {
@@ -285,7 +292,9 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
     setReview(imp);
     setSelectedItems(imp.items.filter(item => item.status !== 'REJECTED').map(item => item.id));
     setEdits({});
-    setSetTitle(`${imp.meta?.company || '项目面试'} · ${imp.short_code}`);
+    setSetTitle(t('bank.defaultSetTitle', {
+      company: imp.meta?.company || t('bank.projectInterview'), code: imp.short_code,
+    }));
     setSetError('');
     setOpenAns({});
     setStage('review');
@@ -365,7 +374,7 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
         item_ids:[question.source_item_id], edits:{[question.source_item_id]:{title:question.original_title}},
       });
       setPromoted(value => [...value, question.id]);
-      toast('✓', result.created.length ? '原题已收入个人通用题库' : '原题已处理或与通用题库重复');
+      toast('✓', result.created.length ? t('bank.originalAdded') : t('bank.originalAlreadyHandled'));
       setReload(value => value + 1);
     } catch (error) { setSetError((error as Error).message); }
     finally { setSetBusy(false); }
@@ -376,19 +385,19 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
     if (!list) return;
     const incoming = Array.from(list);
     const ok: File[] = [];
-    const bad: string[] = [];
+    const bad: BankMessage[] = [];
     incoming.forEach((f) => {
       const ext = (f.name.split('.').pop() || '').toLowerCase();
-      if (f.size > 12 * 1024 * 1024) { bad.push(`${f.name} 超过 12MB`); return; }
+      if (f.size > 12 * 1024 * 1024) { bad.push({ key: 'bank.fileTooLarge', values: { name: f.name } }); return; }
       if (!['pdf', 'docx', 'md', 'markdown', 'txt', 'text', 'jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
-        bad.push(`${f.name} 格式暂不支持`);
+        bad.push({ key: 'bank.fileUnsupported', values: { name: f.name } });
         return;
       }
-      if (files.length + ok.length >= 12) { bad.push('每次最多上传 12 个文件'); return; }
+      if (files.length + ok.length >= 12) { bad.push({ key: 'bank.fileLimit' }); return; }
       if (![...files, ...ok].some((x) => x.name === f.name && x.size === f.size)) ok.push(f);
     });
     if (ok.length) setFiles((prev) => [...prev, ...ok]);
-    setImportErr(bad.length ? bad.join('；') : null);
+    setImportErr(bad);
   };
 
   const moveFile = (index:number, step:number) => setFiles(previous => {
@@ -410,18 +419,18 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
 
   const openUpload = () => {
     setStage('upload');
-    setImportErr(null);
+    setImportErr([]);
     setImportOpen(true);
   };
 
   const startImport = async () => {
     const text = pasteText.trim();
     if (!files.length && !text) {
-      setImportErr('请拖入/选择面经文件，或粘贴面经文本');
-      toast('⚠️', '先选择文件或粘贴文本');
+      setImportErr([{ key: 'bank.dropOrPaste' }]);
+      toast('⚠️', t('bank.selectOrPasteFirst'));
       return;
     }
-    setImportErr(null);
+    setImportErr([]);
     setUploading(true);
     try {
       const form = new FormData();
@@ -438,10 +447,10 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
       setFiles([]);
       setCompany('');
       setLevel('');
-      toast('🚀', `面经已转入后台解析（${start.short_code}），可以继续其他操作，完成后会通知你`);
+      toast('🚀', t('bank.importQueued', { code: start.short_code }));
     } catch (e: any) {
-      setImportErr(String(e.message || e));
-      toast('⚠️', `提交失败: ${e.message}`);
+      setImportErr([String(e.message || e)]);
+      toast('⚠️', t('bank.importSubmitFailed', { error: e.message }));
     } finally { setUploading(false); }
   };
 
@@ -483,7 +492,7 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
       setBeginnerExample(d.beginner_example ?? null);
       setDetailHtml(answer);
     } catch(e) {
-      if(request===detailRequest.current)setDetailErr(`参考读取失败：${e instanceof Error?e.message:String(e)}。辅助记录未确认，暂不展示参考内容。`);
+      if(request===detailRequest.current)setDetailErr({ key: 'bank.referenceFailed', values: { error: e instanceof Error ? e.message : String(e) } });
     } finally {if(request===detailRequest.current)setDetailLoading(false);}
   };
 
@@ -500,7 +509,7 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
       if(request!==detailRequest.current)return;
       setTrustedDetail(false);
       setDetailHtml(r.answer_html);
-      toast('✨', r.generated ? '已生成详细解答' : '该题已有答案');
+      toast('✨', r.generated ? t('bank.answerGenerated') : t('bank.answerAlreadyExists'));
       setReload((x) => x + 1);
     } catch (e: any) {
       if(request===detailRequest.current)setDetailErr(String(e.message || e));
@@ -511,14 +520,14 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
 
   return (
     <div className="bank-page">
-      <PageHead title="面试题库" sub={experienced && catalogSummary ? `${catalogSummary.questions} 道题 · ${catalogSummary.domains} 个能力域` : undefined}>
-        {registered && <Link className="btn btn-outline" to="/beta/study/chat">和教练聊着出题</Link>}
-        <button className="btn btn-primary" onClick={openUpload}>导入面经</button>
+      <PageHead title={t('bank.bankTitle')} sub={experienced && catalogSummary ? t('bank.catalogSummary', catalogSummary) : undefined}>
+        {registered && <Link className="btn btn-outline" to="/beta/study/chat">{t('bank.generateWithCoach')}</Link>}
+        <button className="btn btn-primary" onClick={openUpload}>{t('bank.importInterview')}</button>
       </PageHead>
-      <nav className="bank-actions" aria-label="题库工作区">
-        {([['bank', '全部题目'], ['mine', '我的题目'], ['sets', '面经集'], ['pending', pendingCount ? '待审核 · ' + pendingCount : '待审核']] as const).filter(([value]) => value !== 'bank' || originalBank).map(([value, label]) =>
+      <nav className="bank-actions" aria-label={t('bank.workspace')}>
+        {([['bank', t('bank.allQuestions')], ['mine', t('bank.myQuestions')], ['sets', t('bank.interviewSets')], ['pending', pendingCount ? t('bank.pendingReviewCount', { count: pendingCount }) : t('bank.pendingReview')]] as const).filter(([value]) => value !== 'bank' || originalBank).map(([value, label]) =>
           <button key={value} className={'btn ' + (scope === value ? 'btn-primary' : 'btn-outline')} aria-pressed={scope === value} onClick={() => selectScope(value)}>{label}</button>)}
-        {registered && <Link className="btn btn-ghost" to="/beta/bank">之前的题库记录</Link>}
+        {registered && <Link className="btn btn-ghost" to="/beta/bank">{t('bank.previousBankRecords')}</Link>}
       </nav>
       {experienced && (
         <ExperiencedBank
@@ -526,8 +535,8 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
           practiceBusy={practiceBusy}
           practiceError={practiceError}
           onPractice={question => startPractice({id: question.short_code, numericQuestionId: question.id})}
-          onReference={(question, domainName) => openDetail({
-            id: question.short_code, numericQuestionId: question.id, title: question.title, level: question.level, source: question.source, domainName,
+          onReference={(question, domainName, domainKey) => openDetail({
+            id: question.short_code, numericQuestionId: question.id, title: question.title, level: question.level, source: question.source, domainName, domainKey,
           })}
           onRetestMapping={({ id, title }) => setMappingQuestion({ id, title })}
         />
@@ -537,7 +546,7 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
           requestedKey={query.get('item')}
           visible
           reload={reload}
-          topicNames={TOPIC_NAME}
+          topicNames={Object.fromEntries(topics.map(({code, name}) => [code, name]))}
           onCountChange={rememberPendingCount}
           onLibraryChange={() => setReload(value => value + 1)}
           onOpenImport={openReviewFor}
@@ -545,73 +554,73 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
         />}
         {scope === 'sets' ? <section className="card bank-section">
           <div className="bank-actions">
-            <Link className="btn btn-outline" to="/exam">用面经组卷</Link>
-            <Link className="btn btn-outline" to="/bank/workshop">项目面经与智能补题</Link>
+            <Link className="btn btn-outline" to="/exam">{t('bank.createExamFromNotes')}</Link>
+            <Link className="btn btn-outline" to="/bank/workshop">{t('bank.openWorkshop')}</Link>
           </div>
-          {setsError ? <p role="alert">面经集加载失败：{setsError}</p> : sets.length ? sets.map(entry =>
-            <div className="bank-set-row" key={entry.id}><div><b>{entry.title}</b><p className="hint">{entry.project_name} · {entry.questions.length} 题</p></div><button className="btn btn-outline" onClick={() => openSet(entry)}>打开面经集</button></div>
-          ) : <p className="hint">还没有面经集。导入后在「待审核」核对原问并选择项目。</p>}
+          {setsError ? <p role="alert">{t('bank.setsFailed', { error: bankMessageText(setsError, t) })}</p> : sets.length ? sets.map(entry =>
+            <div className="bank-set-row" key={entry.id}><div><b>{entry.title}</b><p className="hint">{t('bank.setMetadata', { name: entry.project_name, count: entry.questions.length })}</p></div><button className="btn btn-outline" onClick={() => openSet(entry)}>{t('bank.openSet')}</button></div>
+          ) : <p className="hint">{t('bank.noInterviewSets')}</p>}
         </section> : scope === 'mine' && <>
         <section className="card bank-section">
-          <p className="hint">题库筛选</p>
+          <p className="hint">{t('bank.bankFilters')}</p>
           <div className="bank-actions">
-            {Object.entries(facets).flatMap(([facet, names]) => names.map(name => <button key={`${facet}:${name}`} className="btn btn-outline btn-sm" aria-label={`移除${facetLabels[facet as Facet]}：${facetName(facet as Facet, name)}`} onClick={() => toggleFacet(facet as Facet, name)}>{facetLabels[facet as Facet]} · {facetName(facet as Facet, name)} ×</button>))}
-            {q.trim() && <button className="btn btn-outline btn-sm" onClick={() => {setQ(''); setPage(0);}}>关键词 · {q} ×</button>}
+            {Object.entries(facets).flatMap(([facet, names]) => names.map(name => <button key={`${facet}:${name}`} className="btn btn-outline btn-sm" aria-label={t('bank.removeFacet', { facet: t(facetLabels[facet as Facet]), value: facetName(facet as Facet, name) })} onClick={() => toggleFacet(facet as Facet, name)}>{t('bank.selectedFacet', { facet: t(facetLabels[facet as Facet]), value: facetName(facet as Facet, name) })}</button>))}
+            {q.trim() && <button className="btn btn-outline btn-sm" onClick={() => {setQ(''); setPage(0);}}>{t('bank.keywordFacet', { query: q })}</button>}
           </div>
-          <p className="hint">同类条件命中任一项即可，不同类条件需要同时满足。</p>
+          <p className="hint">{t('bank.filterLogic')}</p>
           <div className="bank-actions">
-            <button className="btn btn-outline" aria-expanded={showFilters} onClick={() => setShowFilters(value => !value)}>调整筛选</button>
-            <button className="btn btn-ghost" onClick={() => {setFacets(emptyFacets); setQ(''); setPage(0);}}>重置筛选</button>
+            <button className="btn btn-outline" aria-expanded={showFilters} onClick={() => setShowFilters(value => !value)}>{t('bank.adjustFilters')}</button>
+            <button className="btn btn-ghost" onClick={() => {setFacets(emptyFacets); setQ(''); setPage(0);}}>{t('bank.resetFilters')}</button>
           </div>
           {showFilters && (Object.keys(facetLabels) as Facet[]).map(facet => <fieldset className="bank-facet" key={facet}>
-            <legend>{facetLabels[facet]}</legend>
+            <legend>{t(facetLabels[facet])}</legend>
             <div className="bank-actions">{facetOptions(facet).map(([name, count]) => <label key={name}><input type="checkbox" checked={facets[facet].includes(name)} onChange={() => toggleFacet(facet, name)} /> {facetName(facet, name)} ({count})</label>)}</div>
           </fieldset>)}
         </section>
         <div className="card">
           <div className="card-head">
             <span className="card-title">
-              我的题目 · {bankLoading ? '加载中…' : `${resultCount} 题`}
+              {bankLoading ? t('bank.myQuestionsLoading') : t('bank.myQuestionCount', { count: resultCount })}
             </span>
             <BankSearch value={q} onChange={(value) => {setQ(value); setPage(0);}} />
           </div>
 
-          {bankLoading ? <p className="empty" role="status">正在加载我的题目…</p> : apiErr ? <p role="alert">我的题目加载失败：{apiErr} <button className="btn btn-outline btn-sm" onClick={() => setReload(value => value + 1)}>重试</button></p> : rows.length === 0 ? (
-            <div className="empty"><b>没有匹配的题目</b><p>换个筛选条件试试</p></div>
+          {bankLoading ? <p className="empty" role="status">{t('bank.loadingMine')}</p> : apiErr ? <p role="alert">{t('bank.myQuestionsFailed', { error: apiErr })} <button className="btn btn-outline btn-sm" onClick={() => setReload(value => value + 1)}>{t('bank.retry')}</button></p> : rows.length === 0 ? (
+            <div className="empty"><b>{t('bank.noMatches')}</b><p>{t('bank.tryDifferentFilters')}</p></div>
           ) : (
             rows.map((r) => (
               <BankQuestionRow key={r.id} id={r.id} title={r.title}
                 metadata={<>
-                    <span className="chip chip-green">{r.status}</span>
-                    <span>{r.company}</span>
-                    <span className="chip chip-slate">{TOPIC_NAME[r.topic] ?? r.topic}</span>
+                    <span className="chip chip-green">{r.status || t('bank.alreadyCollected')}</span>
+                    <span>{bankSourcePresentation(r).company}</span>
+                    <span className="chip chip-slate">{facetName('topics', r.topic)}</span>
                     <span style={{ fontSize: 12 }}><Stars n={r.difficulty} /></span>
-                    {bankSourcePresentation(r).isPrivate && <span className="chip chip-purple">私有</span>}
-                    <span className="chip chip-slate">{r.reviewOnly ? '学习聊天整理' : bankSourcePresentation(r).label}</span>
+                    {bankSourcePresentation(r).isPrivate && <span className="chip chip-purple">{t('bank.private')}</span>}
+                    <span className="chip chip-slate">{r.reviewOnly ? t('bank.fromStudyChat') : bankSourcePresentation(r).label}</span>
                     {r.tags?.slice(0, 2).map((t) => <span key={t} className="chip chip-slate">#{t}</span>)}
                 </>}
                 actions={<>
                   {r.reviewOnly ? <>
-                    {r.studySessionId && <Link className="btn btn-outline btn-sm" to={`/study/chat/${r.studySessionId}`}>回看学习聊天</Link>}
-                    <button className="btn btn-outline btn-sm" onClick={() => openDetail(r)}>查看参考</button>
+                    {r.studySessionId && <Link className="btn btn-outline btn-sm" to={`/study/chat/${r.studySessionId}`}>{t('bank.revisitStudyChat')}</Link>}
+                    <button className="btn btn-outline btn-sm" onClick={() => openDetail(r)}>{t('bank.viewReference')}</button>
                   </> : <>
-                  <button className="btn btn-outline btn-sm" disabled={!bankSourcePresentation(r).editable} title={bankSourcePresentation(r).editable?'编辑个人题目信息':'共享题库只读，可导入面经后整理为个人题目'} onClick={() => setEditQ(r)}>{bankSourcePresentation(r).editable?'编辑':'共享题只读'}</button>
+                  <button className="btn btn-outline btn-sm" disabled={!bankSourcePresentation(r).editable} title={bankSourcePresentation(r).editable?t('bank.editPersonalQuestion'):t('bank.sharedQuestionEditHelp')} onClick={() => setEditQ(r)}>{bankSourcePresentation(r).editable?t('bank.edit'):t('bank.sharedQuestionReadOnly')}</button>
                   {r.numericQuestionId != null && <button className="btn btn-outline btn-sm" onClick={() => {
                     if (r.numericQuestionId != null) setMappingQuestion({ id: r.numericQuestionId, title: r.title });
-                  }}>复测映射</button>}
+                  }}>{t('bank.retestMapping')}</button>}
                   <StudyEntryButton kind="question" id={r.numericQuestionId} bankKey={r.id}/>
-                  <button className="btn btn-outline btn-sm" disabled={practiceBusy!==null} onClick={() => startPractice(r)}>{practiceBusy===r.id?'准备考试…':'开始练习'}</button>
-                  <button className="btn btn-outline btn-sm" onClick={() => openDetail(r)}>查看参考</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => setMergeQ(r)}>合并重复</button>
+                  <button className="btn btn-outline btn-sm" disabled={practiceBusy!==null} onClick={() => startPractice(r)}>{practiceBusy===r.id?t('bank.preparingExam'):t('bank.startPractice')}</button>
+                  <button className="btn btn-outline btn-sm" onClick={() => openDetail(r)}>{t('bank.viewReference')}</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setMergeQ(r)}>{t('bank.mergeDuplicates')}</button>
                   </>}
                 </>}
               />
             ))
           )}
           <div className="bank-actions bank-pagination">
-            <button className="btn btn-outline btn-sm" disabled={bankLoading || page === 0} onClick={() => setPage(page - 1)}>上一页</button>
-            <span className="hint">第 {page + 1} / {pageCount} 页</span>
-            <button className="btn btn-outline btn-sm" disabled={bankLoading || page + 1 >= pageCount} onClick={() => setPage(page + 1)}>下一页</button>
+            <button className="btn btn-outline btn-sm" disabled={bankLoading || page === 0} onClick={() => setPage(page - 1)}>{t('bank.previousPage')}</button>
+            <span className="hint">{t('bank.pageOf', { page: page + 1, total: pageCount })}</span>
+            <button className="btn btn-outline btn-sm" disabled={bankLoading || page + 1 >= pageCount} onClick={() => setPage(page + 1)}>{t('bank.nextPage')}</button>
           </div>
         </div>
         </>}
@@ -619,41 +628,41 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
 
       {/* —— 题目详情(全屏最大化) —— */}
       {detail && (
-        <Modal title={generalDetail ? `${detail.id} · 题目详情` : '查看参考'} size="xl" onClose={() => {++detailRequest.current;setDetail(null);}}
+        <Modal title={generalDetail ? t('bank.questionDetails', { id: detail.id }) : t('bank.viewReference')} size="xl" onClose={() => {++detailRequest.current;setDetail(null);}}
           footer={
             <>
               {generalDetail && !generalDetail.reviewOnly && <>
-                <button className="btn btn-outline" disabled={!bankSourcePresentation(generalDetail).editable} title={bankSourcePresentation(generalDetail).editable?'编辑个人题目信息':'共享题库只读，可导入面经后整理为个人题目'} onClick={() => { setDetail(null); setEditQ(generalDetail); }}>{bankSourcePresentation(generalDetail).editable?'编辑':'共享题只读'}</button>
+                <button className="btn btn-outline" disabled={!bankSourcePresentation(generalDetail).editable} title={bankSourcePresentation(generalDetail).editable?t('bank.editPersonalQuestion'):t('bank.sharedQuestionEditHelp')} onClick={() => { setDetail(null); setEditQ(generalDetail); }}>{bankSourcePresentation(generalDetail).editable?t('bank.edit'):t('bank.sharedQuestionReadOnly')}</button>
               </>}
-              {!detailLoading && !detailErr && generalDetail?.reviewOnly && generalDetail.studySessionId && <Link className="btn btn-outline" to={`/study/chat/${generalDetail.studySessionId}`}>回看学习聊天</Link>}
+              {!detailLoading && !detailErr && generalDetail?.reviewOnly && generalDetail.studySessionId && <Link className="btn btn-outline" to={`/study/chat/${generalDetail.studySessionId}`}>{t('bank.revisitStudyChat')}</Link>}
               {!generalDetail?.reviewOnly && <><StudyEntryButton key={detail.id} kind="question" id={detail.numericQuestionId} bankKey={detail.id}/>
-              <button className="btn btn-primary" disabled={practiceBusy!==null} onClick={() => startPractice(detail, !generalDetail)}>{practiceBusy?'准备考试…':practiceError?.id === detail.id ? '重试练习' : '开始练习'}</button></>}
+              <button className="btn btn-primary" disabled={practiceBusy!==null} onClick={() => startPractice(detail, !generalDetail)}>{practiceBusy?t('bank.preparingExam'):practiceError?.id === detail.id ? t('bank.retryPractice') : t('bank.startPractice')}</button></>}
             </>
           }>
           <div className="q-meta" style={{ marginBottom: 14 }}>
             {'domainName' in detail ? <>
-              <span className="chip chip-slate">{detail.domainName}</span>
+              <span className="chip chip-slate">{experiencedDomainLabel(detail.domainKey, detail.domainName)}</span>
               <span className="chip chip-slate">{experiencedLevelLabel(detail)}</span>
-              <span>{EXPERIENCED_SOURCE_LABELS[detail.source ?? 'authored']} · 共享题库 · 只读</span>
+              <span>{t('bank.experiencedSourceReadOnly', { source: t(EXPERIENCED_SOURCE_LABELS[detail.source ?? 'authored']) })}</span>
             </> : <>
-              <span className="chip chip-slate">{TOPIC_NAME[detail.topic] ?? detail.topic}</span>
-              <span>{detail.company}</span>
+              <span className="chip chip-slate">{facetName('topics', detail.topic)}</span>
+              <span>{bankSourcePresentation(detail).company}</span>
               <Stars n={detail.difficulty} />
             </>}
           </div>
           <h3 className={generalDetail ? undefined : 'experienced-prompt'} style={{ fontSize: 17, fontWeight: 650, marginBottom: 14 }}>{detail.title}</h3>
-          {generalDetail && <p className="hint">{generalDetail.reviewOnly ? '个人复习题 · 来自学习聊天' : bankSourcePresentation(generalDetail).isPrivate ? `个人题库 · ${bankSourcePresentation(generalDetail).label}`:'共享题库只读；需要结合项目改写时，可在面经工作台导入并审核为个人题目。'}</p>}
-          {detailErr && <div role="alert" className="demo-banner demo-banner-err" style={{ marginBottom: 10 }}>{detailErr}</div>}
-          {practiceError?.id === detail.id && <p role="alert">{practiceError.message}</p>}
-          {guide ? <AnswerGuide guide={guide} beginnerExample={beginnerExample} /> : beginnerExample && <section className="teaching-guide" aria-label="入门例子"><h3>先看一个生活里的例子</h3><p>{beginnerExample}</p></section>}
-          <p className="hint">{generalDetail ? '查看参考后，该题族不再用于未辅助独立复测；仍可用于带辅助的学习和练习。' : '读取参考会记录这道题的辅助条件。建议先作答，再对照参考。'}</p>
-          {detailLoading?<p role="status">正在记录辅助条件并读取参考…</p>:detailErr?<button className="btn btn-outline" onClick={()=>openDetail(detail)}>重新读取参考</button>:detailHtml ? (
+          {generalDetail && <p className="hint">{generalDetail.reviewOnly ? t('bank.personalStudyQuestion') : bankSourcePresentation(generalDetail).isPrivate ? t('bank.personalQuestionSource', { source: bankSourcePresentation(generalDetail).label }):t('bank.sharedReferenceHelp')}</p>}
+          {detailErr && <div role="alert" className="demo-banner demo-banner-err" style={{ marginBottom: 10 }}>{bankMessageText(detailErr, t)}</div>}
+          {practiceError?.id === detail.id && <p role="alert">{t('bank.practiceFailed', { error: practiceError.message })}</p>}
+          {guide ? <AnswerGuide guide={guide} beginnerExample={beginnerExample} /> : beginnerExample && <section className="teaching-guide" aria-label={t('bank.introExample')}><h3>{t('bank.showEverydayExample')}</h3><p>{beginnerExample}</p></section>}
+          <p className="hint">{generalDetail ? t('bank.referenceAlreadyExposed') : t('bank.referenceExposureHelp')}</p>
+          {detailLoading?<p role="status">{t('bank.readingReference')}</p>:detailErr?<button className="btn btn-outline" onClick={()=>openDetail(detail)}>{t('bank.reloadReference')}</button>:detailHtml ? (
             <>
               {detailHtml.includes('<details') && (
                 <div className="qa-tools">
-                  <span className="qa-tools-label">💬 面试官追问 · 点击问题可展开/收起参考答案</span>
-                  <button className="btn btn-ghost btn-sm" onClick={() => toggleQA(true)}>全部展开</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => toggleQA(false)}>全部收起</button>
+                  <span className="qa-tools-label">{t('bank.referenceFollowUpsHelp')}</span>
+                  <button className="btn btn-ghost btn-sm" onClick={() => toggleQA(true)}>{t('bank.expandAll')}</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => toggleQA(false)}>{t('bank.collapseAll')}</button>
                 </div>
               )}
               <div
@@ -668,12 +677,12 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
                   : sanitizeReviewAnswer(transformAnswer(detailHtml)) }}
               />
             </>
-          ) : !generalDetail ? <p>这道题暂未发布参考内容。</p> : (
+          ) : !generalDetail ? <p>{t('bank.noPublishedReference')}</p> : (
             <div className="ans-empty">
-              <p>这道题还没有答案内容。</p>
-              <p className="hint">可以让系统生成一份结构化的详细解答（一句话回答 / 通俗类比 / 面试官考什么 / 具体怎么做 / 常见坑 / 追问 / 评分要点）。</p>
+              <p>{t('bank.noAnswerContent')}</p>
+              <p className="hint">{t('bank.generateAnswerHelp')}</p>
               <button className="btn btn-primary" onClick={genAnswer} disabled={detailBusy}>
-                {detailBusy ? '生成中…' : '✨ 生成详细解答'}
+                {detailBusy ? t('bank.generating') : t('bank.generateDetailedAnswer')}
               </button>
             </div>
           )}
@@ -684,45 +693,45 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
       {zoomSvg && (
         <div className="svg-lightbox" onClick={() => setZoomSvg(null)}>
           <div className="svg-lightbox-inner" dangerouslySetInnerHTML={{ __html: zoomSvg }} />
-          <div className="svg-lightbox-hint">点击任意位置关闭 · 架构图已放大</div>
+          <div className="svg-lightbox-hint">{t('bank.closeDiagramHelp')}</div>
         </div>
       )}
 
-      {mappingQuestion && <Modal title="审核复测映射" onClose={() => setMappingQuestion(null)}>
+      {mappingQuestion && <Modal title={t('bank.reviewRetestMapping')} onClose={() => setMappingQuestion(null)}>
         <h3>{mappingQuestion.title}</h3>
         <RetestMappingReview questionId={mappingQuestion.id} />
       </Modal>}
-      {editQ && <BankQuestionEditor question={editQ} topics={TOPIC_NAME[editQ.topic] ? TOPICS : [...TOPICS, {code: editQ.topic, name: editQ.topic}]} onClose={() => setEditQ(null)} onSaved={() => { toast('✅', '题目信息已保存'); setEditQ(null); setReload(x => x + 1); }} />}
+      {editQ && <BankQuestionEditor question={editQ} topics={Object.prototype.hasOwnProperty.call(TOPIC_NAME, editQ.topic) ? topics : [...topics, {code: editQ.topic, name: editQ.topic}]} onClose={() => setEditQ(null)} onSaved={() => { toast('✅', t('bank.questionSaved')); setEditQ(null); setReload(x => x + 1); }} />}
 
       {/* —— 合并重复 —— */}
       {mergeQ && (
-        <Modal title="合并重复问法" onClose={() => setMergeQ(null)}
+        <Modal title={t('bank.mergeDuplicateVariants')} onClose={() => setMergeQ(null)}
           footer={
             <>
-              <button className="btn btn-outline" onClick={() => setMergeQ(null)}>取消</button>
-              <button className="btn btn-primary" onClick={() => { toast('🔗', '已合并为问题变体'); setMergeQ(null); }}>合并为问法变体</button>
+              <button className="btn btn-outline" onClick={() => setMergeQ(null)}>{t('bank.cancel')}</button>
+              <button className="btn btn-primary" onClick={() => { toast('🔗', t('bank.mergedAsVariant')); setMergeQ(null); }}>{t('bank.mergeAsVariant')}</button>
             </>
           }>
           <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.7 }}>
-            发现相似题 <b>Q-018</b> · 相似度仅辅助判断。
+            {t('bank.similarQuestionFound', { code: mergeExampleId })}
             <br />
-            “重试机制如何保证幂等？”可合并为标准问题的不同问法，保留两份来源。
+            {t('bank.mergeExampleHelp', { question: mergeExampleQuestion })}
           </p>
           <div className="field" style={{ marginTop: 16 }}>
-            <label>合并到（canonical）</label>
+            <label>{t('bank.canonicalTarget')}</label>
             <select className="select" defaultValue={mergeQ.id}>
               <option value={mergeQ.id}>{mergeQ.id} · {mergeQ.title}</option>
-              <option value="Q-018">Q-018 · 工具调用超时后，如何避免重复执行？</option>
+              <option value={mergeExampleId}>{mergeExampleId} · {mergeExampleTitle}</option>
             </select>
           </div>
           <div className="field">
-            <label>保留的问法变体</label>
+            <label>{t('bank.retainedVariants')}</label>
             <div className="list-row" style={{ borderBottom: 'none' }}>
-              <span className="chip chip-slate">变体 1</span>
-              <span style={{ fontSize: 13 }}>“重试机制如何保证幂等？”</span>
+              <span className="chip chip-slate">{t('bank.variantIndex', { index: 1 })}</span>
+              <span style={{ fontSize: 13 }}>{mergeExampleQuestion}</span>
             </div>
             <div className="list-row">
-              <span className="chip chip-slate">变体 2</span>
+              <span className="chip chip-slate">{t('bank.variantIndex', { index: 2 })}</span>
               <span style={{ fontSize: 13 }}>{mergeQ.title}</span>
             </div>
           </div>
@@ -731,22 +740,22 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
 
       {/* —— 导入面经 —— */}
       {scope === 'sets' && activeSet && (!requestedSet || activeSet.id === requestedSet) && <Modal title={activeSet.title} size="lg" onClose={closeSet} footer={
-        <button className="btn btn-outline" onClick={closeSet}>回到面经库</button>
+        <button className="btn btn-outline" onClick={closeSet}>{t('bank.backToSets')}</button>
       }>
-        <p className="hint">{activeSet.project_name} · {activeSet.questions.length} 道练习题</p>
+        <p className="hint">{t('bank.setPracticeMetadata', { name: activeSet.project_name, count: activeSet.questions.length })}</p>
         <section className="card bank-section bank-set-questions">
-          <p className="hint">题目清单</p>
+          <p className="hint">{t('bank.questionList')}</p>
           {activeSet.questions.map((item, index) => <article className="bank-set-question" key={item.id}>
-            <h3>{String(index + 1).padStart(2, '0')}　{item.rewrite_method === 'model' || (!item.rewrite_method && item.evidence) ? '项目题' : '条件式追问'}</h3>
+            <h3>{String(index + 1).padStart(2, '0')}　{item.rewrite_method === 'model' || (!item.rewrite_method && item.evidence) ? t('bank.projectQuestion') : t('bank.conditionalFollowUp')}</h3>
             <p className="bank-question-text">{item.rewrite_method === 'model' ? item.title : item.title.split('\n\n').slice(1).join('\n\n') || item.title}</p>
             <StudyEntryButton kind="question" id={item.id}/>
-            <details><summary>查看原文与依据</summary>
-              <p>原问：{item.original_title}</p>
-              {item.extracted_title !== item.original_title && <p>识别文字：{item.extracted_title}</p>}
-              <p>来源：{item.source_files.join('、') || '旧导入未记录文件'}</p>
-              {item.rewrite_method && <p>{item.rewrite_method === 'model' ? '模型改写 · 请核对引用' : `规则生成 · 条件题（${item.rewrite_fallback_reason === 'model_unavailable' ? '模型暂不可用，可从原导入重新生成' : item.rewrite_fallback_reason === 'no_evidence' ? '项目缺少可用资料' : '模型没有返回可核对的相关依据'}）`}</p>}
-              {item.fact_refs?.length ? <ul>{item.fact_refs.map(fact => <li key={fact.ref}>{fact.provenance === 'user_statement' ? '本人填写' : '仓库观察'} · {fact.label}{fact.revision ? ` · ${fact.revision.slice(0, 12)}` : ''}：{fact.text}</li>)}</ul> : <p>项目依据：{item.evidence ? `${item.evidence.label} · ${item.evidence.revision}` : '无可引用资料'}</p>}
-              <button className="btn btn-outline btn-sm" disabled={setBusy || promoted.includes(item.id)} onClick={() => promoteOriginal(item)}>{promoted.includes(item.id) ? '通用题收录已处理' : '将原问另收为通用题'}</button>
+            <details><summary>{t('bank.viewOriginalAndEvidence')}</summary>
+              <p>{t('bank.originalQuestionValue', { question: item.original_title })}</p>
+              {item.extracted_title !== item.original_title && <p>{t('bank.extractedQuestionValue', { question: item.extracted_title })}</p>}
+              <p>{t('bank.sourceValue', { source: item.source_files.join(t('bank.listSeparator')) || t('bank.legacyNoFile') })}</p>
+              {item.rewrite_method && <p>{item.rewrite_method === 'model' ? t('bank.modelRewrite') : t('bank.conditionalRewrite', { reason: t(item.rewrite_fallback_reason === 'model_unavailable' ? 'bank.rewriteModelUnavailable' : item.rewrite_fallback_reason === 'no_evidence' ? 'bank.rewriteNoEvidence' : 'bank.rewriteUnverifiable') })}</p>}
+              {item.fact_refs?.length ? <ul>{item.fact_refs.map(fact => <li key={fact.ref}>{t('bank.factAttribution', { provenance: t(fact.provenance === 'user_statement' ? 'bank.evidenceSelfReported' : 'bank.repoObservation'), label: fact.label, revision: fact.revision ? ` · ${fact.revision.slice(0, 12)}` : '', fact: fact.text })}</li>)}</ul> : <p>{t('bank.projectEvidence', { evidence: item.evidence ? `${item.evidence.label} · ${item.evidence.revision}` : t('bank.noEvidence') })}</p>}
+              <button className="btn btn-outline btn-sm" disabled={setBusy || promoted.includes(item.id)} onClick={() => promoteOriginal(item)}>{promoted.includes(item.id) ? t('bank.generalCollectionHandled') : t('bank.saveOriginalAsGeneral')}</button>
             </details>
           </article>)}
         </section>
@@ -761,40 +770,40 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
             setSetTitle(activeSet.title);
             setAttempts.current.clear();
             closeSet();
-          } catch (error) { toast('⚠️', `无法打开原导入：${(error as Error).message}`); }
+          } catch (error) { toast('⚠️', t('bank.openImportFailed', { error: (error as Error).message })); }
           finally { setSetBusy(false); }
-        }}>重新核对并生成</button>}
+        }}>{t('bank.reviewAndRegenerate')}</button>}
         <section className="card bank-section">
-          <p className="hint">准备这场面试</p>
-          <h2>按本面经集生成试卷</h2>
-          <p className="hint">试卷冻结当前题目和来源，仅用于练习。</p>
+          <p className="hint">{t('bank.prepareInterview')}</p>
+          <h2>{t('bank.examFromSet')}</h2>
+          <p className="hint">{t('bank.examSnapshotHelp')}</p>
           <div className="bank-actions">
-            <label>时长 <select className="inp" value={duration} onChange={event => setDuration(Number(event.target.value))}>
-              {[15, 30, 45, 60].map(minutes => <option key={minutes} value={minutes}>{minutes} 分钟</option>)}
+            <label>{t('bank.duration')} <select className="inp" value={duration} onChange={event => setDuration(Number(event.target.value))}>
+              {[15, 30, 45, 60].map(minutes => <option key={minutes} value={minutes}>{t('bank.durationMinutes', { count: minutes })}</option>)}
             </select></label>
-            <button className="btn btn-primary" disabled={paperBusy} onClick={startPaper}>{paperBusy ? '正在生成试卷…' : '生成并打开试卷'}</button>
+            <button className="btn btn-primary" disabled={paperBusy} onClick={startPaper}>{paperBusy ? t('bank.buildingExam') : t('bank.generateOpenExam')}</button>
           </div>
         </section>
-        {setError && <p className="hint" role="alert">{setError}</p>}
+        {setError && <p className="hint" role="alert">{bankMessageText(setError, t)}</p>}
       </Modal>}
 
       {importOpen && (
         <Modal
-          title={stage === 'upload' ? '从截图导入原帖' : '核对原问与项目改写'}
+          title={stage === 'upload' ? t('bank.importFromScreenshots') : t('bank.reviewOriginalAndRewrite')}
           size="lg"
           onClose={closeImport}
           footer={
             stage === 'upload' ? (
               <>
-                <button className="btn btn-outline" onClick={closeImport}>取消</button>
-                <button className="btn btn-primary" disabled={uploading} onClick={startImport}>{uploading ? '正在上传…' : '识别文字并提取问题'}</button>
+                <button className="btn btn-outline" onClick={closeImport}>{t('bank.cancel')}</button>
+                <button className="btn btn-primary" disabled={uploading} onClick={startImport}>{uploading ? t('bank.uploading') : t('bank.extractQuestions')}</button>
               </>
             ) : stage === 'review' ? (
               <>
-                <button className="btn btn-outline" onClick={closeImport}>稍后处理</button>
-                <button className="btn btn-outline" onClick={() => {setImportOpen(false); selectScope('pending');}}>打开待审核队列</button>
+                <button className="btn btn-outline" onClick={closeImport}>{t('bank.handleLater')}</button>
+                <button className="btn btn-outline" onClick={() => {setImportOpen(false); selectScope('pending');}}>{t('bank.openReviewQueue')}</button>
                 <button className="btn btn-primary" onClick={createSet} disabled={setBusy || !review || !projectId || !selectedItems.length || !setTitle.trim()}>
-                  {setBusy ? '正在核对项目依据…' : '结合项目并保存到面经集'}
+                  {setBusy ? t('bank.checkingProjectEvidence') : t('bank.rewriteAndSaveSet')}
                 </button>
               </>
             ) : undefined
@@ -805,7 +814,7 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
               <BankUploadPicker
                 multiple
                 accept=".pdf,.docx,.md,.markdown,.txt,.text,.jpg,.jpeg,.png,.webp,application/pdf,text/markdown,text/plain,image/jpeg,image/png,image/webp"
-                description="支持 PDF / DOCX / Markdown / TXT / JPG / PNG，单文件 ≤ 12MB，可多选"
+                description={t('bank.fileFormats')}
                 onFiles={addFiles}
               />
 
@@ -816,38 +825,38 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
                       <span className="file-ic">{f.name.endsWith('.pdf') ? '📕' : f.name.endsWith('.docx') ? '📘' : /\.(jpe?g|png)$/i.test(f.name) ? '🖼️' : '📄'}</span>
                       <span className="file-name">{i + 1}. {f.name}</span>
                       <span className="file-size">{f.size < 1024 ? `${f.size} B` : `${(f.size / 1024).toFixed(0)} KB`}</span>
-                      <button className="btn btn-ghost btn-sm" disabled={i === 0} aria-label={`上移 ${f.name}`} onClick={() => moveFile(i, -1)}>↑</button>
-                      <button className="btn btn-ghost btn-sm" disabled={i === files.length - 1} aria-label={`下移 ${f.name}`} onClick={() => moveFile(i, 1)}>↓</button>
-                      <button className="file-x" title="移除" onClick={(e) => { e.stopPropagation(); setFiles((prev) => prev.filter((_, j) => j !== i)); }}>×</button>
+                      <button className="btn btn-ghost btn-sm" disabled={i === 0} aria-label={t('bank.moveFileUp', { name: f.name })} onClick={() => moveFile(i, -1)}>↑</button>
+                      <button className="btn btn-ghost btn-sm" disabled={i === files.length - 1} aria-label={t('bank.moveFileDown', { name: f.name })} onClick={() => moveFile(i, 1)}>↓</button>
+                      <button className="file-x" title={t('bank.remove')} onClick={(e) => { e.stopPropagation(); setFiles((prev) => prev.filter((_, j) => j !== i)); }}>×</button>
                     </div>
                   ))}
                 </div>
               )}
 
-              {importErr && <div className="demo-banner demo-banner-err" style={{ marginTop: 10 }}>{importErr}</div>}
+              {importErr.length > 0 && <div className="demo-banner demo-banner-err" style={{ marginTop: 10 }}>{importErr.map(message => bankMessageText(message, t)).join(t('bank.clauseSeparator'))}</div>}
 
               <div className="form-row" style={{ marginTop: 12 }}>
                 <div className="field">
-                  <label>公司（可选）</label>
-                  <input className="inp" placeholder="如 字节跳动" value={company} onChange={(e) => setCompany(e.target.value)} />
+                  <label>{t('bank.optionalCompany')}</label>
+                  <input className="inp" placeholder={t('bank.companyExample')} value={company} onChange={(e) => setCompany(e.target.value)} />
                 </div>
                 <div className="field">
-                  <label>职级（可选）</label>
-                  <input className="inp" placeholder="如 P6 / 中级" value={level} onChange={(e) => setLevel(e.target.value)} />
+                  <label>{t('bank.optionalLevel')}</label>
+                  <input className="inp" placeholder={t('bank.levelExample')} value={level} onChange={(e) => setLevel(e.target.value)} />
                 </div>
               </div>
 
               <div className="field" style={{ marginTop: 12 }}>
-                <label>或粘贴文本（可与文件一起提交）</label>
+                <label>{t('bank.pasteAlongsideFiles')}</label>
                 <textarea
                   className="textarea"
                   style={{ minHeight: 90 }}
-                  placeholder="把面经原文贴到这里，例如：&#10;问：讲一下你在项目中如何设计 Agent 的记忆管理？&#10;答：……（有答案会直接保留，没有答案自动生成）"
+                  placeholder={t('bank.pasteInterviewPlaceholder')}
                   value={pasteText}
                   onChange={(e) => setPasteText(e.target.value)}
                 />
               </div>
-              <div className="hint">私有资料仅当前 Workspace 可见，不会自动进入公共题库；解析结果需人工审核，缺答案的题会自动生成详细解答。</div>
+              <div className="hint">{t('bank.importPrivacyHelp')}</div>
             </>
           )}
 
@@ -855,9 +864,9 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
             <div className="rev-split">
               {/* 左: 原文预览 */}
               <div className="rev-src">
-                <div className="rev-pane-title">📄 原文预览</div>
+                <div className="rev-pane-title">{t('bank.originalPreview')}</div>
                 {(review?.meta?.files?.length
-                  ? review.meta.files.map((f) => ({ name: f.name, sub: f.ok ? `${f.chars} 字符 · ${f.suffix || '文本'}` : (f.error || '解析失败'), ok: f.ok }))
+                  ? review.meta.files.map((f) => ({ name: f.name, sub: f.ok ? t('bank.parsedFileMetadata', { count: String(f.chars), format: f.suffix || t('bank.textFormat') }) : (f.error || t('bank.parseFailed')), ok: f.ok }))
                   : files.map((f) => ({ name: f.name, sub: `${(f.size / 1024).toFixed(1)} KB`, ok: true }))
                 ).map((f, i) => (
                   <div className={`rev-src-file ${f.ok ? '' : 'bad'}`} key={`${f.name}-${i}`}>
@@ -867,19 +876,19 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
                 ))}
                 {pasteText.trim() && (
                   <>
-                    <div className="rev-pane-title" style={{ marginTop: 12 }}>📝 粘贴的文本</div>
+                    <div className="rev-pane-title" style={{ marginTop: 12 }}>{t('bank.pastedText')}</div>
                     <div className="rev-src-text">
-                      {pasteText.slice(0, 600)}{pasteText.length > 600 ? '\n…（截断预览）' : ''}
+                      {pasteText.slice(0, 600)}{pasteText.length > 600 ? '\n' + t('bank.previewTruncated') : ''}
                     </div>
                   </>
                 )}
                 {(review?.meta?.company || review?.meta?.level) && (
                   <div className="hint" style={{ marginTop: 10 }}>
-                    来源标注：{review?.meta?.company || '—'} · {review?.meta?.level || '—'}
+                    {t('bank.sourceMetadata', { company: review?.meta?.company || '—', level: review?.meta?.level || '—' })}
                   </div>
                 )}
                 <div className="hint" style={{ marginTop: 10 }}>
-                  🔒 私有资料仅当前工作空间可见，不会自动进入公共题库；<b>审核通过前不会进入考试</b>。
+                  {t('bank.privateReviewHelp')}<b>{t('bank.approvedBeforeExam')}</b>{t('bank.sentenceEnd')}
                 </div>
               </div>
 
@@ -888,37 +897,37 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
                 {review ? (
                   <>
                     <div className="hint" style={{ marginBottom: 12 }}>
-                      {review.short_code} · 提取 {review.items.length} 道原问。原帖经历属于原作者；项目追问使用你所选项目的材料。
+                      {t('bank.extractedSummary', { code: review.short_code, count: review.items.length })}
                     </div>
                     <div className="form-row">
-                      <label className="field">面经集名称<input className="inp" maxLength={120} value={setTitle} onChange={event => setSetTitle(event.target.value)} /></label>
-                      <label className="field">我的项目<select className="inp" value={projectId} onChange={event => setProjectId(event.target.value)}>
-                        <option value="">{projects.length ? '选择项目' : '暂无可选项目'}</option>
+                      <label className="field">{t('bank.setName')}<input className="inp" maxLength={120} value={setTitle} onChange={event => setSetTitle(event.target.value)} /></label>
+                      <label className="field">{t('bank.myProject')}<select className="inp" value={projectId} onChange={event => setProjectId(event.target.value)}>
+                        <option value="">{projects.length ? t('bank.chooseProject') : t('bank.noProjectsToChoose')}</option>
                         {projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
                       </select></label>
                     </div>
-                    {setError && <p role="alert" className="hint">{setError}</p>}
+                    {setError && <p role="alert" className="hint">{bankMessageText(setError, t)}</p>}
                     {review.meta?.files?.filter((f) => !f.ok).map((f) => (
                       <div className="demo-banner demo-banner-err" key={f.name} style={{ marginBottom: 8 }}>
-                        {f.name}：{f.error || '解析失败'}
+                        {t('bank.parsedFileError', { name: f.name, error: f.error || t('bank.parseFailed') })}
                       </div>
                     ))}
                     {review.items.map((it) => (
                       <div className="rev-item" key={it.id}>
                         <div className="q-body">
-                          <label className="hint"><input type="checkbox" disabled={it.status === 'REJECTED'} checked={selectedItems.includes(it.id)} onChange={() => setSelectedItems(previous => previous.includes(it.id) ? previous.filter(id => id !== it.id) : [...previous, it.id])} /> 收录原问 · {it.generation_meta?.source_files?.join('、') || '导入记录'}{it.generation_meta?.extraction_method ? ` · ${it.generation_meta.extraction_method === 'model' ? '模型提取' : '规则提取'}` : ''}</label>
-                          <textarea className="textarea bank-original-input" aria-label={`修正原问 ${it.id}`} maxLength={1000} value={edits[it.id] ?? it.title} onChange={event => setEdits(previous => ({...previous, [it.id]:event.target.value}))} />
+                          <label className="hint"><input type="checkbox" disabled={it.status === 'REJECTED'} checked={selectedItems.includes(it.id)} onChange={() => setSelectedItems(previous => previous.includes(it.id) ? previous.filter(id => id !== it.id) : [...previous, it.id])} /> {t('bank.selectOriginalQuestion', { source: it.generation_meta?.source_files?.join(t('bank.listSeparator')) || t('bank.importRecord'), method: it.generation_meta?.extraction_method ? ` · ${t(it.generation_meta.extraction_method === 'model' ? 'bank.modelExtraction' : 'bank.ruleExtraction')}` : '' })}</label>
+                          <textarea className="textarea bank-original-input" aria-label={t('bank.correctOriginalQuestion', { id: it.id })} maxLength={1000} value={edits[it.id] ?? it.title} onChange={event => setEdits(previous => ({...previous, [it.id]:event.target.value}))} />
                           <div className="q-meta">
                             <span className={`chip ${it.extract_confidence >= 0.5 ? 'chip-green' : 'chip-amber'}`}>
-                              置信度 {Math.round(it.extract_confidence * 100)}%
+                              {t('bank.confidence', { percent: Math.round(it.extract_confidence * 100) })}
                             </span>
-                            <span className="chip chip-slate">{it.suggested_skill_key}</span>
+                            <span className="chip chip-slate">{workshopSkillLabel(it.suggested_skill_key)}</span>
                             {it.has_answer
                               ? (it.answer_source === 'llm'
-                                  ? <span className="chip chip-purple">AI 草稿 · 大模型生成</span>
-                                  : <span className="chip chip-green">解答草稿 · 规则模板</span>)
-                              : <span className="chip chip-amber">暂无答案</span>}
-                            {it.is_duplicate_of && <span className="chip chip-red">与题库重复 · 将合并为变体</span>}
+                                  ? <span className="chip chip-purple">{t('bank.aiDraft')}</span>
+                                  : <span className="chip chip-green">{t('bank.ruleDraft')}</span>)
+                              : <span className="chip chip-amber">{t('bank.noAnswer')}</span>}
+                            {it.is_duplicate_of && <span className="chip chip-red">{t('bank.duplicateVariant')}</span>}
                           </div>
                         </div>
                         <div className="q-actions">
@@ -927,7 +936,7 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
                             disabled={!it.draft_answer}
                             onClick={() => setOpenAns((s) => ({ ...s, [it.id]: !s[it.id] }))}
                           >
-                            {openAns[it.id] ? '收起解答' : '查看解答'}
+                            {openAns[it.id] ? t('bank.hideAnswer') : t('bank.showAnswer')}
                           </button>
                         </div>
                         {openAns[it.id] && it.draft_answer && (
@@ -937,7 +946,7 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
                     ))}
                   </>
                 ) : (
-                  <div className="empty"><b>没有可审核的内容</b><p>请先上传文件或粘贴文本并开始解析</p></div>
+                  <div className="empty"><b>{t('bank.nothingToReview')}</b><p>{t('bank.importBeforeReview')}</p></div>
                 )}
               </div>
             </div>

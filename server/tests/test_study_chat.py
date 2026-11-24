@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from test_llm_stream_transport import CONFIG, DONE, Body, frame, install
 
 from app.api.v1 import study_chat as api
+from app.i18n import message, using_language
 from app.models import (
     Exam,
     ExamAnswer,
@@ -98,7 +99,8 @@ async def test_durable_stream_replay_failure_interrupt_retry_fences_stale_attemp
     sid = created["id"]
     body = api.NewMessage(request_id="turn-1", content="为什么要使用幂等键")
     queue = BackgroundTasks()
-    ticket = await api.send(sid, body, queue, db, ws)
+    with using_language("en"):
+        ticket = await api.send(sid, body, queue, db, ws)
     duplicate_queue = BackgroundTasks()
     assert await api.send(sid, body, duplicate_queue, db, ws) == ticket and not duplicate_queue.tasks
     with pytest.raises(HTTPException, match="409"):
@@ -129,6 +131,7 @@ async def test_durable_stream_replay_failure_interrupt_retry_fences_stale_attemp
     failed = (await api.detail(sid, db, ws))["messages"][-1]
     assert failed["status"] == "failed" and failed["content"] == "已保存的开头" and failed["error"]
     assert requests[0]["model"] == CONFIG["model"] and "为什么" in requests[0]["messages"][1]["content"]
+    assert message("language", "en") in requests[0]["messages"][0]["content"]
 
     queue = BackgroundTasks()
     await api.retry(sid, rid, queue, db, ws)
@@ -145,8 +148,9 @@ async def test_durable_stream_replay_failure_interrupt_retry_fences_stale_attemp
     queue = BackgroundTasks()
     await api.retry(sid, rid, queue, db, ws)
     with monkeypatch.context() as transport:
-        install(transport, Body([frame("成功恢复") + frame(finish="stop") + DONE]))
+        replay = install(transport, Body([frame("成功恢复") + frame(finish="stop") + DONE]))
         await queue()
+        assert message("language", "en") in replay[0]["messages"][0]["content"]
     final = (await api.detail(sid, db, ws))["messages"]
     assert len(final) == 2 and final[0]["content"] == body.content
     assert (final[1]["status"], final[1]["content"], final[1]["attempt"]) == ("completed", "成功恢复", 4)

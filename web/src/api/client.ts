@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { SeedApiError, type createWorkspaceApi } from '../seed/api';
 
 // CareerPilot API client — 后端 FastAPI (127.0.0.1:8000)
@@ -52,7 +53,7 @@ export function selectWorkspace(slug: string) {
 
 async function fetchNative(path: string, options: RequestInit = {}, access = registeredAccess) {
   if (hasRegisteredSession || registeredBuild) {
-    if (!access) throw new ApiError(401, '工作空间会话已关闭');
+    if (!access) throw new ApiError(401, t('shell.sessionClosed'));
     try {
       return await access.response('/native' + path, options);
     } catch (error) {
@@ -81,7 +82,7 @@ export class ApiError extends Error {
 }
 
 export const sendLocalFeedback: SendFeedback = async (submission, signal) => {
-  if (hasRegisteredSession || registeredBuild) throw new ApiError(401, '工作空间会话已关闭');
+  if (hasRegisteredSession || registeredBuild) throw new ApiError(401, t('shell.sessionClosed'));
   const response = await localFetch('/product-feedback', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -91,7 +92,7 @@ export const sendLocalFeedback: SendFeedback = async (submission, signal) => {
     cache: 'no-store',
     signal,
   });
-  if (response.status !== 200) throw new ApiError(response.status, '反馈请求未完成');
+  if (response.status !== 200) throw new ApiError(response.status, t('shell.feedbackIncomplete'));
   return response.json();
 };
 
@@ -174,7 +175,7 @@ export async function readMessageStream(
     } catch { /* ignore */ }
     throw new ApiError(res.status, detail);
   }
-  if (!res.body) throw new ApiError(0, '当前浏览器不支持流式读取');
+  if (!res.body) throw new ApiError(0, t('shell.streamUnsupported'));
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -182,7 +183,7 @@ export async function readMessageStream(
     for (;;) {
       const { done, value } = await reader.read();
       access?.signal.throwIfAborted();
-      if (done) throw new ApiError(0, '回复流提前结束');
+      if (done) throw new ApiError(0, t('shell.streamEnded'));
       buffer += decoder.decode(value, { stream: true });
       let separator: RegExpExecArray | null;
       while ((separator = /\r?\n\r?\n/.exec(buffer))) {
@@ -194,7 +195,7 @@ export async function readMessageStream(
           const event: MessageStreamEvent = JSON.parse(payload);
           if (!Number.isSafeInteger(event?.id) || typeof event.content !== 'string' ||
               !['generating', 'completed', 'failed', 'interrupted'].includes(event.status)) {
-            throw new ApiError(0, '无法识别回复状态');
+            throw new ApiError(0, t('shell.streamUnknown'));
           }
           onEvent(event);
           if (event.status !== 'generating') return;

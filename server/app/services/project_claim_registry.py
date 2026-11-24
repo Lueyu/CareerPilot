@@ -4,10 +4,6 @@ from copy import deepcopy
 
 CONTRACT_VERSION = 'source-registry-v1'
 SOURCE_FIELDS = ('source_id', 'source_version', 'path')
-INSTRUCTIONS = '''输入契约 source-registry-v1：claims 的完整正文、id、kind 和每个引用行号都保留。
-每条 citations 中的 source_ref 只用于查找本请求的 source_registry；该表提供原 source_id、source_version、path。
-必须把表和引用行号一起理解；相同路径不同 source_version 不是同一来源。别名只在本请求有效。
-输出仍只引用给定的原 claim_ids，不输出 source_ref、不新增来源或事实、不把 DOC_CLAIM/INFERRED 提升为 CODE_OBSERVED。'''
 
 
 def _json(value):

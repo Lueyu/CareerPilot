@@ -17,11 +17,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from app.generation_i18n import generation_message, saved_language
+from app.i18n import Locale
 from app.services import project_autopilot_sources as sources
 from app.services import project_claim_registry as claim_registry
 from app.services import project_stage_splits as stage_splits
 from app.services.llm import AgentAdapter
 from app.services.project_prompts import PROMPT_BUNDLE_VERSION, system_prompt
+from app.services.project_report_i18n import report_message
 from app.services.project_sources import redact_value
 
 PIPELINE_VERSION = 'project-autopilot-v1'
@@ -63,6 +66,7 @@ class RuntimeContext:
     repair_diagnostic: str | None = None
     transport_mode: str = 'json'
     stage_timeout: float | None = None
+    language: Locale | None = None
 
 
 class Strict(BaseModel):
@@ -163,10 +167,8 @@ class ImpactResponse(Strict):
     reasons: list[PathReason] = Field(max_length=100)
 
 
-SECTIONS = [('overview', '项目用途'), ('features', '功能、模块与技术栈'), ('flow', '主要业务和数据流'),
-            ('implementation', '实现、声明与未接通环节'), ('architecture', '架构取舍、风险与改进'),
-            ('tests_deploy', '测试与部署：源码观察，不是运行结果'), ('interview', '岗位关联与面试准备'),
-            ('changes', '相对上一版本的变化'), ('limitations', '分析范围与局限')]
+SECTIONS = ('overview', 'features', 'flow', 'implementation', 'architecture',
+            'tests_deploy', 'interview', 'changes', 'limitations')
 
 
 def _json(value):
@@ -180,9 +182,15 @@ def fingerprint(value):
 def _provenance(context, runtime=None):
     return {'pipeline_version': PIPELINE_VERSION, 'prompt_bundle_version': PROMPT_BUNDLE_VERSION,
             'schema_version': SCHEMA_VERSION, 'safety_policy_version': SAFETY_POLICY_VERSION,
+            'generation_language': saved_language(context.get('generation_language')),
             'model_config_fingerprint': context.get('model_config_fingerprint'),
             'workspace_id': runtime.workspace_id if runtime else context.get('workspace_id'),
             'project_id': runtime.project_id if runtime else context.get('project_id') or context.get('project', {}).get('id')}
+
+
+def _matches_provenance(context, original):
+    return bool(original and {**original, 'generation_language': saved_language(original.get('generation_language'))}
+                == _provenance(context))
 
 
 def _read_key(path):
@@ -294,12 +302,13 @@ def _claim_material(payload, claims):
 def plan_steps(context: dict, artifacts: dict[str, dict]) -> list[dict]:
     """Deterministic discovered graph. All returned prerequisite keys are stable."""
     specs = []
+    language = saved_language(context.get('generation_language'))
     claim_contract = _claim_contract(context, artifacts)
     stage_splits.validate_splits(context, artifacts)
     split_by_parent = {plan['parent']['step_key']: plan for plan in context.get('source_splits') or []}
     def add(key, stage, requires=(), payload=None, module_key=None):
         item = {'key': key, 'stage': stage, 'requires': list(requires), 'payload': payload or {}, 'uses_model': stage in MODEL_STAGES}
-        if stage == 'plan_modules' and _reusable_plan(context, _effective_manifest(artifacts), (payload or {}).get('paths', [])):
+        if stage == 'plan_modules' and _reusable_plan(context, _effective_manifest(artifacts, language), (payload or {}).get('paths', [])):
             item['uses_model'] = False
         if stage == 'analyze_change_impact' and _impact_input(context, artifacts['manifest']) is None:
             item['uses_model'] = False
@@ -330,12 +339,12 @@ def plan_steps(context: dict, artifacts: dict[str, dict]) -> list[dict]:
     budget = int((context.get('budget') or {}).get('input_chars') or 40000)
     manifest = artifacts['manifest']
     semantic_requires = ['manifest']
-    if context.get('mode') == 'incremental' and manifest['diff'].get('changes') and not manifest['diff'].get('requires_full'):
+    if manifest['diff'].get('changes') and _reuse_allowed(context, manifest):
         add('impact', 'analyze_change_impact', ['manifest'])
         if 'impact' not in artifacts:
             return specs
         semantic_requires.append('impact')
-    manifest = _effective_manifest(artifacts)
+    manifest = _effective_manifest(artifacts, language)
     partitions = _manifest_partitions(manifest, budget)
     plan_keys = []
     for part in partitions:
@@ -428,7 +437,8 @@ def plan_steps(context: dict, artifacts: dict[str, dict]) -> list[dict]:
     if not all(key in artifacts for key in cross_keys):
         return specs
     section_keys = []
-    for section, title in SECTIONS:
+    for section in SECTIONS:
+        title = report_message(f'section.{section}', language)
         for i, batch in enumerate(claim_batches):
             key = f'section:{version_key}{section}:{i}'
             section_keys.append(add(key, 'explain_section', [*module_keys, *cross_keys],
@@ -484,19 +494,20 @@ async def _ask(task, payload, model, runtime):
                       'requested_tier': tier, 'tier': selected, 'routing_reason': reason}
     if not all(cfg.get(k) for k in ('provider', 'api_key', 'base_url', 'model')):
         raise StageError('NOT_CONFIGURED', '尚未配置可用的模型服务')
+    language = saved_language(runtime.language)
     value = {'task': task, **payload, 'output_schema': model.model_json_schema(), 'prompt_version': PROMPT_BUNDLE_VERSION}
     if runtime.repair_diagnostic:
         value['repair_request'] = {'previous_validation_error': runtime.repair_diagnostic[:600],
             'output_strategy': 'smaller_response_complete_schema',
-            'instructions': '这是一次有预算的修复：严格修正指出的字段或实际引用，保持所有必填字段。若先前截断，只输出最重要的 1-2 条观察、最多 1 个问题，章节 1 段约 100 字，候选最多 3 条；规划仍需覆盖全部给定路径。不要重复长解释，不修改模型参数，不编造补全。'}
-    user, system = _json(value), system_prompt(task)
+            'instructions': generation_message('project.prompt.repair', language)}
+    system = system_prompt(task, language)
     contract = payload.get('input_contract_version')
     if contract is not None:
         if contract != claim_registry.CONTRACT_VERSION:
             raise StageError('CONFIG_CHANGED', '未知的结论输入契约')
         value['task_prompt_version'] = contract
-        user = _json(value)
-        system += '\n' + claim_registry.INSTRUCTIONS
+        system += '\n' + generation_message('project.prompt.source_registry', language)
+    user = _json(value)
     estimate = len((system + user).encode('utf-8'))
     meta = {**route_meta, 'task': task, 'input_chars': len(system) + len(user), 'input_bytes': estimate,
             'input_tokens_estimate': estimate, 'token_estimate_method': 'conservative_utf8_bytes_not_actual_tokens',
@@ -640,11 +651,14 @@ def _apply_claim_reviews(artifact, context, target_sha):
            'review': deepcopy(r)} for r in reviews]]
     result['claims'] = [c for c in result['claims'] if c['id'] not in seen]
     result['issues'] = [i for i in result.get('issues', []) if i.get('claim_id') not in seen]
-    result['unknowns'] = [*result.get('unknowns', []), *[
-        f"独立源码复核 {r['review_id']}：一条原始模型结论存在争议，已从本报告事实与记忆候选输入中隔离；"
-        f"原因：{r['reason']} 原始结论和对应来源仍保留供核查，不表示已由模型完成纠正。" for r in reviews]]
+    language = saved_language(context.get('generation_language'))
+    result['unknowns'] = [*result.get('unknowns', []), *[_quarantine_notice(r, language) for r in reviews]]
     result['claim_review_fingerprint'] = fingerprint(reviews)
     return result
+
+
+def _quarantine_notice(review, language):
+    return report_message('quarantine', language, review_id=review['review_id'], reason=review['reason'])
 
 
 def _validate_claim_links(entries, claims):
@@ -653,7 +667,7 @@ def _validate_claim_links(entries, claims):
         raise StageError('INVALID_CITATION', '解释引用了本阶段未提供或重复的结论编号')
 
 
-def _path_context(manifest, module, limit=4000):
+def _path_context(manifest, module, limit, language):
     all_paths = [e['path'] for e in manifest['entries'] if e.get('included')]
     parents = {p.rsplit('/', 1)[0] if '/' in p else '' for p in module['paths']}
     candidates = sorted(all_paths, key=lambda p: (p not in module['paths'], (p.rsplit('/', 1)[0] if '/' in p else '') not in parents, p))
@@ -665,14 +679,13 @@ def _path_context(manifest, module, limit=4000):
         selected.append(path)
         size += amount
     partial = len(selected) < len(all_paths)
-    note = ('此处仅提供部分可分析路径，未列出的文件可能存在。' if partial
-            else '此处列出固定版本中全部可分析路径，不含因策略排除的文件。')
+    note = report_message('paths.partial' if partial else 'paths.complete', language)
     return {'available_paths': selected, 'path_catalog_partial': partial, 'path_catalog_note': note}
 
 
-def _check_module_paths(value, manifest):
+def _check_module_paths(value, manifest, language):
     eligible = {entry['path'] for entry in manifest['entries'] if entry.get('included')}
-    for key, label in (('dependencies', '依赖'), ('read_requests', '补读请求')):
+    for key in ('dependencies', 'read_requests'):
         accepted = []
         for item in value[key]:
             path = item['path']
@@ -684,10 +697,10 @@ def _check_module_paths(value, manifest):
         if omitted:
             value[key] = accepted
             value['dependency_scope_complete'] = False
-            value['unknowns'].append(f'{omitted} 条{label}无法匹配固定版本的可分析文件，相关依赖范围仍待确认。')
+            value['unknowns'].append(report_message(f'paths.omitted.{key}', language, count=omitted))
 
 
-def _change_context(diff, claims):
+def _change_context(diff, claims, language):
     changes = diff.get('changes') or []
     paths = {c['path'] for claim in claims for c in claim['citations']}
     related = [c for c in changes if c['path'] in paths or c.get('previous_path') in paths]
@@ -700,10 +713,10 @@ def _change_context(diff, claims):
     counts = {s: sum(c['status'] == s for c in changes) for s in ('added', 'modified', 'deleted', 'renamed')}
     return {'complete_manifest_diff': diff.get('complete', False), 'counts': counts,
             'related_changes': selected, 'related_changes_truncated': len(selected) < len(related),
-            'note': '完整逐文件差异另行保存在报告；本请求只有数量与当前结论相关差异，不推断未展示代码变化。'}
+            'note': report_message('changes.prompt_scope', language)}
 
 
-def _split_source(source, limit=8000):
+def _split_source(source, limit=8000, *, language: Locale = 'zh-CN'):
     chunks, current, size, start = [], [], 0, 1
     lines = source['content'].splitlines()
     for n, line in enumerate(lines, 1):
@@ -720,7 +733,7 @@ def _split_source(source, limit=8000):
     return [{**chunk, 'source_id': source['source_id'], 'source_version': source['source_revision'], 'path': source['path'],
              'encoding': source.get('encoding', 'utf-8'),
              'normalizations': [n for n in source.get('normalizations', []) if chunk['start_line'] <= n['line'] <= chunk['end_line']],
-             'normalization_note': '若 normalizations 非空，表中原始控制字符已作可逆可见转义；原始行号不变。显示的转义串不代表原代码本来写了反斜杠，须结合坐标表理解。'} for chunk in chunks]
+             'normalization_note': report_message('paths.normalization_note', language)} for chunk in chunks]
 
 
 def _baseline_artifacts(context):
@@ -753,14 +766,14 @@ def _impact_input(context, manifest):
     return value if len(_json(value)) < budget // 2 else None
 
 
-def _effective_manifest(artifacts):
+def _effective_manifest(artifacts, language):
     manifest = artifacts['manifest']
     impact = artifacts.get('impact')
     if not impact:
         return manifest
     diff = dict(manifest['diff'])
     if impact.get('unknown_dependencies'):
-        diff.update(requires_full=True, reason='增量影响范围无法有界确认，转为完整语义分析')
+        diff.update(requires_full=True, reason=report_message('changes.unknown_impact', language))
     return {**manifest, 'diff': diff, 'impact': impact}
 
 
@@ -770,7 +783,7 @@ def _reusable_module(context, manifest, module):
     baseline = context.get('baseline') or {}
     modules = (baseline.get('snapshot') or {}).get('modules') or [v for k, v in _baseline_artifacts(context).items() if k.startswith('module:')]
     original = next((m for m in modules if m.get('key') == module.get('key') and m.get('paths') == module.get('paths')), None)
-    if not original or original.get('provenance') != _provenance(context) or original.get('coverage_status') != 'COMPLETE':
+    if not original or not _matches_provenance(context, original.get('provenance')) or original.get('coverage_status') != 'COMPLETE':
         return None
     # Unknown dependencies anywhere in the prior map cannot establish a safe
     # reverse-impact boundary, so conservatively reanalyse all semantics.
@@ -804,24 +817,32 @@ def _reusable_module(context, manifest, module):
                 return None
             if path in owners and owners[path]['key'] != current['key']:
                 todo.append(owners[path])
-    if original.get('fingerprint') != _module_fingerprint(context, manifest, module, original.get('dependencies', [])):
+    legacy = 'generation_language' not in original['provenance']
+    if original.get('fingerprint') != _module_fingerprint(context, manifest, module, original.get('dependencies', []), legacy=legacy):
         return None
     return original
 
 
 def _reuse_allowed(context, manifest):
-    return context.get('mode') == 'incremental' and manifest.get('complete') and manifest.get('diff', {}).get('complete') and not manifest['diff'].get('requires_full')
+    baseline = context.get('baseline') or {}
+    stored = (baseline.get('snapshot') or {}).get('provenance') or {}
+    language = saved_language(baseline.get('generation_language', stored.get('generation_language')))
+    return (language == saved_language(context.get('generation_language')) and context.get('mode') == 'incremental'
+            and manifest.get('complete') and manifest.get('diff', {}).get('complete') and not manifest['diff'].get('requires_full'))
 
 
 def _reusable_plan(context, manifest, paths):
     if not _reuse_allowed(context, manifest):
         return None
     return next((v for k, v in _baseline_artifacts(context).items() if k.startswith('plan:') and v.get('paths') == paths
-                 and v.get('provenance') == _provenance(context)), None)
+                 and _matches_provenance(context, v.get('provenance'))), None)
 
 
 async def execute_stage(stage: str, inputs: dict, runtime: RuntimeContext) -> dict:
     context, payload, artifacts = inputs['context'], inputs.get('payload') or {}, inputs.get('artifacts') or {}
+    language = saved_language(context.get('generation_language', runtime.language))
+    context = {**context, 'generation_language': language}
+    runtime = replace(runtime, language=language)
     # Durable identities always refer to the saved stage output. Incremental
     # semantic analysis below uses a derived manifest with impact information.
     checkpoint_artifacts = artifacts
@@ -832,7 +853,7 @@ async def execute_stage(stage: str, inputs: dict, runtime: RuntimeContext) -> di
     if inputs.get('repair_diagnostic'):
         runtime = replace(runtime, repair_diagnostic=str(inputs['repair_diagnostic'])[:600])
     if split_plan is not None and stage == 'analyze_module' and split_plan['inherited_repair'] == 'OUTPUT_TRUNCATED':
-        compact = '上次模型输出被截断；请保持完整结构并使用更精简的输出。'
+        compact = generation_message('project.prompt.truncated', language)
         repair = runtime.repair_diagnostic or ''
         runtime = replace(runtime, repair_diagnostic=repair if compact in repair else compact + ' ' + repair[:500])
     if context.get('workspace_id', runtime.workspace_id) != runtime.workspace_id or context.get('project_id', runtime.project_id) != runtime.project_id:
@@ -844,7 +865,7 @@ async def execute_stage(stage: str, inputs: dict, runtime: RuntimeContext) -> di
                 raise StageError('AUTH_BLOCKED', '不能复用其他工作区或项目的阶段产物')
     project = context['project']
     if 'manifest' in artifacts:
-        artifacts = {**artifacts, 'manifest': _effective_manifest(artifacts)}
+        artifacts = {**artifacts, 'manifest': _effective_manifest(artifacts, language)}
     provenance = _provenance(context, runtime)
     usage, request_meta = {'known': False, 'model_calls': 0}, {}
     try:
@@ -866,9 +887,10 @@ async def execute_stage(stage: str, inputs: dict, runtime: RuntimeContext) -> di
                         'repository_id': artifacts['resolve']['repository_id']}
             baseline = context.get('baseline') or {}
             old = (baseline.get('snapshot') or {}).get('manifest') or _baseline_artifacts(context).get('manifest')
-            diff = sources.diff_manifests(old, artifact) if old else {'complete': False, 'changes': [], 'requires_full': True, 'reason': '首次分析或无兼容清单'}
+            diff = sources.diff_manifests(old, artifact, language=language) if old else {
+                'complete': False, 'changes': [], 'requires_full': True, 'reason': report_message('changes.no_baseline', language)}
             if context.get('mode') == 'incremental' and (artifacts['resolve'].get('base_is_ancestor') is not True or (old and old.get('branch') != artifact['branch'])):
-                diff = {**diff, 'requires_full': True, 'reason': '历史不连续、分支改变或提供方无法确认祖先关系'}
+                diff = {**diff, 'requires_full': True, 'reason': report_message('changes.unverified_history', language)}
             artifact['diff'] = diff
         elif stage == 'plan_modules':
             paths = payload['paths']
@@ -891,7 +913,7 @@ async def execute_stage(stage: str, inputs: dict, runtime: RuntimeContext) -> di
             material = _impact_input(context, artifacts['manifest'])
             if material is None:
                 artifact = {'affected_paths': [], 'unknown_dependencies': True, 'reasons': [],
-                            'fallback_reason': '依赖范围未知或影响资料超出一次有界核对；安全退回完整语义分析'}
+                            'fallback_reason': report_message('changes.impact_fallback', language)}
             else:
                 artifact, usage, request_meta = await _ask('analyze_change_impact', material, ImpactResponse, runtime)
                 available = {e['path'] for e in artifacts['manifest']['entries']}
@@ -917,7 +939,8 @@ async def execute_stage(stage: str, inputs: dict, runtime: RuntimeContext) -> di
                 source['source_revision'], source['path'], source.get('blob_oid'), source['content_sha256'], SAFETY_POLICY_VERSION])[:48]
             source['workspace_id'], source['project_id'] = runtime.workspace_id, runtime.project_id
             source['safety_policy_version'] = SAFETY_POLICY_VERSION
-            artifact = {'source': source, 'chunks': _split_source(source, min(8000, max(500, runtime.input_chars // 5)))}
+            artifact = {'source': source, 'chunks': _split_source(
+                source, min(8000, max(500, runtime.input_chars // 5)), language=language)}
         elif stage == 'analyze_module':
             selected = []
             for ref in payload['sources']:
@@ -926,8 +949,8 @@ async def execute_stage(stage: str, inputs: dict, runtime: RuntimeContext) -> di
                     raise StageError('INVALID_CITATION', '源码块版本或读取范围与阶段输入不一致')
                 selected.append(item)
             value, usage, request_meta = await _ask('analyze_module', {'module': {k: payload['module'][k] for k in ('key', 'name', 'purpose')}, 'sources': selected,
-                **_path_context(artifacts['manifest'], payload['module'], min(4000, runtime.input_chars // 10))}, ModuleResponse, runtime)
-            _check_module_paths(value, artifacts['manifest'])
+                **_path_context(artifacts['manifest'], payload['module'], min(4000, runtime.input_chars // 10), language)}, ModuleResponse, runtime)
+            _check_module_paths(value, artifacts['manifest'], language)
             ids = [c['id'] for c in value['claims']]
             if len(ids) != len(set(ids)):
                 raise StageError('INVALID_SCHEMA', '模块结论编号重复')
@@ -975,9 +998,10 @@ async def execute_stage(stage: str, inputs: dict, runtime: RuntimeContext) -> di
             artifact = deepcopy(original)
             artifact = _normalize_fact_boundaries(artifact, artifact.get('sources', []))
             artifact = _apply_claim_reviews(artifact, context, artifacts['resolve']['target_sha'])
+            artifact['fingerprint'] = _module_fingerprint(context, artifacts['manifest'], payload['module'], original['dependencies'])
             artifact['compatibility'] = {'target_sha': artifacts['resolve']['target_sha'], 'manifest_hash': fingerprint(artifacts['manifest']['entries']),
-                'dependency_fingerprint': _module_fingerprint(context, artifacts['manifest'], payload['module'], original['dependencies']),
-                'reused_from_sha': original['analyzed_sha'], 'reason': '模块及显式依赖的 blob、策略和模型版本均未改变'}
+                'dependency_fingerprint': artifact['fingerprint'],
+                'reused_from_sha': original['analyzed_sha'], 'reason': report_message('reuse', language)}
         elif stage in ('cross_module', 'explain_section'):
             contract = _claim_contract(context, checkpoint_artifacts)
             if payload.get('input_contract_version', 'legacy') != contract:
@@ -988,11 +1012,13 @@ async def execute_stage(stage: str, inputs: dict, runtime: RuntimeContext) -> di
                 value, usage, request_meta = await _ask('verify_cross_module', material, CrossResponse, runtime)
                 _validate_claim_links(value['observations'] + value['conflicts'], claims)
             else:
-                value, usage, request_meta = await _ask('explain_project_section', {'section': payload['title'], **material,
-                    'changes': _change_context(artifacts['manifest']['diff'], claims) if payload['section'] == 'changes' else None,
-                    'personal_contribution': '未由用户确认；不能推断'}, SectionResponse, runtime)
+                title = report_message(f"section.{payload['section']}", language)
+                value, usage, request_meta = await _ask('explain_project_section', {'section': title, **material,
+                    'changes': _change_context(artifacts['manifest']['diff'], claims, language) if payload['section'] == 'changes' else None,
+                    'personal_contribution': generation_message('project.prompt.contribution', language)},
+                    SectionResponse, runtime)
                 _validate_claim_links(value['paragraphs'], claims)
-            artifact = {**value, 'claim_ids': [c['id'] for c in claims], **({'section': payload['section'], 'title': payload['title']} if stage == 'explain_section' else {})}
+            artifact = {**value, 'claim_ids': [c['id'] for c in claims], **({'section': payload['section'], 'title': title} if stage == 'explain_section' else {})}
         elif stage == 'report':
             contract = _claim_contract(context, checkpoint_artifacts)
             artifact = _assemble_report(context, artifacts, payload)
@@ -1052,13 +1078,17 @@ async def execute_stage(stage: str, inputs: dict, runtime: RuntimeContext) -> di
     return {'artifact': artifact, 'usage': usage, 'request_meta': request_meta}
 
 
-def _module_fingerprint(context, manifest, module, dependencies):
+def _module_fingerprint(context, manifest, module, dependencies, *, legacy=False):
     paths = set(module['paths']) | set(dependencies)
     by_path = {e['path']: e for e in manifest['entries']}
-    return fingerprint({'scope': _provenance(context), 'paths': [(p, by_path.get(p, {}).get('blob_oid'), by_path.get(p, {}).get('mode')) for p in sorted(paths)]})
+    scope = _provenance(context)
+    if legacy:
+        scope.pop('generation_language')
+    return fingerprint({'scope': scope, 'paths': [(p, by_path.get(p, {}).get('blob_oid'), by_path.get(p, {}).get('mode')) for p in sorted(paths)]})
 
 
 def _assemble_report(context, artifacts, payload):
+    language = saved_language(context.get('generation_language'))
     modules = [artifacts[k] for k in payload['module_keys']]
     claims = [c for m in modules for c in m['claims']]
     issues = [{**i, 'id': f'I{n}'} for n, i in enumerate([i for m in modules for i in m['issues']], 1)]
@@ -1069,9 +1099,10 @@ def _assemble_report(context, artifacts, payload):
         if checked != claim['citations']:
             raise StageError('INVALID_CITATION', '报告来源版本与原始引用不一致')
     sections = []
-    for name, title in SECTIONS:
+    for name in SECTIONS:
         parts = [artifacts[k] for k in payload['section_keys'] if artifacts[k]['section'] == name]
-        sections.append({'id': name, 'title': title, 'paragraphs': [p for part in parts for p in part['paragraphs']],
+        sections.append({'id': name, 'title': report_message(f'section.{name}', language),
+                         'paragraphs': [p for part in parts for p in part['paragraphs']],
                          'unknowns': [u for part in parts for u in part['unknowns']]})
     manifest = artifacts['manifest']
     complete = bool(modules and claims and manifest['complete'] and all(s['paragraphs'] for s in sections)
@@ -1084,23 +1115,22 @@ def _assemble_report(context, artifacts, payload):
                 'scope': 'planned_modules_read_without_repository_execution', 'modules_read': len(modules),
                 'source_download_bytes': _downloaded_bytes(artifacts)}
     unknowns = list(dict.fromkeys([u for m in modules for u in m['unknowns']] +
-        [u for k in payload['cross_keys'] for u in artifacts[k]['unknowns']] + ['仅进行只读源码分析，未安装依赖或运行测试；个人贡献尚未确认。']))
+        [u for k in payload['cross_keys'] for u in artifacts[k]['unknowns']] + [report_message('coverage.read_only', language)]))
     normalized_sources = [{k: s[k] for k in ('source_id', 'path', 'source_revision', 'encoding', 'normalizations')}
                           for s in source_map.values() if s.get('normalizations')]
     quarantined = [q for m in modules for q in m.get('quarantined_claims', [])]
     if quarantined:
-        review_notes = list(dict.fromkeys(u for m in modules for u in m['unknowns']
-                                         if u.startswith('独立源码复核 ')))
+        review_notes = list(dict.fromkeys(_quarantine_notice(q['review'], language) for q in quarantined))
         next(s for s in sections if s['id'] == 'limitations')['paragraphs'].extend(
             {'text': note, 'claim_ids': []} for note in review_notes)
     if normalized_sources:
-        note = (f"本次 {len(normalized_sources)} 个严格 UTF-8 文本文件中的稀疏 NUL 已作可逆可见转义；"
-                '原始行号保持不变，来源保存字符坐标、转义表及脱敏后原文哈希。显示转义不等于原代码原本写了转义串，也不证明代码运行正确。')
+        note = report_message('normalization', language, count=len(normalized_sources))
         unknowns.append(note)
         next(s for s in sections if s['id'] == 'limitations')['paragraphs'].append({'text': note, 'claim_ids': []})
     architecture = [{'title': c['title'], 'detail': c['text'], 'citations': c['citations'], 'claim_id': c['id'], 'fact_type': c['kind']}
                     for c in claims if c['citations'] and ':issue' not in c['id']]
-    report = {'schema_version': SCHEMA_VERSION, 'summary': '\n'.join(p['text'] for p in sections[0]['paragraphs']) if sections else '',
+    report = {'schema_version': SCHEMA_VERSION, 'generation_language': language,
+              'summary': '\n'.join(p['text'] for p in sections[0]['paragraphs']) if sections else '',
               'architecture': architecture, 'issues': issues, 'unknowns': unknowns, 'sections': sections, 'claims': claims,
               'technologies_assessed': True,
               'modules': [{k: v for k, v in m.items() if k != 'sources'} for m in modules], 'changes': manifest['diff'],

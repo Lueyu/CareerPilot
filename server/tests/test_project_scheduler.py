@@ -31,6 +31,46 @@ async def test_unchanged_probe_does_not_enqueue_or_call_model(db_session,test_wo
     assert second['status']=='UNCHANGED'
     assert await db_session.scalar(select(func.count()).select_from(ProjectAnalysis).where(ProjectAnalysis.project_id==p.id))==1
 
+
+@pytest.mark.asyncio
+async def test_explicit_language_change_can_scan_same_revision(db_session, test_workspace, monkeypatch):
+    from app.project_worker import context_for
+    from app.services.project_autopilot_engine import SAFETY_POLICY_VERSION, SCHEMA_VERSION
+
+    scheduler, project = await setup(db_session, test_workspace)
+    revision = 'a' * 40
+
+    async def probe(*args, **kwargs):
+        return {'target_sha': revision, 'branch': 'main'}
+
+    monkeypatch.setattr(scheduler, 'probe_repository', probe)
+    first = await scheduler.check_project(db_session, project.id, test_workspace.id)
+    old = await db_session.get(ProjectAnalysis, first['run_id'])
+    project.pending_update = {'generation_language': 'en'}
+    await db_session.commit()
+    assert (await scheduler.check_project(db_session, project.id, test_workspace.id))['run_id'] == old.id
+    assert project.pending_update == {'generation_language': 'en'}
+
+    old.status, old.report_status, old.source_revision = 'COMPLETED', 'VALID', revision
+    old.report = {'summary': '原始报告'}
+    old.snapshot = {'provenance': {'schema_version': SCHEMA_VERSION, 'safety_policy_version': SAFETY_POLICY_VERSION}}
+    project.latest_valid_analysis_id = old.id
+    await db_session.commit()
+    second = await scheduler.check_project(db_session, project.id, test_workspace.id)
+    run = await db_session.get(ProjectAnalysis, second['run_id'])
+    assert run.id != old.id and run.target_sha == revision
+    assert run.result_meta['generation_language'] == 'en'
+    context, _ = await context_for(db_session, run, project)
+    assert context['generation_language'] == 'en'
+    assert context['baseline']['generation_language'] == 'zh-CN'
+    assert old.report == {'summary': '原始报告'}
+
+    run.status, run.report_status, run.source_revision = 'COMPLETED', 'VALID', revision
+    run.snapshot = {'provenance': {**old.snapshot['provenance'], 'generation_language': 'en'}}
+    project.latest_valid_analysis_id = run.id
+    await db_session.commit()
+    assert (await scheduler.check_project(db_session, project.id, test_workspace.id))['status'] == 'UNCHANGED'
+
 @pytest.mark.asyncio
 async def test_running_updates_coalesce_and_missing_consent_never_calls_source(db_session,test_workspace,monkeypatch):
     s,p=await setup(db_session,test_workspace)

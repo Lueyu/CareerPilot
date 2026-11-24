@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import Exam, Workspace
@@ -52,8 +53,8 @@ async def assistance(activity_id: int, body: AssistanceIn, ws: Workspace = Depen
 async def submit(activity_id: int, body: SubmissionIn, ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session)):
     activity = await session.scalar(select(LearningActivity).where(LearningActivity.id == activity_id,
         LearningActivity.workspace_id == ws.id))
-    if activity is None: raise HTTPException(404, '学习活动不存在')
-    if activity.kind == 'PROJECT': raise HTTPException(409, '项目提交请使用范围预览与快照入口')
+    if activity is None: raise HTTPException(404, localized_message("errors.study_activity_not_found"))
+    if activity.kind == 'PROJECT': raise HTTPException(409, localized_message("errors.use_the_scope_preview_and_snapshot_flow_to_submit"))
     submission = await service.submit_activity(session, ws, activity, body.payload, body.request_key,
         body.expected_activity_revision, body.parent_submission_id)
     await session.commit()
@@ -69,12 +70,12 @@ async def submission_detail(submission_id: int, ws: Workspace = Depends(get_work
 async def retry(submission_id: int, ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session)):
     submission = await session.scalar(select(LearningSubmission).where(LearningSubmission.id == submission_id,
         LearningSubmission.workspace_id == ws.id))
-    if submission is None: raise HTTPException(404, '练习提交不存在')
+    if submission is None: raise HTTPException(404, localized_message("errors.practice_submission_not_found"))
     await service._lock_workspace(session, ws)
     goal = await session.get(LearningGoal, submission.goal_id)
     await service.assert_goal_sources(session, ws, goal)
     exam = await session.scalar(select(Exam).where(Exam.id == submission.exam_id, Exam.workspace_id == ws.id))
-    if exam is None: raise HTTPException(409, '原答卷已撤回，无法重试')
+    if exam is None: raise HTTPException(409, localized_message("errors.the_original_submission_was_withdrawn_and_cannot_be_retried"))
     try:
         run = await assessment_jobs.resume(session, ws, exam)
     except ValueError as error:

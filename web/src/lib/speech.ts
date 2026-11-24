@@ -1,3 +1,4 @@
+import { getLocale, useT } from '../i18n';
 // 语音转文字（STT）：基于浏览器内置 Web Speech API，纯前端、免费、不依赖后端。
 // 仅 Chromium 系（Chrome / Edge）支持；Firefox / Safari 不支持（supported 返回 false）。
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -59,7 +60,8 @@ export interface SpeechRecognitionState {
 export function useSpeechRecognition(onFinalDelta: (delta: string) => void): SpeechRecognitionState {
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const t = useT();
+  const [error, setError] = useState<{ key: string; reason?: string } | null>(null);
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   const onDeltaRef = useRef(onFinalDelta);
   onDeltaRef.current = onFinalDelta;
@@ -74,11 +76,11 @@ export function useSpeechRecognition(onFinalDelta: (delta: string) => void): Spe
 
   const start = useCallback(() => {
     const Ctor = getCtor();
-    if (!Ctor) { setError('当前浏览器不支持语音识别，请使用 Chrome / Edge'); return; }
+    if (!Ctor) { setError({ key: "study.speechUnsupported" }); return; }
     if (recRef.current) { try { recRef.current.abort(); } catch { /* noop */ } }
 
     const rec = new Ctor();
-    rec.lang = 'zh-CN';
+    rec.lang = getLocale();
     rec.continuous = true;
     rec.interimResults = true;
 
@@ -100,11 +102,11 @@ export function useSpeechRecognition(onFinalDelta: (delta: string) => void): Spe
       if(recRef.current!==rec)return;
       const code = event?.error;
       if (code === 'not-allowed' || code === 'service-not-allowed') {
-        setError('麦克风权限被拒绝，请在浏览器地址栏授权后重试');
+        setError({ key: "study.microphoneDenied" });
       } else if (code === 'no-speech') {
-        setError('没有检测到语音，请靠近麦克风重试');
+        setError({ key: "study.speechNotDetected" });
       } else if (code !== 'aborted') {
-        setError(`语音识别出错：${code || event?.message || '未知错误'}`);
+        setError({ key: "study.speechRecognitionError", reason: code || event?.message });
       }
     };
 
@@ -122,7 +124,7 @@ export function useSpeechRecognition(onFinalDelta: (delta: string) => void): Spe
       rec.start();
       setListening(true);
     } catch (err) {
-      setError(`无法启动语音识别：${(err as Error)?.message || err}`);
+      setError({ key: "study.speechStartFailed", reason: err instanceof Error ? err.message : String(err) });
       recRef.current = null;
     }
   }, []);
@@ -130,5 +132,5 @@ export function useSpeechRecognition(onFinalDelta: (delta: string) => void): Spe
   // 卸载时中止识别，避免组件销毁后回调触发 setState。
   useEffect(() => () => { const rec=recRef.current;recRef.current=null;try { rec?.abort(); } catch { /* noop */ } }, []);
 
-  return { supported: isSpeechSupported(), listening, interim, error, start, stop };
+  return { supported: isSpeechSupported(), listening, interim, error: error ? t(error.key, { reason: error.reason || t("study.unknownError") }) : null, start, stop };
 }

@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
+import { useT } from '../i18n';
 import DailyLearningPlanView, { type Plan } from '../pages/DailyLearningPlanView';
-import { useWorkspaceApi } from './api';
+import { messageFor, renderMessage, useWorkspaceApi, type UiMessage } from './api';
 
 const endpoint = '/learning/daily-plan';
 
 export default function Learning() {
+  const t = useT();
   const { request, send } = useWorkspaceApi();
-  const [result, setResult] = useState<{ data: Plan } | { error: string }>();
+  const [result, setResult] = useState<{ data: Plan } | { error: UiMessage }>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -14,7 +16,7 @@ export default function Learning() {
       data => { if (!controller.signal.aborted) setResult({ data }); },
       error => {
         if (!controller.signal.aborted) {
-          setResult({ error: error instanceof Error ? error.message : '学习计划暂不可用。' });
+          setResult({ error: messageFor(error, 'registered.learningPlanUnavailable') });
         }
       },
     );
@@ -22,7 +24,7 @@ export default function Learning() {
   }, [request]);
 
   return <DailyLearningPlanView data={result && 'data' in result ? result.data : undefined}
-    loading={!result} loadError={result && 'error' in result ? result.error : undefined}
+    loading={!result} loadError={result && 'error' in result ? renderMessage(result.error, t) : undefined}
     mode={{ kind: 'registered' }}
     saveSettings={(settings, plan) => send<Plan>(endpoint, 'PUT', { ...settings, target_role: plan.target_role })}
     saveEvidence={(item_key, note, plan) =>

@@ -1,3 +1,4 @@
+import { t as translate } from '../i18n';
 export type FeedbackSubmission = { submission_id: string; message: string };
 export type SendFeedback = (submission: FeedbackSubmission, signal: AbortSignal) => Promise<unknown>;
 
@@ -11,21 +12,21 @@ export function createFeedbackId(): string {
   return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
 }
 
-export function feedbackResult(status: number): string {
+export function feedbackResult(status: number, t = translate): string {
   switch (status) {
     case 401:
     case 403:
-      return '当前会话无权发送反馈，请检查登录状态。';
+      return t('shell.feedbackUnauthorized');
     case 422:
-      return '反馈未通过审核，请修改内容后重试。';
+      return t('shell.feedbackModerated');
     case 429:
-      return '已达到发送限额，请稍后重试。';
+      return t('shell.feedbackRateLimited');
     case 409:
-      return '暂时无法确认发送结果，请稍后用原文重试。';
+      return t('shell.feedbackPending');
     case 503:
-      return '反馈服务暂不可用，请稍后重试。';
+      return t('shell.feedbackUnavailable');
     default:
-      return '无法确认反馈是否已发送，请稍后用原文重试。';
+      return t('shell.feedbackUnconfirmed');
   }
 }
 

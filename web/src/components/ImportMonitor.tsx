@@ -1,3 +1,4 @@
+import { t as translate, useT } from '../i18n';
 /**
  * 全局面经导入进度悬浮窗(挂在 Layout, 所有页面可见)。
  *
@@ -7,9 +8,10 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState } from './AppState';
-import { ImportFinished, TrackedImport, onImportFinished, subscribeImports } from '../lib/importTracker';
+import { ImportFinished, TrackedImport, importProgressNote, onImportFinished, subscribeImports } from '../lib/importTracker';
 
 export default function ImportMonitor() {
+  const t = useT();
   const [list, setList] = useState<TrackedImport[]>([]);
   const { toast } = useAppState();
   const navigate = useNavigate();
@@ -18,31 +20,31 @@ export default function ImportMonitor() {
   useEffect(() => onImportFinished((r: ImportFinished) => {
     window.dispatchEvent(new CustomEvent('cp-import-finished', { detail: r }));
     if (r.status === 'REVIEW') {
-      toast('✅', `面经解析完成：${r.itemCount} 道题待审核（面试题库）`);
+      toast('✅', translate('bank.importCompleted', { count: r.itemCount }));
     } else if (r.status === 'FAILED') {
-      toast('⚠️', `面经解析失败：${r.error || '未知错误'}`);
+      toast('⚠️', translate('bank.importFailed', { error: r.error || translate("bank.unknownError") }));
     } else if (r.status === 'TIMEOUT') {
-      toast('⏳', '解析耗时较长，稍后可在「面试题库 → 待审核」查看结果');
+      toast('⏳', translate('bank.importDelayed'));
     }
   }), [toast]);
 
   if (!list.length) return null;
   return (
     <div className="import-monitor">
-      {list.map((t) => (
+      {list.map((item) => (
         <div
-          key={t.id}
+          key={item.id}
           className="import-monitor-item"
           onClick={() => navigate('/bank?review=1')}
-          title="点击前往待审核队列"
+          title={t('bank.openReviewFromMonitor')}
         >
           <span className="import-monitor-spin" />
           <div className="import-monitor-txt">
-            <b>正在解析面经 {t.shortCode}</b>
-            <span>{t.note || '后台解析中'} · {(t.elapsedMs / 1000).toFixed(0)}s</span>
+            <b>{t('bank.parsingInterviewCode', { code: item.shortCode })}</b>
+            <span>{t('bank.importProgressTime', { note: importProgressNote(item), seconds: (item.elapsedMs / 1000).toFixed(0) })}</span>
           </div>
           <div className="import-monitor-bar">
-            <i style={{ width: `${Math.min(100, Math.round((t.step / Math.max(1, t.total)) * 100))}%` }} />
+            <i style={{ width: `${Math.min(100, Math.round((item.step / Math.max(1, item.total)) * 100))}%` }} />
           </div>
         </div>
       ))}

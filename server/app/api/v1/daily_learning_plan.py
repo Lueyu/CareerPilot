@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import LearningTask, Workspace
@@ -125,7 +126,7 @@ async def update_plan(body: PlanSettings, ws: Workspace = Depends(get_workspace)
             state['sprint_start_date'] = next_workday(today).isoformat()
     reset_baseline = changed or (body.confirm_baseline and pace_baseline(state) is None)
     if reset_baseline and not today <= body.deadline <= today + timedelta(days=MAX_DAYS):
-        raise HTTPException(422, '目标日期须在今天至未来 180 天内。')
+        raise HTTPException(422, localized_message("errors.choose_a_target_date_within_the_next_180_days"))
     state.update(deadline=deadline, daily_minutes=body.daily_minutes)
     return await _render(session, ws, today, state, reset_baseline=reset_baseline)
 
@@ -155,9 +156,9 @@ async def record_evidence(body: EvidenceIn, ws: Workspace = Depends(get_workspac
     if (state.get('evidence') or {}).get(body.item_key, {}).get('note') == note:
         return await _render(session, ws, today, state)
     if eligible and not eligible.get('prerequisite_complete', True):
-        raise HTTPException(422, '请先提交上一轮模拟面试的完成依据。')
+        raise HTTPException(422, localized_message("errors.submit_completion_evidence_for_the_previous_mock_interview_first"))
     if not eligible or len(note) < 8:
-        raise HTTPException(422, '请为今日或逾期的开放练习提交具体完成依据（至少 8 个字符）。')
+        raise HTTPException(422, localized_message("errors.describe_how_you_completed_an_open_exercise_due_today"))
     state['evidence'] = {**(state.get('evidence') or {}), body.item_key: {'date': today.isoformat(), 'note': note}}
     state['assignments'] = plan['assignments']
     if plan['pace_baseline'] is not None:

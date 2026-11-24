@@ -5,6 +5,34 @@
 
 .app .app-body-study { padding: 0; overflow: hidden; min-height: 0; }
 
+.workspace-login-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.workspace-login-heading h2 { margin: 0; }
+
+.workspace-onboarding-heading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 26px;
+}
+
+.workspace-onboarding-heading .ob-brand { margin-bottom: 0; }
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
 @media (max-width: 1024px) {
   .topbar-right > .search-box,
   .topbar-right > .btn-primary {
@@ -35,7 +63,18 @@
 .workspace-mobile-nav-button.btn,
 .workspace-mobile-drawer { display: none; }
 
+@media (max-width: 400px) {
+  .app .topbar .topbar-right > :is(.search-box, .btn-primary, .feedback-entry, .icon-btn),
+  .app .topbar .topbar-right > div > .icon-btn {
+    width: 30px;
+    min-width: 30px;
+    padding-inline: 0;
+  }
+  .app .topbar .language-selector { max-width: 4rem; }
+}
+
 @media (max-width: 760px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); }
   .app-drawer-nav > .sidebar { display: none; }
   .app-drawer-nav .topbar { min-height: 54px; padding: 8px 10px; gap: 8px; }
   .workspace-mobile-nav-button.btn { display: inline-flex; }

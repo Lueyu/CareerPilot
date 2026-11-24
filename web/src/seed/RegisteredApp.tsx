@@ -1,4 +1,5 @@
 import { lazy, useEffect, useLayoutEffect, useState, type ReactElement } from 'react';
+import { useT } from '../i18n';
 import { Link, Navigate, Route, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { NativeWorkspace } from '../App';
 import { api, ApiError, bindRegisteredNativeApi } from '../api/client';
@@ -11,7 +12,7 @@ import Dashboard from './Dashboard';
 import { RegisteredOnboarding } from './RegisteredOnboarding';
 import Memory from './Memory';
 import RegisteredSession from './RegisteredSession';
-import { type AccountInfo, useWorkspaceApi } from './api';
+import { messageFor, renderMessage, useWorkspaceApi, type AccountInfo, type UiMessage } from './api';
 import type { LibraryRoles } from './libraryRole';
 import './registered.css';
 
@@ -27,23 +28,24 @@ const previousLocations: Record<string, string> = {
 };
 
 function QuestionPractice({ mode, id }: { mode: Mode; id: string | null }) {
+  const t = useT();
   const { request } = useWorkspaceApi();
   const navigate = useNavigate();
   const { sessionId } = useParams();
   const [params] = useSearchParams();
   const threadId = Number(mode === 'study' ? sessionId : params.get('thread')) || undefined;
   const [question, setQuestion] = useState<Question>();
-  const [error, setError] = useState('');
+  const [error, setError] = useState<UiMessage | null>(null);
   useEffect(() => {
     if (id === null) return;
     const controller = new AbortController();
     request<Question>('/library/questions/' + encodeURIComponent(id), { signal: controller.signal })
       .then(setQuestion)
-      .catch(e => { if (!controller.signal.aborted) setError(e.message); });
+      .catch(e => { if (!controller.signal.aborted) setError(messageFor(e, 'registered.requestIncomplete')); });
     return () => controller.abort();
   }, [request, id]);
-  if (error) return <div className="card"><p role="alert">{error}</p><Link to="/beta/bank">返回面试题库</Link></div>;
-  if (id !== null && !question) return <p role="status">正在读取题目…</p>;
+  if (error) return <div className="card"><p role="alert">{renderMessage(error, t)}</p><Link to="/beta/bank">{t('registered.returnToQuestionBank')}</Link></div>;
+  if (id !== null && !question) return <p role="status">{t('registered.questionLoading')}</p>;
   return <Coach mode={mode} question={question} threadId={threadId} onLibrary={() => navigate('/beta/bank')}
     onNotebook={() => navigate('/beta/study/notes')} onNote={note => navigate('/beta/study/notes/' + note)}
     onThreadChange={(next, replace = false) => {
@@ -77,6 +79,7 @@ function CompatibleRecord({ kind, native, beta }: {
 }
 
 function RecordLookup({ path, native, beta }: { path: string; native: ReactElement; beta: ReactElement }) {
+  const t = useT();
   const [legacy, setLegacy] = useState<boolean>();
   useEffect(() => {
     let current = true;
@@ -85,7 +88,7 @@ function RecordLookup({ path, native, beta }: { path: string; native: ReactEleme
     });
     return () => { current = false; };
   }, [path]);
-  if (legacy === undefined) return <p role="status">正在读取记录…</p>;
+  if (legacy === undefined) return <p role="status">{t('registered.recordLoading')}</p>;
   return legacy ? beta : native;
 }
 
@@ -105,27 +108,31 @@ function RegisteredExam() {
 }
 
 function Workspace({ user, signedOut }: { user: AccountInfo; signedOut: () => void }) {
+  const t = useT();
   const { request, response, signal } = useWorkspaceApi();
   const location = useLocation();
   const navigate = useNavigate();
   const [access, setAccess] = useState<{ personal_owner: boolean; ready: boolean }>();
   const [bound, setBound] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<UiMessage | null>(null);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
-    setError('');
+    setError(null);
     async function open() {
       const { personal_owner } = await request<{ personal_owner: boolean }>('/native/access', { signal: controller.signal });
-      if (typeof personal_owner !== 'boolean') throw new Error('无法确认工作空间访问权限。');
+      if (typeof personal_owner !== 'boolean') {
+        if (!controller.signal.aborted) setError({ key: 'registered.workspaceAccessUnknown' });
+        return;
+      }
       const roles = personal_owner ? undefined : await request<LibraryRoles>('/library/roles', { signal: controller.signal });
       if (!controller.signal.aborted) setAccess({
         personal_owner,
         ready: personal_owner || !!roles?.roles.some(role => role.role === roles.selected_role && !!role.selected_topic),
       });
     }
-    void open().catch(e => { if (!controller.signal.aborted) setError(e.message); });
+    void open().catch(e => { if (!controller.signal.aborted) setError(messageFor(e, 'registered.requestIncomplete')); });
     return () => controller.abort();
   }, [request, attempt]);
 
@@ -137,9 +144,9 @@ function Workspace({ user, signedOut }: { user: AccountInfo; signedOut: () => vo
     return release;
   }, [personalOwner, response, signal, user.workspace_id]);
 
-  if (error) return <AccountFrame><p role="alert">{error}</p><button className="btn btn-outline"
-    onClick={() => setAttempt(n => n + 1)}>重新读取工作空间</button></AccountFrame>;
-  if (!access || !bound) return <AccountFrame><p role="status">正在读取工作空间…</p></AccountFrame>;
+  if (error) return <AccountFrame><p role="alert">{renderMessage(error, t)}</p><button className="btn btn-outline"
+    onClick={() => setAttempt(n => n + 1)}>{t('registered.rereadWorkspace')}</button></AccountFrame>;
+  if (!access || !bound) return <AccountFrame><p role="status">{t('registered.workspaceReading')}</p></AccountFrame>;
   if (!access.ready && !['/onboarding', '/settings/account', '/settings'].includes(location.pathname)) {
     return <Navigate replace to="/onboarding" state={{ returnTo: location.pathname + location.search + location.hash }} />;
   }
@@ -150,7 +157,7 @@ function Workspace({ user, signedOut }: { user: AccountInfo; signedOut: () => vo
     navigate(location.state?.returnTo ?? '/', { replace: true });
   }} /></AccountFrame>;
   const account = <><AccountSettings user={user} signedOut={() => { signedOut(); navigate('/', { replace: true }); }} />
-    <Link to="/settings">工作空间设置</Link></>;
+    <Link to="/settings">{t('registered.workspaceSettings')}</Link></>;
   return <NativeWorkspace registered={{
     accountName: user.username,
     onboarding,

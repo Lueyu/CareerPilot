@@ -7,6 +7,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 from sqlalchemy import func, select
 
+from app.i18n import message as localized_message
 from app.models import (
     Event,
     Evidence,
@@ -37,17 +38,17 @@ async def _assert_no_dispute(session, workspace_id, exam_question_id):
         Event.kind == 'assessment.question_feedback',
         Event.payload['exam_question_id'].as_integer() == exam_question_id).limit(1))
     if pending is not None:
-        raise HTTPException(409, '来源题目或标准有待复核反馈，先保留历史记录；暂不据此安排新练习')
+        raise HTTPException(409, localized_message("errors.the_source_question_or_rubric_is_under_review_new"))
 
 
 async def _lock_workspace(session, ws):
     if await session.scalar(select(Workspace.id).where(Workspace.id == ws.id).with_for_update()) is None:
-        raise HTTPException(404, '工作空间不可用')
+        raise HTTPException(404, localized_message("errors.this_workspace_is_unavailable"))
 
 
 async def _task(session, ws, task_id):
     task = await session.scalar(select(LearningTask).where(LearningTask.id == task_id, LearningTask.workspace_id == ws.id))
-    if task is None: raise HTTPException(404, '学习任务不存在')
+    if task is None: raise HTTPException(404, localized_message("errors.learning_task_not_found"))
     return task
 
 
@@ -57,30 +58,30 @@ async def assert_assessed_origin(session, workspace_id, refs):
         Evidence.workspace_id == workspace_id).execution_options(populate_existing=True))
     from app.services.competency import assessed_observations
     if not evidence or not assessed_observations([evidence], include_assisted=True):
-        raise HTTPException(409, '原表现来源已撤回或不再有效，需要复核学习目标')
+        raise HTTPException(409, localized_message("errors.the_source_observation_was_withdrawn_or_is_no_longer"))
     meta = evidence.meta or {}
     if any(meta.get(key) != refs.get(key) for key in ('exam_id','exam_question_id','question_id')):
-        raise HTTPException(409, '目标引用与当前证据不一致，需要复核')
+        raise HTTPException(409, localized_message("errors.the_goal_and_its_current_evidence_disagree_review_the"))
     if meta.get('judge_version') in ('judge-v2','rule-v2') and any(
             meta.get(key) != refs.get(key) for key in ('answer_revision_id','rubric_version')):
-        raise HTTPException(409, '来源评分版本已改变，不能沿用旧计划')
+        raise HTTPException(409, localized_message("errors.the_source_grading_version_changed_the_previous_plan_can"))
     source = (await session.execute(select(ExamQuestion, Exam).join(Exam).where(
         ExamQuestion.id == refs.get('exam_question_id'), Exam.id == refs.get('exam_id'),
         Exam.workspace_id == workspace_id))).first()
     if source is None or source[1].status != 'COMPLETED':
-        raise HTTPException(409, '来源答卷已撤回或不再是有效完成状态，需要复核')
+        raise HTTPException(409, localized_message("errors.the_source_submission_was_withdrawn_or_is_no_longer"))
     frozen = source[0].frozen_snapshot or {}
     if meta.get('judge_version') in ('judge-v2','rule-v2') and (
             frozen.get('answer_revision_id') != refs.get('answer_revision_id')
             or (frozen.get('rubric') or {}).get('rubric_version') != refs.get('rubric_version')):
-        raise HTTPException(409, '来源答卷的冻结版本与目标不一致，需要复核')
+        raise HTTPException(409, localized_message("errors.the_frozen_submission_version_differs_from_the_goal_review"))
 
 
 async def assert_goal_sources(session, ws, goal):
     """Check current eligibility without substituting new facts into a frozen plan."""
-    if goal.workspace_id != ws.id: raise HTTPException(404, '学习目标不存在')
+    if goal.workspace_id != ws.id: raise HTTPException(404, localized_message("errors.learning_goal_not_found"))
     if goal.status != 'ACTIVE' or goal.evidence_status in BAD_SOURCE:
-        raise HTTPException(409, '目标已暂停或来源需要复核，不能继续生成新反馈')
+        raise HTTPException(409, localized_message("errors.the_goal_is_paused_or_its_source_needs_review"))
     if goal.gap_type == 'StudyTopic' and goal.source_task_id is None:
         from app.services.study_practice import owned_session
         await owned_session(session, ws.id, (goal.origin_refs or {}).get('study_session_id'))
@@ -91,7 +92,7 @@ async def assert_goal_sources(session, ws, goal):
             MemoryItem.workspace_id == ws.id).execution_options(populate_existing=True))
         if (not memory or memory.revision != reference.get('revision') or memory.status != 'ACTIVE'
                 or memory.freshness != 'CURRENT' or memory.confirmed_at is None):
-            raise HTTPException(409, '引用的记忆已变更或撤回，请复核后再继续，旧内容不会用于新反馈')
+            raise HTTPException(409, localized_message("errors.a_referenced_memory_changed_or_was_withdrawn_review_it"))
 
 
 def _origin(task):
@@ -103,7 +104,7 @@ def _origin(task):
 
 
 async def ensure_goal(session, ws, task):
-    if task.workspace_id != ws.id: raise HTTPException(404, '学习任务不存在')
+    if task.workspace_id != ws.id: raise HTTPException(404, localized_message("errors.learning_task_not_found"))
     await _lock_workspace(session, ws)
     refs = _origin(task)
     await _assert_no_dispute(session, ws.id, refs.get('exam_question_id'))
@@ -114,32 +115,32 @@ async def ensure_goal(session, ws, task):
     evidence = await session.scalar(select(Evidence).where(Evidence.id == task.source_evidence_id,
         Evidence.workspace_id == ws.id)) if task.source_evidence_id else None
     if not evidence or evidence.kind != 'EXAM_ANSWER' or not (evidence.meta or {}).get('assessed'):
-        raise HTTPException(409, '该任务尚无有效答题观察，请先补充诊断；系统失败不能变成个人短板')
+        raise HTTPException(409, localized_message("errors.complete_a_diagnostic_before_requesting_feedback_a_system_failure"))
     from app.services.competency import assessed_observations
     if not assessed_observations([evidence], include_assisted=True):
-        raise HTTPException(409, '来源观察没有通过有效评分校验，不能解释为能力短板')
+        raise HTTPException(409, localized_message("errors.the_observation_has_no_valid_score_to_establish_a"))
     source = (await session.execute(select(ExamQuestion, Exam).join(Exam).where(
         ExamQuestion.id == task.source_exam_question_id, Exam.workspace_id == ws.id))).first()
     if source is None or source[1].status != 'COMPLETED':
-        raise HTTPException(409, '来源考试没有有效完成，不能据此建立学习目标')
+        raise HTTPException(409, localized_message("errors.the_source_exam_has_no_valid_completion_to_support"))
     eq, exam = source
     ev_meta = evidence.meta or {}
     if (ev_meta.get('exam_id') != exam.id or ev_meta.get('exam_question_id') != eq.id
             or task.source_exam_id != exam.id or ev_meta.get('question_id') != eq.question_id):
-        raise HTTPException(409, '任务、答卷与证据的来源关系不一致，需要复核')
+        raise HTTPException(409, localized_message("errors.review_the_links_between_the_task_submission_and_evidence"))
     snapshot = eq.frozen_snapshot or {}
     rubric = snapshot.get('rubric') or {}
     if ev_meta.get('judge_version') in ('judge-v2', 'rule-v2') and (
             ev_meta.get('answer_revision_id') != snapshot.get('answer_revision_id')
             or not snapshot.get('answer_revision_id') or ev_meta.get('rubric_version') != rubric.get('rubric_version')):
-        raise HTTPException(409, '观察的答卷或评分标准版本与原始记录不一致')
+        raise HTTPException(409, localized_message("errors.the_observed_submission_or_rubric_version_differs_from_the"))
     observation = (task.content or {}).get('observation') or {}
     criteria = rubric.get('criteria') or rubric.get('points') or []
     criterion = next((c for c in criteria if isinstance(c, dict) and
         (c.get('criterion_id') == refs['criterion_id'] if refs['criterion_id'] else c.get('title') == task.source_criterion)), None)
     if criterion is None and snapshot.get('qtype') == 'mcq':
         criterion = {'title':task.source_criterion, 'detail':task.acceptance or '解释判断依据和可验证的例子'}
-    if criterion is None: raise HTTPException(409, '原评分项无法与冻结标准关联，需要复核')
+    if criterion is None: raise HTTPException(409, localized_message("errors.the_original_grading_item_could_not_be_linked_to"))
     refs.update(question_id=snapshot.get('question_id', eq.question_id),
         question_version=snapshot.get('question_version'), scoring_run_id=exam.active_scoring_run_id,
         answer_revision_id=snapshot.get('answer_revision_id'),
@@ -168,9 +169,9 @@ async def ensure_goal(session, ws, task):
 
 
 async def create_activity(session, ws, goal, kind, title, snapshot, question=None, position=0):
-    if goal.workspace_id != ws.id: raise HTTPException(404, '学习目标不存在')
-    if kind not in ('CONCEPT', 'PROJECT'): raise HTTPException(422, '不支持的活动类型')
-    if goal.evidence_status in BAD_SOURCE: raise HTTPException(409, '目标来源需要复核，不能继续生成活动')
+    if goal.workspace_id != ws.id: raise HTTPException(404, localized_message("errors.learning_goal_not_found"))
+    if kind not in ('CONCEPT', 'PROJECT'): raise HTTPException(422, localized_message("errors.unsupported_activity_type"))
+    if goal.evidence_status in BAD_SOURCE: raise HTTPException(409, localized_message("errors.review_the_source_of_this_goal_before_generating_activities"))
     await assert_goal_sources(session, ws, goal)
     content_version = digest({'kind':kind, 'title':title, 'snapshot':snapshot})
     existing = await session.scalar(select(LearningActivity).where(LearningActivity.goal_id == goal.id,
@@ -180,7 +181,7 @@ async def create_activity(session, ws, goal, kind, title, snapshot, question=Non
     spec = frozen.get('assessment_question') or {}
     if question is None:
         if not spec.get('title') or not spec.get('rubric'):
-            raise HTTPException(422, '活动必须在提交前确定题目和评分标准')
+            raise HTTPException(422, localized_message("errors.set_the_activity_question_and_rubric_before_submitting"))
         skill_id = spec.get('skill_id') or (goal.skill_ids[0] if goal.skill_ids else None)
         skill = await session.get(Skill, skill_id) if skill_id else None
         question = Question(workspace_id=ws.id, short_code='LP-' + uuid4().hex[:16], title=spec['title'],
@@ -197,7 +198,7 @@ async def create_activity(session, ws, goal, kind, title, snapshot, question=Non
             bound['rubric_version'] = rubric_version(bound)
             question.rubric = validate_rubric(bound)
     if question.workspace_id != ws.id or (question.generation_meta or {}).get('assessment_use') != 'PRACTICE_ONLY':
-        raise HTTPException(409, '练习只能使用当前空间专用题，不能读取正式封存题')
+        raise HTTPException(409, localized_message("errors.use_a_practice_question_from_this_workspace_sealed_exam"))
     frozen['assessment_question'] = question_snapshot(question, goal.benchmark_version)
     frozen.setdefault('prompt', question.title)
     frozen.setdefault('required_output', '提交自己的文字回答；辅助条件与答案一起记录')
@@ -261,18 +262,18 @@ def _assistance(activity, ai_declared=False):
 
 
 async def record_assistance(session, ws, activity_id, kind, request_key, expected_activity_revision):
-    if kind not in ('HINT', 'REFERENCE'): raise HTTPException(422, '未知辅助类型')
+    if kind not in ('HINT', 'REFERENCE'): raise HTTPException(422, localized_message("errors.unknown_assistance_type"))
     await _lock_workspace(session, ws)
     activity = await session.scalar(select(LearningActivity).where(LearningActivity.id == activity_id,
         LearningActivity.workspace_id == ws.id).with_for_update().execution_options(populate_existing=True))
-    if activity is None: raise HTTPException(404, '学习活动不存在')
-    if activity.version != expected_activity_revision: raise HTTPException(409, '活动版本已变化，请重新读取')
+    if activity is None: raise HTTPException(404, localized_message("errors.study_activity_not_found"))
+    if activity.version != expected_activity_revision: raise HTTPException(409, localized_message("errors.the_activity_changed_refresh_to_load_its_latest_version"))
     if activity.status in ('DEFERRED','SKIPPED','PAUSED'):
-        raise HTTPException(409, '活动已暂缓或跳过，请先显式恢复')
+        raise HTTPException(409, localized_message("errors.resume_the_deferred_or_skipped_activity_to_continue"))
     meta = deepcopy(activity.meta or {})
     events = meta.get('assistance_events') or []
     previous = next((event for event in events if event['request_key'] == request_key), None)
-    if previous and previous['kind'] != kind: raise HTTPException(409, '辅助请求标识已用于不同内容')
+    if previous and previous['kind'] != kind: raise HTTPException(409, localized_message("errors.this_assistance_request_id_has_already_been_used_for"))
     if not previous:
         events.append({'kind':kind, 'request_key':request_key, 'at':datetime.now(timezone.utc).isoformat()})
     meta.update(assistance_events=events, **{'hint_used' if kind == 'HINT' else 'reference_viewed':True})
@@ -308,21 +309,21 @@ async def submit_activity(session, ws, activity, payload, request_key, expected_
     await _lock_workspace(session, ws)
     activity = await session.scalar(select(LearningActivity).where(LearningActivity.id == activity.id,
         LearningActivity.workspace_id == ws.id).with_for_update().execution_options(populate_existing=True))
-    if activity is None: raise HTTPException(404, '学习活动不存在')
-    if not isinstance(payload, dict): raise HTTPException(422, '提交内容必须是对象')
+    if activity is None: raise HTTPException(404, localized_message("errors.study_activity_not_found"))
+    if not isinstance(payload, dict): raise HTTPException(422, localized_message("errors.the_submission_must_be_an_object"))
     request_hash = digest({'payload':payload, 'activity_version':expected_activity_revision, 'parent_submission_id':parent_submission_id})
     previous = await session.scalar(select(LearningSubmission).where(LearningSubmission.workspace_id == ws.id,
         LearningSubmission.activity_id == activity.id, LearningSubmission.request_key == request_key))
     if previous:
         if (previous.meta or {}).get('request_hash', previous.input_hash) != request_hash:
-            raise HTTPException(409, '该请求已经保存不同提交，请使用新的请求标识')
+            raise HTTPException(409, localized_message("errors.this_request_already_saved_a_different_submission_use_a"))
         return previous
-    if activity.version != expected_activity_revision: raise HTTPException(409, '活动版本已变化，请重新读取')
+    if activity.version != expected_activity_revision: raise HTTPException(409, localized_message("errors.the_activity_changed_refresh_to_load_its_latest_version"))
     goal = await session.get(LearningGoal, activity.goal_id)
     if goal.status != 'ACTIVE' or goal.evidence_status in BAD_SOURCE:
-        raise HTTPException(409, '目标已暂停或来源需要复核，不能创建新反馈')
+        raise HTTPException(409, localized_message("errors.the_goal_is_paused_or_its_source_needs_review_new_feedback_is_on_hold"))
     if activity.status in ('DEFERRED','SKIPPED','PAUSED'):
-        raise HTTPException(409, '活动已暂缓或跳过，请先显式恢复')
+        raise HTTPException(409, localized_message("errors.resume_the_deferred_or_skipped_activity_to_continue"))
     await assert_goal_sources(session, ws, goal)
     if activity.kind == 'PROJECT':
         from app.services.project_practice import validate_project_submission
@@ -330,16 +331,16 @@ async def submit_activity(session, ws, activity, payload, request_key, expected_
     input_hash = digest({'payload':payload, 'activity_version':expected_activity_revision, 'parent_submission_id':parent_submission_id})
     text = payload.get('answer_text') if activity.kind == 'PROJECT' else payload.get('text_answer', payload.get('answer_text'))
     if not isinstance(text, str) or not text.strip() or len(text) > 60000:
-        raise HTTPException(422, '请提交1至60000字符的真实练习内容；空答不用于反馈验收')
-    if type(payload.get('ai_declared', False)) is not bool: raise HTTPException(422, 'AI辅助声明必须是布尔值')
+        raise HTTPException(422, localized_message("errors.enter_1_to_60_000_characters_of_practice_work"))
+    if type(payload.get('ai_declared', False)) is not bool: raise HTTPException(422, localized_message("errors.the_ai_assistance_declaration_must_be_a_boolean"))
     parent = None
     if parent_submission_id is not None:
         parent = await session.scalar(select(LearningSubmission).where(LearningSubmission.id == parent_submission_id,
             LearningSubmission.activity_id == activity.id, LearningSubmission.workspace_id == ws.id))
-        if parent is None: raise HTTPException(404, '原提交不属于该活动')
-        if activity.latest_submission_id != parent.id: raise HTTPException(409, '已有更新提交，请保留编辑后基于最新版本继续')
+        if parent is None: raise HTTPException(404, localized_message("errors.the_original_submission_does_not_belong_to_this_activity"))
+        if activity.latest_submission_id != parent.id: raise HTTPException(409, localized_message("errors.a_newer_submission_is_available_keep_your_edits_and"))
     elif activity.latest_submission_id is not None:
-        raise HTTPException(409, '继续修改需要明确关联上一次提交')
+        raise HTTPException(409, localized_message("errors.link_your_revision_to_the_previous_submission"))
     revision = (await session.scalar(select(func.max(LearningSubmission.revision)).where(
         LearningSubmission.activity_id == activity.id)) or 0) + 1
     if goal.gap_type == 'StudyTopic' and goal.source_task_id is None:
@@ -347,13 +348,13 @@ async def submit_activity(session, ws, activity, payload, request_key, expected_
         await sync_card_help(session, ws.id, activity)
     assistance = _assistance(activity, payload.get('ai_declared', False))
     declared = payload.get('assistance') or {}
-    if not isinstance(declared, dict): raise HTTPException(422, '辅助声明必须是对象')
+    if not isinstance(declared, dict): raise HTTPException(422, localized_message("errors.the_assistance_declaration_must_be_an_object"))
     for key, aliases in {'hint_used':('hint_used','used_hint'),
                          'reference_viewed':('reference_viewed','viewed_answer'),
                          'ai_declared':('ai_declared','ai_assisted')}.items():
         for alias in aliases:
             if any(alias in source and type(source[alias]) is not bool for source in (declared, payload)):
-                raise HTTPException(422, '辅助声明必须是布尔值')
+                raise HTTPException(422, localized_message("errors.the_assistance_declaration_must_be_a_boolean"))
         assistance[key] = assistance[key] or any(source.get(alias) is True for source in (declared, payload) for alias in aliases)
     assistance['prior_attempt'] = parent is not None
     assistance['source_family_exposed'] = activity.kind == 'CONCEPT'
@@ -364,7 +365,7 @@ async def submit_activity(session, ws, activity, payload, request_key, expected_
     session.add(submission)
     await session.flush()
     question = await session.get(Question, activity.question_id)
-    if question is None or question.workspace_id != ws.id: raise HTTPException(409, '活动冻结题目不可用')
+    if question is None or question.workspace_id != ws.id: raise HTTPException(409, localized_message("errors.the_frozen_question_for_this_activity_is_unavailable"))
     frozen = deepcopy(activity.snapshot['assessment_question'])
     frozen.update(learning_activity_kind=activity.kind, learning_submission_id=submission.id,
         learning_activity_id=activity.id, assistance=assistance, assessment_mode='PRACTICE')
@@ -413,7 +414,7 @@ def _feedback(result):
 async def submission_view(session, ws, submission_id, *, include_feedback=True, mark_seen=False):
     submission = await session.scalar(select(LearningSubmission).where(LearningSubmission.id == submission_id,
         LearningSubmission.workspace_id == ws.id).execution_options(populate_existing=True))
-    if submission is None: raise HTTPException(404, '练习提交不存在')
+    if submission is None: raise HTTPException(404, localized_message("errors.practice_submission_not_found"))
     run = await session.scalar(select(ScoringRun).where(ScoringRun.id == submission.scoring_run_id,
         ScoringRun.workspace_id == ws.id).execution_options(populate_existing=True)) if submission.scoring_run_id else None
     from app.services.assessment_jobs import view

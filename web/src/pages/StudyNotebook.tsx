@@ -1,3 +1,4 @@
+import { useT } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
@@ -25,7 +26,7 @@ const sameId = (a: Id, b: Id) => String(a) === String(b);
 const sameText = (a: Draft, b: Draft) => a.title === b.title && a.body === b.body;
 const notePath = (id: Id) => '/study/notes/' + encodeURIComponent(id);
 const chatPath = (id: Id) => '/study/chat/' + encodeURIComponent(id);
-const roles: Record<string, string> = { user: '我', assistant: '助手', system: '系统' };
+const roles: Record<string, string> = { user: "study.me", assistant: "study.assistant", system: "study.system" };
 const isId = (value: unknown): value is Id => typeof value === 'number' || typeof value === 'string';
 
 function recoverDraft(key: string): WorkingDraft | null {
@@ -39,15 +40,17 @@ function recoverDraft(key: string): WorkingDraft | null {
 }
 
 function Sources({ sources, noteId }: { sources: Source[]; noteId: Id }) {
+  const t = useT();
+
   return sources.length ? <ul>{sources.map((source, index) => (
     <li key={source.session_id + ':' + source.message_id + ':' + index}>
       <Link to={chatPath(source.session_id) + '?message=' + encodeURIComponent(source.message_id)}>
-        查看原消息 · {roles[source.role] ?? source.role}
+        {t("study.viewOriginalMessageWithRole", { role: roles[source.role] ? t(roles[source.role]) : source.role })}
       </Link>
-      {' · '}<Link to={comparePath(noteId, source.session_id, source.message_id)}>对照此消息</Link>
+      {' · '}<Link to={comparePath(noteId, source.session_id, source.message_id)}>{t("study.compareThisMessage")}</Link>
       <blockquote style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{source.quote}</blockquote>
     </li>
-  ))}</ul> : <p className="hint">此版本暂无来源引用。</p>;
+  ))}</ul> : <p className="hint">{t("study.noVersionSources")}</p>;
 }
 
 function NoteEditor({ id, onSaved, onGenerated }: {
@@ -55,6 +58,8 @@ function NoteEditor({ id, onSaved, onGenerated }: {
   onSaved: () => void;
   onGenerated: (cards: StudyCard[]) => void;
 }) {
+  const t = useT();
+
   const [search] = useSearchParams();
   const location = useLocation();
   const focus = location.state;
@@ -80,7 +85,7 @@ function NoteEditor({ id, onSaved, onGenerated }: {
       const latest = await api.get<Note>(notePath(id));
       if (request === noteRequest.current) setNote(latest);
     } catch {
-      if (request === noteRequest.current) setError('读取笔记失败，请重试。');
+      if (request === noteRequest.current) setError("study.noteLoadFailed");
     } finally {
       if (request === noteRequest.current) setReading(false);
     }
@@ -111,7 +116,7 @@ function NoteEditor({ id, onSaved, onGenerated }: {
         setRevision({ ...result, id: version, conflict: note?.versions.some(v => sameId(v.id, version) && v.conflict) || result.conflict });
       }
     } catch {
-      if (request === versionRequest.current) setError('读取历史版本失败，请重试。');
+      if (request === versionRequest.current) setError("study.versionLoadFailed");
     } finally {
       if (request === versionRequest.current) setReadingVersion(false);
     }
@@ -134,19 +139,19 @@ function NoteEditor({ id, onSaved, onGenerated }: {
       if (request !== noteRequest.current) return;
       setNote(latest);
       if (result?.conflict || !sameText(latest, draft.text)) {
-        setError('保存产生了冲突。可从版本历史查看冲突草稿，或保留当前编辑后重新保存。');
+        setError("study.noteSaveConflict");
       } else {
         updateDraft(null);
         onSaved();
-        setNotice('笔记已保存。');
+        setNotice("study.noteSaved");
       }
     } catch (exception) {
       if (request !== noteRequest.current) return;
       if (exception instanceof ApiError && exception.status === 409) {
         await reload();
-        setNotice('保存时发现版本冲突，编辑内容已保留。请核对最新版本与冲突草稿。');
+        setNotice("study.noteVersionConflictDetected");
       } else {
-        setError('无法确认保存结果，编辑内容已保留。可刷新笔记核对后重试。');
+        setError("study.noteSaveUnconfirmed");
       }
     } finally {
       setBusy(false);
@@ -161,9 +166,9 @@ function NoteEditor({ id, onSaved, onGenerated }: {
     try {
       const result = await api.post<Items<StudyCard>>(notePath(id) + '/cards', { version_id: version });
       onGenerated(result.items);
-      if (request === noteRequest.current) setNotice(result.items.length ? '候选卡片已生成。' : '此版本没有生成新的卡片。');
+      if (request === noteRequest.current) setNotice(result.items.length ? "study.suggestedCardsGenerated" : "study.noNewCardsFromVersion");
     } catch {
-      if (request === noteRequest.current) setError('生成卡片失败，请重试。');
+      if (request === noteRequest.current) setError("study.createCardsFailed");
     } finally {
       setBusy(false);
     }
@@ -186,87 +191,87 @@ function NoteEditor({ id, onSaved, onGenerated }: {
 
   return <>
     <header className="study-notebook-header">
-      <div><Link to="/study/notes">← 学习笔记</Link><h1>{note?.title ?? '笔记编辑'}</h1></div>
-      <div className="study-notebook-actions" aria-label="笔记视图">
-        <Link className="btn btn-outline btn-sm" aria-current={!isCompare ? 'page' : undefined} to={notePath(id)} state={{sourceSession:session,sourceMessage:message}}>专注笔记</Link>
+      <div><Link to="/study/notes">{t("study.backToStudyNotes")}</Link><h1>{note?.title ?? t("study.noteEditor")}</h1></div>
+      <div className="study-notebook-actions" aria-label={t("study.noteView")}>
+        <Link className="btn btn-outline btn-sm" aria-current={!isCompare ? 'page' : undefined} to={notePath(id)} state={{sourceSession:session,sourceMessage:message}}>{t("study.focusOnNote")}</Link>
         {toggleSession !== undefined && <Link className="btn btn-outline btn-sm" aria-current={compared ? 'page' : undefined}
-          to={comparePath(id, toggleSession, invalidSource ? primary?.message_id : message)}>对照会话</Link>}
+          to={comparePath(id, toggleSession, invalidSource ? primary?.message_id : message)}>{t("study.compareSession")}</Link>}
       </div>
     </header>
-    {isCompare && invalidSource && <p role="alert">指定会话不是这份笔记的来源。</p>}
-    {compared && <a className="study-notebook-source-jump" href="#study-conversation">跳到来源会话 ↓</a>}
+    {isCompare && invalidSource && <p role="alert">{t("study.sessionNotNoteSource")}</p>}
+    {compared && <a className="study-notebook-source-jump" href="#study-conversation">{t("study.jumpToSourceSession")}</a>}
     <div className={'study-notebook-layout' + (compared ? ' is-compare' : '')}>
     <section className="study-notebook-paper study-notebook-panel" aria-labelledby="study-note-editor">
     <div className="study-notebook-actions">
-      <h2 id="study-note-editor">笔记编辑</h2>
-      <button type="button" className="btn btn-outline btn-sm" disabled={busy || reading} onClick={() => void reload()}>刷新笔记</button>
+      <h2 id="study-note-editor">{t("study.noteEditor")}</h2>
+      <button type="button" className="btn btn-outline btn-sm" disabled={busy || reading} onClick={() => void reload()}>{t("study.refreshNote")}</button>
     </div>
-    {reading && <p role="status">正在读取笔记…</p>}
-    {error && <p role="alert">{error}</p>}
-    {notice && <p role="status">{notice}</p>}
+    {reading && <p role="status">{t("study.loadingNote")}</p>}
+    {error && <p role="alert">{t(error)}</p>}
+    {notice && <p role="status">{t(notice)}</p>}
     {note && text && <>
       <form onSubmit={event => { event.preventDefault(); void save(); }}>
         <NotebookFields text={text} disabled={busy}
           onChange={next => updateDraft({ base: note.version_id, ...draft, text: next })} />
-        {dirty && <p className="hint">{recovered ? '已恢复上次未保存的编辑。' : '有未保存的编辑。'}{draft?.source !== undefined && '草稿来自版本 ' + draft.source + '。'}</p>}
+        {dirty && <p className="hint">{recovered ? t("study.unsavedEditsRecovered") : t("study.unsavedEdits")}{draft?.source !== undefined && t("study.draftFromVersion", { version: draft.source })}</p>}
         {stale && <div>
-          <p role="alert">已保存版本发生变化。请核对后决定是否继续保留当前编辑。</p>
-          <details><summary>查看最新保存内容</summary>
+          <p role="alert">{t("study.noteSavedVersionChanged")}</p>
+          <details><summary>{t("study.viewLatestSavedContent")}</summary>
             <h3>{note.title}</h3><p className="study-notebook-text">{note.body}</p>
           </details>
           <button type="button" className="btn btn-outline" disabled={busy || reading}
-            onClick={() => updateDraft({ ...draft, base: note.version_id })}>保留我的编辑，改用最新版本作为保存基础</button>
+            onClick={() => updateDraft({ ...draft, base: note.version_id })}>{t("study.keepEditsOnLatestVersion")}</button>
         </div>}
         <div className="study-notebook-actions">
-          <button className="btn btn-primary" disabled={busy || reading || !dirty || !!stale || !text.title.trim()}>保存笔记</button>
+          <button className="btn btn-primary" disabled={busy || reading || !dirty || !!stale || !text.title.trim()}>{t("study.saveNote")}</button>
           {dirty && <button type="button" className="btn btn-outline" disabled={busy || reading}
             onClick={() => {
-              if (window.confirm('确定放弃未保存的编辑？')) {
+              if (window.confirm(t("study.confirmDiscardNoteEdits"))) {
                 updateDraft(null);
                 setNotice('');
                 setError('');
               }
-            }}>放弃编辑</button>}
+            }}>{t("study.discardEdits")}</button>}
           <button type="button" className="btn btn-outline" disabled={busy || reading}
-            onClick={() => void generate(note.version_id)}>从已保存版本 {note.version_id} 生成卡片</button>
+            onClick={() => void generate(note.version_id)}>{t("study.generateCardsFromSavedVersion", { version: note.version_id })}</button>
         </div>
       </form>
-      <Link to="/study/notes?tab=review">查看复习卡片 →</Link>
+      <Link to="/study/notes?tab=review">{t("study.viewReviewCards")}</Link>
       <details className="study-notebook-details">
-      <summary>已保存版本的来源（{note.sources.length}）</summary>
+      <summary>{t("study.savedVersionSources", { count: note.sources.length })}</summary>
       <Sources sources={note.sources} noteId={id} />
       <div className="study-notebook-actions">
         {note.session_ids.map((session, index) => (
           <Link className="btn btn-outline btn-sm" key={session} to={chatPath(session)}>
-            继续学习{note.session_ids.length > 1 ? ' · 会话 ' + (index + 1) : ''}
+            {t("study.continueSession", { session: note.session_ids.length > 1 ? t("study.numberedSession", { session: index + 1 }) : '' })}
           </Link>
         ))}
       </div>
       </details>
       <details className="study-notebook-details">
-      <summary>版本历史（{note.versions.length}）</summary>
+      <summary>{t("study.versionHistory", { count: note.versions.length })}</summary>
       <ul className="study-notebook-list">{note.versions.map(version => (
         <li key={version.id}>
           <button type="button" className="btn btn-outline btn-sm"
             aria-pressed={revision ? sameId(revision.id, version.id) : false}
             onClick={() => void inspect(version.id)}>
-            版本 {version.id}{version.conflict ? ' · 冲突草稿' : sameId(version.id, note.version_id) ? ' · 当前' : ''}
+            {t("study.noteVersionStatus", { version: version.id, status: version.conflict ? t("study.conflictDraftSuffix") : sameId(version.id, note.version_id) ? t("study.currentVersionSuffix") : '' })}
           </button>
         </li>
       ))}</ul>
-      {readingVersion && <p role="status">正在读取版本…</p>}
-      {revision && <section className="study-notebook-revision" aria-label={'版本 ' + revision.id}>
+      {readingVersion && <p role="status">{t("study.loadingVersion")}</p>}
+      {revision && <section className="study-notebook-revision" aria-label={t("study.noteVersion", { version: revision.id })}>
         <h4>{revision.title}</h4>
         <p className="study-notebook-text">{revision.body}</p>
         {revision.sources && <Sources sources={revision.sources} noteId={id} />}
         {revision.conflict ? <button type="button" className="btn btn-outline" disabled={busy || reading}
           onClick={() => {
-            if (dirty && !window.confirm('用此冲突草稿替换当前未保存的编辑？')) return;
+            if (dirty && !window.confirm(t("study.confirmReplaceWithConflictDraft"))) return;
             updateDraft({ base: note.version_id, text: revision, source: revision.id });
-            setNotice('冲突草稿已载入编辑区。请核对后点击保存笔记。');
-          }}>采用此冲突草稿</button> : !sameId(revision.id, note.version_id) &&
+            setNotice("study.conflictDraftInEditor");
+          }}>{t("study.useConflictDraft")}</button> : !sameId(revision.id, note.version_id) &&
           <button type="button" className="btn btn-outline" disabled={busy || reading}
-            onClick={() => void generate(revision.id)}>从版本 {revision.id} 生成卡片</button>}
+            onClick={() => void generate(revision.id)}>{t("study.generateCardsFromVersion", { version: revision.id })}</button>}
       </section>}
       </details>
     </>}
@@ -277,6 +282,8 @@ function NoteEditor({ id, onSaved, onGenerated }: {
 }
 
 export function StudyNotebook() {
+  const t = useT();
+
   const { id } = useParams();
   const [search] = useSearchParams();
   const review = !id && search.get('tab') === 'review';
@@ -312,24 +319,24 @@ export function StudyNotebook() {
 
   return <StudyShell section={review ? 'review' : 'notes'}><div className="study-notebook">
       {!id && <header className="study-notebook-header"><div>
-        <h1>{review ? '复习与练习' : '学习笔记'}</h1>
-        <p>{review ? '复习到期卡片、确认新卡片，并从卡片发起练习。' : '整理学习内容，随时回到原始对话。'}</p>
+        <h1>{review ? t("study.reviewAndPractice") : t("study.studyNotes")}</h1>
+        <p>{review ? t("study.reviewAndPracticeDescription") : t("study.studyNotesDescription")}</p>
       </div></header>}
       {!id && !review && <section className="study-notebook-review-strip" aria-labelledby="study-review-strip-title">
-        <div><h2 id="study-review-strip-title">卡片复习</h2><p>{dueCount === null ? '回顾知识点，或确认待复习的卡片。' : dueCount ? `${dueCount} 张卡片到期，来回顾一下。` : '目前没有到期卡片。'}</p></div>
-        <Link className="btn btn-primary" to="/study/notes?tab=review">进入复习 →</Link>
+        <div><h2 id="study-review-strip-title">{t("study.cardReview")}</h2><p>{dueCount === null ? t("study.cardReviewDescription") : dueCount ? t("study.cardsDue", { count: dueCount }) : t("study.noCardsDue")}</p></div>
+        <Link className="btn btn-primary" to="/study/notes?tab=review">{t("study.startReview")}</Link>
       </section>}
-      {!id && !review && <section className="study-notebook-panel study-notebook-paper" aria-label="笔记列表">
-        <label className="study-notebook-field">搜索笔记
-          <input className="inp" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="输入关键词" />
+      {!id && !review && <section className="study-notebook-panel study-notebook-paper" aria-label={t("study.notesList")}>
+        <label className="study-notebook-field">{t("study.searchNotes")}
+          <input className="inp" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder={t("study.noteSearchPlaceholder")} />
         </label>
-        {loading && <p role="status">正在搜索笔记…</p>}
-        {error && <p role="alert">读取笔记列表失败。 <button type="button" className="btn btn-outline btn-sm"
-          onClick={() => setRefresh(value => value + 1)}>重试</button></p>}
+        {loading && <p role="status">{t("study.searchingNotes")}</p>}
+        {error && <p role="alert">{t("study.noteListLoadFailed")}<button type="button" className="btn btn-outline btn-sm"
+          onClick={() => setRefresh(value => value + 1)}>{t("study.retry")}</button></p>}
         {!loading && !error && !notes.length && <div className="study-notebook-empty">
-          <p>{query.trim() ? '没有匹配的笔记。' : '还没有学习笔记。可以在学习聊天中把对话整理成笔记。'}</p>
-          {query.trim() ? <button type="button" className="btn btn-outline" onClick={() => setQuery('')}>清除搜索</button>
-            : <Link className="btn btn-outline" to="/study/chat">去学习聊天 →</Link>}
+          <p>{query.trim() ? t("study.noMatchingNotes") : t("study.noStudyNotes")}</p>
+          {query.trim() ? <button type="button" className="btn btn-outline" onClick={() => setQuery('')}>{t("study.clearSearch")}</button>
+            : <Link className="btn btn-outline" to="/study/chat">{t("study.goToStudyChat")}</Link>}
         </div>}
         <NotebookList notes={notes} renderLink={(note, content) => <Link to={notePath(note.id)}>{content}</Link>} />
       </section>}

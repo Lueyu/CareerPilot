@@ -1,7 +1,11 @@
-import { useLibraryRole } from "./libraryRole";
+import { useLocale, useT } from '../i18n';
+import { renderMessage } from './api';
+import { directionExample, directionLabel, useLibraryRole } from "./libraryRole";
 import "../styles/bank-presentation.css";
 
 export function RegisteredOnboarding({ onComplete }: { onComplete: () => void }) {
+  const t = useT();
+  const locale = useLocale();
   const {
     roles, active, direction, roleInput, setRoleInput, jd, setJd,
     busy, error, status, setRetry, saveRole, selectDirection,
@@ -10,10 +14,10 @@ export function RegisteredOnboarding({ onComplete }: { onComplete: () => void })
 
   return (
     <section className="card registered-onboarding" aria-labelledby="registered-onboarding-title">
-      <h1 id="registered-onboarding-title">你想准备什么岗位？</h1>
+      <h1 id="registered-onboarding-title">{t('registered.targetRolePrompt')}</h1>
       <form className="registered-onboarding-fields" onSubmit={saveRole}>
         <label className="field">
-          目标岗位
+          {t('registered.targetRole')}
           <input
             className="inp"
             value={roleInput}
@@ -22,31 +26,31 @@ export function RegisteredOnboarding({ onComplete }: { onComplete: () => void })
               setRoleInput(value);
               setJd(roles?.roles.find((role) => role.role === value.trim())?.jd ?? "");
             }}
-            placeholder="例如 后端开发、产品运营"
+            placeholder={t('registered.onboardingRolePlaceholder')}
             maxLength={120}
             disabled={!roles || !!busy}
             required
           />
         </label>
         <label className="field">
-          招聘要求（选填）
+          {t('registered.optionalJobRequirements')}
           <textarea
             className="inp"
             value={jd}
             onChange={(event) => setJd(event.target.value)}
-            placeholder="贴入岗位职责或你想重点准备的要求"
+            placeholder={t('registered.jobRequirementsPlaceholder')}
             rows={3}
             maxLength={6000}
             disabled={!roles || !!busy}
           />
         </label>
         <button type="submit" className="btn btn-outline" disabled={!roles || !roleInput.trim() || !!busy}>
-          保存岗位
+          {t('registered.saveRole')}
         </button>
       </form>
       {active && saved && (
         <fieldset className="registered-onboarding-directions">
-          <legend>练习方向</legend>
+          <legend>{t('registered.practiceTopic')}</legend>
           <div className="registered-onboarding-chips">
             {active.directions.map((item) => (
               <button
@@ -57,26 +61,26 @@ export function RegisteredOnboarding({ onComplete }: { onComplete: () => void })
                 disabled={!!busy}
                 onClick={() => void selectDirection(item.name)}
               >
-                {item.name}
+                {directionLabel(item, t)}
               </button>
             ))}
           </div>
         </fieldset>
       )}
       {saved && direction && (
-        <p className="registered-onboarding-example"><strong>例题</strong>{direction.example}</p>
+        <p className="registered-onboarding-example"><strong>{t('registered.sampleQuestion')}</strong>{directionExample(direction, locale)}</p>
       )}
-      {busy && <p role="status">{busy}</p>}
-      {!roles && !error && <p role="status">正在加载…</p>}
-      {status && <p role="status">{status}</p>}
-      {error && <p className="error" role="alert">{error}</p>}
+      {busy && <p role="status">{t(busy)}</p>}
+      {!roles && !error && <p role="status">{t('registered.loading')}</p>}
+      {status && <p role="status">{t(status)}</p>}
+      {error && <p className="error" role="alert">{renderMessage(error, t)}</p>}
       {!roles && error && (
         <button type="button" className="btn btn-outline" onClick={() => setRetry((value) => value + 1)}>
-          重新加载岗位
+          {t('registered.reloadRoles')}
         </button>
       )}
       <button type="button" className="btn btn-primary registered-onboarding-continue" disabled={!saved || !direction || !!busy} onClick={onComplete}>
-        进入工作空间
+        {t('registered.enterWorkspace')}
       </button>
     </section>
   );

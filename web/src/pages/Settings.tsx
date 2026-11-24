@@ -1,3 +1,4 @@
+import { useLocale, useT, type Locale } from '../i18n';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAppState } from '../components/AppState';
 import { DemoBanner, Modal, PageHead } from '../components/ui';
@@ -7,30 +8,32 @@ import {Link, useSearchParams} from 'react-router-dom';
 import {AutopilotSettingsForm} from '../components/ProjectAutopilot';
 
 const TABS = [
-  { key: 'account', name: '账号', ic: '👤' },
-  { key: 'workspace', name: '工作空间', ic: '🗂️' },
-  { key: 'models', name: '模型与 Agent 连接', ic: '🔌' },
-  { key: 'data', name: '数据导出与删除', ic: '📦' },
-  { key: 'rules', name: '自动化规则与发布权限', ic: '⚙️' },
+  { key: 'account', name: 'shell.account', ic: '👤' },
+  { key: 'workspace', name: 'shell.workspace', ic: '🗂️' },
+  { key: 'models', name: 'shell.modelAgentConnections', ic: '🔌' },
+  { key: 'data', name: 'shell.dataExportDelete', ic: '📦' },
+  { key: 'rules', name: 'shell.automationRules', ic: '⚙️' },
 ] as const;
 
 type TabKey = (typeof TABS)[number]['key'];
+type SettingsToast = ReturnType<typeof useAppState>['toast'];
 
-const fmtDate = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+const fmtDate = (locale: Locale, iso?: string | null) =>
+  iso ? new Date(iso).toLocaleString(locale, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
 
 const ACTION_META: Record<string, { label: string; cls: string }> = {
-  PUBLISH: { label: '发布', cls: 'chip-green' },
-  APPROVE: { label: '审核通过', cls: 'chip-green' },
-  ROLLBACK: { label: '回滚', cls: 'chip-amber' },
-  REJECT: { label: '拒绝', cls: 'chip-red' },
-  CREATE: { label: '创建', cls: 'chip-slate' },
-  UPDATE: { label: '更新', cls: 'chip-slate' },
-  DELETE: { label: '删除', cls: 'chip-red' },
-  VALIDATE: { label: '校验', cls: 'chip-slate' },
+  PUBLISH: { label: 'shell.auditPublish', cls: 'chip-green' },
+  APPROVE: { label: 'shell.auditApprove', cls: 'chip-green' },
+  ROLLBACK: { label: 'shell.auditRollback', cls: 'chip-amber' },
+  REJECT: { label: 'shell.auditReject', cls: 'chip-red' },
+  CREATE: { label: 'shell.auditCreate', cls: 'chip-slate' },
+  UPDATE: { label: 'shell.auditUpdate', cls: 'chip-slate' },
+  DELETE: { label: 'shell.auditDelete', cls: 'chip-red' },
+  VALIDATE: { label: 'shell.auditValidate', cls: 'chip-slate' },
 };
 
 export default function Settings({ registered = false }: { registered?: boolean }) {
+  const t = useT();
   const { toast } = useAppState();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = TABS.find(t => t.key === searchParams.get('tab'))?.key ?? 'workspace';
@@ -59,42 +62,42 @@ export default function Settings({ registered = false }: { registered?: boolean 
 
   return (
     <div>
-      <PageHead title="设置与工作空间" sub="管理账号、模型连接、数据与自动化权限" />
-      {registered && <nav className="bank-actions" aria-label="账户和 Beta 记录">
-        <Link to="/settings/account">账户与资料</Link>
-        <Link to="/beta">Beta 记录</Link>
-        <Link to="/beta/bank?import=1">Beta 导入</Link>
-        <Link to="/beta/study/chat">Beta 教练</Link>
-        <Link to="/beta/study/notes">Beta 笔记</Link>
-        <Link to="/beta/memory">Beta 记忆</Link>
-        <Link to="/beta/learning">Beta 学习日历</Link>
+      <PageHead title={t('shell.settingsWorkspace')} sub={t('shell.settingsSubtitle')} />
+      {registered && <nav className="bank-actions" aria-label={t('shell.accountAndBeta')}>
+        <Link to="/settings/account">{t('shell.accountProfile')}</Link>
+        <Link to="/beta">{t('shell.betaRecords')}</Link>
+        <Link to="/beta/bank?import=1">{t('shell.betaImport')}</Link>
+        <Link to="/beta/study/chat">{t('shell.betaCoach')}</Link>
+        <Link to="/beta/study/notes">{t('shell.betaNotes')}</Link>
+        <Link to="/beta/memory">{t('shell.betaMemory')}</Link>
+        <Link to="/beta/learning">{t('shell.betaCalendar')}</Link>
       </nav>}
       {ov?.workspace.is_demo && <DemoBanner />}
 
-      <div className="settings-layout" style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 18, alignItems: 'start' }}>
+      <div className="settings-layout">
         {/* 左侧设置导航 */}
         <div className="card" style={{ padding: 8 }}>
-          {TABS.map((t) => (
+          {TABS.map((item) => (
             <button
-              key={t.key}
-              className={`settings-tab ${tab === t.key ? 'active' : ''}`}
-              onClick={() => setTab(t.key)}
+              key={item.key}
+              className={`settings-tab ${tab === item.key ? 'active' : ''}`}
+              onClick={() => setTab(item.key)}
               style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '11px 14px', borderRadius: 10, border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontSize: 13.5 }}
             >
-              <span>{t.ic}</span>
-              <span>{t.name}</span>
+              <span>{item.ic}</span>
+              <span>{t(item.name)}</span>
             </button>
           ))}
         </div>
 
         {/* 右侧面板 */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          {loading && <div className="card"><p className="hint">加载中…</p></div>}
+          {loading && <div className="card"><p className="hint">{t('shell.loading')}</p></div>}
           {loadErr && !loading && (
             <div className="card">
-              <div className="card-head"><span className="card-title" style={{ color: 'var(--red)' }}>无法连接后端</span></div>
-              <p className="hint" style={{ margin: '4px 0 12px' }}>{loadErr}（设置页读取真实数据，需要后端 127.0.0.1:8000 可用）</p>
-              <button className="btn btn-outline btn-sm" onClick={() => void load()}>重试</button>
+              <div className="card-head"><span className="card-title" style={{ color: 'var(--red)' }}>{t('shell.backendUnavailable')}</span></div>
+              <p className="hint" style={{ margin: '4px 0 12px' }}>{t('shell.backendRequirement', { error: loadErr })}</p>
+              <button className="btn btn-outline btn-sm" onClick={() => void load()}>{t('shell.retry')}</button>
             </div>
           )}
           {!loading && !loadErr && ov && (
@@ -113,23 +116,24 @@ export default function Settings({ registered = false }: { registered?: boolean 
 }
 
 /* ---------------- 账号(可编辑) ---------------- */
-function AccountTab({ ov, reload, toast }: { ov: SettingsOverview; reload: () => Promise<void>; toast: (ic: string, msg: string) => void }) {
+function AccountTab({ ov, reload, toast }: { ov: SettingsOverview; reload: () => Promise<void>; toast: SettingsToast }) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(ov.account.display_name || '');
   const [email, setEmail] = useState(ov.account.email || '');
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
-    if (!name.trim() || !email.trim()) { toast('⚠️', '昵称与邮箱都不能为空'); return; }
-    if (!email.includes('@')) { toast('⚠️', '邮箱格式不正确'); return; }
+    if (!name.trim() || !email.trim()) { toast('⚠️', t => t('shell.accountRequired')); return; }
+    if (!email.includes('@')) { toast('⚠️', t => t('shell.emailInvalid')); return; }
     setSaving(true);
     try {
       await api.patch('/settings/account', { display_name: name.trim(), email: email.trim() });
       await reload();
       setEditing(false);
-      toast('✅', '账号信息已更新');
+      toast('✅', t => t('shell.accountUpdated'));
     } catch (e) {
-      toast('❌', `保存失败: ${e instanceof ApiError ? e.message : String(e)}`);
+      toast('❌', t => t('shell.saveFailed', { error: e instanceof ApiError ? e.message : String(e) }));
     } finally {
       setSaving(false);
     }
@@ -138,36 +142,38 @@ function AccountTab({ ov, reload, toast }: { ov: SettingsOverview; reload: () =>
   return (
     <div className="card">
       <div className="card-head">
-        <span className="card-title">账号</span>
-        {!editing && <button className="btn btn-outline btn-sm" onClick={() => { setName(ov.account.display_name || ''); setEmail(ov.account.email || ''); setEditing(true); }}>编辑</button>}
+        <span className="card-title">{t('shell.account')}</span>
+        {!editing && <button className="btn btn-outline btn-sm" onClick={() => { setName(ov.account.display_name || ''); setEmail(ov.account.email || ''); setEditing(true); }}>{t('shell.edit')}</button>}
       </div>
       <div className="list-row">
         <div className="list-ic avatar">🧑</div>
         {!editing ? (
           <div className="list-main">
             <div className="list-title">{ov.account.display_name} · {ov.account.email}</div>
-            <div className="list-sub">个人账号 · 拥有 {ov.members.length} 个成员身份</div>
+            <div className="list-sub">{t('shell.accountMemberships', { count: ov.members.length })}</div>
           </div>
         ) : (
           <div className="list-main" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div className="field"><label>昵称</label><input className="inp" value={name} onChange={(e) => setName(e.target.value)} /></div>
-            <div className="field"><label>邮箱</label><input className="inp" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+            <div className="field"><label>{t('shell.displayName')}</label><input className="inp" value={name} onChange={(e) => setName(e.target.value)} /></div>
+            <div className="field"><label>{t('shell.email')}</label><input className="inp" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
           </div>
         )}
       </div>
       {editing && (
         <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-          <button className="btn btn-primary btn-sm" disabled={saving} onClick={() => void save()}>{saving ? '保存中…' : '保存'}</button>
-          <button className="btn btn-outline btn-sm" onClick={() => setEditing(false)}>取消</button>
+          <button className="btn btn-primary btn-sm" disabled={saving} onClick={() => void save()}>{saving ? t('shell.saving') : t('shell.save')}</button>
+          <button className="btn btn-outline btn-sm" onClick={() => setEditing(false)}>{t('shell.cancel')}</button>
         </div>
       )}
-      <p className="hint" style={{ marginTop: 8 }}>账号信息存本地数据库（单用户本地部署）；邮箱用于数据导出标识。</p>
+      <p className="hint" style={{ marginTop: 8 }}>{t('shell.accountStorage')}</p>
     </div>
   );
 }
 
 /* ---------------- 工作空间 ---------------- */
-function WorkspaceTab({ ov, reload, toast }: { ov: SettingsOverview; reload: () => Promise<void>; toast: (ic: string, msg: string) => void }) {
+function WorkspaceTab({ ov, reload, toast }: { ov: SettingsOverview; reload: () => Promise<void>; toast: SettingsToast }) {
+  const t = useT();
+  const locale = useLocale();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(ov.workspace.name);
   const [role, setRole] = useState(ov.workspace.target_role);
@@ -175,15 +181,15 @@ function WorkspaceTab({ ov, reload, toast }: { ov: SettingsOverview; reload: () 
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
-    if (!name.trim() || !role.trim() || !level.trim()) { toast('⚠️', '名称 / 目标岗位 / 对标职级都不能为空'); return; }
+    if (!name.trim() || !role.trim() || !level.trim()) { toast('⚠️', t => t('shell.workspaceFieldsRequired')); return; }
     setSaving(true);
     try {
       await api.patch('/settings/workspace', { name: name.trim(), target_role: role.trim(), target_level: level.trim() });
       await reload();
       setEditing(false);
-      toast('✅', '工作空间已更新');
+      toast('✅', t => t('shell.workspaceUpdated'));
     } catch (e) {
-      toast('❌', `保存失败: ${e instanceof ApiError ? e.message : String(e)}`);
+      toast('❌', t => t('shell.saveFailed', { error: e instanceof ApiError ? e.message : String(e) }));
     } finally {
       setSaving(false);
     }
@@ -194,21 +200,21 @@ function WorkspaceTab({ ov, reload, toast }: { ov: SettingsOverview; reload: () 
     <>
       <div className="card">
         <div className="card-head">
-          <span className="card-title">工作空间信息</span>
-          {!editing && <button className="btn btn-outline btn-sm" onClick={() => { setName(ov.workspace.name); setRole(ov.workspace.target_role); setLevel(ov.workspace.target_level); setEditing(true); }}>编辑</button>}
+          <span className="card-title">{t('shell.workspaceDetails')}</span>
+          {!editing && <button className="btn btn-outline btn-sm" onClick={() => { setName(ov.workspace.name); setRole(ov.workspace.target_role); setLevel(ov.workspace.target_level); setEditing(true); }}>{t('shell.edit')}</button>}
         </div>
         {!editing ? (
           <div className="ws-info" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px', padding: '6px 0' }}>
             {([
-              ['名称', ov.workspace.name],
-              ['标识', ov.workspace.slug],
-              ['目标岗位', `${ov.workspace.target_role} · ${ov.workspace.target_level}`],
-              ['性质', ov.workspace.is_demo ? '演示工作空间（is_demo）' : '正式工作空间'],
-              ['创建时间', fmtDate(ov.workspace.created_at)],
-              ['证据总数', `${c.evidence} 条`],
+              ['shell.name', ov.workspace.name],
+              ['shell.slug', ov.workspace.slug],
+              ['shell.targetRole', t('shell.roleAndLevel', { role: ov.workspace.target_role, level: ov.workspace.target_level })],
+              ['shell.workspaceType', ov.workspace.is_demo ? t('shell.workspaceTypeDemo') : t('shell.workspaceTypePersonal')],
+              ['shell.createdAt', fmtDate(locale, ov.workspace.created_at)],
+              ['shell.totalEvidence', t('shell.evidenceCount', { count: c.evidence })],
             ] as [string, string][]).map(([k, v]) => (
               <div key={k} style={{ display: 'flex', gap: 10, fontSize: 13 }}>
-                <span style={{ color: 'var(--text-3)', width: 84, flexShrink: 0 }}>{k}</span>
+                <span style={{ color: 'var(--text-3)', width: 84, flexShrink: 0 }}>{t(k)}</span>
                 <b style={{ fontWeight: 600 }}>{v}</b>
               </div>
             ))}
@@ -216,30 +222,30 @@ function WorkspaceTab({ ov, reload, toast }: { ov: SettingsOverview; reload: () 
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '6px 0' }}>
             <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div className="field"><label>名称</label><input className="inp" value={name} onChange={(e) => setName(e.target.value)} /></div>
-              <div className="field"><label>对标职级</label><input className="inp" value={level} onChange={(e) => setLevel(e.target.value)} placeholder="如 P6" /></div>
+              <div className="field"><label>{t('shell.name')}</label><input className="inp" value={name} onChange={(e) => setName(e.target.value)} /></div>
+              <div className="field"><label>{t('shell.targetLevel')}</label><input className="inp" value={level} onChange={(e) => setLevel(e.target.value)} placeholder={t('shell.levelExample')} /></div>
             </div>
-            <div className="field"><label>目标岗位</label><input className="inp" value={role} onChange={(e) => setRole(e.target.value)} /></div>
+            <div className="field"><label>{t('shell.targetRole')}</label><input className="inp" value={role} onChange={(e) => setRole(e.target.value)} /></div>
             <div style={{ display: 'flex', gap: 10 }}>
-              <button className="btn btn-primary btn-sm" disabled={saving} onClick={() => void save()}>{saving ? '保存中…' : '保存'}</button>
-              <button className="btn btn-outline btn-sm" onClick={() => setEditing(false)}>取消</button>
+              <button className="btn btn-primary btn-sm" disabled={saving} onClick={() => void save()}>{saving ? t('shell.saving') : t('shell.save')}</button>
+              <button className="btn btn-outline btn-sm" onClick={() => setEditing(false)}>{t('shell.cancel')}</button>
             </div>
           </div>
         )}
       </div>
 
       <div className="card">
-        <div className="card-head"><span className="card-title">成员（{ov.members.length}）</span></div>
+        <div className="card-head"><span className="card-title">{t('shell.membersCount', { count: ov.members.length })}</span></div>
         {ov.members.map((m) => (
           <div className="list-row" key={m.email}>
             <div className="list-ic avatar">🧑</div>
             <div className="list-main">
-              <div className="list-title">{m.display_name}（{m.role === 'owner' ? '所有者' : m.role === 'admin' ? '管理员' : '成员'}）</div>
+              <div className="list-title">{t('shell.memberWithRole', { name: m.display_name, role: t(m.role === 'owner' ? 'shell.workspaceOwner' : m.role === 'admin' ? 'shell.workspaceAdmin' : 'shell.workspaceMember') })}</div>
               <div className="list-sub">{m.email}</div>
             </div>
           </div>
         ))}
-        <p className="hint" style={{ marginTop: 8 }}>当前版本为单用户本地部署，邀请成员暂未开放。</p>
+        <p className="hint" style={{ marginTop: 8 }}>{t('shell.noInvitations')}</p>
       </div>
     </>
   );
@@ -256,7 +262,8 @@ type GhCfg = {
   target_repo?: string; base_branch?: string; content_dir?: string;
 };
 
-function ModelsTab({ toast }: { toast: (ic: string, msg: string) => void }) {
+function ModelsTab({ toast }: { toast: SettingsToast }) {
+  const t = useT();
   // ---- LLM 配置 ----
   const [llm, setLlm] = useState<LlmCfg | null>(null);
   const [provider, setProvider] = useState('');
@@ -265,7 +272,7 @@ function ModelsTab({ toast }: { toast: (ic: string, msg: string) => void }) {
   const [apiKey, setApiKey] = useState('');
   const [llmSaving, setLlmSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [testRes, setTestRes] = useState<LlmTestResult | null>(null);
+  const [testRes, setTestRes] = useState<LlmTestResult | 'unavailable' | null>(null);
   const llmBusy = llmSaving || testing;
   const [llmErr, setLlmErr] = useState<string | null>(null);
 
@@ -303,9 +310,9 @@ function ModelsTab({ toast }: { toast: (ic: string, msg: string) => void }) {
         api_key: apiKey.trim(), // 空字符串 = 保留现有密钥
       });
       await loadLlm();
-      toast('✅', 'LLM 连接已保存并立即生效');
+      toast('✅', t => t('shell.llmSaved'));
     } catch (e) {
-      toast('❌', `保存失败: ${e instanceof ApiError ? e.message : String(e)}`);
+      toast('❌', t => t('shell.saveFailed', { error: e instanceof ApiError ? e.message : String(e) }));
     } finally {
       setLlmSaving(false);
     }
@@ -323,7 +330,7 @@ function ModelsTab({ toast }: { toast: (ic: string, msg: string) => void }) {
       });
       setTestRes(r);
     } catch {
-      setTestRes({ ok: false, error: '无法完成连接测试，请稍后重试。' });
+      setTestRes('unavailable');
     } finally {
       setTesting(false);
     }
@@ -335,24 +342,24 @@ function ModelsTab({ toast }: { toast: (ic: string, msg: string) => void }) {
     try {
       await api.del('/settings/llm');
       await loadLlm();
-      toast('↩️', '已恢复 server/.env 默认 LLM 配置');
+      toast('↩️', t => t('shell.llmReset'));
     } catch (e) {
-      toast('❌', `重置失败: ${String(e)}`);
+      toast('❌', t => t('shell.resetFailed', { error: String(e) }));
     } finally {
       setLlmSaving(false);
     }
   };
 
   const saveGh = async () => {
-    if (!ghToken.trim()) { toast('⚠️', '粘贴新的 GitHub token（留空不保存）'); return; }
+    if (!ghToken.trim()) { toast('⚠️', t => t('shell.githubTokenRequired')); return; }
     setGhSaving(true);
     try {
       await api.put('/settings/github', { token: ghToken.trim() });
       setGhToken('');
       await loadGh();
-      toast('✅', 'GitHub token 已保存并立即生效');
+      toast('✅', t => t('shell.githubTokenSaved'));
     } catch (e) {
-      toast('❌', `保存失败: ${e instanceof ApiError ? e.message : String(e)}`);
+      toast('❌', t => t('shell.saveFailed', { error: e instanceof ApiError ? e.message : String(e) }));
     } finally {
       setGhSaving(false);
     }
@@ -362,56 +369,60 @@ function ModelsTab({ toast }: { toast: (ic: string, msg: string) => void }) {
     try {
       await api.del('/settings/github');
       await loadGh();
-      toast('↩️', '已恢复 server/.env 默认 GITHUB_TOKEN');
+      toast('↩️', t => t('shell.githubTokenReset'));
     } catch (e) {
-      toast('❌', `重置失败: ${String(e)}`);
+      toast('❌', t => t('shell.resetFailed', { error: String(e) }));
     }
   };
 
-  const srcChip = (s?: string) => s === 'db' ? <span className="chip chip-purple">页面配置</span> : s === 'env' ? <span className="chip chip-slate">.env 默认</span> : null;
+  const srcChip = (s?: string) => s === 'db' ? <span className="chip chip-purple">{t('shell.sourceSettings')}</span> : s === 'env' ? <span className="chip chip-slate">{t('shell.sourceEnv')}</span> : null;
 
   return (
     <>
       <div className="card">
         <div className="card-head">
-          <span className="card-title">LLM 连接（推理与生成）</span>
-          {llm && <span className={`chip ${llm.active ? 'chip-blue' : 'chip-slate'}`}>{llm.active ? '已配置' : '未配置'}</span>}
+          <span className="card-title">{t('shell.llmConnection')}</span>
+          {llm && <span className={`chip ${llm.active ? 'chip-blue' : 'chip-slate'}`}>{llm.active ? t('shell.configured') : t('shell.unconfigured')}</span>}
         </div>
-        {llmErr && <p className="hint" style={{ color: 'var(--red)' }}>加载失败: {llmErr}</p>}
+        {llmErr && <p className="hint" style={{ color: 'var(--red)' }}>{t('shell.loadFailed', { error: llmErr })}</p>}
         {llm && (
           <>
             <p className="hint" style={{ margin: '4px 0 12px' }}>
-              当前生效：{llm.provider || '—'} · {llm.model || '—'} · 密钥 {llm.api_key_set ? '已设置' : '未设置'} {srcChip(llm.source)}
-              <br />保存后立即生效。点击「测试连接」会用当前表单值发起一次模型请求。
+              {t('shell.activeModel', {
+                provider: llm.provider || '—',
+                model: llm.model || '—',
+                keyStatus: t(llm.api_key_set ? 'shell.secretSet' : 'shell.secretUnset'),
+              })} {srcChip(llm.source)}
+              <br />{t('shell.llmTestHint')}
             </p>
             <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div className="field">
-                <label>Provider（标识名，任意）</label>
+                <label>{t('shell.providerLabel')}</label>
                 <input className="inp" value={provider} disabled={llmBusy} onChange={(e) => { setProvider(e.target.value); setTestRes(null); }} placeholder="gateway / deepseek / glm" />
               </div>
               <div className="field">
-                <label>模型名</label>
-                <input className="inp" value={model} disabled={llmBusy} onChange={(e) => { setModel(e.target.value); setTestRes(null); }} placeholder="如 deepseek-v4-flash" />
+                <label>{t('shell.modelName')}</label>
+                <input className="inp" value={model} disabled={llmBusy} onChange={(e) => { setModel(e.target.value); setTestRes(null); }} placeholder={t('shell.modelExample')} />
               </div>
             </div>
             <div className="field">
-              <label>Base URL（OpenAI 兼容 /v1）</label>
+              <label>{t('shell.baseUrl')}</label>
               <input className="inp" value={baseUrl} disabled={llmBusy} onChange={(e) => { setBaseUrl(e.target.value); setTestRes(null); }} placeholder="https://…/v1" />
             </div>
             <div className="field">
-              <label>API Key {llm.api_key_set && <span className="hint" style={{ display: 'inline' }}>（已设置，留空保留）</span>}</label>
-              <input className="inp" type="password" value={apiKey} disabled={llmBusy} onChange={(e) => { setApiKey(e.target.value); setTestRes(null); }} placeholder="粘贴新 Key，留空保留现有" />
+              <label>{t('shell.apiKey')}{' '}{llm.api_key_set && <span className="hint" style={{ display: 'inline' }}>{t('shell.keepSecretHint')}</span>}</label>
+              <input className="inp" type="password" value={apiKey} disabled={llmBusy} onChange={(e) => { setApiKey(e.target.value); setTestRes(null); }} placeholder={t('shell.newKeyPlaceholder')} />
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <button className="btn btn-primary btn-sm" disabled={llmBusy} onClick={() => void saveLlm()}>{llmSaving ? '保存中…' : '保存'}</button>
-              <button className="btn btn-outline btn-sm" disabled={llmBusy} onClick={() => void testLlm()}>{testing ? '测试中…' : '🔌 测试连接'}</button>
-              {llm.source === 'db' && <button className="btn btn-ghost btn-sm" disabled={llmBusy} onClick={() => void resetLlm()}>恢复 .env 默认</button>}
+              <button className="btn btn-primary btn-sm" disabled={llmBusy} onClick={() => void saveLlm()}>{llmSaving ? t('shell.saving') : t('shell.save')}</button>
+              <button className="btn btn-outline btn-sm" disabled={llmBusy} onClick={() => void testLlm()}>{testing ? t('shell.testingConnection') : t('shell.testConnection')}</button>
+              {llm.source === 'db' && <button className="btn btn-ghost btn-sm" disabled={llmBusy} onClick={() => void resetLlm()}>{t('shell.restoreEnv')}</button>}
             </div>
             {testRes && (
-              <div className="hint" role="status" style={{ marginTop: 10, color: testRes.ok ? 'var(--green)' : 'var(--red)' }}>
-                {testRes.ok
-                  ? `✅ 本次测试连接成功 · ${testRes.latency_ms}ms`
-                  : `❌ 测试失败：${testRes.error}`}
+              <div className="hint" role="status" style={{ marginTop: 10, color: testRes !== 'unavailable' && testRes.ok ? 'var(--green)' : 'var(--red)' }}>
+                {testRes !== 'unavailable' && testRes.ok
+                  ? t('shell.connectionPassed', { latency: testRes.latency_ms })
+                  : t('shell.connectionFailed', { error: testRes === 'unavailable' ? t('shell.llmTestUnavailable') : testRes.error })}
               </div>
             )}
           </>
@@ -420,42 +431,46 @@ function ModelsTab({ toast }: { toast: (ic: string, msg: string) => void }) {
 
       <div className="card">
         <div className="card-head">
-          <span className="card-title">GitHub 发布</span>
-          {gh && <span className={`chip ${gh.active ? 'chip-green' : 'chip-slate'}`}>{'公共写入已关闭'}</span>}
+          <span className="card-title">{t('shell.githubPublishing')}</span>
+          {gh && <span className={`chip ${gh.active ? 'chip-green' : 'chip-slate'}`}>{t('shell.publicWritesOff')}</span>}
         </div>
         {gh && (
           <>
             <p className="hint" style={{ margin: '4px 0 12px' }}>
-              当前：token {gh.token_hint || '未设置'} {srcChip(gh.source)}
-              {gh.active && <> · 仓库 {gh.target_repo} · 目录 {gh.content_dir} · 基线 {gh.base_branch}</>}
-              <br />token 需要 contents:write + pull requests:write 权限；只存本地，接口不回显。
+              {t('shell.activeGithubToken', { token: gh.token_hint || t('shell.secretUnset') })} {srcChip(gh.source)}
+              {gh.active && t('shell.githubTarget', {
+                repo: gh.target_repo ?? '',
+                directory: gh.content_dir ?? '',
+                branch: gh.base_branch ?? '',
+              })}
+              <br />{t('shell.githubTokenPermissions')}
             </p>
             <div className="field">
-              <label>Personal Access Token {gh.token_hint && <span className="hint" style={{ display: 'inline' }}>（已设置 {gh.token_hint}）</span>}</label>
-              <input className="inp" type="password" value={ghToken} onChange={(e) => setGhToken(e.target.value)} placeholder="ghp_… / gho_…，留空保留现有" />
+              <label>{t('shell.githubPat')}{' '}{gh.token_hint && <span className="hint" style={{ display: 'inline' }}>{t('shell.githubTokenSet', { token: gh.token_hint })}</span>}</label>
+              <input className="inp" type="password" value={ghToken} onChange={(e) => setGhToken(e.target.value)} placeholder={t('shell.githubTokenPlaceholder')} />
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
-              <button className="btn btn-primary btn-sm" disabled={ghSaving || !ghToken.trim()} onClick={() => void saveGh()}>{ghSaving ? '保存中…' : '保存'}</button>
-              {gh.source === 'db' && <button className="btn btn-ghost btn-sm" onClick={() => void resetGh()}>恢复 .env 默认</button>}
+              <button className="btn btn-primary btn-sm" disabled={ghSaving || !ghToken.trim()} onClick={() => void saveGh()}>{ghSaving ? t('shell.saving') : t('shell.save')}</button>
+              {gh.source === 'db' && <button className="btn btn-ghost btn-sm" onClick={() => void resetGh()}>{t('shell.restoreEnv')}</button>}
             </div>
           </>
         )}
       </div>
 
       <div className="card">
-        <div className="card-head"><span className="card-title">尚未接入</span></div>
+        <div className="card-head"><span className="card-title">{t('shell.integrationUnavailableTitle')}</span></div>
         {[
-          ['⚡', '编程 Agent', '项目扫描当前用仓库元数据，不含 AI 审查'],
-          ['🔎', '搜索', '岗位智能（Job Intelligence）暂未接入搜索源'],
-          ['🧩', 'MCP 适配器', '暂无 MCP 工具接入'],
-        ].map(([ic, name, desc]) => (
-          <div className="list-row" key={name}>
+          ['⚡', 'shell.codingAgent', 'shell.codingAgentHint'],
+          ['🔎', 'shell.searchIntegration', 'shell.searchIntegrationHint'],
+          ['🧩', 'shell.mcpAdapter', 'shell.mcpAdapterHint'],
+        ].map(([ic, nameKey, descKey]) => (
+          <div className="list-row" key={nameKey}>
             <div className="list-ic">{ic}</div>
             <div className="list-main">
-              <div className="list-title">{name}</div>
-              <div className="list-sub">{desc}</div>
+              <div className="list-title">{t(nameKey)}</div>
+              <div className="list-sub">{t(descKey)}</div>
             </div>
-            <span className="chip chip-slate">未接入</span>
+            <span className="chip chip-slate">{t('shell.integrationUnavailable')}</span>
           </div>
         ))}
       </div>
@@ -464,12 +479,13 @@ function ModelsTab({ toast }: { toast: (ic: string, msg: string) => void }) {
 }
 
 /* ---------------- 数据导出与删除 ---------------- */
-function DataTab({ ov, toast }: { ov: SettingsOverview; toast: (ic: string, msg: string) => void }) {
+function DataTab({ ov, toast }: { ov: SettingsOverview; toast: SettingsToast }) {
+  const t = useT();
   const [delOpen, setDelOpen] = useState(false);
   const [confirm, setConfirm] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
-
+  const [slugBefore, slugAfter] = t('shell.confirmSlug', { slug: '{slug}' }).split('{slug}');
 
   const doExport = async () => {
     setExporting(true);
@@ -480,24 +496,24 @@ function DataTab({ ov, toast }: { ov: SettingsOverview; toast: (ic: string, msg:
       a.download = `careerpilot-export-${ov.workspace.slug}-${new Date().toISOString().slice(0, 10).split('-').join('')}.json`;
       a.click();
       URL.revokeObjectURL(a.href);
-      toast('📦', '导出完成（真实数据 JSON）');
+      toast('📦', t => t('shell.exportDone'));
     } catch (e) {
-      toast('❌', `导出失败: ${String(e)}`);
+      toast('❌', t => t('shell.exportFailed', { error: String(e) }));
     } finally {
       setExporting(false);
     }
   };
 
   const doDelete = async () => {
-    if (confirm !== ov.workspace.slug) { toast('⚠️', `请输入工作空间标识 "${ov.workspace.slug}" 确认`); return; }
+    if (confirm !== ov.workspace.slug) { toast('⚠️', t => t('shell.confirmSlugError', { slug: ov.workspace.slug })); return; }
     setDeleting(true);
     try {
       await api.del('/settings/workspace', { confirm_slug: confirm });
-      toast('🗑️', '工作空间已删除（含全部数据）。刷新后可重新 seed 演示数据。');
+      toast('🗑️', t => t('shell.workspaceDeleted'));
       setDelOpen(false);
       setTimeout(() => window.location.reload(), 1200);
     } catch (e) {
-      toast('❌', `删除失败: ${e instanceof ApiError ? e.message : String(e)}`);
+      toast('❌', t => t('shell.deleteFailed', { error: e instanceof ApiError ? e.message : String(e) }));
     } finally {
       setDeleting(false);
     }
@@ -507,37 +523,37 @@ function DataTab({ ov, toast }: { ov: SettingsOverview; toast: (ic: string, msg:
   return (
     <>
       <div className="card">
-        <div className="card-head"><span className="card-title">数据导出</span></div>
+        <div className="card-head"><span className="card-title">{t('shell.dataExport')}</span></div>
         <p className="hint" style={{ margin: '4px 0 12px' }}>
-          导出本工作空间全部真实数据为 JSON：证据 {c.evidence} · 记忆 {c.memory} · 任务 {c.tasks} · 考试 {c.exams} · 题目 {c.questions} · 发布记录 {c.publications} 等。
+          {t('shell.exportSummary', c)}
         </p>
         <button className="btn btn-outline" disabled={exporting} onClick={() => void doExport()}>
-          {exporting ? '导出中…' : '⬇ 导出全部 JSON'}
+          {exporting ? t('shell.exporting') : t('shell.exportJson')}
         </button>
       </div>
       <div className="card" style={{ border: '1px solid var(--red-2, #fecaca)' }}>
-        <div className="card-head"><span className="card-title" style={{ color: 'var(--red)' }}>危险区域</span></div>
+        <div className="card-head"><span className="card-title" style={{ color: 'var(--red)' }}>{t('shell.dangerZone')}</span></div>
         <p className="hint" style={{ margin: '4px 0 12px' }}>
-          删除工作空间会永久移除全部证据、记忆、任务、考试与发布记录（数据库级联），且不可恢复。
+          {t('shell.deleteWorkspaceHint')}
         </p>
-        <button className="btn btn-danger" onClick={() => { setConfirm(''); setDelOpen(true); }}>删除工作空间</button>
+        <button className="btn btn-danger" onClick={() => { setConfirm(''); setDelOpen(true); }}>{t('shell.deleteWorkspace')}</button>
       </div>
 
       {delOpen && (
-        <Modal title="删除工作空间？" size="sm" onClose={() => setDelOpen(false)}
+        <Modal title={t('shell.deleteWorkspaceTitle')} size="sm" onClose={() => setDelOpen(false)}
           footer={
             <>
-              <button className="btn btn-outline" onClick={() => setDelOpen(false)}>取消</button>
+              <button className="btn btn-outline" onClick={() => setDelOpen(false)}>{t('shell.cancel')}</button>
               <button className="btn btn-danger" disabled={deleting || confirm !== ov.workspace.slug} onClick={() => void doDelete()}>
-                {deleting ? '删除中…' : '确认删除'}
+                {deleting ? t('shell.deleting') : t('shell.confirmDelete')}
               </button>
             </>
           }>
           <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.7 }}>
-            将永久删除「{ov.workspace.name}」及其全部数据：证据 {c.evidence} 条、记忆 {c.memory} 条、任务 {c.tasks} 条、考试 {c.exams} 场、题目 {c.questions} 道。此操作不可恢复。
+            {t('shell.deleteSummary', { ...c, name: ov.workspace.name })}
           </p>
           <div className="field" style={{ marginTop: 10 }}>
-            <label>输入工作空间标识 <b>{ov.workspace.slug}</b> 以确认</label>
+            <label>{slugBefore}<b>{ov.workspace.slug}</b>{slugAfter}</label>
             <input className="inp" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={ov.workspace.slug} />
           </div>
         </Modal>
@@ -548,13 +564,15 @@ function DataTab({ ov, toast }: { ov: SettingsOverview; toast: (ic: string, msg:
 
 /* ---------------- 自动化规则与审计 ---------------- */
 const BUILTIN_CHECKS = [
-  ['隐私扫描', '发布前检测手机号 / 邮箱 / 身份证号 / PII 标记词，命中即阻断'],
-  ['事实检查', '无引用的量化声明标记为待人工确认'],
-  ['版权与来源', '来源不明或许可不清的内容不能自动发布'],
-  ['Markdown 检查', '标题结构 / 空链接等格式校验'],
+  ['shell.privacyScan', 'shell.privacyScanHint'],
+  ['shell.factCheck', 'shell.factCheckHint'],
+  ['shell.copyrightSources', 'shell.copyrightSourcesHint'],
+  ['shell.markdownCheck', 'shell.markdownCheckHint'],
 ];
 
 function RulesTab() {
+  const t = useT();
+  const locale = useLocale();
   const [, setRules] = useState<PublicationRule[] | null>(null);
   const [audit, setAudit] = useState<AuditItem[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -580,54 +598,56 @@ function RulesTab() {
   return (
     <>
       <div className="card">
-        <div className="card-head"><span className="card-title">发布权限</span></div>
+        <div className="card-head"><span className="card-title">{t('shell.publishingPermissions')}</span></div>
         <div className="list-row">
           <div className="list-main">
-            <div className="list-title">公共内容写入已禁用</div>
-            <div className="list-sub">当前仅保留本地草稿与预览；不会创建或合并 PR。</div>
+            <div className="list-title">{t('shell.publicContentDisabled')}</div>
+            <div className="list-sub">{t('shell.localDraftsOnly')}</div>
           </div>
           <button
             className="switch"
-            aria-label="公共发布已禁用"
+            aria-label={t('shell.publicPublishDisabled')}
             disabled
             style={{ cursor: busy ? 'wait' : 'pointer' }}
           />
         </div>
         <p className="hint" style={{ marginTop: 8 }}>
-          本轮核心闭环修复期间，后端统一阻止公共写入。
+          {t('shell.serverBlocksPublishing')}
         </p>
       </div>
 
       <div className="card">
-        <div className="card-head"><span className="card-title">内置校验（不可关闭）</span></div>
-        {BUILTIN_CHECKS.map(([name, desc]) => (
-          <div className="list-row" key={name}>
+        <div className="card-head"><span className="card-title">{t('shell.builtInChecks')}</span></div>
+        {BUILTIN_CHECKS.map(([nameKey, descKey]) => (
+          <div className="list-row" key={nameKey}>
             <div className="list-main">
-              <div className="list-title">{name}</div>
-              <div className="list-sub">{desc}</div>
+              <div className="list-title">{t(nameKey)}</div>
+              <div className="list-sub">{t(descKey)}</div>
             </div>
-            <span className="chip chip-green">执行中</span>
+            <span className="chip chip-green">{t('shell.checkActive')}</span>
           </div>
         ))}
       </div>
 
       <div className="card">
-        <div className="card-head"><span className="card-title">审计日志</span></div>
-        {err && <p className="hint" style={{ color: 'var(--red)' }}>加载失败: {err}</p>}
-        {!err && (audit?.length ?? 0) === 0 && <p className="hint">暂无审计记录（发布过内容后这里会出现完整流水）。</p>}
+        <div className="card-head"><span className="card-title">{t('shell.auditLog')}</span></div>
+        {err && <p className="hint" style={{ color: 'var(--red)' }}>{t('shell.loadFailed', { error: err })}</p>}
+        {!err && (audit?.length ?? 0) === 0 && <p className="hint">{t('shell.auditEmpty')}</p>}
         {audit?.slice(0, 30).map((a) => {
-          const meta = ACTION_META[a.action] || { label: a.action, cls: 'chip-slate' };
+          const meta = ACTION_META[a.action];
+          const label = meta ? t(meta.label) : a.action;
           const d = a.detail || {};
-          const what = [d.pr ? `PR #${d.pr}` : '', d.status || d.to || d.from || '', d.dry_run ? 'dry-run' : '']
+          const what = [d.pr ? `PR #${d.pr}` : '', d.status || d.to || d.from || '', d.dry_run ? t('shell.auditDryRun') : '']
             .filter(Boolean).join(' · ');
+          const action = what ? t('shell.auditDetail', { action: label, detail: what }) : label;
           return (
             <div className="list-row" key={a.id}>
               <div className="list-ic">📜</div>
               <div className="list-main">
-                <div className="list-title">{meta.label}{what ? ` — ${what}` : ''}{a.draft_id ? `（草稿 CT-${a.draft_id}）` : ''}</div>
-                <div className="list-sub">{fmtDate(a.created_at)}</div>
+                <div className="list-title">{a.draft_id ? t('shell.auditDraft', { action, id: a.draft_id }) : action}</div>
+                <div className="list-sub">{fmtDate(locale, a.created_at)}</div>
               </div>
-              <span className={`chip ${meta.cls}`}>{meta.label}</span>
+              <span className={`chip ${meta?.cls ?? 'chip-slate'}`}>{label}</span>
             </div>
           );
         })}

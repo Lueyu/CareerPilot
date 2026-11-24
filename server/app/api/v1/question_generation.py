@@ -10,12 +10,15 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, text, update
+from sqlalchemy import case, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import lazyload
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
+from app.generation_i18n import generation_message, generation_skill_name, saved_language
+from app.i18n import request_language
 from app.models import (
     ImportItem,
     ImportSession,
@@ -74,7 +77,7 @@ async def owned_task(session, ws_id, task_id, lock=False):
         query = query.with_for_update()
     task = await session.scalar(query.execution_options(populate_existing=True))
     if task is None:
-        raise HTTPException(404, "生成任务不存在")
+        raise HTTPException(404, localized_message("errors.generation_job_not_found"))
     return task
 
 
@@ -99,7 +102,17 @@ async def list_tasks(ws: Workspace = Depends(get_workspace), session: AsyncSessi
 async def suggestions(ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session)):
     skills = (await session.scalars(select(Skill).order_by(Skill.id))).all()
     counts = dict((await session.execute(select(Question.skill_id, func.count(Question.id)).where((Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id), Question.canonical_question_id.is_(None), Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY')).group_by(Question.skill_id))).all())
-    items = [{"id": f"coverage-{s.key}", "title": f"补充{s.name}练习", "reason": f"当前可用独立题 {counts.get(s.id, 0)} 道，按题库覆盖较少优先建议；这不是能力评分。", "kind": "supplement", "count": 5, "skill_keys": [s.key], "project_ids": [], "purpose": f"补充{s.name}不同情境与难度的新题，避免仅改写已有题"} for s in sorted(skills, key=lambda s: counts.get(s.id, 0))[:3]]
+    language = request_language()
+    items = []
+    for skill in sorted(skills, key=lambda s: counts.get(s.id, 0))[:3]:
+        name = generation_skill_name(skill.key, skill.name, language)
+        items.append({
+            "id": f"coverage-{skill.key}",
+            "title": generation_message("suggestion.coverage_title").format(skill=name),
+            "reason": generation_message("suggestion.coverage_reason").format(count=counts.get(skill.id, 0)),
+            "kind": "supplement", "count": 5, "skill_keys": [skill.key], "project_ids": [],
+            "purpose": generation_message("suggestion.coverage_purpose").format(skill=name),
+        })
     projects = (await session.scalars(select(Project).where(Project.workspace_id == ws.id,Project.archived_at.is_(None)).order_by(Project.id).limit(10))).all()
     for p in projects:
         latest_analysis = p.latest_valid_analysis_id or await session.scalar(select(ProjectAnalysis.id).where(ProjectAnalysis.project_id == p.id,
@@ -109,18 +122,29 @@ async def suggestions(ws: Workspace = Depends(get_workspace), session: AsyncSess
             gaps=[m for m in await active_project_memories(session,ws.id,p.id)
                   if m.mtype=='ProjectIssue' and report_binding(m,latest_analysis)][:3]
             for gap in gaps:
-                items.append({'id': f'project-issue-{gap.id}', 'title': f'准备「{p.name}」具体问题考核',
-                    'reason': gap.content[:400] + '。这是项目观察，个人掌握情况尚待作答确认。',
+                items.append({'id': f'project-issue-{gap.id}',
+                    'title': generation_message('suggestion.issue_title').format(project=p.name),
+                    'reason': generation_message('suggestion.issue_reason').format(observation=gap.content[:400]),
                     'kind': 'supplement', 'count': 3, 'skill_keys': [report_binding(gap,latest_analysis)['issue']['skill_key']],
                     'project_ids': [p.id], 'source_analysis_id': latest_analysis, 'source_issue_ids': [report_binding(gap,latest_analysis)['issue_id']],
-                    'purpose': '围绕该问题递进考察现状解释、设计取舍与改进验证；不预设个人能力短板。'})
+                    'purpose': generation_message('suggestion.issue_purpose')})
         covered = await session.scalar(select(func.count()).select_from(Question).where(Question.workspace_id == ws.id, Question.generation_meta["item"]["project_id"].as_integer() == p.id))
         if not covered:
-            items.append({"id": f"project-{p.id}", "title": f"准备「{p.name}」项目追问", "reason": "尚无关联该项目的已审核题。请先补充本人职责，仓库代码不能代表本人贡献。", "kind": "supplement", "count": 3, "skill_keys": [], "project_ids": [p.id], "purpose": "围绕已确认的项目资料准备技术取舍与追问；未知经历明确待补充"})
+            items.append({
+                "id": f"project-{p.id}", "title": generation_message("suggestion.project_title").format(project=p.name),
+                "reason": generation_message("suggestion.project_reason"),
+                "kind": "supplement", "count": 3, "skill_keys": [], "project_ids": [p.id],
+                "purpose": generation_message("suggestion.project_purpose"),
+            })
     tasks = (await session.scalars(select(LearningTask).where(LearningTask.workspace_id == ws.id, LearningTask.source_criterion.is_not(None)).order_by(LearningTask.id.desc()).limit(3))).all()
     for task in tasks:
         key = next((s.key for s in skills if s.id == task.skill_id), None)
-        items.append({"id": f"learning-{task.id}", "title": "补充失分点练习材料", "reason": f"来自学习任务 {task.id} 的评分项：{task.source_criterion}。这里只补充材料，不代表通过复测。", "kind": "supplement", "count": 3, "skill_keys": [key] if key else [], "project_ids": [], "purpose": f"围绕评分项「{task.source_criterion}」提供可比较的新情境练习"})
+        items.append({
+            "id": f"learning-{task.id}", "title": generation_message("suggestion.learning_title"),
+            "reason": generation_message("suggestion.learning_reason").format(task=task.id, criterion=task.source_criterion),
+            "kind": "supplement", "count": 3, "skill_keys": [key] if key else [], "project_ids": [],
+            "purpose": generation_message("suggestion.learning_purpose").format(criterion=task.source_criterion),
+        })
     return {"items": items}
 
 
@@ -131,14 +155,14 @@ async def create_task(req: GenerationIn, ws: Workspace = Depends(get_workspace),
     previous = await session.scalar(select(QuestionGeneration).where(QuestionGeneration.workspace_id == ws.id, QuestionGeneration.request_key == request_key))
     if previous:
         if GenerationIn.model_validate(previous.request_json).model_dump(exclude={"request_key"}) != req.model_dump(exclude={"request_key"}):
-            raise HTTPException(409, "同一请求标识对应的输入已改变，请新建任务")
+            raise HTTPException(409, localized_message("errors.the_inputs_for_this_request_id_have_changed_create"))
         return await task_view(session, previous)
     skills = (await session.scalars(select(Skill).order_by(Skill.id))).all()
     allowed = {s.key for s in skills}
     if set(req.skill_keys) - allowed:
-        raise HTTPException(422, "技能不存在")
+        raise HTTPException(422, localized_message("errors.skill_not_found"))
     if not allowed:
-        raise HTTPException(409, "请先初始化能力域")
+        raise HTTPException(409, localized_message("errors.initialize_a_skill_domain_first"))
     try:
         projects = await build_project_context(session, ws.id, req.project_ids)
         targets = await issue_targets(session, ws.id, req.project_ids, req.source_analysis_id, req.source_issue_ids)
@@ -151,12 +175,12 @@ async def create_task(req: GenerationIn, ws: Workspace = Depends(get_workspace),
     if req.source_import_id is not None:
         imp = await session.scalar(select(ImportSession).where(ImportSession.id == req.source_import_id, ImportSession.workspace_id == ws.id))
         if not imp:
-            raise HTTPException(404, "来源导入会话不存在")
+            raise HTTPException(404, localized_message("errors.source_import_session_not_found"))
         metadata = imp.meta or {}
         if not source_text:
             source_text = metadata.get("extracted_source_text") or metadata.get("pasted_text") or imp.paste_text or ""
             if not source_text or (metadata.get("source") == "files" and not metadata.get("extracted_source_text")):
-                raise HTTPException(422, "此历史导入未保留完整原文，请粘贴原帖后再结合项目优化；仅题目标题不足以还原背景")
+                raise HTTPException(422, localized_message("errors.this_older_import_has_no_full_source_text_paste"))
         for it in imp.items:
             source_id = it.question_id or it.merged_into or it.is_duplicate_of
             if source_id:
@@ -164,9 +188,9 @@ async def create_task(req: GenerationIn, ws: Workspace = Depends(get_workspace),
                 if q and q.workspace_id in (None, ws.id) and (q.generation_meta or {}).get('assessment_use') != 'PRACTICE_ONLY':
                     source_questions.append({"id": q.id, "title": q.title, "canonical_question_id": q.canonical_question_id})
     if req.kind == "import" and not source_text:
-        raise HTTPException(422, "请粘贴面经或选择已导入会话")
+        raise HTTPException(422, localized_message("errors.paste_an_interview_account_or_select_an_existing_import"))
     if len(source_text) > 60000:
-        raise HTTPException(422, "原文超过 60000 字，请分批导入")
+        raise HTTPException(422, localized_message("errors.the_source_is_over_60_000_characters_import_it"))
     keys = req.skill_keys or [s.key for s in skills]
     # Supply existing titles so the generator can avoid duplicates or explicitly
     # identify an adaptation. Bound context size; semantic dedup still needs review.
@@ -175,7 +199,8 @@ async def create_task(req: GenerationIn, ws: Workspace = Depends(get_workspace),
     source_ids = {q["id"] for q in source_questions}
     source_questions.extend({"id": qid, "title": title, "canonical_question_id": canonical} for qid, title, canonical in known if qid not in source_ids)
     snapshot = {"kind": req.kind, "count": req.count, "skill_keys": keys, "skills": [{"key": s.key, "name": s.name} for s in skills if s.key in keys], "project_context": projects, "source_text": source_text, "source_questions": source_questions, "purpose": req.purpose}
-    snapshot.update(source_analysis_id=req.source_analysis_id, source_issue_ids=req.source_issue_ids, project_issue_targets=targets)
+    snapshot.update(source_analysis_id=req.source_analysis_id, source_issue_ids=req.source_issue_ids,
+                    project_issue_targets=targets, generation_language=request_language())
     snapshot["bank_review_feedback"] = await load_review_feedback(session, ws.id, keys)
     task = QuestionGeneration(workspace_id=ws.id, kind=req.kind, mode=req.mode, request_key=request_key, request_json=req.model_dump(exclude={"request_key"}), input_snapshot=snapshot, prompt_text="")
     session.add(task)
@@ -220,10 +245,10 @@ async def store_response(session, task, raw, result_meta=None):
 async def submit_result(task_id: int, req: ResultIn, ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session)):
     task = await owned_task(session, ws.id, task_id, lock=True)
     if task.mode != "external":
-        raise HTTPException(409, "API 任务请使用生成按钮")
+        raise HTTPException(409, localized_message("errors.use_the_generate_button_for_an_api_job"))
     if task.import_session_id:
         if req.text != task.raw_response:
-            raise HTTPException(409, "本批次已进入审核，请新建任务以保留历史")
+            raise HTTPException(409, localized_message("errors.this_batch_is_already_in_review_create_a_new"))
     else:
         await store_response(session, task, req.text)
     return await task_view(session, task)
@@ -244,7 +269,8 @@ async def _run(task_id: int, workspace_id: int):
         async with SessionLocal() as session:
             task = await owned_task(session, workspace_id, task_id, lock=True)
             if task.status == "RUNNING":
-                task.status, task.error = "FAILED", "模型生成失败，请检查模型连接后重试；未产生可审核结果。"
+                task.status = "FAILED"
+                task.error = generation_message("draft.generation_failed", saved_language(task.input_snapshot.get("generation_language")))
                 await session.commit()
 
 
@@ -252,7 +278,7 @@ async def _run(task_id: int, workspace_id: int):
 async def run_task(task_id: int, ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session)):
     task = await owned_task(session, ws.id, task_id, lock=True)
     if task.mode != "api":
-        raise HTTPException(409, "外部聊天任务请粘贴结果")
+        raise HTTPException(409, localized_message("errors.paste_the_result_from_the_external_chat"))
     if task.status != "RUNNING" and not task.import_session_id:
         task.status, task.error = "RUNNING", None
         await session.commit()
@@ -270,18 +296,18 @@ async def edit_item(task_id: int, item_id: int, req: ItemEdit, ws: Workspace = D
     await workspace_lock(session, ws.id)
     item = await session.scalar(select(ImportItem).where(ImportItem.id == item_id, ImportItem.session_id == task.import_session_id).with_for_update())
     if item is None:
-        raise HTTPException(404, "草稿不存在")
+        raise HTTPException(404, localized_message("errors.draft_not_found"))
     if item.status != "DRAFT":
-        raise HTTPException(409, "仅待审核草稿可以编辑")
+        raise HTTPException(409, localized_message("errors.only_drafts_awaiting_review_can_be_edited"))
     ensure_not_revising(item)
     if req.revision is not None and req.revision != review_view(item)["review_revision"]:
-        raise HTTPException(409, "草稿已更新，请重新打开后编辑")
+        raise HTTPException(409, localized_message("errors.the_draft_has_changed_reopen_it_before_editing"))
     old = (item.generation_meta or {}).get("item", {})
     if req.item.get("original_question") != old.get("original_question") or req.item.get("source_question_id") != old.get("source_question_id"):
-        raise HTTPException(422, "原题与来源关系不可在编辑答案时更改")
+        raise HTTPException(422, localized_message("errors.editing_an_answer_cannot_change_the_original_question_or"))
     issue_refs = {t['fact_ref'] for t in task.input_snapshot.get('project_issue_targets') or []}
     if issue_refs.intersection(req.item.get('fact_refs') or []) != issue_refs.intersection(old.get('fact_refs') or []):
-        raise HTTPException(422, '本题关联的项目问题不可在编辑答案时更换，请新建批次')
+        raise HTTPException(422, localized_message("errors.create_a_new_batch_to_change_the_project_question"))
     try:
         validated = protocol.parse_response(json.dumps({"schema_version": 1, "batch_id": task.id, "items": [req.item]}, ensure_ascii=False), {**task.input_snapshot, "count": 1}, task.id, require_all_targets=False)[0]
         content = protocol.render_item(validated, task.input_snapshot)
@@ -301,5 +327,12 @@ async def edit_item(task_id: int, item_id: int, req: ItemEdit, ws: Workspace = D
 
 async def recover_interrupted():
     async with SessionLocal() as session:
-        await session.execute(update(QuestionGeneration).where(QuestionGeneration.status == "RUNNING").values(status="FAILED", error="应用重启中断了生成，请重试。已审核题目未受影响。"))
+        error = case(
+            (QuestionGeneration.input_snapshot["generation_language"].as_string() == "en",
+             generation_message("draft.generation_interrupted", "en")),
+            else_=generation_message("draft.generation_interrupted", "zh-CN"),
+        )
+        await session.execute(update(QuestionGeneration).where(
+            QuestionGeneration.status == "RUNNING",
+        ).values(status="FAILED", error=error))
         await session.commit()

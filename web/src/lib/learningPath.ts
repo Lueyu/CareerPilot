@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 export interface LearningAssistance {
   hint_used:boolean;reference_viewed:boolean;ai_declared:boolean;feedback_seen:boolean;
   events?:{kind:string;request_key?:string;at?:string}[];
@@ -36,9 +37,21 @@ export interface LearningPathData {
 }
 export interface LearningSubmissionAck {submission_id:number;exam_id?:number;scoring_run_id?:number;status:string;feedback_url?:string}
 export const LEARNING_PENDING=new Set(['QUEUED','RUNNING','RETRY_WAIT','SCORING','SCORING_RETRY_WAIT','SUBMITTED']);
-export const LEARNING_RUN_LABELS:Record<string,string>={QUEUED:'已保存，等待后台检查',RUNNING:'后台检查中',RETRY_WAIT:'等待后台重试',SCORING:'后台检查中',SCORING_RETRY_WAIT:'等待后台重试',SUBMITTED:'已提交，等待反馈',COMPLETED:'本次检查完成',FAILED:'本次检查失败',SCORING_FAILED:'本次检查失败',NEEDS_REVIEW:'本次结果需要复核',BLOCKED:'等待外部条件'};
+export const LEARNING_RUN_LABELS:Record<string,string>={
+  get QUEUED() { return t('progress.learningPathRunQueued'); },
+  get RUNNING() { return t('progress.learningPathRunRunning'); },
+  get RETRY_WAIT() { return t('progress.learningPathRunRetryWait'); },
+  get SCORING() { return t('progress.learningPathRunRunning'); },
+  get SCORING_RETRY_WAIT() { return t('progress.learningPathRunRetryWait'); },
+  get SUBMITTED() { return t('progress.learningPathRunSubmitted'); },
+  get COMPLETED() { return t('progress.learningPathRunCompleted'); },
+  get FAILED() { return t('progress.learningPathRunFailed'); },
+  get SCORING_FAILED() { return t('progress.learningPathRunFailed'); },
+  get NEEDS_REVIEW() { return t('progress.learningPathRunNeedsReview'); },
+  get BLOCKED() { return t('progress.learningPathRunBlocked'); },
+};
 export function learningError(error:unknown):string {
   if(typeof error==='string')return error;
   if(error && typeof error==='object' && 'message' in error)return String(error.message);
-  return '无法完成本次操作，请稍后重试';
+  return t('progress.learningPathError');
 }

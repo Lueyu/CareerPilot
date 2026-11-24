@@ -1,3 +1,4 @@
+import { useT } from './i18n';
 import React from 'react';
 import { Route, Link, Navigate, useSearchParams } from 'react-router-dom';
 import { AppStateProvider, useAppState } from './components/AppState';
@@ -32,13 +33,14 @@ import Settings from './pages/Settings';
 import QuestionWorkshop from './pages/QuestionWorkshop';
 
 function Layout({ accountName }: { accountName?: string }) {
+  const t = useT();
   const { setCmdOpen, setQuickOpen, setNotifOpen, setWsOpen } = useAppState();
   const { data } = useApi<SettingsOverview>('/settings/overview');
   return (
     <WorkspaceLayout
       workspace={{
         kind: 'personal',
-        label: data?.workspace.is_demo ? '演示工作空间' : '个人工作空间',
+        label: data?.workspace.is_demo ? t('shell.demoWorkspace') : t('shell.personalWorkspace'),
         name: data?.workspace.name || accountName || getWorkspace(),
         openSwitcher: () => setWsOpen(true),
         actions: {
@@ -54,11 +56,12 @@ function Layout({ accountName }: { accountName?: string }) {
 }
 
 function RegisteredWorkspaceSwitcher({ name }: { name: string }) {
+  const t = useT();
   const { wsOpen, setWsOpen } = useAppState();
   if (!wsOpen) return null;
-  return <Modal title="当前工作空间" onClose={() => setWsOpen(false)} size="sm">
+  return <Modal title={t('shell.currentWorkspace')} onClose={() => setWsOpen(false)} size="sm">
     <p>{name}</p>
-    <Link to="/settings/account" onClick={() => setWsOpen(false)}>账户与资料</Link>
+    <Link to="/settings/account" onClick={() => setWsOpen(false)}>{t('shell.accountProfile')}</Link>
   </Modal>;
 }
 

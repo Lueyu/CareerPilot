@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import Project, ProjectAnalysis, Workspace
@@ -34,9 +35,9 @@ async def _goal(session, ws, goal_id, *, lock=False):
         query = query.with_for_update().execution_options(populate_existing=True)
     goal = await session.scalar(query)
     if goal is None:
-        raise HTTPException(404, '学习目标不存在')
+        raise HTTPException(404, localized_message("errors.learning_goal_not_found"))
     if goal.status in ('NEEDS_REVIEW', 'WITHDRAWN', 'PAUSED'):
-        raise HTTPException(409, '学习目标已暂停或来源需要复核')
+        raise HTTPException(409, localized_message("errors.the_learning_goal_is_paused_or_its_source_needs"))
     return goal
 
 
@@ -44,7 +45,7 @@ async def _activity(session, ws, activity_id, *, lock=False):
     activity = await session.scalar(select(LearningActivity).where(
         LearningActivity.id == activity_id, LearningActivity.workspace_id == ws.id, LearningActivity.kind == 'PROJECT'))
     if activity is None:
-        raise HTTPException(404, '项目活动不存在')
+        raise HTTPException(404, localized_message("errors.project_activity_not_found"))
     await _goal(session, ws, activity.goal_id, lock=lock)
     if lock:
         activity = await session.scalar(select(LearningActivity).where(LearningActivity.id == activity.id)
@@ -82,7 +83,7 @@ async def create_project_activity(goal_id: int, body: ProjectActivityIn, ws=Depe
     run = await session.scalar(select(ProjectAnalysis).where(ProjectAnalysis.id == body.analysis_id,
         ProjectAnalysis.project_id == body.project_id, ProjectAnalysis.workspace_id == ws.id))
     if not project or not run:
-        raise HTTPException(404, '项目或报告不存在')
+        raise HTTPException(404, localized_message("errors.project_or_report_not_found"))
     try:
         contract = build_contract(project, run, goal, body.option_id, body.additional_paths, body.reason)
     except ValueError as exc:
@@ -132,14 +133,14 @@ async def preview_project(activity_id: int, body: PreviewIn, ws=Depends(get_work
     project = await session.scalar(select(Project).where(Project.id == contract['project_id'],
         Project.workspace_id == ws.id, Project.archived_at.is_(None)))
     if not project:
-        raise HTTPException(409, '项目已撤回，不能继续读取或评审')
+        raise HTTPException(409, localized_message("errors.this_project_was_withdrawn_and_is_no_longer_available"))
     project_info = {'kind': (project.meta or {}).get('kind', 'github'), 'owner': project.owner,
                     'repo': project.repo, 'branch': body.commit_sha}
     data = body.model_dump()
     remote = body.source_kind == 'github_commit'
     if remote:
         if project_info['kind'] != 'github' or not re.fullmatch(r'[a-fA-F0-9]{40}|[a-fA-F0-9]{64}', body.commit_sha or ''):
-            raise HTTPException(422, '请提交已授权 GitHub 仓库的完整 commit SHA；本入口不读取本地未推送修改')
+            raise HTTPException(422, localized_message("errors.provide_the_full_commit_sha_from_an_authorized_github"))
         credentials = await repository_credentials(session, ws.id)
     # No network request runs while a database transaction holds a row lock.
     ws = SimpleNamespace(id=ws.id)
@@ -162,12 +163,12 @@ async def preview_project(activity_id: int, body: PreviewIn, ws=Depends(get_work
                 data['files'] = await asyncio.gather(*(read(p) for p in paths))
         value = normalize_submission(contract, data, remote_verified=remote)
     except TimeoutError:
-        raise HTTPException(504, '远端源码预览超时，尚未开始模型评审；可以重试或显式上传选定文件') from None
+        raise HTTPException(504, localized_message("errors.the_source_preview_timed_out_before_model_review_began")) from None
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
     activity = await _activity(session, ws, activity_id, lock=True)
     if activity.version != version or digest(activity.snapshot['project_contract']) != digest(contract):
-        raise HTTPException(409, '活动版本已经改变，请重新预览')
+        raise HTTPException(409, localized_message("errors.the_activity_version_has_changed_preview_it_again"))
     row = await session.scalar(select(LearningProjectSnapshot).where(LearningProjectSnapshot.workspace_id == ws.id,
         LearningProjectSnapshot.activity_id == activity.id, LearningProjectSnapshot.content_hash == value['content_hash']))
     if row is None:
@@ -193,9 +194,9 @@ async def submit_project(activity_id: int, body: ProjectSubmitIn, ws=Depends(get
     row = await session.scalar(select(LearningProjectSnapshot).where(LearningProjectSnapshot.id == body.snapshot_id,
         LearningProjectSnapshot.workspace_id == ws.id, LearningProjectSnapshot.activity_id == activity.id))
     if row is None:
-        raise HTTPException(404, '没有找到当前活动的提交预览')
+        raise HTTPException(404, localized_message("errors.no_submission_preview_was_found_for_this_activity"))
     if row.activity_version != activity.version or body.expected_activity_revision != activity.version:
-        raise HTTPException(409, '预览与活动版本不一致，请重新查看任务')
+        raise HTTPException(409, localized_message("errors.the_preview_belongs_to_another_activity_version_reopen_the"))
     from app.services.learning_feedback import submit_activity
     result = await submit_activity(session, ws, activity,
         {'answer_text': row.snapshot['answer_text'], 'project_snapshot_id': row.id,

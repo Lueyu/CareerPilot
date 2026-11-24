@@ -35,6 +35,7 @@ class CoachTurn(Base):
     request_id: Mapped[str] = mapped_column(String(36))
     action: Mapped[str] = mapped_column(String(24))
     user_text: Mapped[str | None] = mapped_column(Text)
+    response_language: Mapped[str] = mapped_column(String(8), server_default="zh-CN")
     assisted: Mapped[bool | None] = mapped_column()
     target_number: Mapped[int | None] = mapped_column()
     status: Mapped[str] = mapped_column(String(16))

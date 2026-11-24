@@ -63,10 +63,11 @@ def test_unrelated_reviews_and_absent_reviews_do_not_change_other_modules():
 
 
 @pytest.mark.asyncio
-async def test_reviewed_claim_cannot_reappear_in_report_or_memory_generation(monkeypatch):
+@pytest.mark.parametrize('language', ['zh-CN', 'en'])
+async def test_reviewed_claim_cannot_reappear_in_report_or_memory_generation(monkeypatch, language):
     from test_project_autopilot_engine import context, drive, fixture_pipeline, runtime
     engine, _ = await fixture_pipeline(monkeypatch, count=2)
-    ctx = context()
+    ctx = {**context(), 'generation_language': language}
     artifacts, _ = await drive(engine, ctx, runtime(engine))
     raw_key = next(k for k in artifacts if k.startswith('analyze:'))
     raw = artifacts[raw_key]
@@ -75,9 +76,10 @@ async def test_reviewed_claim_cannot_reappear_in_report_or_memory_generation(mon
                 if k.split(':')[0] not in {'module', 'cross', 'section', 'candidate-part', 'candidates', 'report'}}
     frozen = deepcopy(retained)
     bad = raw['claims'][0]
+    original_reason = '这条结论与源码原文矛盾。'
     ctx['claim_reviews'] = [{'review_id': 'fixture-review', 'claim_id': bad['id'],
         'action': 'QUARANTINE', 'workspace_id': 1, 'project_id': 2, 'target_sha': SHA,
-        'reason': 'Source contradicts this reviewed claim.', 'reviewer': 'independent_source_audit',
+        'reason': original_reason, 'reviewer': 'independent_source_audit',
         'citations': bad['citations']}]
     captured = []
     original_chat = engine.AgentAdapter.chat_with
@@ -94,7 +96,9 @@ async def test_reviewed_claim_cannot_reappear_in_report_or_memory_generation(mon
     assert completed['report']['coverage_status'] == 'COMPLETE'
     assert bad['id'] not in {c['id'] for c in report['claims']}
     assert report['quarantined_claims'][0]['original_claim'] == bad
-    assert any('fixture-review' in p['text'] for s in report['sections']
-               if s['id'] == 'limitations' for p in s['paragraphs'])
+    prefix = 'Independent source review' if language == 'en' else '独立源码复核'
+    notice = next(p['text'] for s in report['sections'] if s['id'] == 'limitations'
+                  for p in s['paragraphs'] if f'{prefix} fixture-review' in p['text'])
+    assert original_reason in notice and notice in report['unknowns']
     assert all(completed[k] == v for k, v in frozen.items())
     assert any(r['task'] == 'extract_memory_candidates' for r in captured)

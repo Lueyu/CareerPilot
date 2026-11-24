@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from sqlalchemy import or_, select, text
 
+from app.generation_i18n import saved_language
 from app.models import Project, ProjectAnalysis
 from app.services.project_autopilot_config import model_fingerprint, runtime_config, settings_for
 from app.services.project_autopilot_sources import probe_repository
@@ -55,15 +56,21 @@ async def check_project(session,project_id,workspace_id,now=None):
     busy=await session.scalar(select(ProjectAnalysis).where(ProjectAnalysis.project_id==project.id,
         ProjectAnalysis.status.in_(OPEN),ProjectAnalysis.pipeline_version!='legacy').order_by(ProjectAnalysis.id.desc()))
     pending=project.pending_update or {}
-    if unchanged and not busy and pending.get('mode')!='full':
+    requested_language = pending.get('generation_language')
+    language = saved_language(requested_language)
+    same_report_language = requested_language is None or language == saved_language(provenance.get('generation_language'))
+    if unchanged and not busy and pending.get('mode')!='full' and same_report_language:
         project.pending_update=None;project.last_seen_sha=head['target_sha'];await session.commit()
         return {'status':'UNCHANGED','run_id':None}
     mode='full' if branch_changed or not baseline or pending.get('mode')=='full' else 'incremental'
     await session.flush()
     run=await enqueue(session,project,pending.get('request_key') or uuid4().hex,mode=mode,target_sha=head['target_sha'],
-        budget=settings['budget'],model_config_fingerprint=fp,pipeline_version=pipeline,prompt_bundle_version=prompt)
+        budget=settings['budget'],model_config_fingerprint=fp,pipeline_version=pipeline,prompt_bundle_version=prompt,
+        language=language)
     project.last_seen_sha=head['target_sha']
-    if not busy:project.pending_update=None
+    if not busy or (busy.target_sha == head['target_sha'] and pending.keys() == {'generation_language'}
+                    and saved_language((busy.result_meta or {}).get('generation_language')) == language):
+        project.pending_update = None
     await session.commit()
     return {'status':run.status,'run_id':run.id}
 
