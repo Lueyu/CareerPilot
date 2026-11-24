@@ -1,14 +1,21 @@
+import { t } from '../i18n';
 export const SKILLS = [
-  { key: 'agent', name: 'Agent 系统' }, { key: 'tools', name: '工具调用' },
-  { key: 'memory', name: '记忆与上下文' }, { key: 'rag', name: 'RAG' },
-  { key: 'eval', name: '评估' }, { key: 'backend', name: '后端工程' },
-  { key: 'reliability', name: '可靠性' }, { key: 'deploy', name: '部署' },
+  { key: 'agent', labelKey: 'bank.skillAgent' }, { key: 'tools', labelKey: 'bank.skillTools' },
+  { key: 'memory', labelKey: 'bank.skillMemory' }, { key: 'rag', labelKey: 'bank.skillRag' },
+  { key: 'eval', labelKey: 'bank.skillEval' }, { key: 'backend', labelKey: 'bank.skillBackend' },
+  { key: 'reliability', labelKey: 'bank.skillReliability' }, { key: 'deploy', labelKey: 'bank.skillDeployment' },
 ];
+
+export function workshopSkillLabel(key: string, fallback = key): string {
+  const skill = SKILLS.find(candidate => candidate.key === key);
+  return skill ? t(skill.labelKey) : fallback;
+}
+
 export const PROFILE_FIELDS = [
-  ['background', '项目背景', '解决什么问题，面向谁'], ['role', '我的角色', '你在团队中的真实角色'],
-  ['responsibilities', '我负责的工作', '自己设计、实现或验证了哪些部分'], ['stack', '技术方案', '实际使用的技术与实现方式'],
-  ['decisions', '取舍与决策', '你做过的选择及其原因'], ['challenges', '问题与解决过程', '实际遇到的问题、排查和改进'],
-  ['outcomes', '结果与依据', '有记录的结果；没有量化数据可留空'], ['boundaries', '经历边界', '哪些部分不是你做的，哪些仍未验证'],
+  ['background', 'bank.profileBackground', 'bank.profileBackgroundHint'], ['role', 'bank.profileRole', 'bank.profileRoleHint'],
+  ['responsibilities', 'bank.profileOwnedWork', 'bank.profileOwnedWorkHint'], ['stack', 'bank.profileTechnical', 'bank.profileTechnicalHint'],
+  ['decisions', 'bank.profileTradeoffs', 'bank.profileTradeoffsHint'], ['challenges', 'bank.profileChallenges', 'bank.profileChallengesHint'],
+  ['outcomes', 'bank.profileResults', 'bank.profileResultsHint'], ['boundaries', 'bank.profileBoundaries', 'bank.profileBoundariesHint'],
 ] as const;
 export type ProjectProfile = Partial<Record<typeof PROFILE_FIELDS[number][0], string>>;
 export interface ProjectRecord { id: number; name: string; kind?: string; profile?: ProjectProfile; meta?: { kind?: string; profile?: ProjectProfile }; repo_url?: string }
@@ -49,20 +56,30 @@ export interface WorkshopSuggestion {
   source_analysis_id?: number | null; source_issue_ids?: string[];
 }
 export function approvalBlock(row: WorkshopRow): string | null {
-  if (row.status !== 'DRAFT') return '这道题已经完成审核';
+  if (row.status !== 'DRAFT') return t('bank.approvalReviewed');
   const item = row.generation_meta?.item;
-  if (!item) return '缺少生成资料，请重新读取草稿';
-  if (item.question_mode === 'needs_context' || item.missing_context?.length) return '项目资料不足，请先补充真实资料并创建新任务';
-  if (!row.draft_answer?.trim()) return '缺少答案，暂不能入库';
+  if (!item) return t('bank.approvalNoDraft');
+  if (item.question_mode === 'needs_context' || item.missing_context?.length) return t('bank.approvalNeedsContext');
+  if (!row.draft_answer?.trim()) return t('bank.approvalNoAnswer');
   return null;
 }
-export const TASK_LABELS: Record<string, string> = {READY: '等待执行', RUNNING: '正在生成', FAILED: '本次失败', REVIEW: '等待审核', COMPLETE: '已完成'};
-export const ITEM_LABELS: Record<string, string> = {DRAFT:'待审核', APPROVED:'已入库', REJECTED:'已驳回', MERGED:'已合并重复'};
-export const QUESTION_LABELS = {general:'通用题', project:'项目题', needs_context:'待补项目资料'};
+export const TASK_LABELS: Record<string, string> = {READY: 'bank.taskReady', RUNNING: 'bank.taskRunning', FAILED: 'bank.taskFailed', REVIEW: 'bank.taskReview', COMPLETE: 'bank.taskComplete'};
+export const ITEM_LABELS: Record<string, string> = {DRAFT:'bank.pendingReview', APPROVED:'bank.itemApproved', REJECTED:'bank.itemRejected', MERGED:'bank.itemMerged'};
+export const QUESTION_LABELS = {general:'bank.generalQuestion', project:'bank.projectQuestion', needs_context:'bank.needsProjectContext'};
+export function workshopQuestionLabel(mode: GeneratedItem['question_mode']): string {
+  return Object.prototype.hasOwnProperty.call(QUESTION_LABELS, mode) ? t(QUESTION_LABELS[mode]) : mode ?? '';
+}
+
+export type BankMessage = string | { key: string; values?: Readonly<Record<string, string | number>> };
+
+export function bankMessageText(message: BankMessage, translate = t): string {
+  return typeof message === 'string' ? message : translate(message.key, message.values);
+}
+
 export function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 
 export async function beginQuestionPractice(questionId:number,requestKey:string,transport:{post:<T=any>(path:string,body?:unknown)=>Promise<T>}, experiencedBank = false) {
-  if (!Number.isInteger(questionId) || questionId<=0) throw new Error('题目尚未正式入库，不能开始考试');
+  if (!Number.isInteger(questionId) || questionId<=0) throw new Error(t('bank.practiceRequiresApproval'));
   return transport.post<{id:number}>('/exams',{kind:'bank_exam',question_ids:[questionId],question_count:1,duration_minutes:20,idempotency_key:requestKey,...(experiencedBank ? {experienced_bank:true} : {})});
 }
 
@@ -72,7 +89,7 @@ export function assessedBatchQuestionIds(rows:WorkshopRow[]):number[] {
 }
 export async function beginProjectAssessment(rows:WorkshopRow[],requestKey:string,transport:{post:<T=any>(path:string,body?:unknown)=>Promise<T>},generationId:number) {
   const ids=assessedBatchQuestionIds(rows);
-  if(!ids.length)throw new Error('请先审核入库本批次题目，再开始考核');
-  if(!Number.isInteger(generationId) || generationId<=0)throw new Error('缺少本批次生成来源，请重新读取任务');
+  if(!ids.length)throw new Error(t('bank.assessmentRequiresApproval'));
+  if(!Number.isInteger(generationId) || generationId<=0)throw new Error(t('bank.assessmentMissingSource'));
   return transport.post<{id:number}>('/exams',{kind:'bank_exam',project_generation_id:generationId,question_ids:ids,question_count:ids.length,duration_minutes:Math.min(120,Math.max(20,ids.length*10)),idempotency_key:requestKey});
 }

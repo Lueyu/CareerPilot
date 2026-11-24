@@ -1,25 +1,45 @@
+import { getLocale, t, useLocale, useT } from '../i18n';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigationType, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import StudyEntryButton from '../components/StudyEntryButton';
-import { ORIGINAL_SCENARIO_LABEL } from '../lib/bankSource';
-import { messageOf } from '../lib/questionWorkshop';
+import { bankMessageText, messageOf, type BankMessage } from '../lib/questionWorkshop';
 import { experiencedPracticePath } from '../lib/experiencedBankPath';
 
-export const EXPERIENCE_LABELS = { mid: '2–4 年', senior: '4 年以上' };
+export const EXPERIENCE_LABELS = { mid: 'bank.experienceMid', senior: 'bank.experienceSenior' };
 type ExperiencedLevel = keyof typeof EXPERIENCE_LABELS;
-export const EXPERIENCED_SOURCE_LABELS = { legacy: '原题库', authored: ORIGINAL_SCENARIO_LABEL };
+export const EXPERIENCED_SOURCE_LABELS = { legacy: 'bank.legacySource', authored: 'bank.originalScenario' };
 type ExperiencedSource = keyof typeof EXPERIENCED_SOURCE_LABELS;
 const PAGE_SIZE = 10;
 const FACETS = ['domain', 'level', 'source', 'q', 'company'] as const;
 type Facet = typeof FACETS[number];
 const FACET_LABELS = {
-  domain: '能力域', level: '建议年限', source: '题目来源', q: '搜索', company: '公司',
+  domain: 'bank.domain', level: 'bank.recommendedExperience', source: 'bank.questionSource', q: 'bank.search', company: 'bank.company',
 } satisfies Record<Facet, string>;
 
 export function experiencedLevelLabel({ level, source }: Pick<ExperiencedQuestion, 'level' | 'source'>) {
-  return source === 'legacy' ? `建议 · ${EXPERIENCE_LABELS[level]}` : EXPERIENCE_LABELS[level];
+  const experience = t(EXPERIENCE_LABELS[level]);
+  return source === 'legacy' ? t('bank.legacyExperience', { experience }) : experience;
 }
+const DOMAIN_LABELS: Record<string, string> = {
+  context: 'bank.domainContext',
+  delivery: 'bank.domainDelivery',
+  engineering: 'bank.domainEngineering',
+  evaluation: 'bank.domainEvaluation',
+  governance: 'bank.domainGovernance',
+  models: 'bank.domainModels',
+  orchestration: 'bank.domainOrchestration',
+  production: 'bank.domainProduction',
+  rag: 'bank.domainRag',
+  tools: 'bank.domainTools',
+  training: 'bank.domainTraining',
+};
+
+export function experiencedDomainLabel(key: string, name: string): string {
+  const labelKey = Object.prototype.hasOwnProperty.call(DOMAIN_LABELS, key) ? DOMAIN_LABELS[key] : undefined;
+  return labelKey && getLocale() === 'en' ? t(labelKey) : name;
+}
+
 const LEVELS: ExperiencedLevel[] = ['mid', 'senior'];
 
 export interface ExperiencedQuestion {
@@ -40,7 +60,7 @@ interface ExperiencedDomain {
 }
 type CatalogState =
   | { kind: 'loading' }
-  | { kind: 'error'; message: string }
+  | { kind: 'error'; message: BankMessage }
   | { kind: 'ready'; domains: ExperiencedDomain[] };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -75,6 +95,7 @@ function QuestionActions({ question, onRetestMapping }: {
   question: ExperiencedQuestion;
   onRetestMapping: (question: ExperiencedQuestion) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const actionsId = `experienced-actions-${question.id}`;
 
@@ -86,9 +107,9 @@ function QuestionActions({ question, onRetestMapping }: {
       aria-expanded={open}
       aria-controls={open ? actionsId : undefined}
       onClick={() => setOpen(value => !value)}
-    >更多操作</button>
+    >{t('bank.moreActions')}</button>
     {open && <div id={actionsId} className="bank-actions experienced-extra-actions">
-      {question.source === 'legacy' && <button type="button" className="btn btn-outline btn-sm" onClick={() => onRetestMapping(question)}>复测映射</button>}
+      {question.source === 'legacy' && <button type="button" className="btn btn-outline btn-sm" onClick={() => onRetestMapping(question)}>{t('bank.retestMapping')}</button>}
       <StudyEntryButton kind="question" id={question.id} bankKey={question.short_code} />
     </div>}
   </>;
@@ -105,10 +126,12 @@ export default function ExperiencedBank({
   practiceBusy: string | null;
   practiceError: {id: string; message: string} | null;
   onPractice: (question: ExperiencedQuestion) => void;
-  onReference: (question: ExperiencedQuestion, domainName: string) => void;
+  onReference: (question: ExperiencedQuestion, domainName: string, domainKey: string) => void;
   onRetestMapping: (question: ExperiencedQuestion) => void;
   onCatalogSummary?: (summary: { questions: number; domains: number }) => void;
 }) {
+  const t = useT();
+  const locale = useLocale();
   const [catalog, setCatalog] = useState<CatalogState>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [params, setParams] = useSearchParams();
@@ -152,7 +175,8 @@ export default function ExperiencedBank({
     let current = true;
     api.get<unknown>('/bank/experienced').then(data => {
       if (!isRecord(data) || !Array.isArray(data.domains) || !data.domains.every(isDomain)) {
-        throw new Error('题单格式异常');
+        setCatalog({ kind: 'error', message: { key: 'bank.invalidCatalog' } });
+        return;
       }
       if (current) setCatalog({ kind: 'ready', domains: [...data.domains].sort((a, b) => a.order - b.order) });
     }).catch(error => {
@@ -180,7 +204,7 @@ export default function ExperiencedBank({
     })),
   })), [domains]);
   const companies = Array.from(new Set(indexed.flatMap(domain => domain.entries.flatMap(entry => entry.companies))))
-    .sort((a, b) => a.localeCompare(b, 'zh-CN'));
+    .sort((a, b) => a.localeCompare(b, locale));
   const terms = normalizeSearch(query).trim().split(/\s+/).filter(Boolean);
   const filtered = indexed.map(domain => ({
     ...domain,
@@ -195,15 +219,15 @@ export default function ExperiencedBank({
   const allMatchCount = filtered.reduce((total, domain) => total + domain.matches.length, 0);
   const results = filtered
     .filter(domain => !domainKey || domain.key === domainKey)
-    .flatMap(domain => domain.matches.map(({ question }) => ({ question, domainName: domain.name })));
+    .flatMap(domain => domain.matches.map(({ question }) => ({ question, domainName: domain.name, referenceDomainKey: domain.key })));
   const totalPages = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
   const pageParam = params.get('page') ?? '';
   const page = /^\d+$/.test(pageParam) ? Math.min(totalPages, Math.max(1, Number(pageParam))) : 1;
   const start = (page - 1) * PAGE_SIZE;
   const conditions = {
-    domain: activeDomain?.name ?? domainKey,
-    level: level ? EXPERIENCE_LABELS[level] : '',
-    source: source ? EXPERIENCED_SOURCE_LABELS[source] : '',
+    domain: activeDomain ? experiencedDomainLabel(activeDomain.key, activeDomain.name) : domainKey,
+    level: level ? t(EXPERIENCE_LABELS[level]) : '',
+    source: source ? t(EXPERIENCED_SOURCE_LABELS[source]) : '',
     q: query.trim(),
     company,
   };
@@ -224,8 +248,8 @@ export default function ExperiencedBank({
           <input
             className="inp"
             type="search"
-            aria-label="搜索题目、标签或题号"
-            placeholder="搜索题目、标签或题号"
+            aria-label={t('bank.catalogSearchPlaceholder')}
+            placeholder={t('bank.catalogSearchPlaceholder')}
             value={query}
             onBlur={() => { editingSearch.current = false; }}
             onChange={event => {
@@ -235,14 +259,14 @@ export default function ExperiencedBank({
             }}
           />
           {query && (
-            <button className="experienced-clear-search" type="button" aria-label="清空搜索" onClick={() => selectFilter('q', '')}>
+            <button className="experienced-clear-search" type="button" aria-label={t('bank.clearSearch')} onClick={() => selectFilter('q', '')}>
               <span aria-hidden="true">×</span>
             </button>
           )}
         </form>
         <button
           className="btn btn-outline"
-          aria-label="筛选"
+          aria-label={t('bank.filter')}
           aria-expanded={filtersOpen}
           aria-controls="bank-catalog-filters"
           onClick={() => setFiltersOpen(value => !value)}
@@ -253,100 +277,100 @@ export default function ExperiencedBank({
             <circle cx="16" cy="12" r="2" fill="var(--card)" />
             <circle cx="10" cy="18" r="2" fill="var(--card)" />
           </svg>
-          筛选
+          {t('bank.filter')}
         </button>
       </div>
-      {resumePath && <div><Link className="btn btn-primary" to={resumePath}>继续本次练习</Link></div>}
+      {resumePath && <div><Link className="btn btn-primary" to={resumePath}>{t('bank.resumePractice')}</Link></div>}
       <div id="bank-catalog-filters" className="experienced-filters" hidden={!filtersOpen}>
-        <label>建议年限
-          <select className="inp" aria-label="建议年限" value={level} onChange={event => selectFilter('level', event.currentTarget.value)}>
-            <option value="">全部年限</option>
-            {LEVELS.map(value => <option key={value} value={value}>{EXPERIENCE_LABELS[value]}</option>)}
+        <label>{t('bank.recommendedExperience')}
+          <select className="inp" aria-label={t('bank.recommendedExperience')} value={level} onChange={event => selectFilter('level', event.currentTarget.value)}>
+            <option value="">{t('bank.anyExperience')}</option>
+            {LEVELS.map(value => <option key={value} value={value}>{t(EXPERIENCE_LABELS[value])}</option>)}
           </select>
         </label>
-        <label>公司
-          <select className="inp" aria-label="公司" value={company} onChange={event => selectFilter('company', event.currentTarget.value)}>
-            <option value="">全部公司</option>
+        <label>{t('bank.company')}
+          <select className="inp" aria-label={t('bank.company')} value={company} onChange={event => selectFilter('company', event.currentTarget.value)}>
+            <option value="">{t('bank.anyCompany')}</option>
             {company && !companies.includes(company) && <option value={company}>{company}</option>}
             {companies.map(value => <option key={value} value={value}>{value}</option>)}
           </select>
         </label>
-        <label>题目来源
-          <select className="inp" aria-label="题目来源" value={source} onChange={event => selectFilter('source', event.currentTarget.value)}>
-            <option value="">全部来源</option>
-            {Object.entries(EXPERIENCED_SOURCE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        <label>{t('bank.questionSource')}
+          <select className="inp" aria-label={t('bank.questionSource')} value={source} onChange={event => selectFilter('source', event.currentTarget.value)}>
+            <option value="">{t('bank.anySource')}</option>
+            {Object.entries(EXPERIENCED_SOURCE_LABELS).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}
           </select>
         </label>
       </div>
       {hasConditions && (
-        <div className="bank-actions" role="group" aria-label="已应用条件">
+        <div className="bank-actions" role="group" aria-label={t('bank.appliedFilters')}>
           {FACETS.map(key => conditions[key] && (
             <button
               key={key}
               className="btn btn-outline btn-sm experienced-condition"
-              aria-label={`移除${FACET_LABELS[key]}条件 ${conditions[key]}`}
+              aria-label={t('bank.removeCatalogFilter', { facet: t(FACET_LABELS[key]), value: conditions[key] })}
               onClick={() => selectFilter(key, '')}
-            >{FACET_LABELS[key]} · {conditions[key]} ×</button>
+            >{t('bank.selectedFacet', { facet: t(FACET_LABELS[key]), value: conditions[key] })}</button>
           ))}
-          <button className="btn btn-outline btn-sm" onClick={clearFilters}>清除筛选</button>
+          <button className="btn btn-outline btn-sm" onClick={clearFilters}>{t('bank.clearFilters')}</button>
         </div>
       )}
-      {catalog.kind === 'loading' && <p role="status" className="card bank-section">正在加载题目…</p>}
+      {catalog.kind === 'loading' && <p role="status" className="card bank-section">{t('bank.loadingCatalog')}</p>}
       {catalog.kind === 'error' && (
         <section className="card bank-section">
-          <p role="alert">题库加载失败：{catalog.message}</p>
+          <p role="alert">{t('bank.catalogLoadFailed', { error: bankMessageText(catalog.message, t) })}</p>
           <div>
             <button className="btn btn-outline" onClick={() => {
               setCatalog({ kind: 'loading' });
               setAttempt(value => value + 1);
-            }}>重试加载题库</button>
+            }}>{t('bank.retryCatalog')}</button>
           </div>
         </section>
       )}
       {catalog.kind === 'ready' && (
         <div className="experienced-layout">
-          <nav className="card bank-section experienced-domains" aria-label="能力域">
+          <nav className="card bank-section experienced-domains" aria-label={t('bank.domain')}>
             <div className="experienced-domain-list">
-              <h2>能力域</h2>
+              <h2>{t('bank.domain')}</h2>
               <button
                 className="experienced-domain"
-                aria-label="全部分类"
+                aria-label={t('bank.allCategories')}
                 aria-describedby="bank-domain-count-all"
                 aria-pressed={!domainKey}
                 onClick={() => selectFilter('domain', '')}
               >
-                <span>全部分类</span><small id="bank-domain-count-all">{allMatchCount}</small>
+                <span>{t('bank.allCategories')}</span><small id="bank-domain-count-all">{allMatchCount}</small>
               </button>
               {filtered.map(domain => (
                 <button
                   key={domain.key}
                   className="experienced-domain"
-                  aria-label={domain.name}
+                  aria-label={experiencedDomainLabel(domain.key, domain.name)}
                   aria-describedby={`bank-domain-count-${domain.key}`}
                   aria-pressed={domain.key === domainKey}
                   onClick={() => selectFilter('domain', domain.key)}
                 >
-                  <span>{domain.name}</span><small id={`bank-domain-count-${domain.key}`}>{domain.matches.length}</small>
+                  <span>{experiencedDomainLabel(domain.key, domain.name)}</span><small id={`bank-domain-count-${domain.key}`}>{domain.matches.length}</small>
                 </button>
               ))}
             </div>
             <label className="experienced-domain-picker">
-              <span>能力域</span>
-              <select aria-label="能力域" value={domainKey} onChange={event => selectFilter('domain', event.currentTarget.value)}>
-                <option value="">全部分类</option>
+              <span>{t('bank.domain')}</span>
+              <select aria-label={t('bank.domain')} value={domainKey} onChange={event => selectFilter('domain', event.currentTarget.value)}>
+                <option value="">{t('bank.allCategories')}</option>
                 {domainKey && !activeDomain && <option value={domainKey}>{domainKey}</option>}
-                {filtered.map(domain => <option key={domain.key} value={domain.key}>{domain.name}</option>)}
+                {filtered.map(domain => <option key={domain.key} value={domain.key}>{experiencedDomainLabel(domain.key, domain.name)}</option>)}
               </select>
             </label>
           </nav>
           <section className="card bank-section experienced-questions" aria-labelledby="bank-catalog-title">
             <div className="experienced-list-head">
-              <h2 id="bank-catalog-title">题目列表</h2>
-              <span className="hint" role="status">共 {results.length} 题</span>
+              <h2 id="bank-catalog-title">{t('bank.catalogQuestions')}</h2>
+              <span className="hint" role="status">{t('bank.catalogResultCount', { count: results.length })}</span>
             </div>
-            {results.length === 0 ? <p className="experienced-empty">没有符合条件的题目。</p> : (
+            {results.length === 0 ? <p className="experienced-empty">{t('bank.noCatalogMatches')}</p> : (
               <ul className="experienced-question-list">
-                {results.slice(start, start + PAGE_SIZE).map(({ question, domainName }) => (
+                {results.slice(start, start + PAGE_SIZE).map(({ question, domainName, referenceDomainKey }) => (
                   <li key={question.id} className="experienced-question">
                     <div>
                       <h3 id={`experienced-question-${question.id}`} className="experienced-prompt">{question.title}</h3>
@@ -362,22 +386,22 @@ export default function ExperiencedBank({
                         disabled={practiceBusy !== null}
                         aria-describedby={`experienced-question-${question.id}`}
                         onClick={() => onPractice(question)}
-                      >{practiceBusy === question.short_code ? '准备练习…' : practiceError?.id === question.short_code ? '重试练习' : '开始练习'}</button>
-                      <button className="btn btn-outline btn-sm" aria-describedby={`experienced-question-${question.id}`} onClick={() => onReference(question, domainName)}>
-                        查看参考
+                      >{practiceBusy === question.short_code ? t('bank.preparingPractice') : practiceError?.id === question.short_code ? t('bank.retryPractice') : t('bank.startPractice')}</button>
+                      <button className="btn btn-outline btn-sm" aria-describedby={`experienced-question-${question.id}`} onClick={() => onReference(question, domainName, referenceDomainKey)}>
+                        {t('bank.viewReference')}
                       </button>
                       <QuestionActions question={question} onRetestMapping={onRetestMapping} />
                     </div>
-                    {practiceError?.id === question.short_code && <p role="alert">{practiceError.message}</p>}
+                    {practiceError?.id === question.short_code && <p role="alert">{t('bank.practiceFailed', { error: practiceError.message })}</p>}
                   </li>
                 ))}
               </ul>
             )}
             {totalPages > 1 && (
-              <nav className="bank-actions experienced-pagination" aria-label="题目分页">
-                <button className="btn btn-outline btn-sm" disabled={page === 1} onClick={() => selectFilter('page', page === 2 ? '' : String(page - 1))}>上一页</button>
-                <span className="hint" role="status">第 {page} / {totalPages} 页</span>
-                <button className="btn btn-outline btn-sm" disabled={page === totalPages} onClick={() => selectFilter('page', String(page + 1))}>下一页</button>
+              <nav className="bank-actions experienced-pagination" aria-label={t('bank.questionPagination')}>
+                <button className="btn btn-outline btn-sm" disabled={page === 1} onClick={() => selectFilter('page', page === 2 ? '' : String(page - 1))}>{t('bank.previousPage')}</button>
+                <span className="hint" role="status">{t('bank.pageOf', { page, total: totalPages })}</span>
+                <button className="btn btn-outline btn-sm" disabled={page === totalPages} onClick={() => selectFilter('page', String(page + 1))}>{t('bank.nextPage')}</button>
               </nav>
             )}
           </section>
