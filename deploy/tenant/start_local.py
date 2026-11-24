@@ -74,7 +74,7 @@ async def environment(args):
         owner_token = get_settings().api_token if owner else None
     finally:
         await engine.dispose()
-    env = {**os.environ, **{k: v for k, v in settings.items() if k == "DATABASE_URL" or k.startswith("SEED_")},
+    env = {**os.environ, **{k: v for k, v in settings.items() if k == "DATABASE_URL" or k.startswith(("SEED_", "FEEDBACK_"))},
            "SEED_PUBLIC_ORIGIN": f"http://127.0.0.1:{args.port}",
            "SEED_STATIC_DIR": str(ROOT/"web/dist-seed"), "SEED_NATIVE_LOCAL_TENANTS": "1",
            "TENANT_RUNTIME_SECRET": initialize_once(args.state_dir/"native.key", lambda: secrets.token_hex(48)),

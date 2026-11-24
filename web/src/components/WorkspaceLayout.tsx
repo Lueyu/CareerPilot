@@ -16,10 +16,10 @@ export function WorkspaceLayout({ workspace, overlays }: WorkspaceLayoutProps) {
   const { pathname, key } = useLocation();
   const registered = workspace.kind === 'registered';
   const study = pathname.startsWith('/study/');
-  const usesMobileDrawer = registered || pathname === '/learning' || pathname === '/bank';
   const compactNav = !registered && (
     study || pathname === '/memory' || pathname === '/assets' || pathname.startsWith('/assets/project/')
   );
+  const usesMobileDrawer = !compactNav;
   const drawerId = React.useId();
   const mobileNav = React.useRef<HTMLDialogElement>(null);
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);

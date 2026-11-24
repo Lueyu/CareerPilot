@@ -1,3 +1,5 @@
+<!-- Fork PR titles and descriptions are public and queued for maintainer content review. -->
+
 ## Why
 
 <!-- 说明问题或用户需求。有相关 Issue 时附编号。 -->

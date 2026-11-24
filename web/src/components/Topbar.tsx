@@ -1,6 +1,8 @@
-import { workspaceStorageKey } from '../api/client';
-import React, { useState } from 'react';
+import { getWorkspace, sendLocalFeedback, workspaceStorageKey } from '../api/client';
+import React, { useContext, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { WorkspaceApiContext } from '../seed/api';
+import FeedbackDialog from './FeedbackDialog';
 
 const PAGE_NAMES: Record<string, string> = {
   '/': '首页',
@@ -53,6 +55,7 @@ export default function Topbar({ beforeCrumb, workspaceLabel, actions }: {
   actions?: TopbarActions;
 }) {
   const { pathname } = useLocation();
+  const workspaceApi = useContext(WorkspaceApiContext);
   const [theme, setTheme] = useState<Theme>(currentTheme);
   React.useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -83,16 +86,24 @@ export default function Topbar({ beforeCrumb, workspaceLabel, actions }: {
       <div className="topbar-right">
         {actions && (
           <>
-            <div className="search-box" onClick={actions.search}>
-              <span>🔍</span>
-              <input readOnly placeholder="搜索技能、证据、任务" />
-              <span className="kbd">⌘K</span>
-            </div>
-            <button className="btn btn-primary" onClick={actions.quick}>
-              + 快捷操作
+            <button className="search-box" type="button" onClick={actions.search}
+              aria-label="全局搜索" aria-haspopup="dialog" title="全局搜索">
+              <span aria-hidden="true">🔍</span>
+              <span className="topbar-search-label">搜索技能、证据、任务</span>
+              <span className="kbd" aria-hidden="true">⌘K</span>
+            </button>
+            <button className="btn btn-primary" type="button" onClick={actions.quick}
+              aria-label="快捷操作" aria-haspopup="dialog" title="快捷操作">
+              <span aria-hidden="true">+</span>
+              <span className="topbar-quick-label">快捷操作</span>
             </button>
           </>
         )}
+        <FeedbackDialog key={getWorkspace()} send={workspaceApi
+          ? (submission, signal) => workspaceApi.send('/product-feedback', 'POST', submission, {
+            signal, mode: 'same-origin', redirect: 'error', expectedStatus: 200,
+          })
+          : sendLocalFeedback} />
         <button
           className="icon-btn"
           onClick={toggleTheme}

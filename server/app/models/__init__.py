@@ -18,6 +18,7 @@ from app.models.project import (  # noqa: F401
     ProjectFinding,
     ProjectScan,
 )
+from app.models.product_feedback import FeedbackAttempt, FeedbackSubmission  # noqa: F401
 from app.models.project_analysis import AnalysisStep, ProjectAnalysis, WorkerHeartbeat  # noqa: F401
 from app.models.project_resume import ProjectResumeDraft
 from app.models.public_content import (  # noqa: F401

@@ -4,6 +4,7 @@ import { SeedApiError, type createWorkspaceApi } from '../seed/api';
 // 认证: X-Api-Token; 工作空间: X-Workspace (默认 personal)
 
 import { localFetch, localWorkspace, selectLocalWorkspace, workspaceLogin } from './localTransport';
+import type { SendFeedback } from './feedback';
 
 export { workspaceLogin };
 const registeredBuild = (import.meta as any).env?.VITE_REGISTERED;
@@ -78,6 +79,21 @@ export class ApiError extends Error {
     this.status = status;
   }
 }
+
+export const sendLocalFeedback: SendFeedback = async (submission, signal) => {
+  if (hasRegisteredSession || registeredBuild) throw new ApiError(401, '工作空间会话已关闭');
+  const response = await localFetch('/product-feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(submission),
+    credentials: 'omit',
+    redirect: 'error',
+    cache: 'no-store',
+    signal,
+  });
+  if (response.status !== 200) throw new ApiError(response.status, '反馈请求未完成');
+  return response.json();
+};
 
 async function req<T = any>(method: string, path: string, body?: unknown): Promise<T> {
   const access = registeredAccess;

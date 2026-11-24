@@ -1,0 +1,105 @@
+name: PR content review
+
+on:
+  pull_request_target:
+    types: [opened, reopened, edited]
+
+permissions: {}
+
+jobs:
+  queue:
+    if: >-
+      ${{ github.event.repository.private == false &&
+          github.event.pull_request.head.repo.fork == true &&
+          github.event.pull_request.head.repo.id != github.event.pull_request.base.repo.id &&
+          (github.event.action != 'edited' || github.event.changes.title || github.event.changes.body) }}
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    concurrency:
+      group: pr-content-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      - name: Queue PR for maintainer review
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import unicodedata
+          from urllib.error import HTTPError
+          from urllib.parse import quote
+          from urllib.request import Request, urlopen
+
+          pending = "content review: pending"
+          flagged = "content review: possible threat"
+          threat = re.compile(
+              r"(?:^|[.!?;\n]\s*)(?:if you [^,\n]{1,120},\s*)?"
+              r"(?:i|we)(?:\s+(?:will|am going to|are going to)|'ll)\s+"
+              r"(?:kill|shoot|stab|hurt|beat up|find and hurt)\s+"
+              r"(?:you(?!\s+(?:can|could|should|would|will)\b)|your family)\b",
+              re.IGNORECASE,
+          )
+          chinese_threat = re.compile(r"(?:^|[。！？!?,，\n]\s*)(?:我(?:们)?(?:要|会))"
+                                      r"(?:杀(?:了|死)你|打死你|弄死你|杀你全家)")
+
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as event_file:
+              number = int(json.load(event_file)["pull_request"]["number"])
+          repo = f'{os.environ["GITHUB_API_URL"]}/repos/{os.environ["GITHUB_REPOSITORY"]}'
+
+          def api(method, path, payload=None):
+              data = json.dumps(payload).encode() if payload is not None else None
+              request = Request(repo + path, data=data, method=method, headers={
+                  "Authorization": f'Bearer {os.environ["GH_TOKEN"]}',
+                  "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              })
+              with urlopen(request, timeout=30) as response:
+                  return json.load(response) if response.status != 204 else None
+
+          pr = api("GET", f"/pulls/{number}")
+          if pr["state"] != "open":
+              raise SystemExit(0)
+
+          # Inspect the latest metadata because queued runs may execute out of event order.
+          fields = [unicodedata.normalize("NFKC", field.strip()).replace("’", "'")
+                    for field in (pr["title"], pr["body"] or "")]
+          if any(threat.search(field) or chinese_threat.search(field) for field in fields):
+              desired, stale = flagged, pending
+              color = "b60205"
+              description = "Possible threat detected. Maintainer review required."
+          else:
+              desired, stale = pending, flagged
+              color = "fbca04"
+              description = "PR title and description awaiting maintainer content review."
+
+          labels = {label["name"].casefold() for label in pr["labels"]}
+          label_path = f"/issues/{number}/labels"
+          if desired not in labels:
+              definition_path = f"/labels/{quote(desired, safe='')}"
+              try:
+                  api("GET", definition_path)
+              except HTTPError as error:
+                  if error.code != 404:
+                      raise
+                  try:
+                      api("POST", "/labels", {
+                          "name": desired, "color": color, "description": description,
+                      })
+                  except HTTPError as create_error:
+                      if create_error.code != 422:
+                          raise
+                      # Another PR may have created the repository label concurrently.
+                      api("GET", definition_path)
+              api("POST", label_path, {"labels": [desired]})
+
+          if stale in labels:
+              try:
+                  api("DELETE", f"{label_path}/{quote(stale, safe='')}")
+              except HTTPError as error:
+                  if error.code != 404:
+                      raise
+          PY

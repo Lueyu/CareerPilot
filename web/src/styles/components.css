@@ -383,16 +383,11 @@
 .search-box:hover {
   border-color: var(--primary);
 }
-.search-box input {
-  border: none;
-  outline: none;
-  background: none;
+.topbar-search-label {
   flex: 1;
   font-size: 12.5px;
-  color: var(--text);
-}
-.search-box input::placeholder {
-  color: var(--text-4);
+  color: var(--text-3);
+  text-align: start;
 }
 .kbd {
   font-size: 11px;
@@ -1005,6 +1000,24 @@ table.tbl {
 }
 .pop-item:hover {
   background: var(--surface-2);
+}
+.quick-actions-panel.pop-panel {
+  inset: 64px 0 auto;
+  margin-inline: auto;
+  width: min(420px, calc(100% - 24px));
+}
+.quick-actions-panel .pop-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: start;
+}
+.quick-actions-panel .pop-item:hover,
+.quick-actions-panel .pop-item:focus-visible {
+  background: var(--surface-2);
+}
+.quick-actions-panel .pop-item-main > span {
+  display: block;
 }
 .pop-item-ic {
   width: 32px;

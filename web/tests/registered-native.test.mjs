@@ -49,7 +49,7 @@ test('bound owner enters a native project deep link with cookie-only transport',
   await act(async () => { view = create(h(RouterProvider, { router })); });
   assert.equal(router.state.location.pathname, '/assets/project/42');
   assert.ok(calls.includes('/api/v1/native/projects/42/report'));
-  assert.ok(view.root.findAllByType('input').some(input => input.props.placeholder === '搜索技能、证据、任务'));
+  assert.ok(view.root.findAllByType('button').some(button => button.props['aria-label'] === '全局搜索'));
   assert.equal(getWorkspace(), 'registered:31');
   assert.ok(!calls.some(path => path.endsWith('/bank/legacy-data')));
   assert.deepEqual(await loadLegacyBank(), { questions: [{ id: 'fixture' }] });

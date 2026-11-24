@@ -95,5 +95,7 @@ async def forward(request: Request, path: str, target: NativeTarget):
 async def native_request(path: str, request: Request, db: Database, ws: Member) -> Response:
     if request.method != "GET" and "x-expected-workspace" not in request.headers:
         raise HTTPException(409, detail={"code": "workspace_changed", "message": "请刷新后再提交。"})
+    if path.strip("/") == "product-feedback":
+        raise HTTPException(404)
     target = await native_target(db, ws)
     return await forward(request, path, target)
