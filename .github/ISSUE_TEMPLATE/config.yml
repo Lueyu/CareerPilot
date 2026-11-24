@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 使用交流与岗位建议
+    url: https://github.com/Lueyu/CareerPilot/discussions
+    about: 讨论怎样练一道题，分享原创的岗位追问，或询问云服务开放进度。

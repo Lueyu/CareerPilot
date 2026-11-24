@@ -12,6 +12,7 @@ RUN npm ci
 # 源码(含 src/data/bank.json)
 COPY web/ ./
 
+ARG VITE_API_BASE
 RUN npm run build
 
 FROM nginx:1.27-alpine

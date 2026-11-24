@@ -25,7 +25,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://careerpilot:careerpilot_dev@postgres:5432/careerpilot
       API_TOKEN: ${API_TOKEN:-cp-dev-token}
       DEFAULT_WORKSPACE_SLUG: ${DEFAULT_WORKSPACE_SLUG:-personal}
-      # LLM(可选; 不配置则走确定性规则引擎, 功能不缺失只降级)
+      # AI 对话使用下列模型配置；浏览题库和已有答卷可留空
       LLM_PROVIDER: ${LLM_PROVIDER:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
@@ -60,9 +60,13 @@ services:
 
   web:
     build:
-      context: .            # 仓库根: 题库构建需要 data.js
+      context: .
       dockerfile: web/Dockerfile
+      args:
+        VITE_API_BASE: /api/v1
     container_name: careerpilot-web
+    volumes:
+      - ./web/nginx.local.conf:/etc/nginx/conf.d/default.conf:ro
     ports:
       - "${WEB_HOST_PORT:-5173}:80"    # 本机 5173 被占用时可用 WEB_HOST_PORT 改口
     depends_on:
