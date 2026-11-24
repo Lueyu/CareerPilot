@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException
 
 from app.api.v1 import (
     assessment_feedback,
@@ -92,28 +95,20 @@ async def healthz():
 # 未设置时行为与本地开发完全一致（不挂载任何静态路由）。
 static_dir = get_settings().static_dir
 if static_dir:
-    from pathlib import Path as _Path
+    _static_root = Path(static_dir).resolve()
+    _static_files = StaticFiles(directory=_static_root, check_dir=False)
+    _has_assets = (_static_root / "assets").is_dir()
 
-    from fastapi.responses import FileResponse
-    from fastapi.staticfiles import StaticFiles
-
-    _static_root = _Path(static_dir).resolve()
-    _assets_dir = _static_root / "assets"
-    if _assets_dir.is_dir():
-        app.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def spa_fallback(full_path: str):
-        if full_path.startswith("api/"):
-            from fastapi import HTTPException
-
+    @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+    async def spa_fallback(request: Request, full_path: str):
+        namespace = full_path.partition("/")[0]
+        if namespace == "api":
             raise HTTPException(status_code=404, detail="Not Found")
-        candidate = _static_root / full_path
-        if full_path and candidate.is_file():
-            return FileResponse(candidate)
-        index = _static_root / "index.html"
-        if index.is_file():
-            return FileResponse(index)
-        from fastapi import HTTPException
 
-        raise HTTPException(status_code=404, detail="Not Found")
+        try:
+            return await _static_files.get_response(full_path, request.scope)
+        except HTTPException as exc:
+            if exc.status_code != 404 or (_has_assets and full_path.startswith("assets/")):
+                raise
+
+        return await _static_files.get_response("index.html", request.scope)
