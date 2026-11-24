@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import timedelta
 from uuid import uuid4
 
@@ -102,6 +103,73 @@ async def test_failed_job_keeps_snapshot_retry_fences_and_edits(db_session, test
     await db.refresh(job)
     assert job.status == "SUCCEEDED"
     assert not await service.process_next_note_job(factory)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("admitted", "viewer", "interrupted"), [
+    ("en", "zh-CN", "Note generation was interrupted. You can retry."),
+    ("zh-CN", "en", "上次整理已中断，可以重试"),
+])
+@pytest.mark.parametrize("saved_error", [None, "Previously saved provider detail."])
+async def test_note_recovery_uses_admitted_language_and_keeps_saved_data(
+    db_session, test_workspace, admitted, viewer, interrupted, saved_error,
+):
+    db, ws = db_session, test_workspace
+    chat, question, answer = await conversation(db, ws)
+    with using_language(admitted):
+        job = await service.enqueue(db, ws.id, chat.id, "expired", None)
+    assert job.snapshot[0].get("output_language") == ("en" if admitted == "en" else None)
+    snapshot = deepcopy(job.snapshot)
+    job.status, job.lease_until = "RUNNING", service.utcnow() - timedelta(seconds=1)
+    job.error = saved_error
+    await db.commit()
+    expected = saved_error or interrupted
+    factory = async_sessionmaker(db.bind, expire_on_commit=False)
+
+    with using_language(viewer):
+        view = await api.get_job(job.id, ws, db)
+        assert view["status"] == "FAILED"
+        assert view["error"] == expected
+        assert view["message_ids"] == [question.id, answer.id]
+        await db.refresh(job)
+        assert job.status == "RUNNING" and job.error == saved_error
+
+        assert await service.process_next_note_job(factory)
+        await db.refresh(job)
+        assert job.status == "FAILED" and job.lease_until is None
+        assert job.error == expected
+        assert (await api.get_job(job.id, ws, db)) == view
+
+    assert job.version_id is None and job.snapshot == snapshot
+    await db.refresh(question)
+    await db.refresh(answer)
+    assert [question.content, answer.content] == [entry["text"] for entry in snapshot]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("admitted", "viewer"), [("en", "zh-CN"), ("zh-CN", "en")])
+async def test_note_retry_fallback_uses_admitted_language(db_session, test_workspace, monkeypatch, admitted, viewer):
+    db, ws = db_session, test_workspace
+    chat, _, _ = await conversation(db, ws)
+    with using_language(admitted):
+        job = await service.enqueue(db, ws.id, chat.id, "retry", None)
+    job.status = "FAILED"
+    await db.commit()
+    expected = localized_message("note.failed", admitted)
+    factory = async_sessionmaker(db.bind, expire_on_commit=False)
+
+    async def unexpected_failure(snapshot):
+        raise RuntimeError("Synthetic worker failure")
+
+    monkeypatch.setattr(service, "generate_note", unexpected_failure)
+    with using_language(viewer):
+        assert (await api.get_job(job.id, ws, db))["error"] == expected
+        await db.refresh(job)
+        assert job.error is None
+        assert (await api.retry_job(job.id, ws, db))["error"] is None
+        assert await service.process_next_note_job(factory)
+        await db.refresh(job)
+        assert job.status == "FAILED" and job.error == expected
 
 
 @pytest.mark.asyncio

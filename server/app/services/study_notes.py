@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import or_, select
 
-from app.i18n import message as localized_message, request_language, using_language
+from app.i18n import Locale, message as localized_message, request_language, using_language
 from app.models.study_chat import StudyMessage, StudySession
 from app.models.study_notes import StudyCard, StudyNote, StudyNoteJob, StudyNoteVersion
 from app.services.llm import AgentAdapter, get_llm_config
@@ -137,8 +137,16 @@ async def enqueue(db, workspace_id, session_id, request_id, requested_note, focu
 SECTIONS = ('question', 'explanation', 'example', 'misconception', 'boundary', 'unresolved')
 
 
+def note_output_language(snapshot: list[dict]) -> Locale:
+    return "en" if snapshot and snapshot[0].get("output_language") == "en" else "zh-CN"
+
+
+def interrupted_note_error(job: StudyNoteJob) -> str:
+    return job.error or localized_message("note.interrupted", note_output_language(job.snapshot))
+
+
 def render_note(output, snapshot):
-    language = snapshot[0].get("output_language", "zh-CN")
+    language = note_output_language(snapshot)
     messages = {item["id"]: item for item in snapshot}
     sections = {kind: [] for kind in SECTIONS}
     sources = []
@@ -165,7 +173,7 @@ def render_note(output, snapshot):
 async def generate_note(snapshot):
     cfg = await get_llm_config()
     cfg = {**cfg, "output_limit": 8000}
-    language = snapshot[0].get("output_language", "zh-CN")
+    language = note_output_language(snapshot)
     output, model = await read_json(
         teaching_prompt("notes", language) + "\n" + localized_message("note.schema", language),
         snapshot, NoteOutput, config=cfg
@@ -210,7 +218,7 @@ async def process_next_note_job(factory):
         if not job:
             return False
         if job.status == "RUNNING":
-            job.status, job.error, job.lease_until = "FAILED", "上次整理已中断，可以重试", None
+            job.status, job.error, job.lease_until = "FAILED", interrupted_note_error(job), None
             await db.commit()
             return True
         job.status, job.generation = "RUNNING", job.generation + 1
@@ -218,14 +226,15 @@ async def process_next_note_job(factory):
         job_id, generation, snapshot = job.id, job.generation, job.snapshot
         await db.commit()
     error, result = None, None
+    language = note_output_language(snapshot)
     try:
-        with using_language(snapshot[0].get("output_language", "zh-CN")):
+        with using_language(language):
             result = await generate_note(snapshot)
     except GenerationError as exc:
         error = str(exc)
     except Exception:
         log.exception("note generation failed, job=%s", job_id)
-        error = localized_message("note.failed", snapshot[0].get("output_language", "zh-CN"))
+        error = localized_message("note.failed", language)
     async with factory() as db:
         await finish_job(db, job_id, generation, result, error)
     return True

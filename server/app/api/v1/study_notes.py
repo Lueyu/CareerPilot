@@ -52,11 +52,15 @@ def expired(job):
 
 def job_view(job):
     stale = expired(job)
-    return {"id": job.id, "session_id": job.session_id, "status": "FAILED" if stale else job.status,
+    status = "FAILED" if stale else job.status
+    error = service.interrupted_note_error(job) if stale else job.error
+    if status == "FAILED" and not error:
+        error = localized_message("note.failed", service.note_output_language(job.snapshot))
+    return {"id": job.id, "session_id": job.session_id, "status": status,
             "base_version_id": job.base_version_id, "version_id": job.version_id, "note_id": job.note_id,
             "request_id": job.request_id, "conflict": job.conflict, "created_at": job.created_at,
             "message_ids": [m["id"] for m in job.snapshot],
-            "error": "上次整理已中断，可以重试" if stale else job.error}
+            "error": error}
 
 
 @router.post("/sessions/{session_id}/note-jobs", status_code=202)
@@ -145,7 +149,7 @@ async def create_cards(note_id: int, body: CardGenIn, ws=Depends(get_workspace),
         job = await own_job(db, ws.id, body.note_job_id)
         if job.note_id != note_id or job.version_id != version.id or job.status != "SUCCEEDED":
             raise HTTPException(404, localized_message("errors.note_generation_job_not_found"))
-        language = job.snapshot[0].get("output_language", "zh-CN")
+        language = service.note_output_language(job.snapshot)
     if not version.cards_generated:
         try:
             with using_language(language):
