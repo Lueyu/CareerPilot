@@ -25,6 +25,10 @@ if ($pull.state -ne 'open' -or $pull.base.ref -cne 'master' -or
 if ($pull.head.sha -ne $TestedSha) {
     throw '发布 PR 的当前提交与实际验收的 SHA 不一致。请核实待发布版本。'
 }
+$comparison = Read-GitHub "repos/$repo/compare/$($pull.base.sha)...${TestedSha}?per_page=1"
+if ($comparison.merge_base_commit.sha -ne $pull.base.sha) {
+    throw 'dev 尚未包含当前 master。请先同步主干，再由负责人测试集成后的 SHA。'
+}
 if ($pull.mergeable -ne $true -or -not $pull.merge_commit_sha) {
     throw 'GitHub 尚未生成可合并的发布预览。请检查 PR 的合并状态。'
 }
