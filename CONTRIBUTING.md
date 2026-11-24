@@ -59,4 +59,6 @@ npm.cmd run build
 python run_isolated_tests.py tests -q --tb=short
 ```
 
-界面改动请在浏览器重走受影响的操作。文档改动请检查链接、命令和页面名称。提交代码时，从 `dev` 建分支并向 `dev` 提交 PR。用模板写清改动原因、影响范围、实际运行的检查，以及未验证的场景。有相关 Issue 时附编号。
+界面改动请在浏览器重走受影响的操作。文档改动请检查链接、命令和页面名称。从上游仓库最新的 `dev` 建分支，完成后把 PR 的目标选为 `Lueyu/CareerPilot:dev`。用模板写清改动原因、影响范围、实际运行的检查以及未验证的场景。有相关 Issue 时附编号。
+
+维护者审核最终提交后合入 `dev`。负责人 Lueyu 定期测试这个分支，通过后将验收的版本合入主干 `master`。[主干发布流程](docs/agent/release.md)
