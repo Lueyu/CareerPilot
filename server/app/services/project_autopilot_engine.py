@@ -17,7 +17,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from app.generation_i18n import with_output_language
+from app.generation_i18n import generation_message, saved_language
 from app.i18n import Locale
 from app.services import project_autopilot_sources as sources
 from app.services import project_claim_registry as claim_registry
@@ -487,21 +487,20 @@ async def _ask(task, payload, model, runtime):
                       'requested_tier': tier, 'tier': selected, 'routing_reason': reason}
     if not all(cfg.get(k) for k in ('provider', 'api_key', 'base_url', 'model')):
         raise StageError('NOT_CONFIGURED', '尚未配置可用的模型服务')
+    language = saved_language(runtime.language)
     value = {'task': task, **payload, 'output_schema': model.model_json_schema(), 'prompt_version': PROMPT_BUNDLE_VERSION}
     if runtime.repair_diagnostic:
         value['repair_request'] = {'previous_validation_error': runtime.repair_diagnostic[:600],
             'output_strategy': 'smaller_response_complete_schema',
-            'instructions': '这是一次有预算的修复：严格修正指出的字段或实际引用，保持所有必填字段。若先前截断，只输出最重要的 1-2 条观察、最多 1 个问题，章节 1 段约 100 字，候选最多 3 条；规划仍需覆盖全部给定路径。不要重复长解释，不修改模型参数，不编造补全。'}
-    user, system = _json(value), system_prompt(task)
-    if runtime.language is not None:
-        system = with_output_language(system, runtime.language)
+            'instructions': generation_message('project.prompt.repair', language)}
+    system = system_prompt(task, language)
     contract = payload.get('input_contract_version')
     if contract is not None:
         if contract != claim_registry.CONTRACT_VERSION:
             raise StageError('CONFIG_CHANGED', '未知的结论输入契约')
         value['task_prompt_version'] = contract
-        user = _json(value)
-        system += '\n' + claim_registry.INSTRUCTIONS
+        system += '\n' + generation_message('project.prompt.source_registry', language)
+    user = _json(value)
     estimate = len((system + user).encode('utf-8'))
     meta = {**route_meta, 'task': task, 'input_chars': len(system) + len(user), 'input_bytes': estimate,
             'input_tokens_estimate': estimate, 'token_estimate_method': 'conservative_utf8_bytes_not_actual_tokens',
@@ -837,7 +836,7 @@ async def execute_stage(stage: str, inputs: dict, runtime: RuntimeContext) -> di
     if inputs.get('repair_diagnostic'):
         runtime = replace(runtime, repair_diagnostic=str(inputs['repair_diagnostic'])[:600])
     if split_plan is not None and stage == 'analyze_module' and split_plan['inherited_repair'] == 'OUTPUT_TRUNCATED':
-        compact = '上次模型输出被截断；请保持完整结构并使用更精简的输出。'
+        compact = generation_message('project.prompt.truncated', saved_language(runtime.language))
         repair = runtime.repair_diagnostic or ''
         runtime = replace(runtime, repair_diagnostic=repair if compact in repair else compact + ' ' + repair[:500])
     if context.get('workspace_id', runtime.workspace_id) != runtime.workspace_id or context.get('project_id', runtime.project_id) != runtime.project_id:
@@ -995,7 +994,8 @@ async def execute_stage(stage: str, inputs: dict, runtime: RuntimeContext) -> di
             else:
                 value, usage, request_meta = await _ask('explain_project_section', {'section': payload['title'], **material,
                     'changes': _change_context(artifacts['manifest']['diff'], claims) if payload['section'] == 'changes' else None,
-                    'personal_contribution': '未由用户确认；不能推断'}, SectionResponse, runtime)
+                    'personal_contribution': generation_message('project.prompt.contribution', saved_language(runtime.language))},
+                    SectionResponse, runtime)
                 _validate_claim_links(value['paragraphs'], claims)
             artifact = {**value, 'claim_ids': [c['id'] for c in claims], **({'section': payload['section'], 'title': payload['title']} if stage == 'explain_section' else {})}
         elif stage == 'report':

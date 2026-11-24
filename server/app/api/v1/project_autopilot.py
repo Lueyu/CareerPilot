@@ -8,9 +8,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
+from app.i18n import message as localized_message
+from app.i18n import request_language
 from app.models import AnalysisStep, AppSetting, MemoryItem, Project, ProjectAnalysis, WorkerHeartbeat, Workspace
 from app.services import project_candidates, project_jobs
 from app.services.project_autopilot_config import (
@@ -324,6 +325,11 @@ async def check_updates(project_id: int, ws: Workspace = Depends(get_workspace),
     settings = await settings_for(session, ws.id)
     if not settings['enabled'] or settings.get('consent_version') != CONSENT_VERSION:
         raise HTTPException(409, localized_message("errors.confirm_the_source_transfer_scope_and_enable_automatic_analysis"))
+    await session.execute(text('SELECT pg_advisory_xact_lock(20261117, :id)'), {'id': project.id})
+    await session.refresh(project)
+    if project.archived_at:
+        raise HTTPException(404, localized_message("errors.the_project_does_not_exist_or_has_been_removed"))
+    project.pending_update = {**(project.pending_update or {}), 'generation_language': request_language()}
     project.next_check_at = utcnow()
     await session.commit()
     return {'project_id':project.id, 'status':'CHECK_QUEUED', 'next_check_at':project.next_check_at.isoformat()}

@@ -65,7 +65,8 @@ async def check_project(session,project_id,workspace_id,now=None):
         budget=settings['budget'],model_config_fingerprint=fp,pipeline_version=pipeline,prompt_bundle_version=prompt,
         language=saved_language(pending.get('generation_language')))
     project.last_seen_sha=head['target_sha']
-    if not busy:project.pending_update=None
+    if not busy or (busy.target_sha == head['target_sha'] and pending.keys() == {'generation_language'}):
+        project.pending_update = None
     await session.commit()
     return {'status':run.status,'run_id':run.id}
 

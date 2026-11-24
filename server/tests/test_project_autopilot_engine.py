@@ -2,10 +2,13 @@
 import importlib
 import importlib.util
 import json
+import re
 from copy import deepcopy
 
 import httpx
 import pytest
+
+from app.i18n import message
 
 SHA = 'a' * 40
 
@@ -102,6 +105,44 @@ async def test_stage_graph_covers_more_than_twenty_files_and_assembles_report(mo
     assert 'private-fixture' not in json.dumps(artifacts)
     assert not any(p.get('task') == 'final_report' for p in calls)
     assert len(executed) == len(set(executed))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('language', ['en', None])
+async def test_project_model_requests_use_one_language_and_preserve_source(monkeypatch, language):
+    api, _ = await fixture_pipeline(monkeypatch, 1)
+    quote = '# 原始源码注释'
+    original_read = api.sources.read_source
+    original_chat = api.AgentAdapter.chat_with
+    prompts = {}
+
+    async def read(*args, **kwargs):
+        return {**await original_read(*args, **kwargs), 'content': quote + '\nreturn 1\n'}
+
+    async def chat(self, cfg, system, user, **kwargs):
+        request = json.loads(user)
+        prompts[request['task']] = (system, request)
+        return await original_chat(self, cfg, system, user, **kwargs)
+
+    monkeypatch.setattr(api.sources, 'read_source', read)
+    monkeypatch.setattr(api.AgentAdapter, 'chat_with', chat)
+    rt = runtime(api)
+    rt.language = language
+    await drive(api, {**context(), 'claim_input_contract': 'source-registry-v1'}, rt)
+    rt.repair_diagnostic = 'ORIGINAL_VALIDATION_ERROR'
+    await api._ask('analyze_change_impact', {'changes': []}, api.ImpactResponse, rt)
+
+    assert set(prompts) == {'plan_modules', 'analyze_module', 'verify_cross_module',
+                            'explain_project_section', 'extract_memory_candidates', 'analyze_change_impact'}
+    assert quote in json.dumps(prompts['analyze_module'][1], ensure_ascii=False)
+    for task, (system, _) in prompts.items():
+        if language == 'en':
+            assert not re.search(r'[\u3400-\u9fff]', system), task
+        assert message('language', language) in system
+    repair = prompts['analyze_change_impact'][1]['repair_request']
+    assert repair['previous_validation_error'] == 'ORIGINAL_VALIDATION_ERROR'
+    if language == 'en':
+        assert not re.search(r'[\u3400-\u9fff]', repair['instructions'])
 
 
 @pytest.mark.asyncio
