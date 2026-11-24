@@ -12,6 +12,7 @@ from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.api.v1.daily_learning_plan import router as daily_plan_router
 from app.db import get_session
+from app.generation_i18n import generation_message
 from app.models import LearningTask, Workspace
 from app.services.llm import AgentAdapter
 from app.services.planner import plan_tasks_for_workspace
@@ -23,12 +24,11 @@ router.include_router(daily_plan_router)
 _llm = AgentAdapter()
 
 
-async def _own_task(session: AsyncSession, ws: Workspace, task_id: int) -> LearningTask:
-    task = (
-        await session.execute(
-            select(LearningTask).where(LearningTask.id == task_id, LearningTask.workspace_id == ws.id)
-        )
-    ).scalar_one_or_none()
+async def _own_task(session: AsyncSession, ws: Workspace, task_id: int, *, for_update: bool = False) -> LearningTask:
+    query = select(LearningTask).where(LearningTask.id == task_id, LearningTask.workspace_id == ws.id)
+    if for_update:
+        query = query.with_for_update(of=LearningTask)
+    task = (await session.execute(query)).scalar_one_or_none()
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
     return task
@@ -151,8 +151,8 @@ async def task_content(
     session: AsyncSession = Depends(get_session),
 ):
     """教学任务内容(7 步通俗教学): 生成一次, 缓存进 task.content; LLM 未配置走规则路径。"""
-    task = await _own_task(session, ws, task_id)
-    skill_name = task.skill.name if task.skill else "目标技能"
+    task = await _own_task(session, ws, task_id, for_update=True)
+    skill_name = task.skill.name if task.skill else generation_message("teaching.target_skill")
     skill_key = task.skill.key if task.skill else None
     content = await build_teaching_content(
         session, _llm, task=task, skill_name=skill_name, skill_key=skill_key
@@ -174,9 +174,9 @@ async def task_help(
 ):
     """学习求助(modes: simpler/analogy/example/project/code/diagram/unclear); 结果缓存进 content.help_cache。"""
     if body.mode not in HELP_MODES:
-        raise HTTPException(status_code=422, detail=f"未知求助类型: {body.mode}")
-    task = await _own_task(session, ws, task_id)
-    skill_name = task.skill.name if task.skill else "目标技能"
+        raise HTTPException(status_code=422, detail=generation_message("teaching.help_unknown_mode").format(mode=body.mode))
+    task = await _own_task(session, ws, task_id, for_update=True)
+    skill_name = task.skill.name if task.skill else generation_message("teaching.target_skill")
     skill_key = task.skill.key if task.skill else None
     out = await help_answer(session, _llm, task=task, skill_name=skill_name, skill_key=skill_key, mode=body.mode)
     await session.commit()

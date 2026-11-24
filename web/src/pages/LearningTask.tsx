@@ -1,7 +1,7 @@
 import { t, useT } from '../i18n';
 import StudyEntryButton from '../components/StudyEntryButton';
 import { formatProgressDate } from '../lib/coreLoop';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAppState } from '../components/AppState';
 import { DemoBanner, Modal, PageHead } from '../components/ui';
@@ -71,6 +71,7 @@ function LegacyLearningTask() {
   const [helpText, setHelpText] = useState<string | null>(null);
   const [helpSrc, setHelpSrc] = useState<string>('');
   const [helpBusy, setHelpBusy] = useState(false);
+  const helpRequest = useRef(0);
 
   useEffect(() => {
     let alive = true;
@@ -102,23 +103,14 @@ function LegacyLearningTask() {
 
   const doHelp = async (mode: string) => {
     if (!task) return;
-    // 缓存命中直接展示
-    const validTaskCache = !task.source_exam_question_id || task.content?.source_context_version === 2;
-    const cached = [gen?.help_cache?.[mode], validTaskCache ? task.content?.help_cache?.[mode] : undefined]
-      .find((entry) => entry?.source === 'llm' && entry.text);
-
-    if (cached?.text) {
-      setHelpText(cached.text);
-      setHelpSrc(cached.source);
-      setHelpKey(mode);
-      return;
-    }
+    const request = ++helpRequest.current;
     setHelpKey(mode);
     setHelpBusy(true);
     setHelpText(null);
     setHelpSrc('');
     try {
       const r = await api.post<TaskHelpResp>(`/learning/tasks/${task.id}/help`, { mode });
+      if (request !== helpRequest.current) return;
       if (r.error) {
         setHelpText(r.error);
         setHelpSrc('none');
@@ -127,10 +119,11 @@ function LegacyLearningTask() {
         setHelpSrc(r.source);
       }
     } catch (e: any) {
+      if (request !== helpRequest.current) return;
       setHelpText(t('progress.learningTaskHelpError', { error: e.message || e }));
       setHelpSrc('none');
     } finally {
-      setHelpBusy(false);
+      if (request === helpRequest.current) setHelpBusy(false);
     }
   };
 
