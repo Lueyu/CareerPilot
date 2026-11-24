@@ -55,7 +55,8 @@ async def fixture_pipeline(monkeypatch, count=24):
         elif task == 'verify_cross_module':
             response = {'observations': [{'text': 'The listed modules expose code entry points.', 'claim_ids': [value['claims'][0]['id']]}], 'conflicts': [], 'unknowns': []}
         elif task == 'explain_project_section':
-            response = {'paragraphs': [{'text': '项目提供源码中的处理入口，具体行为见引用。', 'claim_ids': [value['claims'][0]['id']]}], 'unknowns': []}
+            prose = 'See the citations for the entry point and its behavior.' if message('language', 'en') in system else '项目提供源码中的处理入口，具体行为见引用。'
+            response = {'paragraphs': [{'text': prose, 'claim_ids': [value['claims'][0]['id']]}], 'unknowns': []}
         elif task == 'extract_memory_candidates':
             response = {'candidates': [{'fact_key': 'entry', 'kind': 'architecture', 'content': '项目包含代码入口。', 'claim_ids': [value['claims'][0]['id']], 'fact_type': 'CODE_OBSERVED'}]}
         elif task == 'analyze_change_impact':
@@ -248,33 +249,74 @@ def test_stage_specs_explicitly_distinguish_model_work():
 
 
 @pytest.mark.asyncio
-async def test_incremental_reuses_unaffected_module_with_original_source_version(monkeypatch):
+@pytest.mark.parametrize(('previous_language', 'language', 'changed'), [
+    (None, 'zh-CN', True), ('en', 'en', True), ('zh-CN', 'en', True), ('zh-CN', 'en', False), (None, 'en', False),
+])
+async def test_incremental_reuses_unaffected_module_with_original_source_version(monkeypatch, previous_language, language, changed):
     api, calls = await fixture_pipeline(monkeypatch, 2)
     original_chat = api.AgentAdapter.chat_with
     async def separate(self, cfg, system, user, **kwargs):
         value = json.loads(user)
+        english = message('language', 'en') in system
         if value['task'] == 'plan_modules':
-            return {'content': json.dumps({'modules': [{'name': e['path'], 'purpose': 'Inspect module', 'paths': [e['path']]} for e in value['entries']]})}
-        return await original_chat(self, cfg, system, user, **kwargs)
+            return {'content': json.dumps({'modules': [{'name': e['path'], 'purpose': 'Inspect module' if english else '检查模块', 'paths': [e['path']]} for e in value['entries']]})}
+        response = await original_chat(self, cfg, system, user, **kwargs)
+        if value['task'] == 'analyze_module':
+            data = json.loads(response['content'])
+            text = 'Inspect the entry point' if english else '检查入口'
+            data['claims'][0]['text'] = text
+            data['issues'] = [{'title': text, 'detail': text, 'impact': text, 'recommendation': text,
+                               'interview_questions': [text], 'status': 'observed', 'severity': 'low',
+                               'skill_key': 'backend', 'citations': data['claims'][0]['citations']}]
+            response['content'] = json.dumps(data)
+        return response
     monkeypatch.setattr(api.AgentAdapter, 'chat_with', separate)
-    first, _ = await drive(api, context(), runtime(api))
+    first_runtime = runtime(api)
+    first_runtime.language = previous_language
+    first, _ = await drive(api, {**context(), 'generation_language': previous_language}, first_runtime)
+    if previous_language is None:
+        for artifact in first.values():
+            artifact['provenance'].pop('generation_language')
+        first['report']['snapshot']['provenance'].pop('generation_language')
+        first['report']['report'].pop('generation_language')
+        for module in first['report']['snapshot']['modules']:
+            module['fingerprint'] = api._module_fingerprint(context(), first['manifest'], module, module['dependencies'], legacy=True)
     old_probe, old_manifest, old_read = api.sources.probe_repository, api.sources.fetch_manifest_page, api.sources.read_source
-    target = 'b' * 40
+    original = deepcopy(first)
+    target = 'b' * 40 if changed else SHA
     async def probe(p, c): return {**await old_probe(p, c), 'target_sha': target, 'parents': [SHA]}
     async def manifest(*args):
         value = await old_manifest(*args)
-        value['entries'][0]['blob_oid'] = 'f' * 40
+        if changed:
+            value['entries'][0]['blob_oid'] = 'f' * 40
         return value
     async def read(p, s, e, c, **kw): return {**await old_read(p, s, e, c, **kw), 'source_revision': target}
     monkeypatch.setattr(api.sources, 'probe_repository', probe)
     monkeypatch.setattr(api.sources, 'fetch_manifest_page', manifest)
     monkeypatch.setattr(api.sources, 'read_source', read)
-    ctx = {**context(), 'mode': 'incremental', 'base_sha': SHA, 'target_sha': target,
+    ctx = {**context(), 'mode': 'incremental', 'base_sha': SHA, 'target_sha': target, 'generation_language': language,
            'baseline': {**first['report'], 'artifacts': first}}
-    result, executed = await drive(api, ctx, runtime(api))
+    rt = runtime(api)
+    rt.language = language
+    result, executed = await drive(api, ctx, rt)
     reused = [m for m in result['report']['snapshot']['modules'] if m.get('compatibility')]
+    assert first == original
+    if language == 'en' and previous_language != 'en':
+        assert not reused
+        assert 'impact' not in executed
+        assert len([k for k in executed if k.startswith('read:')]) == 2
+        report = result['report']['report']
+        assert all(m['purpose'] == 'Inspect module' for m in report['modules'])
+        assert all(i['interview_questions'] == ['Inspect the entry point'] for i in report['issues'])
+        assert all(c['text'] == 'Inspect the entry point' for c in report['claims'])
+        assert all(r['source_version'] == target for c in report['claims'] for r in c['citations'])
+        return
     assert len(reused) == 1 and reused[0]['paths'] == ['src/f1.py']
     assert reused[0]['sources'][0]['source_revision'] == SHA
+    original_module = next(m for m in first['report']['snapshot']['modules'] if m['paths'] == reused[0]['paths'])
+    assert reused[0]['sources'] == original_module['sources']
+    assert reused[0]['claims'] == original_module['claims']
+    assert reused[0]['provenance']['generation_language'] == language
     assert reused[0]['compatibility']['target_sha'] == target
     assert len([k for k in executed if k.startswith('read:')]) == 1
     assert any(c.get('task') == 'analyze_change_impact' for c in calls)
@@ -649,7 +691,8 @@ async def test_empty_completion_keeps_reported_usage_without_changing_none_contr
 
 
 @pytest.mark.asyncio
-async def test_visible_source_normalization_is_disclosed_to_model_and_report(monkeypatch):
+@pytest.mark.parametrize('language', ['zh-CN', 'en'])
+async def test_visible_source_normalization_is_disclosed_to_model_and_report(monkeypatch, language):
     api, calls = await fixture_pipeline(monkeypatch, 1)
     original = api.sources.read_source
     async def read(*args, **kwargs):
@@ -657,11 +700,23 @@ async def test_visible_source_normalization_is_disclosed_to_model_and_report(mon
             {'kind': 'visible_control_escape', 'codepoint': 'U+0000', 'line': 2, 'source_column': 12,
              'display_column': 12, 'replacement': '\\u0000'}]}
     monkeypatch.setattr(api.sources, 'read_source', read)
-    result, _ = await drive(api, context(), runtime(api))
+    rt = runtime(api)
+    rt.language = language
+    result, _ = await drive(api, {**context(), 'generation_language': language}, rt)
     module_request = next(p for p in calls if p['task'] == 'analyze_module')
     assert module_request['sources'][0]['normalizations'][0]['codepoint'] == 'U+0000'
-    assert any('转义' in note for note in result['report']['report']['unknowns'])
-    assert any('转义' in p['text'] for s in result['report']['report']['sections'] if s['id'] == 'limitations' for p in s['paragraphs'])
+    report = result['report']['report']
+    escape = 'escaped' if language == 'en' else '转义'
+    assert any(escape in note for note in report['unknowns'])
+    assert any(escape in p['text'] for s in report['sections'] if s['id'] == 'limitations' for p in s['paragraphs'])
+    if language == 'en':
+        assert 'escaped reversibly' in module_request['sources'][0]['normalization_note']
+        assert len(report['sections']) == 9
+        assert all(not re.search(r'[\u3400-\u9fff]', s['title']) for s in report['sections'])
+        assert {'Project purpose', 'Coverage and limitations'} <= {s['title'] for s in report['sections']}
+        assert any('read-only' in note for note in report['unknowns'])
+        assert all(not re.search(r'[\u3400-\u9fff]', p['text']) for s in report['sections'] for p in s['paragraphs'])
+        assert all(not re.search(r'[\u3400-\u9fff]', p['section']) for p in calls if p['task'] == 'explain_project_section')
 
 
 @pytest.mark.asyncio

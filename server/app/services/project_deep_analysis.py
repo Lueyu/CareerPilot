@@ -16,7 +16,9 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.generation_i18n import generation_message, with_output_language
+from app.i18n import request_language
 from app.services.llm import AgentAdapter, get_llm_config
+from app.services.project_report_i18n import report_message
 from app.services.project_sources import SourceRepository, open_repository, redact_source, redact_value
 
 MAX_INITIAL_FILES = 12
@@ -302,11 +304,13 @@ async def review_inspected_sources(files: list[dict], context: dict, coverage: d
     raw_report = await _ask_model(cfg, 'final_report', generation_message('project.deep.final_report'), payload, calls)
     await phase('validate_report')
     final_report = validate_report(raw_report, files)
-    scope_note = f"本次仅阅读 {len(files)}/{coverage.get('eligible_files', len(files))} 个候选文件；未读取范围不作缺失或正确性结论。"
+    language = request_language()
+    scope_note = report_message('coverage.legacy_read', language, read=len(files),
+                                eligible=coverage.get('eligible_files', len(files)))
     if coverage.get('tree_truncated'):
-        scope_note += '文件目录也存在截断，候选数量不是仓库总文件数。'
+        scope_note += report_message('coverage.legacy_tree_truncated', language)
     if coverage.get('truncated_files'):
-        scope_note += '部分文件只读取了开头，未读行不在引用范围内。'
+        scope_note += report_message('coverage.legacy_files_truncated', language)
     final_report['unknowns'] = final_report['unknowns'][:29] + [scope_note]
     return {'report': final_report, 'module_reviews': module_reviews, 'result_meta': _result_meta(cfg, calls)}
 

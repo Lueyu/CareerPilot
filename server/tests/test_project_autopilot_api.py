@@ -1,5 +1,6 @@
 """HTTP contracts for local project automation; all data is an isolated fixture."""
 import importlib.util
+from copy import deepcopy
 from datetime import timedelta
 from uuid import uuid4
 
@@ -15,6 +16,19 @@ from app.i18n import LanguageMiddleware
 from app.models import AnalysisStep, AppSetting, MemoryItem, Project, ProjectAnalysis, Workspace
 from app.services.project_autopilot_config import CONSENT_VERSION
 from app.services.project_jobs import utcnow
+
+
+def test_report_changes_use_the_saved_locale_without_rewriting_originals():
+    from app.api.v1.project_autopilot import normalized_report
+
+    original = {'sections': [{'id': 'overview', 'title': '项目用途', 'body': '原始报告'}],
+                'changes': {'changes': [{'status': 'modified', 'path': '源码/入口.py'}]}}
+    frozen = deepcopy(original)
+    assert normalized_report(original)['changes'] == ['修改：源码/入口.py']
+    projected = normalized_report({**original, 'generation_language': 'en'})
+    assert projected['changes'] == ['Modified 源码/入口.py']
+    assert projected['sections'][0]['body'] == '原始报告'
+    assert original == frozen
 
 
 def api(session, workspace):

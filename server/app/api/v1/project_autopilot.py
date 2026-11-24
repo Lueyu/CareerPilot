@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_workspace
 from app.db import get_session
+from app.generation_i18n import saved_language
 from app.i18n import message as localized_message
 from app.i18n import request_language
 from app.models import AnalysisStep, AppSetting, MemoryItem, Project, ProjectAnalysis, WorkerHeartbeat, Workspace
@@ -23,6 +24,7 @@ from app.services.project_autopilot_config import (
 )
 from app.services.project_context import project_kind
 from app.services.project_memory import PROJECT_TYPES, source_excerpts
+from app.services.project_report_i18n import report_message
 from app.services.project_scheduler import versions
 
 router = APIRouter(tags=['project-autopilot'])
@@ -343,7 +345,13 @@ def normalized_report(report):
         for s in report.get('sections',[])]
     changes = report.get('changes')
     if isinstance(changes, dict):
-        result['changes'] = [f"{ {'added':'新增','modified':'修改','deleted':'删除','renamed':'重命名'}.get(c.get('status'), '变化')}：{c.get('path','')}" for c in changes.get('changes',[])]
+        language = saved_language(report.get('generation_language'))
+        result['changes'] = []
+        for change in changes.get('changes', []):
+            status = change.get('status')
+            if status not in ('added', 'modified', 'deleted', 'renamed'):
+                status = 'other'
+            result['changes'].append(report_message(f'change_entry.{status}', language, path=change.get('path', '')))
     return result
 
 
@@ -374,7 +382,8 @@ async def get_report(project_id: int, analysis_id: int | None = None, ws: Worksp
         modules = (await session.scalars(select(AnalysisStep).where(AnalysisStep.run_id == current.id,
             AnalysisStep.workspace_id == ws.id, AnalysisStep.stage.in_(('module','reuse_module')), AnalysisStep.status == 'SUCCEEDED'))).all()
         if modules:
-            partial = {'summary':'以下为已保存的模块观察，尚未完成完整报告与候选核对。',
+            language = saved_language((current.result_meta or {}).get('generation_language'))
+            partial = {'summary': report_message('coverage.partial_preview', language),
                 'modules':[{'name':s.module_key, 'summary':'\n'.join(c.get('text','') for c in (s.output_json or {}).get('claims',[]))} for s in modules]}
     identity = {'id':project.id, 'name':project.name, 'owner':project.owner, 'repo':project.repo,
         'kind':project_kind(project), 'archived_at':project.archived_at.isoformat() if project.archived_at else None}

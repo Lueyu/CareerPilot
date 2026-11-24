@@ -28,6 +28,16 @@ def test_new_run_and_complete_current_checkpoint_versions_are_accepted():
     assert check()(current_run(), {'module:one':{'provenance':provenance(),'claims':[]}}) is None
 
 
+def test_english_run_requires_locale_on_persisted_generated_stages():
+    run = current_run()
+    run.result_meta = {'generation_language': 'en'}
+    assert check()(run, {'resolve': {'provenance': provenance()}}) is None
+    for locale in ({}, {'generation_language': 'zh-CN'}):
+        with pytest.raises(engine.StageError, match='different language'):
+            check()(run, {'module:one': {'provenance': {**provenance(), **locale}}})
+    assert check()(run, {'module:one': {'provenance': {**provenance(), 'generation_language': 'en'}}}) is None
+
+
 @pytest.mark.parametrize('field', ['pipeline_version','prompt_bundle_version'])
 def test_run_created_by_old_pipeline_or_prompt_cannot_resume(field):
     run=current_run();setattr(run,field,'older-version')

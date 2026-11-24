@@ -12,6 +12,8 @@ from urllib.parse import quote
 
 import httpx
 
+from app.i18n import Locale
+from app.services.project_report_i18n import report_message
 from app.services.project_sources import is_safe_source_path, redact_source
 from app.services.repo_transport import stream_repo
 
@@ -257,12 +259,12 @@ async def read_source(project, snapshot, entry, credentials, *, max_bytes=2_000_
             'normalizations': normalizations, 'redacted_sha256_before_normalization': redacted_hash}
 
 
-def diff_manifests(base, target):
+def diff_manifests(base, target, *, language: Locale = 'zh-CN'):
     invalid = not base.get('complete') or not target.get('complete')
     maps = [{e['path']: e for e in m.get('entries', []) if e.get('type') in ('blob', 'commit')} for m in (base, target)]
     invalid = invalid or any(not e.get('blob_oid') for m in maps for e in m.values())
     if invalid:
-        return {'complete': False, 'changes': [], 'requires_full': True, 'reason': '基线、目标清单或文件版本不完整'}
+        return {'complete': False, 'changes': [], 'requires_full': True, 'reason': report_message('changes.incomplete', language)}
     before, after = maps
     deleted, added = set(before) - set(after), set(after) - set(before)
     changes = []
@@ -279,7 +281,7 @@ def diff_manifests(base, target):
             added.remove(new)
     changes.extend({'status': 'deleted', 'path': p, 'before_blob': before[p]['blob_oid']} for p in sorted(deleted))
     changes.extend({'status': 'added', 'path': p, 'after_blob': after[p]['blob_oid']} for p in sorted(added))
-    return {'complete': True, 'changes': changes, 'requires_full': False, 'reason': '完整目录和 blob 逐项比较'}
+    return {'complete': True, 'changes': changes, 'requires_full': False, 'reason': report_message('changes.complete', language)}
 
 
 async def check_ancestry(project, base_sha, snapshot, credentials):
