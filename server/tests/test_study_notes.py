@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.v1 import study_notes as api
+from app.i18n import message as localized_message, using_language
 from app.models import Evidence, Workspace
 from app.models.study_chat import StudyMessage, StudySession
 from app.models.study_notes import StudyCardEvent, StudyNoteVersion
@@ -101,6 +102,84 @@ async def test_failed_job_keeps_snapshot_retry_fences_and_edits(db_session, test
     await db.refresh(job)
     assert job.status == "SUCCEEDED"
     assert not await service.process_next_note_job(factory)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("admitted", "current", "composite"), [
+    ("en", "zh-CN", True),
+    ("zh-CN", "en", True),
+    ("en", "zh-CN", False),
+])
+async def test_cards_use_admitted_language_only_for_composite_action(
+    db_session, test_workspace, monkeypatch, admitted, current, composite,
+):
+    db, ws = db_session, test_workspace
+    chat, question, _ = await conversation(db, ws)
+    factory = async_sessionmaker(db.bind, expire_on_commit=False)
+    note_prompts = []
+    card_prompts = []
+    expected = admitted if composite else current
+
+    async def config():
+        return {}
+
+    async def model(prompt, payload, schema, *, config):
+        if schema is service.NoteOutput:
+            note_prompts.append(prompt)
+            assert localized_message("language", admitted) in prompt
+            original = payload[0]
+            assert original["text"] == question.content
+            if len(note_prompts) == 1:
+                raise service.GenerationError("Synthetic note failure")
+            return schema(title="Probes", points=[service.NotePoint(
+                kind="question", text="Readiness", citations=[
+                    service.Citation(message_id=original["id"], quote=original["text"]),
+                ],
+            )]), "controlled-fixture"
+        card_prompts.append(prompt)
+        assert localized_message("language", expected) in prompt
+        if len(card_prompts) == 1:
+            raise service.GenerationError("Synthetic provider failure")
+        return schema(cards=[service.CardOutput(
+            question="Readiness?", answer="Service traffic", knowledge_point="Readiness",
+        )]), "controlled-fixture"
+
+    monkeypatch.setattr(service, "get_llm_config", config)
+    monkeypatch.setattr(service, "read_json", model)
+    admission = api.JobIn(request_id="organize")
+    with using_language(admitted):
+        queued = await api.enqueue_note(chat.id, admission, ws, db)
+
+    with using_language(current):
+        # Reload the durable job from a new session after switching languages.
+        assert await service.process_next_note_job(factory)
+        async with factory() as client:
+            original_job = await api.enqueue_note(chat.id, admission, ws, client)
+            assert original_job["id"] == queued["id"] and original_job["status"] == "FAILED"
+            assert (await api.retry_job(original_job["id"], ws, client))["status"] == "QUEUED"
+        assert await service.process_next_note_job(factory)
+        async with factory() as client:
+            job = (await api.session_jobs(chat.id, ws, client))["items"][0]
+            assert job["id"] == queued["id"] and job["status"] == "SUCCEEDED"
+            payload = {"version_id": job["version_id"]}
+            if composite:
+                payload["note_job_id"] = job["id"]
+            with pytest.raises(HTTPException) as failed:
+                await api.create_cards(job["note_id"], api.CardGenIn(**payload), ws, client)
+            assert failed.value.status_code == 502
+
+        async with factory() as client:
+            request = api.CardGenIn(**payload)
+            result = await api.create_cards(job["note_id"], request, ws, client)
+            card = result["items"][0]
+            await api.edit_card(card["id"], api.CardEditIn(question="My saved edit"), ws, client)
+            replay = await api.create_cards(job["note_id"], request, ws, client)
+            assert [(c["id"], c["question"]) for c in replay["items"]] == [(card["id"], "My saved edit")]
+            note = await api.get_note(job["note_id"], ws, client)
+            assert len(note["versions"]) == 1
+            assert note["sources"][0]["quote"] == question.content
+            assert (await client.get(StudyMessage, question.id)).content == question.content
+    assert len(note_prompts) == len(card_prompts) == 2
 
 
 @pytest.mark.asyncio

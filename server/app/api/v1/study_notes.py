@@ -7,9 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
-from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
+from app.i18n import message as localized_message, request_language, using_language
 from app.models import Workspace
 from app.models.study_notes import StudyCard, StudyCardEvent, StudyNoteJob
 from app.services import note_store as notebook
@@ -31,6 +31,7 @@ class JobIn(Input):
 
 class CardGenIn(Input):
     version_id: int = Field(gt=0)
+    note_job_id: int | None = Field(default=None, gt=0)
 
 
 class CardEditIn(Input):
@@ -139,9 +140,16 @@ async def create_cards(note_id: int, body: CardGenIn, ws=Depends(get_workspace),
     # Only generation on this immutable version waits on the bounded provider call.
     # If the request is interrupted, its transaction releases the lock for a retry.
     version = await notebook.own_version(db, note_id, body.version_id, lock=True)
+    language = request_language()
+    if body.note_job_id is not None:
+        job = await own_job(db, ws.id, body.note_job_id)
+        if job.note_id != note_id or job.version_id != version.id or job.status != "SUCCEEDED":
+            raise HTTPException(404, localized_message("errors.note_generation_job_not_found"))
+        language = job.snapshot[0].get("output_language", "zh-CN")
     if not version.cards_generated:
         try:
-            generated = await service.generate_cards(version.body)
+            with using_language(language):
+                generated = await service.generate_cards(version.body)
         except service.GenerationError as exc:
             raise HTTPException(502, str(exc)) from exc
         for item in generated:

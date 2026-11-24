@@ -280,10 +280,28 @@ function SessionView({id}:{id:number}) {
     });
   }
   const cardTarget=jobs.find(j=>j.id===cardJob);
-  useEffect(()=>{if(!cardJob||!cardTarget||cardTarget.status!=='SUCCEEDED'||!cardTarget.version_id)return;let live=true;
-    if(cardTarget.conflict){setCardState({ key: "study.chooseNoteVersionBeforeCards" });return}
-    setCardState({ key: "study.generatingCandidateCards" });api.post('/study/notes/'+cardTarget.note_id+'/cards',{version_id:cardTarget.version_id}).then(result=>{if(live){setCardState({ key: "study.candidateCardsGenerated", values: { version: cardTarget.version_id ?? "—", count: result.items.length } });remember(draftKey(id)+':cards','');setCardJob(0)}}).catch(e=>{if(live)setCardState({ key: "study.cardGenerationError", values: { reason: e.message } })});return()=>{live=false}
-  },[cardTarget?.id,cardTarget?.status,cardTarget?.version_id,cardRetry,cardJob,id]);
+  const { id: noteJobId, status: noteStatus, note_id: noteId, version_id: noteVersionId, conflict } = cardTarget ?? {};
+  useEffect(() => {
+    if (!noteJobId || noteStatus !== 'SUCCEEDED' || !noteVersionId) return;
+    if (conflict) {
+      setCardState({ key: "study.chooseNoteVersionBeforeCards" });
+      return;
+    }
+    let live = true;
+    setCardState({ key: "study.generatingCandidateCards" });
+    api.post<{items: unknown[]}>('/study/notes/' + noteId + '/cards', {
+      version_id: noteVersionId,
+      note_job_id: noteJobId,
+    }).then(result => {
+      if (!live) return;
+      setCardState({ key: "study.candidateCardsGenerated", values: { version: noteVersionId, count: result.items.length } });
+      remember(draftKey(id) + ':cards', '');
+      setCardJob(0);
+    }).catch(e => {
+      if (live) setCardState({ key: "study.cardGenerationError", values: { reason: e.message } });
+    });
+    return () => { live = false };
+  }, [noteJobId, noteStatus, noteId, noteVersionId, conflict, cardRetry, id]);
   function organize(end:boolean,cards=false,focus=anchor){
     perform('note-'+(data?.messages.length||0)+'-'+selectNote+'-'+end+'-'+(focus||'')+'-'+cards,async key=>{
       const queued=await api.post<Job>(path+'/note-jobs',{request_id:key,focus_message_id:focus,note_id:selectNote?Number(selectNote):undefined});
