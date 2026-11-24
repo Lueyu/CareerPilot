@@ -3,7 +3,7 @@ import json
 import math
 import re
 
-from app.i18n import message
+from app.i18n import Locale, message
 
 FENCE = re.compile(r"(?:^|\n)```study-blocks[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*$")
 KINDS = {'architecture', 'flow', 'sequence', 'state'}
@@ -40,8 +40,8 @@ def teaching_diagram_fallback(question, language=None):
     }, [], 0)
 
 
-def block_prompt(action, question, sources):
-    return message("blocks.text_only" if TEXT_ONLY.search(question) else "blocks.instructions")
+def block_prompt(action, question, sources, *, language: Locale | None = None):
+    return message("blocks.text_only" if TEXT_ONLY.search(question) else "blocks.instructions", language)
 
 
 def text(value, limit):

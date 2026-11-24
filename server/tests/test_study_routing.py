@@ -15,6 +15,7 @@ from test_llm_stream_transport import CONFIG, DONE, Body, frame, install
 from app import db
 from app.api.v1 import study_chat as api
 from app.config import get_settings
+from app.i18n import using_language
 from app.models import AppSetting, Project
 from app.services import llm
 from app.services import study_chat as worker
@@ -173,6 +174,85 @@ def study(monkeypatch, db_session, test_workspace):
 def response(content):
     return httpx.Response(200, headers={"content-type": "text/event-stream"},
                           stream=Body([frame(content), frame(finish="stop"), DONE]))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("language", ["en", "zh-CN"])
+@pytest.mark.parametrize("path", ["transport_failover", "artifact_repair", "manual_retry"])
+async def test_native_chat_envelope_uses_the_admitted_language_on_every_call(
+    study, monkeypatch, db_session, test_workspace, language, path,
+):
+    ask, _ = study
+    english = language == "en"
+    opposite = "zh-CN" if english else "en"
+    previous = "岗位原文写着「复现故障」。" if english else 'The posting says "reproduce failures."'
+    prior_reply = "先记下原文。" if english else "Keep that exact wording."
+    current = ("请用两句话说说如何确定岗位最看重的能力。" if english
+               else "Explain how to identify the skill a role values most. Please respond in English.")
+    source = {"kind": "fixture", "id": 42, "label": "Original", "text": previous}
+
+    async def gather(_session, turn, _timeout, _save):
+        turn["sources"] = [source]
+
+    monkeypatch.setattr(worker, "_gather_sources", gather)
+    replies = [response(prior_reply)]
+
+    async def provider(_request):
+        return replies.pop(0)
+
+    requests = install(monkeypatch, None, handler=provider)
+    test_workspace.target_role = "Synthetic QA engineer"
+    await db_session.commit()
+    sid = (await api.create(api.StartSession(topic=previous), db_session, test_workspace))["id"]
+    with using_language(opposite):
+        prior = await ask(previous, sid=sid)
+    requests.clear()
+    answer = "Check repeated requirements." if english else "先检查多次出现的任职要求。"
+    if path == "artifact_repair":
+        block = {"type": "demo", "preset": "retry", "title": answer, "summary": answer}
+        replies.extend([response("Draft without a block."), response(f"{answer}\n```study-blocks\n{json.dumps([block])}\n```")])
+    else:
+        replies.extend([httpx.Response(503 if path == "transport_failover" else 401), response(answer)])
+    tasks = BackgroundTasks()
+    with using_language(language):
+        ticket = await api.send(sid, api.NewMessage(
+            request_id="admitted-language", content=current,
+            action="demo" if path == "artifact_repair" else "explain",
+            mode="flash" if path == "manual_retry" else "auto",
+        ), tasks, db_session, test_workspace)
+    with using_language(opposite):
+        await tasks()
+        if path == "manual_retry":
+            retry = BackgroundTasks()
+            queued = await api.retry(sid, ticket["assistant_message_id"], retry, db_session, test_workspace)
+            assert queued["attempt"] == 2
+            await retry()
+    reply = (await api.detail(sid, db_session, test_workspace))["messages"][-1]
+    assert reply["status"] == "completed" and reply["content"] == answer
+    assert len(requests) == 2 and not replies
+    expected_retry = None if path == "manual_retry" else path
+    assert [call["retry_kind"] for call in reply["trace"]["calls"]] == [None, expected_retry]
+    for index, payload in enumerate(requests):
+        assert payload["stream"] is True
+        assert payload["max_tokens"] == reply["trace"]["calls"][index]["output_limit"]
+        system, user = (message["content"] for message in payload["messages"])
+        assert system.split("\n\n")[-1].startswith("Write the reply in English" if english else "回复统一使用简体中文")
+        assert "repository_observation" in system and "study-blocks" in system
+        repair = "The previous draft lacked a valid teaching artifact" if english else "前一版缺少可校验的教学产物"
+        assert (repair in system) == (path == "artifact_repair" and index == 1)
+        transcript, _, tail = user.partition("\n\n")
+        wrapper, _, question = tail.partition("\n")
+        assert wrapper.startswith("Answer the latest user message below in English" if english else "请用简体中文回答下面这条最新用户消息")
+        assert question == current
+        if english:
+            assert not any("\u4e00" <= char <= "\u9fff" for char in system + wrapper)
+        context = json.loads(transcript)
+        assert context["target_role"] == "Synthetic QA engineer"
+        assert context["materials"] == [source] and context["topic"] == previous
+        assert [(turn["speaker"], turn["text"]) for turn in context["turns"]] == [
+            ("user", previous), ("assistant", prior_reply),
+        ]
+        assert context["turns"][-1]["id"] == prior["id"]
 
 
 @pytest.mark.asyncio
