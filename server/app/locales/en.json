@@ -43,6 +43,8 @@
   "guide.sources": "Project-related quotes",
   "guide.attribution": "These quotes preserve the original attribution. Individual contributions and project outcomes need independent verification.",
   "guide.citation": "Project {project_id} · {speaker} · Message {message_id}",
+  "guide.no_output_budget": "The selected model has no output budget for interview questions. Check the study model settings.",
+  "guide.output_instruction": "Return one complete JSON object that follows the schema below. Aim for two to four steps, two or three comparison rows, and one or two follow-ups. Keep each field brief without omitting required content or altering source quotes.",
   "diagram.title": "How a queue and worker recover",
   "diagram.summary": "If a worker crashes after saving the result but before acknowledging the task, the queue may redeliver it. Make result writes idempotent.",
   "diagram.sender": "Producer",

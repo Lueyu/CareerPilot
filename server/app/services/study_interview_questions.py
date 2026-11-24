@@ -9,8 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import aliased
 
-from app.i18n import message as localized_message, request_language
 from app.config import get_settings
+from app.i18n import message as localized_message
+from app.i18n import request_language
 from app.models import Question, Workspace
 from app.models.question import SOURCE_GENERATED, STUDY_CHAT_REVIEW_META
 from app.models.study_chat import StudyInterviewQuestion, StudyMessage, StudySession
@@ -136,6 +137,7 @@ async def complete_turns(db, session_id):
 
 
 def organizer_profile(base, user, assistant, session_mode):
+    settings = get_settings()
     coach = assistant.coach or {}
     trace = coach.get("trace") or {}
     mode = coach.get("mode") or (user.coach or {}).get("mode") or trace.get("mode")
@@ -144,13 +146,17 @@ def organizer_profile(base, user, assistant, session_mode):
         tier = session_mode
 
     def usable(selected):
-        cfg = profile(base, selected)
-        return cfg if cfg and all(cfg.get(key) for key in ("model", "provider", "base_url", "api_key")) else None
+        cfg = profile(base, selected, settings)
+        if not cfg or not all(cfg.get(key) for key in ("model", "provider", "base_url", "api_key")):
+            return None
+        output_limit = min(settings.study_output_budget, getattr(settings, f"study_{selected}_output_tokens"))
+        if cfg.get("output_limit") is not None:
+            output_limit = min(output_limit, cfg["output_limit"])
+        return {**cfg, "output_limit": output_limit}
 
     if tier in ("flash", "strong"):
         return usable(tier)
     # Older turns can have a model name but no routing trace.
-    settings = get_settings()
     flash_model = settings.study_flash_model or base.get("model")
     if assistant.model and assistant.model == settings.study_strong_model and assistant.model != flash_model:
         return usable("strong")
@@ -205,12 +211,16 @@ async def generate_question(db, workspace_id, session_id, *, session_mode):
         return saved
     if cfg is None:
         raise HTTPException(502, localized_message("errors.no_model_is_configured_for_this_study_tier_check"))
+    if cfg["output_limit"] <= 0:
+        raise HTTPException(502, localized_message("guide.no_output_budget"))
 
-    instruction = teaching_prompt("interview_question") + "\n仅输出符合以下 JSON Schema 的对象：\n" + json.dumps(
-        Guide.model_json_schema(), ensure_ascii=False)
-    output_limit = min(4500, max(1, get_settings().study_output_budget))
+    instruction = "\n".join((
+        teaching_prompt("interview_question"),
+        localized_message("guide.output_instruction"),
+        json.dumps(Guide.model_json_schema(), ensure_ascii=False),
+    ))
     try:
-        guide, _ = await read_json(instruction, payload, Guide, config={**cfg, "output_limit": output_limit})
+        guide, _ = await read_json(instruction, payload, Guide, config=cfg)
         answer_html = render_guide(guide, turns)
     except GenerationError:
         raise HTTPException(502, localized_message("errors.could_not_generate_the_interview_question_try_again")) from None

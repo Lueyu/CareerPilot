@@ -126,6 +126,76 @@ async def turn(db, sid, request, text, answer, *, status="completed", project=No
     return user, reply
 
 
+@pytest.mark.parametrize(("tier", "tier_limit", "study_budget", "config_limit", "expected_limit"), [
+    ("flash", 6000, 16000, None, 6000),
+    ("strong", 12000, 16000, None, 12000),
+    ("flash", 6000, 3200, None, 3200),
+    ("strong", 2400, 16000, None, 2400),
+    ("flash", 6000, 16000, 1800, 1800),
+    ("strong", 12000, 0, None, 0),
+])
+@pytest.mark.asyncio
+async def test_interview_question_respects_budget_and_rejects_truncation(
+    chat_client, db_session, monkeypatch, tier, tier_limit, study_budget, config_limit, expected_limit,
+):
+    client, owner, _ = chat_client
+    settings = get_settings()
+    monkeypatch.setattr(settings, "study_flash_model", "flash-fixture")
+    monkeypatch.setattr(settings, "study_flash_thinking", "enabled")
+    monkeypatch.setattr(settings, "study_strong_model", "strong-fixture")
+    for name in ("provider", "base_url", "api_key"):
+        monkeypatch.setattr(settings, f"study_strong_{name}", "")
+    monkeypatch.setattr(settings, f"study_{tier}_output_tokens", tier_limit)
+    monkeypatch.setattr(settings, "study_output_budget", study_budget)
+
+    async def config():
+        base = {"model": "base-fixture", "provider": "fixture", "api_key": "fixture",
+                "base_url": "https://fixture.invalid"}
+        if config_limit is not None:
+            base["output_limit"] = config_limit
+        return base
+
+    monkeypatch.setattr(study_interview_questions, "get_llm_config", config)
+    sent = []
+    title = "How would you make duplicate task delivery safe?"
+    provider_requirement = 5000
+    original_client = httpx.AsyncClient
+
+    def event(delta, finish=None):
+        return "data: " + json.dumps({
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+        }) + "\n\n"
+
+    def upstream(request):
+        payload = json.loads(request.content)
+        sent.append(payload)
+        finish = "stop" if payload["max_tokens"] >= provider_requirement else "length"
+        # Even valid JSON is unusable when the provider marks the stream truncated.
+        body = event({"content": json.dumps({**GUIDE, "title": title})}) + event({}, finish) + "data: [DONE]\n\n"
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(
+        transport=httpx.MockTransport(upstream), **kwargs))
+    headers = {**owner, "Accept-Language": "en"}
+    sid = await new_chat(client, headers)
+    await turn(db_session, sid, "budget-fixture", "How do retries affect this design?", "重试时使用相同的业务键。",
+               reply_coach={"trace": {"tier": tier}})
+    path = f"/study/sessions/{sid}/interview-question"
+
+    response = await client.post(path, headers=headers)
+    assert [payload["max_tokens"] for payload in sent] == ([expected_limit] if expected_limit else [])
+    saved = await client.get(path, headers=headers)
+    if expected_limit < provider_requirement:
+        assert response.status_code == 502 and saved.json() is None
+    else:
+        assert response.status_code == 200, response.text
+        assert response.json()["title"] == title
+        assert saved.json() == response.json()
+    if sent:
+        assert sent[0]["model"] == f"{tier}-fixture"
+        assert sent[0].get("thinking") == ({"type": "enabled"} if tier == "flash" else None)
+
+
 @pytest.mark.parametrize(("global_enabled", "strong_enabled", "session_mode", "latest_metadata", "expected"), [
     (False, True, "auto", {"mode": "auto", "trace": {"tier": "strong"}}, "strong"),
     (True, True, "flash", {"mode": "auto", "trace": {"tier": "strong"}}, "strong"),
