@@ -10,7 +10,7 @@ Practice for interviews with questions you have actually been asked and projects
 
 *Your import service receives the same file twice. How do you make sure it creates only one job?*
 
-In the included workspace, Lin Zhou proposes a unique request key and describes how to write the job and its outgoing message in one transaction. The review points out that returning the existing job on every conflict would silently accept a different file sent with the same key. Open **围绕这个问题学习** beside the question to discuss that case, then revisit it in the learning plan.
+In the included workspace, Lin Zhou proposes a unique request key and describes how to write the job and its outgoing message in one transaction. The review points out that returning the existing job on every conflict would silently accept a different file sent with the same key. Open **Study this question** beside the question to discuss that case, then revisit it in the learning plan.
 
 ## Bring your own material
 
@@ -31,7 +31,7 @@ cp .env.example .env
 docker compose up -d --build --wait
 ```
 
-Open [your local workspace](http://127.0.0.1:5173/). The interface is in Chinese. To explore Lin Zhou’s interview history, run `docker compose exec server python -m app.showcase`, refresh, and select **林舟的求职笔记** in the workspace menu. Live AI conversations require a configured model provider. [Local setup guide](docs/getting-started.md)
+Open [your local workspace](http://127.0.0.1:5173/). Choose **English** or **简体中文** in the language selector. New AI replies and interview questions follow your choice. Your notes, answers and quotations keep their original wording. To explore Lin Zhou’s interview history, run `docker compose exec server python -m app.showcase`, refresh, and select **林舟的求职笔记** in the workspace menu. Live AI conversations require a configured model provider. [Local setup guide](docs/getting-started.md)
 
 Domain setup for the hosted service is in progress. Its launch address is [interview-buddy.com](https://interview-buddy.com/). In the meantime, you can run CareerPilot locally or ask about availability in [Discussions](https://github.com/Lueyu/CareerPilot/discussions/categories/q-a).
 
