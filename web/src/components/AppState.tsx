@@ -1,9 +1,12 @@
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
+import { useT } from '../i18n';
+
+type ToastText = string | ((translate: ReturnType<typeof useT>) => string);
 
 interface Toast {
   id: number;
   ic: string;
-  text: string;
+  text: ToastText;
 }
 
 interface AppState {
@@ -15,12 +18,13 @@ interface AppState {
   setQuickOpen: (v: boolean) => void;
   wsOpen: boolean;
   setWsOpen: (v: boolean) => void;
-  toast: (ic: string, text: string) => void;
+  toast: (ic: string, text: ToastText) => void;
 }
 
 const Ctx = createContext<AppState | null>(null);
 
 export function AppStateProvider({ children }: { children: React.ReactNode }) {
+  const translate = useT();
   const [cmdOpen, setCmdOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -28,7 +32,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const idRef = useRef(1);
 
-  const toast = useCallback((ic: string, text: string) => {
+  const toast = useCallback((ic: string, text: ToastText) => {
     const id = idRef.current++;
     setToasts((t) => [...t, { id, ic, text }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 2600);
@@ -43,7 +47,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         {toasts.map((t) => (
           <div className="toast" key={t.id}>
             <span className="toast-ic">{t.ic}</span>
-            {t.text}
+            {typeof t.text === 'string' ? t.text : t.text(translate)}
           </div>
         ))}
       </div>

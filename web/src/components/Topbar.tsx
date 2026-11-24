@@ -1,33 +1,35 @@
+import { useT } from '../i18n';
 import { getWorkspace, sendLocalFeedback, workspaceStorageKey } from '../api/client';
 import React, { useContext, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { WorkspaceApiContext } from '../seed/api';
 import FeedbackDialog from './FeedbackDialog';
+import LanguageSelector from './LanguageSelector';
 
 const PAGE_NAMES: Record<string, string> = {
-  '/': '首页',
-  '/benchmark': '能力与岗位 · 岗位对标',
-  '/profile': '能力与岗位 · 能力画像',
-  '/exam': '考试与面经 · 考试中心',
-  '/exam/diagnosis': '独立诊断',
-  '/exam/diagnosis/report': '诊断报告',
-  '/study/chat': '学习聊天',
-  '/study/notes': '我的笔记 / 复习',
-  '/learning': '学习计划',
-  '/bank': '面试题库',
-  '/assets': '项目与简历',
-  '/memory': '记忆中心',
-  '/observatory': '系统观测台',
-  '/evolution': '进化实验室',
-  '/settings': '设置',
-  '/settings/account': '账户与资料',
-  '/beta': 'Beta 记录',
-  '/beta/bank': 'Beta 题库',
-  '/beta/study/chat': 'Beta 教练',
-  '/beta/study/notes': 'Beta 笔记',
-  '/beta/exam': 'Beta 答题',
-  '/beta/learning': 'Beta 学习日历',
-  '/beta/memory': 'Beta 记忆',
+  '/': 'shell.home',
+  '/benchmark': 'shell.benchmarkBreadcrumb',
+  '/profile': 'shell.profileBreadcrumb',
+  '/exam': 'shell.examBreadcrumb',
+  '/exam/diagnosis': 'shell.diagnosis',
+  '/exam/diagnosis/report': 'shell.diagnosisReport',
+  '/study/chat': 'shell.studyChat',
+  '/study/notes': 'shell.studyNotes',
+  '/learning': 'shell.learningPlan',
+  '/bank': 'shell.questionBank',
+  '/assets': 'shell.projectsResume',
+  '/memory': 'shell.memoryCenter',
+  '/observatory': 'shell.observatory',
+  '/evolution': 'shell.evolutionLab',
+  '/settings': 'shell.settings',
+  '/settings/account': 'shell.accountProfile',
+  '/beta': 'shell.betaRecords',
+  '/beta/bank': 'shell.betaBank',
+  '/beta/study/chat': 'shell.betaCoach',
+  '/beta/study/notes': 'shell.betaNotes',
+  '/beta/exam': 'shell.betaExam',
+  '/beta/learning': 'shell.betaCalendar',
+  '/beta/memory': 'shell.betaMemory',
 };
 
 type Theme = 'light' | 'dark';
@@ -54,16 +56,17 @@ export default function Topbar({ beforeCrumb, workspaceLabel, actions }: {
   workspaceLabel: string;
   actions?: TopbarActions;
 }) {
+  const t = useT();
   const { pathname } = useLocation();
   const workspaceApi = useContext(WorkspaceApiContext);
   const [theme, setTheme] = useState<Theme>(currentTheme);
   React.useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
-  const name =
+  const nameKey =
     PAGE_NAMES[pathname] ??
     // 动态路由按前缀匹配
-    (Object.entries(PAGE_NAMES).sort((a, b) => b[0].length - a[0].length).find(([p]) => p !== '/' && pathname.startsWith(p))?.[1] ?? '总览');
+    (Object.entries(PAGE_NAMES).sort((a, b) => b[0].length - a[0].length).find(([p]) => p !== '/' && pathname.startsWith(p))?.[1] ?? 'shell.overview');
 
   const toggleTheme = () => {
     const next: Theme = theme === 'dark' ? 'light' : 'dark';
@@ -81,24 +84,25 @@ export default function Topbar({ beforeCrumb, workspaceLabel, actions }: {
         {beforeCrumb}
         <span>{workspaceLabel}</span>
         <span className="crumb-sep">/</span>
-        <span className="crumb-cur">{name}</span>
+        <span className="crumb-cur">{t(nameKey)}</span>
       </div>
       <div className="topbar-right">
         {actions && (
           <>
             <button className="search-box" type="button" onClick={actions.search}
-              aria-label="全局搜索" aria-haspopup="dialog" title="全局搜索">
+              aria-label={t('shell.search')} aria-haspopup="dialog" title={t('shell.search')}>
               <span aria-hidden="true">🔍</span>
-              <span className="topbar-search-label">搜索技能、证据、任务</span>
+              <span className="topbar-search-label">{t('shell.searchPrompt')}</span>
               <span className="kbd" aria-hidden="true">⌘K</span>
             </button>
             <button className="btn btn-primary" type="button" onClick={actions.quick}
-              aria-label="快捷操作" aria-haspopup="dialog" title="快捷操作">
+              aria-label={t('shell.quickActions')} aria-haspopup="dialog" title={t('shell.quickActions')}>
               <span aria-hidden="true">+</span>
-              <span className="topbar-quick-label">快捷操作</span>
+              <span className="topbar-quick-label">{t('shell.quickActions')}</span>
             </button>
           </>
         )}
+        <LanguageSelector />
         <FeedbackDialog key={getWorkspace()} send={workspaceApi
           ? (submission, signal) => workspaceApi.send('/product-feedback', 'POST', submission, {
             signal, mode: 'same-origin', redirect: 'error', expectedStatus: 200,
@@ -107,13 +111,13 @@ export default function Topbar({ beforeCrumb, workspaceLabel, actions }: {
         <button
           className="icon-btn"
           onClick={toggleTheme}
-          title={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式（护眼）'}
-          aria-label="切换主题"
+          title={theme === 'dark' ? t('shell.lightTheme') : t('shell.darkTheme')}
+          aria-label={t('shell.toggleTheme')}
         >
           {theme === 'dark' ? '☀️' : '🌙'}
         </button>
         {actions && <div style={{ position: 'relative' }}>
-          <button className="icon-btn" onClick={actions.notifications}>
+          <button className="icon-btn" onClick={actions.notifications} aria-label={t('shell.notifications')}>
             🔔
           </button>
         </div>}

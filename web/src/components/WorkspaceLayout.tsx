@@ -1,3 +1,4 @@
+import { useT } from '../i18n';
 import React from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { AppStateProvider } from './AppState';
@@ -13,6 +14,7 @@ export type WorkspaceLayoutProps =
   | { workspace: Extract<SidebarWorkspace, { kind: 'registered' }>; overlays?: never };
 
 export function WorkspaceLayout({ workspace, overlays }: WorkspaceLayoutProps) {
+  const t = useT();
   const { pathname, key } = useLocation();
   const registered = workspace.kind === 'registered';
   const study = pathname.startsWith('/study/');
@@ -47,20 +49,20 @@ export function WorkspaceLayout({ workspace, overlays }: WorkspaceLayoutProps) {
           ref={mobileNav}
           id={drawerId}
           className="workspace-mobile-drawer"
-          aria-label="CareerPilot 导航"
+          aria-label={t('shell.careerPilotNav')}
           onClose={() => setMobileNavOpen(false)}
           onClick={event => {
             const target = event.target;
             if (target === event.currentTarget || (target instanceof Element && target.closest('a, button.ws-card'))) closeMenu();
           }}
         >
-          <button className="btn btn-outline workspace-mobile-nav-close" type="button" onClick={closeMenu}>关闭菜单</button>
+          <button className="btn btn-outline workspace-mobile-nav-close" type="button" onClick={closeMenu}>{t('shell.closeMenu')}</button>
           {mobileNavOpen && <Sidebar workspace={workspace} />}
         </dialog>
       )}
       <div className="app-main">
         <Topbar
-          workspaceLabel={registered ? workspace.label : '个人工作空间'}
+          workspaceLabel={registered ? workspace.label : t('shell.personalWorkspace')}
           actions={workspace.kind === 'personal' ? workspace.actions : undefined}
           beforeCrumb={usesMobileDrawer && (
             <button
@@ -73,11 +75,11 @@ export function WorkspaceLayout({ workspace, overlays }: WorkspaceLayoutProps) {
                 mobileNav.current?.showModal();
                 setMobileNavOpen(true);
               }}
-            >菜单</button>
+            >{t('shell.menu')}</button>
           )}
         />
         <div className={study ? 'app-body app-body-study' : 'app-body'}>
-          <React.Suspense fallback={<p role="status">正在打开页面…</p>}><Outlet /></React.Suspense>
+          <React.Suspense fallback={<p role="status">{t('shell.openingPage')}</p>}><Outlet /></React.Suspense>
         </div>
       </div>
       {overlays}
@@ -90,9 +92,10 @@ export interface RegisteredWorkspaceLayoutProps {
 }
 
 export function RegisteredWorkspaceLayout({ accountName }: RegisteredWorkspaceLayoutProps) {
+  const t = useT();
   return (
     <AppStateProvider>
-      <WorkspaceLayout workspace={{ kind: 'registered', label: '我的工作空间', name: accountName }} />
+      <WorkspaceLayout workspace={{ kind: 'registered', label: t('shell.myWorkspace'), name: accountName }} />
     </AppStateProvider>
   );
 }

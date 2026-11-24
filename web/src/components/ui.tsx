@@ -1,14 +1,25 @@
+import { t, useT } from '../i18n';
 import React, { ReactNode } from 'react';
 import { STATUS_META } from '../data/demo';
 import { getWorkspace } from '../api/client';
 
+const STATUS_LABEL_KEYS = new Map([
+  ['UNKNOWN', 'shell.statusUnknown'],
+  ['NEEDS_VALIDATION', 'shell.statusNeedsValidation'],
+  ['BELOW_TARGET', 'shell.statusBelowTarget'],
+  ['MEETS_TARGET', 'shell.statusMeetsTarget'],
+  ['ABOVE_TARGET', 'shell.statusAboveTarget'],
+]);
+
 // —— 状态徽章 ——
 export function StatusChip({ status, label }: { status: string; label?: string }) {
+  const t = useT();
   const m = (STATUS_META as Record<string, { label: string; cls: string; dot: string }>)[status] || { label: status, cls: 'chip-slate', dot: 'dot-slate' };
+  const labelKey = STATUS_LABEL_KEYS.get(status);
   return (
     <span className={`chip ${m.cls}`}>
       <span className={`status-dot ${m.dot}`} />
-      {label ?? m.label}
+      {label ?? (labelKey ? t(labelKey) : m.label)}
     </span>
   );
 }
@@ -17,11 +28,12 @@ export { PageHead } from './PageHead';
 
 // —— DEMO 横幅 ——
 export function DemoBanner({ text }: { text?: string }) {
+  const t = useT();
   if (getWorkspace() !== 'demo') return null;
   return (
     <div className="demo-banner">
-      <span className="demo-tag">DEMO</span>
-      <span>{text ?? '演示工作空间 · 与个人空间隔离，记录仅用于演示。'}</span>
+      <span className="demo-tag">{t('shell.demoTag')}</span>
+      <span>{text ?? t('shell.demoBanner')}</span>
     </div>
   );
 }
@@ -40,6 +52,7 @@ export function Modal({
   footer?: ReactNode;
   size?: 'sm' | 'lg' | 'xl';
 }) {
+  const t = useT();
   return (
     <div className="modal-mask" onClick={onClose}>
       <div
@@ -48,7 +61,7 @@ export function Modal({
       >
         <div className="modal-head">
           <div className="modal-title">{title}</div>
-          <button className="modal-x" onClick={onClose}>✕</button>
+          <button className="modal-x" onClick={onClose} aria-label={t('shell.close')}>✕</button>
         </div>
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}
@@ -96,10 +109,11 @@ export function SegBars({
 }: {
   items: { name: string; current: number | null; weight: number; color?: string }[];
 }) {
+  const t = useT();
   return (
     <div className="seg-bars">
-      {items.map((it) => (
-        <div className="seg-row" key={it.name}>
+      {items.map((it, index) => (
+        <div className="seg-row" key={index}>
           <span className="seg-name">{it.name}</span>
           <div className="seg-track">
             <div
@@ -110,7 +124,7 @@ export function SegBars({
               }}
             />
           </div>
-          <span className="seg-val">{it.current == null ? '未知' : it.current.toFixed(1)}</span>
+          <span className="seg-val">{it.current == null ? t('shell.unknown') : it.current.toFixed(1)}</span>
         </div>
       ))}
     </div>
@@ -141,32 +155,38 @@ export function Empty({ ic = '🗂️', title, sub }: { ic?: string; title: stri
 
 // —— 难度 ——
 export function DiffLabel({ d }: { d: number }) {
+  const t = useT();
   const map: Record<number, [string, string]> = {
-    1: ['简单', 'chip-green'],
-    2: ['中等', 'chip-amber'],
-    3: ['较难', 'chip-red'],
-    4: ['困难', 'chip-red'],
+    1: ['shell.difficultyEasy', 'chip-green'],
+    2: ['shell.difficultyMedium', 'chip-amber'],
+    3: ['shell.difficultyChallenging', 'chip-red'],
+    4: ['shell.difficultyHard', 'chip-red'],
   };
-  const [label, cls] = map[d] ?? ['中等', 'chip-amber'];
-  return <span className={`chip ${cls}`}>{label}</span>;
+  const [label, cls] = map[d] ?? ['shell.difficultyMedium', 'chip-amber'];
+  return <span className={`chip ${cls}`}>{t(label)}</span>;
 }
 
 // —— v3.1 M3: 等级 → 通俗语言 ——
 export function plainLevel(level: number | null | undefined): string {
-  if (level == null) return '还没有可靠评估';
-  if (level < 1.5) return '刚接触，还停留在概念层面';
-  if (level < 2.5) return '初步达到基础理解，还没到独立干活的程度';
-  if (level < 3.5) return '能独立完成常规任务，复杂场景还需要支持';
-  if (level < 4.5) return '能够独立设计并验证方案';
-  return '精通：能定义标准、带人踩坑';
+  if (level == null) return t('shell.levelUnassessed');
+  if (level < 1.5) return t('shell.levelIntroductory');
+  if (level < 2.5) return t('shell.levelBasic');
+  if (level < 3.5) return t('shell.levelIndependent');
+  if (level < 4.5) return t('shell.levelDesign');
+  return t('shell.levelExpert');
 }
 
 // API confidence is an observation-count heuristic, not calibrated accuracy.
-export const OBSERVATION_COVERAGE_NOTE = '观察覆盖按独立观察数量作启发式提示，不代表评分准确率，也不是结论可靠性的概率。';
+function ObservationCoverageNote() {
+  const t = useT();
+  return t('shell.coverageNote');
+}
+
+export const OBSERVATION_COVERAGE_NOTE = <ObservationCoverageNote />;
 export function plainConfidence(c: number | null | undefined): string {
-  if (c == null || !Number.isFinite(c)) return '观察覆盖未知';
-  if (c >= 0.5) return '已有更多独立观察';
-  return '观察覆盖较少';
+  if (c == null || !Number.isFinite(c)) return t('shell.coverageUnknown');
+  if (c >= 0.5) return t('shell.coverageHigher');
+  return t('shell.coverageLower');
 }
 
 // —— v3.1 M2: 页面 Tab 头(合并页容器用) ——

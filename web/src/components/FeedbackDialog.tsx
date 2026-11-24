@@ -1,3 +1,4 @@
+import { useT } from '../i18n';
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { ApiError } from '../api/client';
 import { SeedApiError } from '../seed/api';
@@ -6,12 +7,13 @@ import {
 } from '../api/feedback';
 import './feedbackDialog.css';
 
-const tabs = ['提意见', '发起 PR'] as const;
+const tabs = ['shell.feedback', 'shell.openPr'] as const;
 type FeedbackState =
   | { kind: 'idle' | 'sending' | 'sent' }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; status: number };
 
 export default function FeedbackDialog({ send }: { send: SendFeedback }) {
+  const t = useT();
   const id = useId();
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -52,6 +54,7 @@ export default function FeedbackDialog({ send }: { send: SendFeedback }) {
   const length = Array.from(message).length;
   const compareUrl = feedbackCompareUrl(owner.trim(), branch);
   const busy = state.kind === 'sending';
+  const [forkBefore, forkAfter] = t('shell.feedbackPrInstructions', { fork: '{fork}' }).split('{fork}');
 
   function moveTab(event: KeyboardEvent<HTMLButtonElement>) {
     const { key } = event;
@@ -75,7 +78,7 @@ export default function FeedbackDialog({ send }: { send: SendFeedback }) {
       const result = await send({ submission_id: submissionId, message }, controller.signal);
       if (controller.signal.aborted) return;
       if (!feedbackWasSent(result)) {
-        setState({ kind: 'error', message: feedbackResult(0) });
+        setState({ kind: 'error', status: 0 });
         return;
       }
       submissions.current.delete(message);
@@ -88,7 +91,7 @@ export default function FeedbackDialog({ send }: { send: SendFeedback }) {
         return;
       }
       const status = error instanceof ApiError || error instanceof SeedApiError ? error.status : 0;
-      setState({ kind: 'error', message: feedbackResult(status) });
+      setState({ kind: 'error', status });
     } finally {
       if (request.current === controller) request.current = null;
     }
@@ -96,11 +99,12 @@ export default function FeedbackDialog({ send }: { send: SendFeedback }) {
 
   return <>
     <button ref={trigger} className="btn feedback-entry" type="button" aria-haspopup="dialog"
+      aria-label={t('shell.feedback')}
       aria-controls={id} aria-expanded={open} onClick={() => {
         dialog.current?.showModal();
         setOpen(true);
         tabButtons.current[0]?.focus();
-      }}>提意见</button>
+      }}>{t('shell.feedback')}<span className="feedback-entry-icon" aria-hidden="true">✉</span></button>
     <dialog ref={dialog} className="feedback-dialog" id={id} aria-labelledby={id + '-title'}
       onClose={() => {
         setOpen(false);
@@ -108,48 +112,48 @@ export default function FeedbackDialog({ send }: { send: SendFeedback }) {
         trigger.current?.focus();
       }}>
       <header className="feedback-dialog-header">
-        <h2 id={id + '-title'}>意见与贡献</h2>
-        <button className="btn feedback-close" type="button" onClick={() => dialog.current?.close()}>关闭</button>
+        <h2 id={id + '-title'}>{t('shell.feedbackContribute')}</h2>
+        <button className="btn feedback-close" type="button" onClick={() => dialog.current?.close()}>{t('shell.close')}</button>
       </header>
-      <div className="feedback-tabs" role="tablist" aria-label="意见与贡献">
-        {tabs.map((label, index) => <button key={label} type="button" role="tab"
+      <div className="feedback-tabs" role="tablist" aria-label={t('shell.feedbackContribute')}>
+        {tabs.map((labelKey, index) => <button key={labelKey} type="button" role="tab"
           ref={element => { tabButtons.current[index] = element; }}
           id={id + '-tab-' + index} aria-controls={id + '-panel-' + index}
           aria-selected={tab === index} tabIndex={tab === index ? 0 : -1}
-          onKeyDown={moveTab} onClick={() => setTab(index)}>{label}</button>)}
+          onKeyDown={moveTab} onClick={() => setTab(index)}>{t(labelKey)}</button>)}
       </div>
       <div role="tabpanel" id={id + '-panel-0'} aria-labelledby={id + '-tab-0'} hidden={tab !== 0}>
         <form className="feedback-form" onSubmit={submit}>
-          <label htmlFor={id + '-message'}>你的意见</label>
+          <label htmlFor={id + '-message'}>{t('shell.yourFeedback')}</label>
           <textarea id={id + '-message'} value={draft} readOnly={busy} autoComplete="off"
             aria-describedby={id + '-privacy'} aria-invalid={length > 2000}
-            placeholder="哪里不顺手？你希望怎样改进？"
+            placeholder={t('shell.feedbackPrompt')}
             onChange={event => {
               setDraft(event.target.value);
               setState({ kind: 'idle' });
             }} />
-          {length > 2000 && <p role="alert">反馈最多 2000 字，请缩短后发送。</p>}
-          <p id={id + '-privacy'}>反馈文本会发送至内容审核服务，通过后以邮件发给维护者。请勿填写隐私或账号信息。</p>
+          {length > 2000 && <p role="alert">{t('shell.feedbackTooLong')}</p>}
+          <p id={id + '-privacy'}>{t('shell.feedbackPrivacy')}</p>
           <button className="btn btn-primary" type="submit" disabled={busy || length < 1 || length > 2000}>
-            {busy ? '正在发送…' : '发送反馈'}
+            {busy ? t('shell.feedbackSending') : t('shell.sendFeedback')}
           </button>
-          {state.kind === 'sent' && <p role="status">反馈已交给邮件服务器。</p>}
-          {state.kind === 'error' && <p role="alert">{state.message}</p>}
+          {state.kind === 'sent' && <p role="status">{t('shell.feedbackSent')}</p>}
+          {state.kind === 'error' && <p role="alert">{feedbackResult(state.status, t)}</p>}
         </form>
       </div>
       <div role="tabpanel" id={id + '-panel-1'} aria-labelledby={id + '-tab-1'} hidden={tab !== 1}>
         <div className="feedback-form">
-          <label htmlFor={id + '-owner'}>GitHub 用户名</label>
+          <label htmlFor={id + '-owner'}>{t('shell.githubUsername')}</label>
           <input id={id + '-owner'} value={owner} onChange={event => setOwner(event.target.value)}
-            placeholder="例如 linzhou" autoComplete="off" autoCapitalize="none" spellCheck={false} />
-          <label htmlFor={id + '-branch'}>包含改动的分支</label>
+            placeholder={t('shell.githubUsernameExample')} autoComplete="off" autoCapitalize="none" spellCheck={false} />
+          <label htmlFor={id + '-branch'}>{t('shell.githubBranch')}</label>
           <input id={id + '-branch'} value={branch} onChange={event => setBranch(event.target.value)}
-            placeholder="例如 improve-search" autoComplete="off" autoCapitalize="none" spellCheck={false} />
-          <p>在 GitHub 核对差异，向 dev 提交公开 PR。还没有分支？先 <a href={feedbackForkUrl}
-            target="_blank" rel="noreferrer">Fork 仓库</a>，再创建分支并推送改动。</p>
-          {owner.trim() && branch && !compareUrl && <p role="alert">请输入有效的 GitHub 用户名和分支名。</p>}
-          {compareUrl ? <a className="btn btn-primary" href={compareUrl} target="_blank" rel="noreferrer">前往 GitHub</a>
-            : <button className="btn btn-primary" type="button" disabled>前往 GitHub</button>}
+            placeholder={t('shell.githubBranchExample')} autoComplete="off" autoCapitalize="none" spellCheck={false} />
+          <p>{forkBefore}<a href={feedbackForkUrl}
+            target="_blank" rel="noreferrer">{t('shell.forkRepository')}</a>{forkAfter}</p>
+          {owner.trim() && branch && !compareUrl && <p role="alert">{t('shell.githubInvalidRef')}</p>}
+          {compareUrl ? <a className="btn btn-primary" href={compareUrl} target="_blank" rel="noreferrer">{t('shell.goGithub')}</a>
+            : <button className="btn btn-primary" type="button" disabled>{t('shell.goGithub')}</button>}
         </div>
       </div>
     </dialog>

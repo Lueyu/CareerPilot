@@ -33,8 +33,8 @@ export function DashboardStats({ cards }: {
 }) {
   return (
     <div className="stat-row">
-      {cards.map(card => (
-        <div className="stat-mini" key={card.label}>
+      {cards.map((card, index) => (
+        <div className="stat-mini" key={index}>
           <div className="stat-mini-label">{card.ic} {card.label}</div>
           <div className="stat-mini-value">
             {card.value}{card.delta && <small className="stat-delta delta-up">{card.delta}</small>}
