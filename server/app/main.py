@@ -1,6 +1,7 @@
 """CareerPilot 后端入口: app 组装 + CORS + lifespan 建表。"""
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -86,3 +87,34 @@ app.include_router(retest_mappings.router, prefix="/api/v1")
 @app.get("/healthz")
 async def healthz():
     return {"ok": True, "service": "careerpilot-api", "scorer_model": get_settings().scorer_model_version}
+
+
+# 可选静态托管（生产部署：STATIC_DIR 指向前端构建产物目录，如 web/dist）。
+# 未设置时行为与本地开发完全一致（不挂载任何静态路由）。
+static_dir = os.environ.get("STATIC_DIR")
+if static_dir:
+    from pathlib import Path as _Path
+
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+
+    _static_root = _Path(static_dir).resolve()
+    _assets_dir = _static_root / "assets"
+    if _assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str):
+        if full_path.startswith("api/"):
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail="Not Found")
+        candidate = _static_root / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        index = _static_root / "index.html"
+        if index.is_file():
+            return FileResponse(index)
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="Not Found")
