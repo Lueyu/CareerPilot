@@ -1,23 +1,25 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { useT } from '../i18n';
 
 type Tab =
-  | { ic: string; label: string; to: string; match: (p: string) => boolean; more?: never }
-  | { ic: string; label: string; more: true; to?: never; match?: never };
+  | { ic: string; labelKey: string; to: string; match: (p: string) => boolean; more?: never }
+  | { ic: string; labelKey: string; more: true; to?: never; match?: never };
 
 const TABS: Tab[] = [
-  { ic: '🏠', label: '首页', to: '/', match: (p) => p === '/' },
-  { ic: '📚', label: '题库', to: '/bank', match: (p) => p === '/bank' || p.startsWith('/bank/') },
-  { ic: '💬', label: '学习聊天', to: '/study/chat', match: (p) => p.startsWith('/study/') },
-  { ic: '📝', label: '考试与面经', to: '/exam', match: (p) => p.startsWith('/exam') },
-  { ic: '☰', label: '更多', more: true },
+  { ic: '🏠', labelKey: 'shell.home', to: '/', match: (p) => p === '/' },
+  { ic: '📚', labelKey: 'shell.questionBank', to: '/bank', match: (p) => p === '/bank' || p.startsWith('/bank/') },
+  { ic: '💬', labelKey: 'shell.studyChat', to: '/study/chat', match: (p) => p.startsWith('/study/') },
+  { ic: '📝', labelKey: 'shell.examsInterviews', to: '/exam', match: (p) => p.startsWith('/exam') },
+  { ic: '☰', labelKey: 'shell.menu', more: true },
 ];
 
 /** 手机端底部标签栏（≤760px 显示）：首页 / 题库 / 学习聊天 / 考试与面经 / 更多(抽屉) */
 export default function MobileTabBar({ onMore, moreActive }: { onMore: () => void; moreActive: boolean }) {
   const { pathname } = useLocation();
+  const t = useT();
   return (
-    <nav className="mobile-tabbar" aria-label="主导航">
+    <nav className="mobile-tabbar" aria-label={t('shell.careerPilotNav')}>
       {TABS.map((tab) =>
         tab.more ? (
           <button
@@ -29,7 +31,7 @@ export default function MobileTabBar({ onMore, moreActive }: { onMore: () => voi
             aria-expanded={moreActive}
           >
             <span className="mobile-tab-ic" aria-hidden="true">{tab.ic}</span>
-            <span className="mobile-tab-label">{tab.label}</span>
+            <span className="mobile-tab-label">{t(tab.labelKey)}</span>
           </button>
         ) : (
           <NavLink
@@ -39,7 +41,7 @@ export default function MobileTabBar({ onMore, moreActive }: { onMore: () => voi
             className={({ isActive }) => 'mobile-tab' + (isActive || tab.match(pathname) ? ' active' : '')}
           >
             <span className="mobile-tab-ic" aria-hidden="true">{tab.ic}</span>
-            <span className="mobile-tab-label">{tab.label}</span>
+            <span className="mobile-tab-label">{t(tab.labelKey)}</span>
           </NavLink>
         ),
       )}
