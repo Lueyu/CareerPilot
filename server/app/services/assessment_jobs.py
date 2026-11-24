@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, text
 
 from app.i18n import message as localized_message
+from app.i18n import request_language
 from app.models import AnalysisStep, Exam, ExamAnswer, ScoringRun, ScoringStep, Workspace
 from app.services.assessment_rubric import JUDGE_VERSION
 from app.services.assessment_versions import digest, ensure_revision, question_snapshot
@@ -45,6 +46,7 @@ async def enqueue(session, ws, exam, *, mode='OFFICIAL'):
         if existing.workspace_id!=ws.id or existing.exam_id!=exam.id:raise ValueError('任务作用域不匹配')
         return existing
     cfg,_,_=await runtime_config(session,ws.id,require_consent=False)
+    language = request_language()
     inputs=[]
     for eq in exam.questions:
         from fastapi import HTTPException
@@ -78,7 +80,7 @@ async def enqueue(session, ws, exam, *, mode='OFFICIAL'):
         if frozen.get('qtype')=='open' and (frozen.get('rubric') or {}).get('schema_version')!=2:
             raise HTTPException(409,localized_message("errors.the_old_open_ended_rubric_is_incompatible_with_the"))
         frozen.setdefault('answer_revision_id',revision.id)
-        inputs.append((eq,frozen))
+        inputs.append((eq,{**frozen, 'generation_language': language}))
     route = scoring_route(inputs)
     cfg = scoring_config(cfg, route)
     exam.scoring_generation=(exam.scoring_generation or 0)+1

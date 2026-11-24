@@ -20,6 +20,9 @@ import json
 import re
 from typing import Any
 
+from app.generation_i18n import generation_message, with_output_language
+from app.i18n import Locale, request_language
+
 from app.services.llm import AgentAdapter
 
 # ---------------------------------------------------------------- 能力域框架
@@ -421,7 +424,7 @@ async def _llm_answer(
             [{"action": example["action"], "feedback": example["feedback"]} for example in review_feedback],
             ensure_ascii=False,
         )
-    out = await adapter.chat(system, prompt, json_mode=True)
+    out = await adapter.chat(with_output_language(system), prompt, json_mode=True)
     if not out:
         return None
     content = (out.get("content") or "").strip()
@@ -516,33 +519,40 @@ def _rule_answer(title: str, skill_key: str, skill_name: str) -> dict[str, Any]:
 
 # ---------------------------------------------------------------- 渲染
 
-def render_html(title: str, skill_name: str, data: dict[str, Any], source: str) -> str:
+def render_html(
+    title: str, skill_name: str, data: dict[str, Any], source: str, *,
+    language: Locale | None = None, draft: bool = False,
+) -> str:
     """把结构化讲解渲染成题库详情可直接展示的 HTML。"""
     esc = html.escape
     parts: list[str] = []
+    language = language or request_language()
+
+    def msg(key: str) -> str:
+        return generation_message(f"answer.{key}", language)
 
     tldr = (data.get("tldr") or "").strip()
     if tldr:
         parts.append(
-            '<div class="ans-tldr"><div class="ans-tldr-label">一句话回答</div>'
+            f'<div class="ans-tldr"><div class="ans-tldr-label">{esc(msg("short"))}</div>'
             f'<p>{esc(tldr)}</p></div>'
         )
 
     elevator = (data.get("elevator") or "").strip()
     if elevator:
         parts.append(
-            '<div class="ans-elevator"><div class="ans-elevator-label">⏱ 30 秒电梯稿（先背这段）</div>'
+            f'<div class="ans-elevator"><div class="ans-elevator-label">{esc(msg("draft_elevator" if draft else "elevator"))}</div>'
             f"<p>{esc(elevator)}</p></div>"
         )
 
     analogy = (data.get("analogy") or "").strip()
     if analogy:
-        parts.append("<h3>先把它讲人话（类比）</h3>")
+        parts.append(f'<h3>{esc(msg("analogy"))}</h3>')
         parts.append(f"<p>{esc(analogy)}</p>")
 
     examiner = [str(x).strip() for x in (data.get("examiner") or []) if str(x).strip()]
     if examiner:
-        parts.append("<h3>面试官在考什么</h3>")
+        parts.append(f'<h3>{esc(msg("examiner"))}</h3>')
         parts.append("<ul>" + "".join(f"<li>{esc(x)}</li>" for x in examiner) + "</ul>")
 
     steps = []
@@ -554,23 +564,23 @@ def render_html(title: str, skill_name: str, data: dict[str, Any], source: str) 
         elif str(s).strip():
             steps.append(("", str(s).strip()))
     if steps:
-        parts.append("<h3>详细拆解</h3>")
+        parts.append(f'<h3>{esc(msg("steps"))}</h3>')
         items = []
         for _i, (t, d) in enumerate(steps, start=1):
-            head = f"<b>{esc(t)}</b>：" if t else ""
+            head = f'<b>{esc(t)}</b>{msg("separator")}' if t else ""
             items.append(f"<li>{head}{esc(d)}</li>")
         parts.append("<ol>" + "".join(items) + "</ol>")
 
     how_to = (data.get("how_to_answer") or "").strip()
     if how_to:
         parts.append(
-            '<div class="ans-script"><div class="ans-script-label">🎤 这题怎么答（回答脚本）</div>'
+            f'<div class="ans-script"><div class="ans-script-label">{esc(msg("script"))}</div>'
             f"<p>{esc(how_to)}</p></div>"
         )
 
     pitfalls = [str(x).strip() for x in (data.get("pitfalls") or []) if str(x).strip()]
     if pitfalls:
-        parts.append("<h3>常见坑</h3>")
+        parts.append(f'<h3>{esc(msg("pitfalls"))}</h3>')
         parts.append("<ul>" + "".join(f"<li>{esc(x)}</li>" for x in pitfalls) + "</ul>")
 
     # 追问: 新结构 [{q, a}], 兼容旧字符串列表
@@ -583,11 +593,13 @@ def render_html(title: str, skill_name: str, data: dict[str, Any], source: str) 
         elif str(fu).strip():
             followups.append((str(fu).strip(), ""))
     if followups:
-        parts.append("<h3>面试官追问（带参考答案）</h3>")
+        parts.append(f'<h3>{esc(msg("followups"))}</h3>')
         blocks = []
         for q, a in followups:
-            ans = f'<div class="fu-a">{esc(a)}</div>' if a else '<div class="fu-a fu-a-missing">（暂无参考答案，可在审核时补充）</div>'
-            blocks.append(f'<div class="fu-item"><div class="fu-q">Q：{esc(q)}</div>{ans}</div>')
+            ans = (f'<div class="fu-a">{esc(a)}</div>' if a else
+                   f'<div class="fu-a fu-a-missing">{esc(msg("no_followup_answer"))}</div>')
+            question = esc(msg("followup_question").format(question=q))
+            blocks.append(f'<div class="fu-item"><div class="fu-q">{question}</div>{ans}</div>')
         parts.append('<div class="fu-list">' + "".join(blocks) + "</div>")
 
     key_points = []
@@ -599,12 +611,13 @@ def render_html(title: str, skill_name: str, data: dict[str, Any], source: str) 
         elif str(k).strip():
             key_points.append(("", str(k).strip()))
     if key_points:
-        parts.append("<h3>评分要点</h3>")
+        parts.append(f'<h3>{esc(msg("rubric"))}</h3>')
         rows = "".join(
             f"<tr><td>{esc(t or '—')}</td><td>{esc(d)}</td></tr>" for t, d in key_points
         )
         parts.append(
-            '<table class="ans-rubric"><thead><tr><th>要点</th><th>说清什么算命中</th></tr></thead>'
+            f'<table class="ans-rubric"><thead><tr><th>{esc(msg("criterion"))}</th>'
+            f'<th>{esc(msg("criterion_detail"))}</th></tr></thead>'
             f"<tbody>{rows}</tbody></table>"
         )
 
@@ -615,18 +628,17 @@ def render_html(title: str, skill_name: str, data: dict[str, Any], source: str) 
             if w:
                 terms.append((w, d))
     if terms:
-        parts.append("<h3>术语卡</h3>")
+        parts.append(f'<h3>{esc(msg("terms"))}</h3>')
         rows = "".join(f"<tr><td><b>{esc(w)}</b></td><td>{esc(d)}</td></tr>" for w, d in terms)
         parts.append(
-            '<table class="ans-rubric ans-terms"><thead><tr><th>术语</th><th>一句话解释</th></tr></thead>'
+            f'<table class="ans-rubric ans-terms"><thead><tr><th>{esc(msg("term"))}</th>'
+            f'<th>{esc(msg("term_detail"))}</th></tr></thead>'
             f"<tbody>{rows}</tbody></table>"
         )
 
-    tag = "AI 深度生成" if source == "llm" else "规则引擎生成"
-    parts.append(
-        f'<p class="ans-foot">· 本题答案由{tag}补充，供复习参考，可手动修改。'
-        f"能力域：{esc(skill_name or '—')}</p>"
-    )
+    tag = msg("draft_source" if draft else "model_source") if source == "llm" else msg("rule_source")
+    note = msg("source_note").format(source=tag, skill=skill_name or "—")
+    parts.append(f'<p class="ans-foot">{esc(note)}</p>')
     return "\n".join(parts)
 
 

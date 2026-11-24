@@ -16,6 +16,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
+from app.generation_i18n import with_output_language
 from app.models import (
     Exam,
     ImportItem,
@@ -659,9 +660,10 @@ async def _extract_questions(text: str) -> list[dict]:
             '"skill_key": one of agent/tools/memory/rag/eval/backend/reliability/deploy, '
             '"confidence": 0-1, "draft_answer": str(原文中的答案要点, 没有就留空), '
             '"company": str, "level": str}]}。不要解释。'
+            'title、draft_answer、company 和 level 是原文资料，保留原文措辞和语言，不翻译。'
         )
         try:
-            out = await adapter.chat(sys_prompt, text[:prompt_limit], json_mode=True)
+            out = await adapter.chat(with_output_language(sys_prompt), text[:prompt_limit], json_mode=True)
             if out and out.get("content"):
                 parsed = _parse_llm_questions(out["content"])
                 if parsed:

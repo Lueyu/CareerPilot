@@ -37,6 +37,7 @@ from app.models import (
 from app.services.bank_practice import is_bank_practice_snapshot, is_private_library_question
 from app.services.competency import recompute_skill_states
 from app.services.experienced_bank import catalog_questions, is_owned_question, load_catalog
+from app.generation_i18n import with_output_language
 from app.services.followup import suggest_followups
 from app.services.learning_loop import complete_retest_for_exam
 from app.services.llm import adapter as llm_adapter
@@ -938,7 +939,7 @@ async def _states_map(session: AsyncSession, ws: Workspace, breakdown: list[dict
     return {r.skill.key: r for r in rows if r.skill and r.skill.key in keys}
 
 
-DEEP_DIAG_SYSTEM = """你是资深的 AI 工程师面试官兼职业教练。基于一场考试的全部题目、考生作答、评分结果与能力域统计，输出一份详细的中文诊断报告。
+DEEP_DIAG_SYSTEM = """你是资深的 AI 工程师面试官兼职业教练。基于一场考试的全部题目、考生作答、评分结果与能力域统计，输出一份详细的诊断报告。
 要求：
 1. conclusion：2-4 句通俗、直接的总体诊断——先说整体表现，再点出最重要的差距，最后给一句方向性建议。不要空话。
 2. strengths/weaknesses：按能力域归纳，每条给出具体理由（引用题目行为/作答内容），不笼统。weaknesses 里给出 gap（离能稳定回答还差什么）。
@@ -1036,7 +1037,7 @@ async def exam_report_deep(
         lines.append("")
     lines.append(f"确定性结论（供参考）：{deterministic['conclusion']}")
 
-    resp = await llm_adapter.chat(DEEP_DIAG_SYSTEM, "\n".join(lines), json_mode=True, timeout=120, trace=trace, session=session, span_name="llm:deep_diagnosis")
+    resp = await llm_adapter.chat(with_output_language(DEEP_DIAG_SYSTEM), "\n".join(lines), json_mode=True, timeout=120, trace=trace, session=session, span_name="llm:deep_diagnosis")
     if resp is None:
         await finish_trace(session, trace, "FAILED", int((time.perf_counter() - t0) * 1000), fail_reason="llm call failed")
         await session.commit()
@@ -1060,7 +1061,7 @@ async def exam_report_deep(
         missing_in_order = sorted(missing, key=int)
         fix = [f"第一次输出缺少题目 {'、'.join(missing_in_order)} 的 per_question 条目。请为这些题目补齐讲解。", ""]
         fix.extend(q_material[int(no)] for no in missing_in_order)
-        resp2 = await llm_adapter.chat(DEEP_DIAG_FIX, "\n".join(fix), json_mode=True, timeout=120, trace=trace, session=session, span_name="llm:deep_diagnosis_fix")
+        resp2 = await llm_adapter.chat(with_output_language(DEEP_DIAG_FIX), "\n".join(fix), json_mode=True, timeout=120, trace=trace, session=session, span_name="llm:deep_diagnosis_fix")
         if resp2:
             try:
                 per_q.update(_sanitize_pq(_json.loads(resp2["content"]).get("per_question"), missing))

@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from app.db import SessionLocal, engine
+from app.generation_i18n import saved_language
 from app.models import AnalysisStep, AppSetting, MemoryItem, Project, ProjectAnalysis, WorkerHeartbeat
 from app.services import project_autopilot_engine as analysis
 from app.services import project_jobs as jobs
@@ -200,11 +201,13 @@ async def execute_claim(claim,worker_id,factory=SessionLocal,lease_seconds=45,he
             await jobs.fail_step(session,claim,exc.category,str(exc));return
         step=await session.get(AnalysisStep,claim.step_id)
         repair=_repair_diagnostic(step)
+        run_meta = getattr(run, 'result_meta', None) or {}
         runtime=analysis.RuntimeContext(workspace_id=claim.workspace_id,project_id=claim.project_id,
             llm_config=config,credentials=credentials,max_source_bytes=run.budget.get('max_source_bytes'),
             request_timeout=run.budget.get('request_timeout',180),input_chars=run.budget.get('input_chars',40000),
-            transport_mode=(getattr(run,'result_meta',None) or {}).get('transport_mode','json'),
-            stage_timeout=(getattr(run,'result_meta',None) or {}).get('stage_timeout_seconds'))
+            transport_mode=run_meta.get('transport_mode','json'),
+            stage_timeout=run_meta.get('stage_timeout_seconds'),
+            language=saved_language(run_meta['generation_language']) if 'generation_language' in run_meta else None)
         # Recheck immediately before dispatch; a queued cancellation must not
         # launch a new external request merely because a lease was once valid.
         if not await jobs.heartbeat(session,claim,lease_seconds):return

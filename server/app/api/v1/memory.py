@@ -14,6 +14,7 @@ from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import MemoryItem, Workspace
 from app.services.bank_review_memory import BANK_REVIEW_FEEDBACK_TYPE, review_feedback_eligible
+from app.generation_i18n import with_output_language
 from app.services.llm import AgentAdapter
 from app.services.project_candidates import eligible
 from app.services.project_memory import lock_project_memories
@@ -272,7 +273,7 @@ async def _extract_memories(text: str) -> list[dict]:
             '"content": str(一句话,第三人称), "confidence": 0-1}。不要解释。'
         )
         try:
-            out = await adapter.chat(sys_prompt, text[:8000], json_mode=True)
+            out = await adapter.chat(with_output_language(sys_prompt), text[:8000], json_mode=True)
             if out and isinstance(out, list):
                 return [x for x in out if isinstance(x, dict) and x.get("content")][:8]
         except Exception:

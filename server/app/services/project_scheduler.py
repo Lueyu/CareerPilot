@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from sqlalchemy import or_, select, text
 
+from app.generation_i18n import saved_language
 from app.models import Project, ProjectAnalysis
 from app.services.project_autopilot_config import model_fingerprint, runtime_config, settings_for
 from app.services.project_autopilot_sources import probe_repository
@@ -61,7 +62,8 @@ async def check_project(session,project_id,workspace_id,now=None):
     mode='full' if branch_changed or not baseline or pending.get('mode')=='full' else 'incremental'
     await session.flush()
     run=await enqueue(session,project,pending.get('request_key') or uuid4().hex,mode=mode,target_sha=head['target_sha'],
-        budget=settings['budget'],model_config_fingerprint=fp,pipeline_version=pipeline,prompt_bundle_version=prompt)
+        budget=settings['budget'],model_config_fingerprint=fp,pipeline_version=pipeline,prompt_bundle_version=prompt,
+        language=saved_language(pending.get('generation_language')))
     project.last_seen_sha=head['target_sha']
     if not busy:project.pending_update=None
     await session.commit()

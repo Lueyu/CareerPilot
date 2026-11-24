@@ -14,6 +14,7 @@ from uuid import uuid4
 from sqlalchemy import select
 
 from app.i18n import message as localized_message
+from app.generation_i18n import generation_message, saved_language
 from app.models import CompetencySnapshot, ScoringRun, ScoringStep, SkillState, Trace, Workspace
 from app.services import assessment_jobs as jobs
 from app.services.assessment_rubric import JUDGE_VERSION, AssessmentJudgeError, Judgement, validate_judgement
@@ -51,6 +52,7 @@ def rule_result(payload):
     if payload['qtype']=='mcq':payload['rubric']=mcq_rubric(payload.get('rubric'),payload.get('options'))
     q=SimpleNamespace(**payload)
     submitted=payload.get('submitted_answer') or {}
+    language = saved_language(payload.get('generation_language'))
     choice=submitted.get('choice_index')
     if q.qtype=='mcq' and choice is not None and (type(choice) is not int or not 0<=choice<len(payload['options'])):
         raise AssessmentJudgeError('INVALID_INPUT','冻结选项不属于本题，不能生成有效成绩')
@@ -60,13 +62,13 @@ def rule_result(payload):
     rubric=payload.get('rubric') or {};maximum=float(rubric.get('max_points',5))
     criteria=[{'criterion_id':c['criterion_id'],'title':c['title'],'score':0,'max_score':4,
         'answer_quotes':[],'satisfied_anchors':[next(a['anchor_id'] for a in c['score_anchors'] if a['score']==0)],
-        'missing_points':[c['title']],'reasoning_summary':'本次未作答，没有该项表现证据。',
-        'why_not_higher':'需要提交符合本题要求的真实回答。'} for c in rubric.get('criteria',[])]
+        'missing_points':[c['title']],'reasoning_summary':generation_message('grade.blank_criterion', language),
+        'why_not_higher':generation_message('grade.blank_improve', language)} for c in rubric.get('criteria',[])]
     def names(values):
         return [p.get('title','') if isinstance(p,dict) else str(p) for p in values]
     return {**result,'max_points':maximum,'overall_score':100*result['points']/maximum,
         'hit':names(result.get('hits',[])),'missing':names(result.get('misses',[])) or [c['title'] for c in criteria],
-        'reasoning':'未作答；确定性记为本题0分。' if q.qtype=='open' else '按冻结的选择题正确选项确定性比较。',
+        'reasoning':generation_message('grade.blank_answer' if q.qtype=='open' else 'grade.multiple_choice', language),
         'criterion_scores':criteria,'question_id':payload['question_id'],
         'answer_revision_id':payload['answer_revision_id'],'rubric_version':rubric.get('rubric_version',digest(rubric)),
         'judge_version':'rule-v2','validation_status':'VALID','confidence_status':'DETERMINISTIC_RULE',
@@ -118,7 +120,8 @@ async def evaluate(claim,cfg,repair=None):
     result = await judge_frozen_answer(AgentAdapter(),question_id=payload['question_id'],
         answer_revision_id=payload['answer_revision_id'],title=payload['title'],skill_name=payload.get('skill_name'),
         rubric=payload['rubric'],text=submitted.get('text_answer'),llm_config=cfg,timeout=90,
-        repair_diagnostic=repair)
+        repair_diagnostic=repair,
+        language=saved_language(payload['generation_language']) if 'generation_language' in payload else None)
     return _validate_project_result(result, payload)
 
 

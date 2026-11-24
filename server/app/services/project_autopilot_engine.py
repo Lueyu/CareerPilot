@@ -17,6 +17,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from app.generation_i18n import with_output_language
+from app.i18n import Locale
 from app.services import project_autopilot_sources as sources
 from app.services import project_claim_registry as claim_registry
 from app.services import project_stage_splits as stage_splits
@@ -63,6 +65,7 @@ class RuntimeContext:
     repair_diagnostic: str | None = None
     transport_mode: str = 'json'
     stage_timeout: float | None = None
+    language: Locale | None = None
 
 
 class Strict(BaseModel):
@@ -490,6 +493,8 @@ async def _ask(task, payload, model, runtime):
             'output_strategy': 'smaller_response_complete_schema',
             'instructions': '这是一次有预算的修复：严格修正指出的字段或实际引用，保持所有必填字段。若先前截断，只输出最重要的 1-2 条观察、最多 1 个问题，章节 1 段约 100 字，候选最多 3 条；规划仍需覆盖全部给定路径。不要重复长解释，不修改模型参数，不编造补全。'}
     user, system = _json(value), system_prompt(task)
+    if runtime.language is not None:
+        system = with_output_language(system, runtime.language)
     contract = payload.get('input_contract_version')
     if contract is not None:
         if contract != claim_registry.CONTRACT_VERSION:

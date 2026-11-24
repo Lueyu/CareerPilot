@@ -13,6 +13,7 @@ import json
 import re as _re
 import time
 
+from app.generation_i18n import with_output_language
 from app.services.tracing import finish_trace, start_trace
 
 TEACH_SYSTEM = """你是面向 AI 工程师的职业教练, 给学员生成一份「能照着学会」的教学任务内容。
@@ -224,7 +225,7 @@ async def build_teaching_content(
         trace = await start_trace(session, task.workspace_id, "teaching", task.title,
                                   trigger_ref=f"learning_task:{task.id}")
         started = time.perf_counter()
-        raw = await adapter.chat(TEACH_SYSTEM, user, json_mode=True, timeout=90.0,
+        raw = await adapter.chat(with_output_language(TEACH_SYSTEM), user, json_mode=True, timeout=90.0,
                                  trace=trace, session=session, span_name="teaching_generation")
         await finish_trace(session, trace, "SUCCESS" if raw else "FAILED",
                            int((time.perf_counter() - started) * 1000))
@@ -302,7 +303,7 @@ async def help_answer(
     trace = await start_trace(session, task.workspace_id, "teaching", task.title,
                               trigger_ref=f"learning_task:{task.id}:help:{mode}")
     started = time.perf_counter()
-    raw = await adapter.chat(HELP_SYSTEM, user, json_mode=True, timeout=60.0,
+    raw = await adapter.chat(with_output_language(HELP_SYSTEM), user, json_mode=True, timeout=60.0,
                              trace=trace, session=session, span_name="teaching_help")
     parsed = _parse_json_reply(raw)
     value = parsed.get("text") if parsed else None
