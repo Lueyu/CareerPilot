@@ -91,23 +91,40 @@ async def test_switching_language_creates_one_question_per_language(chat_client,
     calls, outcomes = model
     sid = await new_chat(client, owner)
     original = "我的原始回答"
-    await turn(db_session, sid, "bilingual", "如何处理重复投递？", original)
+    user, _ = await turn(db_session, sid, "bilingual", "如何处理重复投递？", original)
     path = f"/study/sessions/{sid}/interview-question"
+    headers = {**owner, "Accept-Language": "en-US"}
+
+    async def false_attribution():
+        return {"content": json.dumps({**GUIDE, "project_context": [
+            {"message_id": user.id, "quote": user.content},
+        ]})}
+
+    outcomes.append(false_attribution)
+    assert (await client.post(path, headers=headers)).status_code == 502
+    assert (await client.get(path, headers=headers)).json() is None
+
     chinese = await client.post(path, headers=owner)
     assert chinese.is_success, chinese.text
 
     async def english_guide():
-        return {"content": json.dumps({**GUIDE, "title": "How do you handle duplicate deliveries?"})}
+        return {"content": json.dumps({
+            **GUIDE, "title": "How do you handle duplicate deliveries?", "project_context": [],
+        })}
 
     outcomes.append(english_guide)
-    headers = {**owner, "Accept-Language": "en-US"}
     english = await client.post(path, headers=headers)
     assert english.is_success, english.text
     assert english.json()["id"] != chinese.json()["id"]
     assert english.json()["title"] == "How do you handle duplicate deliveries?"
     assert (await client.post(path, headers=headers)).json() == english.json()
     assert (await client.post(path, headers=owner)).json() == chinese.json()
-    assert len(calls) == 2 and "in English" in calls[-1][0]
+    assert len(calls) == 3 and "in English" in calls[-1][0]
+    assert "没有关联项目" in calls[1][0] and "no linked project" in calls[-1][0]
+    for system, _ in calls:
+        schema = json.loads(system.rsplit("\n", 1)[1])
+        assert schema["properties"]["project_context"]["maxItems"] == 0
+        assert "project_context" not in schema["required"]
     assert original in json.dumps(calls[-1][1], ensure_ascii=False)
     assert (await client.get(path, headers={**other, "Accept-Language": "en"})).status_code == 404
 
@@ -197,9 +214,13 @@ async def test_interview_question_respects_budget_and_rejects_truncation(
         assert sent[0].get("thinking") == ({"type": "enabled"} if tier == "flash" else None)
 
 
-@pytest.mark.parametrize(("context", "language"), [(8192, "en"), (512, "en"), (0, "zh-CN"), (-1, "en")])
+@pytest.mark.parametrize(("context", "language", "project"), [
+    (8192, "en", 15), (8192, "en", None), (512, "en", 15), (0, "zh-CN", 15), (-1, "en", 15),
+])
 @pytest.mark.asyncio
-async def test_interview_question_fits_full_prompt_in_context(chat_client, db_session, monkeypatch, context, language):
+async def test_interview_question_fits_full_prompt_in_context(
+    chat_client, db_session, monkeypatch, context, language, project,
+):
     client, owner, _ = chat_client
     settings = get_settings()
     monkeypatch.setattr(settings, "study_flash_context", context)
@@ -209,7 +230,7 @@ async def test_interview_question_fits_full_prompt_in_context(chat_client, db_se
     sid = await new_chat(client, headers)
     question = '原始引文包含 "café"。'
     answer = "原始回答第一行\n第二行 🧪"
-    user, reply = await turn(db_session, sid, "context-fixture", question, answer, project=15)
+    user, reply = await turn(db_session, sid, "context-fixture", question, answer, project=project)
     path = f"/study/sessions/{sid}/interview-question"
     title = "How do you preserve the original evidence?"
 
@@ -226,7 +247,9 @@ async def test_interview_question_fits_full_prompt_in_context(chat_client, db_se
         sent.append((payload, prompt_bytes))
         if prompt_bytes + 64 + payload["max_tokens"] > context:
             return httpx.Response(400, json={"error": "Synthetic context limit exceeded"})
-        guide = {**GUIDE, "title": title, "project_context": [{"message_id": user.id, "quote": question}]}
+        guide = {**GUIDE, "title": title}
+        if project is not None:
+            guide["project_context"] = [{"message_id": user.id, "quote": question}]
         raw = frame(json.dumps(guide, ensure_ascii=False)) + frame(finish="stop") + DONE
         return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=raw)
 
@@ -243,9 +266,9 @@ async def test_interview_question_fits_full_prompt_in_context(chat_client, db_se
         assert "in English" in system and '"project_context"' in system
         assert json.loads(transcript) == {"turns": [{
             "user": {"id": user.id, "text": question}, "assistant": {"id": reply.id, "text": answer},
-            "project_id": 15,
+            "project_id": project,
         }], "response_language": "en"}
-        assert "&quot;café&quot;" in response.json()["answer_html"]
+        assert ("&quot;café&quot;" in response.json()["answer_html"]) == (project is not None)
     else:
         assert not sent
         assert response.status_code == 422
@@ -410,7 +433,19 @@ async def test_chat_question_recovery_uses_all_complete_turns(chat_client, db_se
     transcript = json.dumps(payload, ensure_ascii=False)
     assert all(secret not in transcript for secret in ("OTHER-WORKSPACE", "FAILED-", "PENDING-", "RAW-PRIVATE-SOURCE"))
 
-    await turn(db_session, sid, "latest", "切回通用场景", "新解释")
+    unlinked, _ = await turn(db_session, sid, "latest", "切回通用场景", "新解释")
+
+    async def quote_from_unlinked_turn():
+        return {"content": json.dumps({**GUIDE, "project_context": [
+            {"message_id": unlinked.id, "quote": unlinked.content},
+        ]}, ensure_ascii=False)}
+
+    outcomes.append(quote_from_unlinked_turn)
+    assert (await client.post(path, headers=owner)).status_code == 502
+    assert (await client.get(path, headers=owner)).json() == body
+    system, _ = calls[-1]
+    assert "project_id 非 null" in system and "user.id" in system and "assistant.id" in system
+    assert json.loads(system.rsplit("\n", 1)[1])["properties"]["project_context"]["maxItems"] == 5
 
     async def ungrounded_project_quote():
         return {"content": json.dumps({**GUIDE, "project_context": [

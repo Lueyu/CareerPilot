@@ -47,7 +47,7 @@ class ProjectQuote(GuideInput):
     quote: Paragraph
 
 
-class Guide(GuideInput):
+class GuideContent(GuideInput):
     title: Title
     plain: Paragraph
     spoken: Paragraph
@@ -56,7 +56,14 @@ class Guide(GuideInput):
     comparison: list[tuple[Cell, Cell, Cell]] = Field(min_length=2, max_length=6)
     example: Paragraph
     followups: list[Followup] = Field(min_length=1, max_length=5)
+
+
+class Guide(GuideContent):
     project_context: list[ProjectQuote] = Field(default_factory=list, max_length=5)
+
+
+class FreeStudyGuide(GuideContent):
+    project_context: tuple[()] = ()
 
 
 class InterviewQuestionResult(BaseModel):
@@ -66,7 +73,7 @@ class InterviewQuestionResult(BaseModel):
     answer_html: str
 
 
-def render_guide(guide: Guide, turns: list[dict]) -> str:
+def render_guide(guide: Guide | FreeStudyGuide, turns: list[dict]) -> str:
     # The model supplies plain text only. Markup, including the table structure, is server-owned.
     def section(label, text):
         return f"<h3>{label}</h3><p>{escape(text)}</p>"
@@ -216,17 +223,20 @@ async def generate_question(db, workspace_id, session_id, *, session_mode):
     if cfg["output_limit"] <= 0:
         raise HTTPException(502, localized_message("guide.no_output_budget"))
 
+    has_project = any(turn["project_id"] is not None for turn in turns)
+    schema = Guide if has_project else FreeStudyGuide
     instruction = "\n".join((
         teaching_prompt("interview_question"),
+        localized_message("guide.project_quotes" if has_project else "guide.no_project_quotes"),
         localized_message("guide.output_instruction"),
-        json.dumps(Guide.model_json_schema(), ensure_ascii=False),
+        json.dumps(schema.model_json_schema(), ensure_ascii=False),
     ))
     # Count the transcript as serialized by read_json and reserve chat's 64-token framing margin.
     context_remaining = context - len(instruction.encode("utf-8")) - transcript_bytes - 64
     if context_remaining <= 0:
         raise HTTPException(422, localized_message("guide.insufficient_context"))
     try:
-        guide, _ = await read_json(instruction, payload, Guide, config={
+        guide, _ = await read_json(instruction, payload, schema, config={
             **cfg, "output_limit": min(cfg["output_limit"], context_remaining),
         })
         answer_html = render_guide(guide, turns)
