@@ -1,7 +1,6 @@
 """CareerPilot 后端入口: app 组装 + CORS + lifespan 建表。"""
 from __future__ import annotations
 
-import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -91,7 +90,7 @@ async def healthz():
 
 # 可选静态托管（生产部署：STATIC_DIR 指向前端构建产物目录，如 web/dist）。
 # 未设置时行为与本地开发完全一致（不挂载任何静态路由）。
-static_dir = os.environ.get("STATIC_DIR")
+static_dir = get_settings().static_dir
 if static_dir:
     from pathlib import Path as _Path
 
