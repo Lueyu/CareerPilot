@@ -180,31 +180,42 @@ export function NotificationsPanel() {
 export function QuickActionsPanel() {
   const { quickOpen, setQuickOpen } = useAppState();
   const navigate = useNavigate();
+  const close = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    if (!quickOpen) return;
+    const opener = document.activeElement;
+    close.current?.focus();
+    return () => { if (opener instanceof HTMLElement) opener.focus(); };
+  }, [quickOpen]);
   if (!quickOpen) return null;
   return (
     <div className="modal-mask" onClick={() => setQuickOpen(false)}>
-      <div className="pop-panel" style={{ right: 'auto', left: '50%', transform: 'translateX(-50%)', top: '64px', position: 'absolute', width: 420 }} onClick={(e) => e.stopPropagation()}>
+      <div className="pop-panel quick-actions-panel" role="dialog" aria-label="快捷操作"
+        onClick={e => e.stopPropagation()} onKeyDown={e => {
+          if (e.key === 'Escape') setQuickOpen(false);
+        }}>
         <div className="pop-head">
           <span className="pop-title">快捷操作</span>
-          <span className="kbd" style={{ cursor: 'pointer' }} onClick={() => setQuickOpen(false)}>关闭 ✕</span>
+          <button className="kbd" type="button" ref={close} onClick={() => setQuickOpen(false)}>关闭 ✕</button>
         </div>
         <div className="pop-body">
           {QUICK_ACTIONS.map((a) => (
-            <div
+            <button
               className="pop-item"
+              type="button"
               key={a.label}
               onClick={() => {
                 setQuickOpen(false);
                 navigate(a.to);
               }}
             >
-              <span className="pop-item-ic">{a.ic}</span>
-              <div className="pop-item-main">
-                <div className="pop-item-title">{a.label}</div>
-                <div className="pop-item-sub">{a.desc}</div>
-              </div>
-              <span className="pop-item-arrow">→</span>
-            </div>
+              <span className="pop-item-ic" aria-hidden="true">{a.ic}</span>
+              <span className="pop-item-main">
+                <span className="pop-item-title">{a.label}</span>
+                <span className="pop-item-sub">{a.desc}</span>
+              </span>
+              <span className="pop-item-arrow" aria-hidden="true">→</span>
+            </button>
           ))}
         </div>
       </div>

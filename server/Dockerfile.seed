@@ -8,7 +8,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN python -m pip install --no-cache-dir -r requirements.txt
 COPY app/ app/
-RUN test -f app/public_main.py
+RUN test -f app/public_main.py && test -f app/services/feedback_delivery.py
 
 USER 65532:65532
 CMD ["python", "-m", "uvicorn", "app.public_main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*", "--no-access-log"]

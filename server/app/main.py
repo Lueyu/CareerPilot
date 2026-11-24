@@ -17,6 +17,7 @@ from app.api.v1 import (
     dashboard,
     evolution,
     exams,
+    feedback,
     learning,
     learning_feedback,
     learning_memory,
@@ -84,6 +85,7 @@ app.include_router(learning_feedback.router, prefix="/api/v1")
 app.include_router(learning_projects.router, prefix="/api/v1")
 app.include_router(learning_memory.router, prefix="/api/v1")
 app.include_router(retest_mappings.router, prefix="/api/v1")
+app.include_router(feedback.router, prefix="/api/v1")
 
 
 @app.get("/healthz")

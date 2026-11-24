@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import make_url
 
-from app.api import public_auth, public_coach, public_dashboard, public_learning, public_library, public_memory, public_native
+from app.api import public_auth, public_coach, public_dashboard, public_feedback, public_learning, public_library, public_memory, public_native
 from app.db import Base, engine
 from app.services.public_native_runtime import close_native_runtime, invalidate_transfer, validate_native_config
 
@@ -48,7 +48,7 @@ async def lifespan(application):
 app = FastAPI(title="CareerPilot", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.middleware("http")(public_auth.public_origin_guard)
 for routes in (public_auth.router, public_library.router, public_coach.router, public_memory.router,
-               public_dashboard.router, public_learning.router, public_native.router):
+               public_dashboard.router, public_learning.router, public_native.router, public_feedback.router):
     app.include_router(routes, prefix="/api/v1")
 
 
@@ -57,7 +57,7 @@ async def private_responses(request, call_next):
     response = await call_next(request)
     slug = getattr(request.state, "registered_workspace_slug", None)
     if (slug and response.status_code < 300 and request.method in {"POST", "PUT", "PATCH", "DELETE"}
-            and not request.url.path.startswith("/api/v1/native/")):
+            and not request.url.path.startswith("/api/v1/native/") and request.url.path != "/api/v1/product-feedback"):
         invalidate_transfer(slug)
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"

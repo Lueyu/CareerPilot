@@ -5,12 +5,26 @@
 
 .app .app-body-study { padding: 0; overflow: hidden; min-height: 0; }
 
+@media (max-width: 1024px) {
+  .topbar-right > .search-box,
+  .topbar-right > .btn-primary {
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    padding: 0;
+    justify-content: center;
+    font-size: 16px;
+  }
+  .topbar-right > .search-box .kbd,
+  .topbar-search-label,
+  .topbar-quick-label { display: none; }
+}
+
 @media (max-width: 760px) {
   .app-compact-nav .sidebar { width: 54px; padding: 12px 4px; }
   .app-compact-nav .sidebar .brand { padding: 0; justify-content: center; }
   .app-compact-nav .sidebar .brand > :last-child,.app-compact-nav .sidebar .ws-card,
-  .app-compact-nav .sidebar .side-tip,.app-compact-nav .sidebar .nav-adv-label,
-  .app-compact-nav .topbar .search-box,.app-compact-nav .topbar .btn-primary { display: none; }
+  .app-compact-nav .sidebar .side-tip,.app-compact-nav .sidebar .nav-adv-label { display: none; }
   .app-compact-nav .sidebar .nav { flex: none; }
   .app-compact-nav .sidebar .nav-item { justify-content: center; padding: 8px 4px; min-height: 42px; }
   .app-compact-nav .sidebar .nav-item > :last-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
@@ -22,11 +36,8 @@
 .workspace-mobile-drawer { display: none; }
 
 @media (max-width: 760px) {
-  .app-drawer-nav > .sidebar,
-  .app-drawer-nav .topbar .search-box,
-  .app-drawer-nav .topbar .btn-primary,
-  .app-drawer-nav .crumb > span:not(.crumb-cur) { display: none; }
-  .app-drawer-nav .topbar { min-height: 54px; padding: 8px 16px; }
+  .app-drawer-nav > .sidebar { display: none; }
+  .app-drawer-nav .topbar { min-height: 54px; padding: 8px 10px; gap: 8px; }
   .workspace-mobile-nav-button.btn { display: inline-flex; }
   .workspace-mobile-drawer[open] {
     display: block;

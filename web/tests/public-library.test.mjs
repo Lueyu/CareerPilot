@@ -18,7 +18,8 @@ function fixture(t, respond) {
   globalThis.fetch = async (url, options) => {
     assert.equal(options.headers.get('X-Expected-Workspace'), '42');
     const body = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
-    return Response.json(respond(url.slice('/api/v1'.length), options.method ?? 'GET', body));
+    const result = respond(url.slice('/api/v1'.length), options.method ?? 'GET', body);
+    return result instanceof Response ? result : Response.json(result);
   };
   let view;
   t.after(async () => {
@@ -114,4 +115,23 @@ test('registered Bank uses native rows, picker, and scoped search and approval',
   assert.equal(searches, 1);
   await act(async () => button(root, '学习').props.onClick());
   assert.deepEqual(practice, [question, 'study']);
+});
+
+test('Library comments keep their existing feedback endpoint, payload and 201 response', async t => {
+  const question = { id: 8, role: role.role, title: '如何验证幂等？', topic };
+  const render = fixture(t, (path, method, body) => {
+    if (path === '/library/roles') return { selected_role: role.role, roles: [{ ...role, selected_topic: topic }] };
+    if (path === '/privacy') return { provider: 'fixture', region: 'fixture' };
+    if (path.startsWith('/library/questions?')) return { questions: [question], next_before: null };
+    if (path === '/library/imports') return { imports: [], next_before: null };
+    assert.equal(path, '/feedback');
+    assert.equal(method, 'POST');
+    assert.deepEqual(body, { question_id: 8, text: '合成评论' });
+    return Response.json({ id: 10 }, { status: 201 });
+  });
+  const root = await render(createElement(Library, { onPractice() {}, onCoach() {} }));
+  const feedback = root.findByType(BankQuestionRow).findByType('form');
+  await act(async () => feedback.findByType('textarea').props.onChange({ target: { value: ' 合成评论 ' } }));
+  await act(async () => feedback.props.onSubmit({ preventDefault() {} }));
+  assert.equal(feedback.findByProps({ role: 'status' }).children[0], '反馈已发送。');
 });

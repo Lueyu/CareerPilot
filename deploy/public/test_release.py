@@ -79,7 +79,7 @@ def check_release(work, config_only, restore_only=False, postgres_image="postgre
     write(env_file, "".join(f"{key}={value}\n" for key, value in values.items()))
     env = {
         key: value for key, value in os.environ.items()
-        if not key.startswith(("SEED_", "COMPOSE_"))
+        if not key.startswith(("SEED_", "COMPOSE_", "FEEDBACK_"))
     }
     env.update(COMPOSE_PROJECT_NAME=project, SEED_ENV_FILE=str(env_file))
     ops = HERE if config_only else work / "deploy" / "public"
@@ -142,7 +142,7 @@ def fixture_sources(work, ops):
     write(work / "server" / "requirements.txt", "starlette\nuvicorn\n")
     write(work / "server" / "app" / "public_main.py",
           "from app.services import interview_import_text, text_extract\n" + PUBLIC_MAIN)
-    for name in ("interview_import_text", "text_extract"):
+    for name in ("interview_import_text", "text_extract", "feedback_delivery"):
         write(work / "server" / "app" / "services" / f"{name}.py", "# fixture helper\n")
     write(work / "server" / "app" / "seed.py", "raise AssertionError('legacy seed')\n")
     write(work / "server" / "app" / "data" / "bank.json", '{"fixture": "private"}\n')
@@ -208,6 +208,8 @@ assert "get" in paths["/api/v1/coach/notes/{note_id}/versions/{version_id}"]
 assert "get" in paths["/api/v1/learning/daily-plan"]
 assert "get" in paths["/api/v1/native/access"]
 assert "get" in paths["/api/v1/native/bank/legacy-data"]
+assert "post" in paths["/api/v1/product-feedback"]
+assert "post" in paths["/api/v1/feedback"]
 assert not any(Path(path).exists() for path in (
     ".env", "app/main.py", "app/api/v1", "app/data", "app/services/llm.py",
     "app/services/study_notes.py", "app/services/study_teaching.py",

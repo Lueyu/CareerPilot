@@ -64,16 +64,21 @@ export function createWorkspaceApi(workspaceId: number, onSessionInvalid: () => 
     }
   }
 
-  async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  async function request<T>(path: string, options?: RequestInit, expectedStatus?: number): Promise<T> {
     const result = await response(path, options);
+    if (expectedStatus !== undefined && result.status !== expectedStatus) {
+      throw new SeedApiError(result.status, '请求未完成，请稍后重试。');
+    }
     const data = result.status === 204 ? undefined : await result.json();
     lifetime.signal.throwIfAborted();
     options?.signal?.throwIfAborted();
     return data as T;
   }
 
-  function send<T>(path: string, method: 'POST' | 'PUT', body: unknown) {
-    return request<T>(path, { method, body: JSON.stringify(body) });
+  function send<T>(path: string, method: 'POST' | 'PUT', body: unknown,
+    options: Pick<RequestInit, 'signal' | 'mode' | 'redirect'> & { expectedStatus?: number } = {}) {
+    const { expectedStatus, ...transport } = options;
+    return request<T>(path, { ...transport, method, body: JSON.stringify(body) }, expectedStatus);
   }
 
   async function events(path: string, signal: AbortSignal, onData: (data: string) => void) {
