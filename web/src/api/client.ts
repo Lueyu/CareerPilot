@@ -30,11 +30,13 @@ export function bindRegisteredNativeApi(access: RegisteredAccess) {
 }
 
 export function hasOriginalBank() {
-  return registeredAccess?.personalOwner ?? (!hasRegisteredSession && !registeredBuild);
+  if (hasRegisteredSession || registeredBuild) return registeredAccess?.personalOwner ?? false;
+  return localWorkspace() !== 'linzhou';
 }
 
 export function workspaceStorageKey(key: string): string {
-  return registeredAccess ? key + ':' + getWorkspace() : key;
+  const workspace = getWorkspace();
+  return workspace === 'personal' ? key : `${key}:${workspace}`;
 }
 
 export function getWorkspace(): string {

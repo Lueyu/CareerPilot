@@ -66,7 +66,7 @@ export default function Onboarding() {
           <p>项目证据自动映射为职业展示，草稿、风险分级、发布全流程可审计。</p>
         </div>
       </div>
-      <div className="ob-foot">Evidence-driven career growth platform · Demo 数据仅供演示</div>
+      <div className="ob-foot">Evidence-driven career growth platform{getWorkspace() === 'demo' && ' · Demo 数据仅供演示'}</div>
     </div>
   );
 }

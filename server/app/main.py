@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException
 
 from app.api.v1 import (
     assessment_feedback,
@@ -86,3 +89,26 @@ app.include_router(retest_mappings.router, prefix="/api/v1")
 @app.get("/healthz")
 async def healthz():
     return {"ok": True, "service": "careerpilot-api", "scorer_model": get_settings().scorer_model_version}
+
+
+# 可选静态托管（生产部署：STATIC_DIR 指向前端构建产物目录，如 web/dist）。
+# 未设置时行为与本地开发完全一致（不挂载任何静态路由）。
+static_dir = get_settings().static_dir
+if static_dir:
+    _static_root = Path(static_dir).resolve()
+    _static_files = StaticFiles(directory=_static_root, check_dir=False)
+    _has_assets = (_static_root / "assets").is_dir()
+
+    @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+    async def spa_fallback(request: Request, full_path: str):
+        namespace = full_path.partition("/")[0]
+        if namespace == "api":
+            raise HTTPException(status_code=404, detail="Not Found")
+
+        try:
+            return await _static_files.get_response(full_path, request.scope)
+        except HTTPException as exc:
+            if exc.status_code != 404 or (_has_assets and full_path.startswith("assets/")):
+                raise
+
+        return await _static_files.get_response("index.html", request.scope)

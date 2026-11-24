@@ -1,6 +1,6 @@
 # Initialize and run from explicit directories; .env is never edited.
 [CmdletBinding()]
-param([int]$Port = 8000, [int]$WebPort = 5173, [switch]$NoWeb, [switch]$NoWorker, [switch]$InitializeOnly, [string]$PythonPath = '')
+param([int]$Port = 8000, [int]$WebPort = 5173, [switch]$NoWeb, [switch]$NoWorker, [switch]$InitializeOnly, [string]$PythonPath = '', [switch]$WithShowcase)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'personal-processes.ps1')
 $projectDir = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -23,7 +23,7 @@ try {
     $env:PYTHONIOENCODING = 'utf-8'
     $env:VITE_API_BASE = "http://127.0.0.1:$Port/api/v1"
     [Environment]::SetEnvironmentVariable($webApiKey, $env:VITE_API_BASE, "Process")
-    $env:VITE_WORKSPACE = 'personal'
+    $env:VITE_WORKSPACE = if ($WithShowcase) { 'linzhou' } else { 'personal' }
     if (-not $InitializeOnly) {
         $ports = @($Port)
         if (-not $NoWeb) { $ports += $WebPort }
@@ -46,6 +46,10 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Database migration failed' }
         & $pythonPath -m app.seed
         if ($LASTEXITCODE -ne 0) { throw 'Personal workspace initialization failed' }
+        if ($WithShowcase) {
+            & $pythonPath -m app.showcase
+            if ($LASTEXITCODE -ne 0) { throw 'Additional workspace initialization failed' }
+        }
         # Capture privately; no credentials are printed or written to launcher logs.
         $resolvedToken = & $pythonPath -c 'from app.config import get_settings; print(get_settings().api_token)'
         if ($LASTEXITCODE -ne 0) { throw 'Could not resolve local API authentication' }
