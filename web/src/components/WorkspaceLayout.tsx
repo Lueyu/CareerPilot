@@ -4,6 +4,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { AppStateProvider } from './AppState';
 import Sidebar, { type SidebarWorkspace } from './Sidebar';
 import Topbar, { type TopbarActions } from './Topbar';
+import MobileTabBar from './MobileTabBar';
 import './workspaceLayout.css';
 
 export type WorkspaceLayoutProps =
@@ -31,6 +32,11 @@ export function WorkspaceLayout({ workspace, overlays }: WorkspaceLayoutProps) {
     setMobileNavOpen(false);
   }, []);
 
+  const openMenu = React.useCallback(() => {
+    mobileNav.current?.showModal();
+    setMobileNavOpen(true);
+  }, []);
+
   React.useEffect(closeMenu, [key, closeMenu]);
 
   React.useEffect(() => {
@@ -44,37 +50,32 @@ export function WorkspaceLayout({ workspace, overlays }: WorkspaceLayoutProps) {
   return (
     <div className={`app${compactNav ? ' app-compact-nav' : ''}${usesMobileDrawer ? ' app-drawer-nav' : ''}`}>
       <Sidebar workspace={workspace} />
-      {usesMobileDrawer && (
-        <dialog
-          ref={mobileNav}
-          id={drawerId}
-          className="workspace-mobile-drawer"
-          aria-label={t('shell.careerPilotNav')}
-          onClose={() => setMobileNavOpen(false)}
-          onClick={event => {
-            const target = event.target;
-            if (target === event.currentTarget || (target instanceof Element && target.closest('a, button.ws-card'))) closeMenu();
-          }}
-        >
-          <button className="btn btn-outline workspace-mobile-nav-close" type="button" onClick={closeMenu}>{t('shell.closeMenu')}</button>
-          {mobileNavOpen && <Sidebar workspace={workspace} />}
-        </dialog>
-      )}
+      <dialog
+        ref={mobileNav}
+        id={drawerId}
+        className="workspace-mobile-drawer"
+        aria-label={t('shell.careerPilotNav')}
+        onClose={() => setMobileNavOpen(false)}
+        onClick={event => {
+          const target = event.target;
+          if (target === event.currentTarget || (target instanceof Element && target.closest('a, button.ws-card'))) closeMenu();
+        }}
+      >
+        <button className="btn btn-outline workspace-mobile-nav-close" type="button" onClick={closeMenu}>{t('shell.closeMenu')}</button>
+        {mobileNavOpen && <Sidebar workspace={workspace} />}
+      </dialog>
       <div className="app-main">
         <Topbar
           workspaceLabel={registered ? workspace.label : t('shell.personalWorkspace')}
           actions={workspace.kind === 'personal' ? workspace.actions : undefined}
-          beforeCrumb={usesMobileDrawer && (
+          beforeCrumb={(
             <button
               className="btn btn-outline workspace-mobile-nav-button"
               type="button"
               aria-haspopup="dialog"
               aria-controls={drawerId}
               aria-expanded={mobileNavOpen}
-              onClick={() => {
-                mobileNav.current?.showModal();
-                setMobileNavOpen(true);
-              }}
+              onClick={openMenu}
             >{t('shell.menu')}</button>
           )}
         />
@@ -82,6 +83,7 @@ export function WorkspaceLayout({ workspace, overlays }: WorkspaceLayoutProps) {
           <React.Suspense fallback={<p role="status">{t('shell.openingPage')}</p>}><Outlet /></React.Suspense>
         </div>
       </div>
+      <MobileTabBar onMore={openMenu} moreActive={mobileNavOpen} />
       {overlays}
     </div>
   );
