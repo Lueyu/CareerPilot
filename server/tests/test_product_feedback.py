@@ -1,6 +1,5 @@
 import asyncio
 import hashlib
-import runpy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -17,6 +16,7 @@ from app.db import get_session
 from app.main import app as native_app
 from app.models import Question, Workspace
 from app.models.product_feedback import FeedbackAttempt, FeedbackSubmission
+from app.public_main import app as public_app
 from app.services import feedback_delivery
 
 pytestmark = pytest.mark.asyncio
@@ -43,7 +43,6 @@ async def clients(db_session, monkeypatch):
         async with factory() as session:
             yield session
 
-    public_app = runpy.run_module("app.public_main")["app"]
     for app in (native_app, public_app):
         monkeypatch.setitem(app.dependency_overrides, get_session, database)
     delivery = AsyncMock()
