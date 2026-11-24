@@ -163,7 +163,9 @@ function GoalSummary({ plan, goal, registered, onOpen }: {
     ? { ahead: t('progress.dailyLearningPlanViewAhead', { count: Math.abs(delta) }), on_track: t('progress.dailyLearningPlanViewOnTrack'), behind: t('progress.dailyLearningPlanViewBehind', { count: Math.abs(delta) }), unavailable: t('progress.dailyLearningPlanViewNoBaseline') }[progress.status]
     : t('progress.dailyLearningPlanViewNotComparable');
   const plannedCount = comparable && progress.baseline_completed === progress.completed ? progress.expected : null;
-  const plannedMarker = plannedCount !== null && progress && progress.total > 0 ? 100 * plannedCount / progress.total : null;
+  const plannedMarker = plannedCount !== null && progress && progress.total > 0
+    ? { count: plannedCount, left: 100 * plannedCount / progress.total }
+    : null;
 
   return <section className="daily-plan-card daily-plan-goal" aria-labelledby="daily-plan-goal">
     <div className="daily-plan-row">
@@ -192,7 +194,7 @@ function GoalSummary({ plan, goal, registered, onOpen }: {
       aria-valuetext={t('progress.dailyLearningPlanViewCompletionCount', { completed: progress?.completed ?? 0, total: progress?.total ?? 0 })}>
       <span className="daily-plan-track-fill" style={{ width: percent + '%' }} />
       {plannedMarker !== null && <span className="daily-plan-track-marker" aria-hidden="true"
-        title={t('progress.dailyLearningPlanViewExpected', { count: plannedCount })} style={{ left: plannedMarker + '%' }} />}
+        title={t('progress.dailyLearningPlanViewExpected', { count: plannedMarker.count })} style={{ left: plannedMarker.left + '%' }} />}
     </div>}
     <div className="daily-plan-row daily-plan-goal-footer">
       <p>{comparable ? t('progress.dailyLearningPlanViewBaselineTasks', { actual: progress.baseline_completed ?? '—', expected: progress.expected ?? '—' }) : t('progress.dailyLearningPlanViewPaceUnavailable')}</p>
