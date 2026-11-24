@@ -1,3 +1,4 @@
+import { t, useT } from '../i18n';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
@@ -13,7 +14,7 @@ function readQuestion(value: unknown) {
       'answer_html' in value && typeof value.answer_html === 'string' && value.answer_html.trim()) {
     return { id: value.id, short_code: value.short_code, title: value.title, answer_html: value.answer_html };
   }
-  throw new Error('未收到完整的面试题内容');
+  throw new Error(t("study.incompleteOrganizedQuestion"));
 }
 
 type Status =
@@ -24,6 +25,8 @@ export default function StudyInterviewQuestion({ sessionId, canOrganize }: {
   sessionId: number;
   canOrganize: boolean;
 }) {
+  const t = useT();
+
   const path = `/study/sessions/${sessionId}/interview-question`;
   const pendingKey = draftKey(sessionId) + ':interview-question';
   const [question, setQuestion] = useState<ReturnType<typeof readQuestion> | null>(null);
@@ -81,26 +84,26 @@ export default function StudyInterviewQuestion({ sessionId, canOrganize }: {
   }
 
   return (
-    <section className="card coach-interview-question" aria-label="面试题整理">
+    <section className="card coach-interview-question" aria-label={t("study.organizeInterviewQuestion")}>
       <div className="study-actions">
         <button type="button" className="btn btn-outline" onClick={organize} disabled={disabled}>
-          {saving ? '正在整理面试题…' : status.kind === 'save-error' || status.kind === 'unconfirmed' ? '重试整理面试题' : '整理成面试题'}
+          {saving ? t("study.organizingInterviewQuestion") : status.kind === 'save-error' || status.kind === 'unconfirmed' ? t("study.retryInterviewQuestion") : t("study.turnIntoInterviewQuestion")}
         </button>
-        {canRetryRead && <button type="button" className="btn btn-ghost" onClick={reread}>重新读取</button>}
+        {canRetryRead && <button type="button" className="btn btn-ghost" onClick={reread}>{t("study.reloadQuestion")}</button>}
       </div>
-      {checking && <p role="status">正在读取已整理的面试题…</p>}
-      {saving && <p role="status">正在根据本次对话整理面试题。</p>}
-      {status.kind === 'unconfirmed' && <p role="status">上次整理结果尚未确认，可以重新读取或重试。</p>}
-      {status.kind === 'read-error' && <p role="alert">读取面试题失败。{status.message}</p>}
-      {status.kind === 'save-error' && <p role="alert">整理面试题失败。{status.message}</p>}
-      {!canOrganize && !question && status.kind === 'ready' && <p className="hint">收到学习助手的回复后，可以把本次对话整理成面试题。</p>}
+      {checking && <p role="status">{t("study.loadingOrganizedQuestion")}</p>}
+      {saving && <p role="status">{t("study.organizingFromConversation")}</p>}
+      {status.kind === 'unconfirmed' && <p role="status">{t("study.organizedQuestionUnconfirmed")}</p>}
+      {status.kind === 'read-error' && <p role="alert">{t("study.loadOrganizedQuestionFailed", { message: status.message })}</p>}
+      {status.kind === 'save-error' && <p role="alert">{t("study.organizeInterviewQuestionFailed", { message: status.message })}</p>}
+      {!canOrganize && !question && status.kind === 'ready' && <p className="hint">{t("study.needAssistantReplyToOrganize")}</p>}
       {question && <>
-        <p role="status">已保存至我的题目 · {question.short_code}</p>
+        <p role="status">{t("study.savedToMyQuestions", { shortCode: question.short_code })}</p>
         <details key={question.id}>
           <summary>{question.title}</summary>
           <div className="bank-answer bank-review-answer" dangerouslySetInnerHTML={{ __html: answer }} />
         </details>
-        <Link to="/bank?scope=mine">在我的题目中查看</Link>
+        <Link to="/bank?scope=mine">{t("study.viewInMyQuestions")}</Link>
       </>}
     </section>
   );
