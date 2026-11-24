@@ -6,8 +6,11 @@ export default function AccountSettings({ user, signedOut }: { user: AccountInfo
   const t = useT();
   const { request } = useWorkspaceApi();
   const [password, setPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [changed, setChanged] = useState(false);
   const [error, setError] = useState<UiMessage | null>(null);
   async function perform(action: () => Promise<void>) {
     setBusy(true);
@@ -26,6 +29,17 @@ export default function AccountSettings({ user, signedOut }: { user: AccountInfo
   return <section className="account-settings"><h1 className="page-title">{t('registered.accountAndData')}</h1><div className="card account-section"><h2>{t('registered.currentAccount')}</h2><p>{user.username}</p>
     <div className="account-actions"><button className="btn btn-outline" onClick={() => perform(download)} disabled={busy}>{t('registered.exportAccountData')}</button>
       <button className="btn btn-outline" onClick={() => perform(async () => { await request('/auth/logout', { method: 'POST' }); signedOut(); })} disabled={busy}>{t('registered.logout')}</button></div>
+    </div><div className="card account-section">
+      <h2>{t('registered.changePassword')}</h2>
+      <form className="account-form" onSubmit={e => { e.preventDefault(); void perform(async () => {
+        await request('/auth/password', { method: 'POST', body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }) });
+        setCurrentPassword(''); setNewPassword(''); setChanged(true);
+      }); }}>
+        <label>{t('registered.currentPassword')}<input type="password" autoComplete="current-password" value={currentPassword} required maxLength={128} onChange={e => { setCurrentPassword(e.target.value); setChanged(false); }} /></label>
+        <label>{t('registered.newPasswordLabel')}<input type="password" autoComplete="new-password" value={newPassword} required minLength={12} maxLength={128} onChange={e => { setNewPassword(e.target.value); setChanged(false); }} /><small className="account-input-hint">{t('registered.passwordHint')}</small></label>
+        <button className="btn btn-primary" disabled={busy || !currentPassword || newPassword.length < 12}>{t('registered.changePassword')}</button>
+        {changed && <p role="status">{t('registered.passwordChanged')}</p>}
+      </form>
     </div><details className="card account-section" open={deleting} onToggle={e => setDeleting(e.currentTarget.open)}>
       <summary>{t('registered.deleteAccount')}</summary><p>{t('registered.deleteAccountWarning')}</p>
       <form className="account-form" onSubmit={e => { e.preventDefault(); void perform(async () => {

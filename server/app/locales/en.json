@@ -59,6 +59,7 @@
   "diagram.ack": "Acknowledge after saving",
   "diagram.redeliver": "Redeliver if unacknowledged",
   "errors.this_username_is_taken_choose_another": "This username is taken. Choose another.",
+  "errors.the_current_password_is_incorrect": "The current password is incorrect.",
   "errors.incorrect_password_your_account_has_not_been_deleted": "Incorrect password. Your account has not been deleted.",
   "errors.this_workspace_cannot_be_deleted_through_a_registered_account": "This workspace cannot be deleted through a registered account.",
   "errors.sign_in_to_continue": "Sign in to continue.",

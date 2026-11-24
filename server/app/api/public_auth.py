@@ -99,6 +99,11 @@ class RecoveryInput(RegisterInput):
     recovery_code: Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[A-Za-z0-9_-]{32}$")]
 
 
+class ChangePasswordInput(BaseModel):
+    current_password: SecretStr = Field(min_length=1, max_length=128)
+    new_password: SecretStr = Field(min_length=12, max_length=128)
+
+
 class AccountInfo(BaseModel):
     username: str
     workspace_id: int
@@ -266,6 +271,36 @@ async def recover(body: RecoveryInput, request: Request, response: Response, ses
     info = RecoveryInfo(username=account.username, workspace_id=account.workspace_id, recovery_code=recovery_code)
     await _open_session(request, response, session, account.id)
     return info
+
+
+@router.post("/password", status_code=204)
+async def change_password(
+    body: ChangePasswordInput,
+    request: Request,
+    response: Response,
+    session: Database,
+    authenticated: Annotated[PublicAccount, Depends(_session_account)],
+) -> None:
+    account_id = authenticated.id
+    await record_attempt(session, AttemptLimit("change-password", str(account_id), 10, _ATTEMPT_WINDOW))
+
+    # Recheck the session after acquiring the lock. Recovery may have revoked it while we waited.
+    account = await session.get(PublicAccount, account_id, with_for_update=True, populate_existing=True)
+    if account is None or (await _session_account(request, session)).id != account_id:
+        raise _unauthenticated()
+    if not await password_matches(body.current_password.get_secret_value(), account.password_hash):
+        raise HTTPException(status_code=401, detail=localized_message("errors.the_current_password_is_incorrect"))
+
+    account.password_hash = await hash_password(body.new_password.get_secret_value())
+    # Rotate every session except the current one so other devices must sign in again.
+    digest = _cookie_digest(request)
+    await session.execute(
+        delete(PublicSession).where(
+            PublicSession.account_id == account_id,
+            or_(PublicSession.token_hash != digest, PublicSession.expires_at <= func.now()),
+        )
+    )
+    await session.commit()
 
 
 @router.get("/me")
