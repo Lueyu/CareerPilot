@@ -1,5 +1,6 @@
 """Turn a saved study conversation into workspace-owned review material."""
 import json
+import re
 from html import escape
 from typing import Annotated
 from uuid import uuid4
@@ -22,6 +23,8 @@ from app.services.study_routing import profile
 from app.services.study_teaching import teaching_prompt
 
 MAX_SNAPSHOT_BYTES = 128_000
+PROMPT_FRAMING_TOKENS = 64
+_ASCII_WORD = re.compile(r" ?[a-zA-Z]+")
 
 Title = Annotated[str, StringConstraints(min_length=1, max_length=240, pattern=r"^[^\x00]+$")]
 Paragraph = Annotated[str, StringConstraints(min_length=1, max_length=1800, pattern=r"^[^\x00]+$")]
@@ -71,6 +74,14 @@ class InterviewQuestionResult(BaseModel):
     short_code: str
     title: str
     answer_html: str
+
+
+def estimate_guide_prompt_tokens(text: str, utf8_bytes: int) -> int:
+    """Estimate ASCII word tokens and charge all other UTF-8 bytes in full."""
+    for word in _ASCII_WORD.findall(text):
+        # A leading space often shares the token. Estimate one token per four letters.
+        utf8_bytes -= len(word) - (len(word.lstrip(" ")) + 3) // 4
+    return utf8_bytes
 
 
 def render_guide(guide: Guide | FreeStudyGuide, turns: list[dict]) -> str:
@@ -203,7 +214,9 @@ async def generate_question(db, workspace_id, session_id, *, session_mode):
     saved = await saved_result(db, workspace_id, session_id, snapshot_hash)
     if saved:
         return saved
-    transcript_bytes = len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+    # Match read_json's transcript serialization.
+    transcript = json.dumps(payload, ensure_ascii=False)
+    transcript_bytes = len(transcript.encode("utf-8"))
     if transcript_bytes > MAX_SNAPSHOT_BYTES:
         raise HTTPException(422, localized_message("errors.the_conversation_is_too_long_to_organize_in_one"))
 
@@ -220,7 +233,8 @@ async def generate_question(db, workspace_id, session_id, *, session_mode):
     if resolved is None:
         raise HTTPException(502, localized_message("errors.no_model_is_configured_for_this_study_tier_check"))
     cfg, context = resolved
-    if cfg["output_limit"] <= 0:
+    output_limit = cfg["output_limit"]
+    if output_limit <= 0:
         raise HTTPException(502, localized_message("guide.no_output_budget"))
 
     has_project = any(turn["project_id"] is not None for turn in turns)
@@ -229,15 +243,19 @@ async def generate_question(db, workspace_id, session_id, *, session_mode):
         teaching_prompt("interview_question"),
         localized_message("guide.project_quotes" if has_project else "guide.no_project_quotes"),
         localized_message("guide.output_instruction"),
-        json.dumps(schema.model_json_schema(), ensure_ascii=False),
+        json.dumps(schema.model_json_schema(), ensure_ascii=False, separators=(",", ":")),
     ))
-    # Count the transcript as serialized by read_json and reserve chat's 64-token framing margin.
-    context_remaining = context - len(instruction.encode("utf-8")) - transcript_bytes - 64
+    prompt_bytes = len(instruction.encode("utf-8")) + transcript_bytes
+    context_remaining = context - prompt_bytes - PROMPT_FRAMING_TOKENS
+    if context_remaining < output_limit:
+        # A byte count overstates token count for prose. The provider still enforces its actual limit.
+        estimated_tokens = estimate_guide_prompt_tokens(instruction + transcript, prompt_bytes)
+        context_remaining = context - estimated_tokens - PROMPT_FRAMING_TOKENS
     if context_remaining <= 0:
         raise HTTPException(422, localized_message("guide.insufficient_context"))
     try:
         guide, _ = await read_json(instruction, payload, schema, config={
-            **cfg, "output_limit": min(cfg["output_limit"], context_remaining),
+            **cfg, "output_limit": min(output_limit, context_remaining),
         })
         answer_html = render_guide(guide, turns)
     except GenerationError:

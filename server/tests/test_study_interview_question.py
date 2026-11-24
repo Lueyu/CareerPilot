@@ -224,7 +224,7 @@ async def test_interview_question_fits_full_prompt_in_context(
     client, owner, _ = chat_client
     settings = get_settings()
     monkeypatch.setattr(settings, "study_flash_context", context)
-    monkeypatch.setattr(settings, "study_flash_output_tokens", 6000)
+    monkeypatch.setattr(settings, "study_flash_output_tokens", 3000)
     monkeypatch.setattr(settings, "study_output_budget", 16000)
     headers = {**owner, "Accept-Language": language}
     sid = await new_chat(client, headers)
@@ -261,7 +261,7 @@ async def test_interview_question_fits_full_prompt_in_context(
     if context == 8192:
         assert response.status_code == 200, response.text
         [(payload, prompt_bytes)] = sent
-        assert payload["max_tokens"] == context - prompt_bytes - 64 < 6000
+        assert payload["max_tokens"] == 3000 <= context - prompt_bytes - 64
         system, transcript = [item["content"] for item in payload["messages"]]
         assert "in English" in system and '"project_context"' in system
         assert json.loads(transcript) == {"turns": [{
@@ -275,6 +275,69 @@ async def test_interview_question_fits_full_prompt_in_context(
         expected = "没有足够的上下文空间" if language == "zh-CN" else "does not have enough context space"
         assert expected in response.json()["detail"]
         assert (await client.get(path, headers=headers)).json() is None
+
+
+@pytest.mark.parametrize(("repeats", "provider_context", "expected_status"), [
+    (700, 8192, 200), (3000, 8192, 422), (700, 3000, 502),
+])
+@pytest.mark.asyncio
+async def test_interview_question_fits_reviewer_transcript(
+    chat_client, db_session, monkeypatch, repeats, provider_context, expected_status,
+):
+    client, owner, _ = chat_client
+    settings = get_settings()
+    monkeypatch.setattr(settings, "study_flash_context", 8192)
+    monkeypatch.setattr(settings, "study_flash_output_tokens", 6000)
+    monkeypatch.setattr(settings, "study_output_budget", 16000)
+    headers = {**owner, "Accept-Language": "en"}
+    sid = await new_chat(client, headers)
+    question, answer = "Fixture 中文", "Read the event. " * repeats
+    user, _ = await turn(db_session, sid, "context-review", question, answer, project=17,
+                         reply_coach={"mode": "auto", "trace": {"tier": "flash"}})
+    path = f"/study/sessions/{sid}/interview-question"
+
+    async def config():
+        return {"model": "fixture-model", "provider": "fixture", "api_key": "fixture",
+                "base_url": "https://fixture.invalid", "output_limit": 4500}
+
+    requests = []
+    original_client = httpx.AsyncClient
+
+    def upstream(request):
+        payload = json.loads(request.content)
+        system, transcript = [item["content"] for item in payload["messages"]]
+        # These are the independent reviewer's synthetic provider units, not a model tokenizer.
+        units = len((system + transcript).split())
+        ceiling = payload["max_tokens"]
+        requests.append((len((system + transcript).encode("utf-8")), units, ceiling))
+        [turn_input] = json.loads(transcript)["turns"]
+        assert turn_input["user"]["text"] == question and turn_input["assistant"]["text"] == answer
+        if units + 64 + ceiling > provider_context:
+            return httpx.Response(400, json={"error": "Synthetic provider context exceeded"})
+        guide = {**GUIDE, "project_context": [{"message_id": user.id, "quote": question}]}
+        raw = frame(json.dumps(guide, ensure_ascii=False)) + frame(finish="stop") + DONE
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=raw)
+
+    monkeypatch.setattr(study_interview_questions, "get_llm_config", config)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(
+        transport=httpx.MockTransport(upstream), **kwargs))
+    response = await client.post(path, headers=headers)
+    assert response.status_code == expected_status, response.text
+    saved = await client.get(path, headers=headers)
+    if expected_status == 422:
+        assert not requests and saved.json() is None
+        return
+    [(byte_count, units, ceiling)] = requests
+    assert byte_count > 8192
+    assert 0 < ceiling <= 4500
+    if expected_status == 200:
+        assert units + 64 + ceiling <= provider_context
+        assert question in response.json()["answer_html"]
+        assert saved.json() == response.json()
+        assert (await client.post(path, headers=headers)).json() == response.json()
+        assert len(requests) == 1
+    else:
+        assert units + 64 + ceiling > provider_context and saved.json() is None
 
 
 @pytest.mark.parametrize(("global_enabled", "strong_enabled", "session_mode", "latest_metadata", "expected"), [
