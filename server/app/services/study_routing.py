@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 from app.config import Settings, get_settings
+from app.i18n import message
 
 POLICY_VERSION = "study-auto-v2.2"
 STREAM_CAPABILITIES = frozenset({"text", "stream"})
@@ -13,30 +14,30 @@ ROLE_BY_ACTION = {
     "project": "project_coach", "improve": "project_coach",
     "diagram": "artifact_builder", "demo": "artifact_builder",
 }
-PROJECT_REFERENCE = re.compile(r"项目|仓库|源码|代码|文件|调用链|\brepo(?:sitory)?\b", re.I)
+PROJECT_REFERENCE = re.compile(r"项目|仓库|源码|代码|文件|调用链|\b(?:repo(?:sitory)?|project|source code|file|call chain)\b", re.I)
 DIRECT_DEFINITION = re.compile(
     r"(?:请问|请)?(?:什么是|啥是|什么叫|(?:what is (?:a|an)|define)\s+)"
     r"[^，。；？!?;\n]{1,45}[？?。]?", re.I,
 )
 APPLIED_REASONING = (
-    ("multiple_constraints", "需要同时考虑多项约束", re.compile(
+    ("multiple_constraints", re.compile(
         r"既要.{0,100}(?:又要|还要)|同时(?:满足|保证|兼顾|控制|避免)|"
         r"兼顾|在.{1,48}(?:约束|前提|预算|限制|条件)下|"
         r"平衡.{1,40}(?:与|和|及)|under .{1,48} constraints?|"
         r"must .{1,60} while .{1,60}", re.I,
     )),
-    ("compare_alternatives", "需要比较方案及其适用条件", re.compile(
+    ("compare_alternatives", re.compile(
         r"取舍|权衡|选型|备选方案|各自.{0,12}(?:优缺点|适合|适用|风险)|"
         r"(?:相比|对比|比较|区别|二选一).{0,60}(?:选|场景|影响|风险|优缺点|适用|推荐)|"
         r"trade.?offs?|pros and cons|compare .{1,60}(?:choose|recommend|trade.?off)", re.I,
     )),
-    ("diagnose_failure", "需要定位原因、验证假设或分析失败条件", re.compile(
+    ("diagnose_failure", re.compile(
         r"排查|根因|故障复盘|从(?:哪|何处).{0,10}查|定位.{0,20}(?:原因|问题|故障)|"
         r"失败分支|边界条件|故障窗口|如何验证.{0,12}(?:原因|假设)|"
         r"(?:崩溃|宕机|失败|重试|恢复|回滚).{0,30}(?:之前|之后|重复|丢失|如何|会怎样)|"
         r"troubleshoot|diagnos(?:e|is)|failure mode|root cause", re.I,
     )),
-    ("design_solution", "需要设计可执行的方案或验证步骤", re.compile(
+    ("design_solution", re.compile(
         r"(?:设计|规划|拟定|搭建|制定).{0,40}"
         r"(?:方案|流程|架构|机制|接口|策略|用例|监控|测试|上线|迁移|回滚|系统|服务|验证|模型)|"
         r"(?:怎么|如何|请|帮我)(?:设计|规划|搭建|制定)|"
@@ -45,7 +46,7 @@ APPLIED_REASONING = (
 )
 CONTINUATION = (
     "这一步", "刚才", "上面", "为什么会", "接着", "那里", "它为什么", "继续", "进一步",
-    "这个方案", "为什么不", "那如果", "上一轮", "这一层",
+    "这个方案", "为什么不", "那如果", "上一轮", "这一层", "that step", "the previous", "go deeper", "continue", "what about",
 )
 
 # A situation followed by a request for a decision is common outside technical roles.
@@ -87,7 +88,7 @@ class TutoringIntent:
 def tutoring_intent(action, question, prior, sources, artifact, proactive_diagram, project_id=None):
     prior_trace = ((prior.coach or {}).get("trace") or {}) if prior else {}
     continues = bool(prior and prior.status == "completed" and prior.project_id == project_id
-                     and any(cue in question for cue in CONTINUATION))
+                     and any(cue in question.lower() for cue in CONTINUATION))
     code_paths = {
         s["path"] for s in sources
         if s.get("provenance") == "repository_observation" and s.get("path")
@@ -116,22 +117,22 @@ def tutoring_intent(action, question, prior, sources, artifact, proactive_diagra
         )
         if code_paths:
             specialties.add("code_reasoning")
-            reasons.append(("project_synthesis", "需要根据本轮代码材料分析项目"))
+            reasons.append("project_synthesis")
             if len(code_paths) > 1:
-                reasons.append(("cross_file_evidence", "需要综合多个文件的代码证据"))
+                reasons.append("cross_file_evidence")
         else:
-            reasons.append(("project_evidence_gap", "代码证据不足，先说明材料缺口与可核实范围"))
+            reasons.append("project_evidence_gap")
         if version_gap:
-            reasons.append(("version_gap", "历史分析与当前版本需区分"))
+            reasons.append("version_gap")
     elif action == "jd":
         evidence = "jd_available" if jd else "missing"
-        reasons.append(("jd_synthesis", "需要结合岗位原文给出练习重点") if jd else
-                       ("jd_evidence_gap", "缺少岗位原文，需先取得岗位描述"))
+        reasons.append("jd_synthesis" if jd else
+                       "jd_evidence_gap")
 
     if artifact or proactive_diagram:
         specialties.add("structured_text")
-        reasons.append(("structured_artifact", "需要生成可校验的教学产物") if artifact else
-                       ("proactive_diagram", "图解有助于展示步骤、关系或故障分支"))
+        reasons.append("structured_artifact" if artifact else
+                       "proactive_diagram")
 
     followup = (
         continues and (prior_trace.get("preferred_tier") or prior_trace.get("tier")) == "strong"
@@ -140,17 +141,17 @@ def tutoring_intent(action, question, prior, sources, artifact, proactive_diagra
     can_analyze = (not project_turn or bool(code_paths)) and (action != "jd" or jd)
     depth_reasons = []
     if can_analyze and action not in {"simplify", "example"} and not DIRECT_DEFINITION.fullmatch(question.strip()):
-        depth_reasons = [(code, reason) for code, reason, pattern in APPLIED_REASONING if pattern.search(question)]
+        depth_reasons = [code for code, pattern in APPLIED_REASONING if pattern.search(question)]
         if not depth_reasons and needs_scenario_reasoning(question):
-            depth_reasons.append(("scenario_decision", "需要结合题设判断下一步，并说明判断依据"))
+            depth_reasons.append("scenario_decision")
     reasons.extend(depth_reasons)
     if followup and can_analyze:
-        reasons.append(("grounded_followup", "承接本分支上一轮的深入讨论"))
+        reasons.append("grounded_followup")
 
     strong = bool(specialties or depth_reasons or (jd and action == "jd") or (can_analyze and followup))
     if not reasons:
-        reasons.append(("direct_teaching", "可直接讲解、澄清或进行一轮面试练习"))
-    return TutoringIntent(role, "strong" if strong else "flash", tuple(reasons),
+        reasons.append("direct_teaching")
+    return TutoringIntent(role, "strong" if strong else "flash", tuple((code, message(f"route.{code}")) for code in reasons),
                           frozenset(specialties), evidence, len(code_paths))
 
 

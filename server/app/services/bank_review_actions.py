@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 
+from app.i18n import message as localized_message
 from app.models import ImportItem, QuestionGeneration, Skill
 from app.services import question_generation as protocol
 from app.services.answer_gen import build_rubric, render_html
@@ -118,7 +119,7 @@ def review_view(item):
 
 def ensure_not_revising(item):
     if review_view(item)["review_state"] == "running":
-        raise HTTPException(409, "正在改写此题，请等待本次改写完成")
+        raise HTTPException(409, localized_message("errors.this_question_is_being_rewritten_wait_for_the_current"))
 
 
 def _set_receipt(item, request_id, receipt, *, advance=True):
@@ -151,7 +152,7 @@ async def lock_review_item(session, workspace, import_id, item_id):
         ImportItem.id == item_id, ImportItem.session_id == imported.id,
     ).with_for_update().execution_options(populate_existing=True))
     if item is None:
-        raise HTTPException(404, "该题不属于此导入会话")
+        raise HTTPException(404, localized_message("errors.this_question_belongs_to_another_import_session"))
     return imported, item
 
 
@@ -230,7 +231,7 @@ async def _revision_context(session, imported, item, skill_key):
         ))
         metadata = item.generation_meta or {}
         if task is None or not metadata.get("item"):
-            raise HTTPException(409, "生成记录缺失，无法确认资料来源")
+            raise HTTPException(409, localized_message("errors.the_generation_record_is_missing_the_material_s_source"))
         snapshot = {key: value for key, value in task.input_snapshot.items() if key != "bank_review_feedback"}
         context.update(structured=metadata["item"], input_snapshot=snapshot, batch_id=task.id)
     else:
@@ -249,15 +250,15 @@ async def review_import_item(session, workspace, import_id, item_id, request):
     previous = review.get("receipts", {}).get(request.request_id)
     if previous:
         if any(previous.get(key) != value for key, value in intent.items()):
-            raise HTTPException(409, "此请求编号已用于另一条审核指令")
+            raise HTTPException(409, localized_message("errors.this_request_id_has_already_been_used_for_another"))
         return _response(item, previous)
     if request.revision != review.get("revision", 0):
-        raise HTTPException(409, "草稿已更新，请重新打开后审核")
+        raise HTTPException(409, localized_message("errors.this_draft_has_changed_reopen_it_before_reviewing"))
     if imported.status not in ("REVIEW", "APPROVED") or item.status != ImportItem.STATUS_DRAFT:
-        raise HTTPException(409, "仅待审核草稿可以审核")
+        raise HTTPException(409, localized_message("errors.only_drafts_awaiting_review_can_be_reviewed"))
     ensure_not_revising(item)
     if request.action != "approve" and not feedback:
-        raise HTTPException(422, "请填写改写意见或驳回原因")
+        raise HTTPException(422, localized_message("errors.give_feedback_for_the_rewrite_or_a_reason_for"))
     if request.action == "approve" and not has_reviewable_answer(item):
         raise HTTPException(422, INCOMPLETE_ANSWER)
 
@@ -310,7 +311,7 @@ async def review_import_item(session, workspace, import_id, item_id, request):
             or not current or current.get("outcome") != "running" or _expired(current)):
         if current and (current.get("outcome") != "running" or _expired(current)):
             return _response(item, current)
-        raise HTTPException(409, "草稿已更新，本次改写未覆盖原有内容")
+        raise HTTPException(409, localized_message("errors.the_draft_changed_the_rewrite_did_not_overwrite_the"))
     if receipt["outcome"] == "revised":
         item.draft_answer, item.draft_rubric = updated["answer_html"], updated["rubric"]
         if payload is not None:

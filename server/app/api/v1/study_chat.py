@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message, request_language
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import Workspace
@@ -95,7 +96,7 @@ async def owned(session, workspace_id, session_id, *, lock=False):
         query = query.with_for_update()
     row = await session.scalar(query)
     if row is None or row.hidden_at:
-        raise HTTPException(404, "学习会话不存在")
+        raise HTTPException(404, localized_message("errors.study_session_not_found"))
     return row
 
 
@@ -107,18 +108,18 @@ async def check_project(session, workspace_id, project_id):
     if project_id is not None and not await session.scalar(select(Project.id).where(
         Project.id == project_id, Project.workspace_id == workspace_id, Project.archived_at.is_(None)
     )):
-        raise HTTPException(404, "项目不存在")
+        raise HTTPException(404, localized_message("errors.project_not_found"))
 
 
 @router.post("", status_code=201)
 async def create(body: StartSession, session: Db, ws: Owner):
     if body.source_type != "free" and body.source_id is None:
-        raise HTTPException(422, "请指定学习来源")
+        raise HTTPException(422, localized_message("errors.select_a_source_for_this_study_session"))
     await workspace_lock(session, ws)
     context = await entry_context(session, ws, body)
     await check_project(session, ws.id, body.project_id)
     context.update(mode=body.mode, project_id=body.project_id)
-    row = StudySession(workspace_id=ws.id, title=body.title or context["topic"][:80] or "新的学习会话",
+    row = StudySession(workspace_id=ws.id, title=body.title or context["topic"][:80] or localized_message("session.new"),
                        context=context)
     session.add(row)
     await session.commit()
@@ -227,13 +228,13 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
         same = signature == body.model_dump(exclude_none=True) if signature else (
             (user.content, user.action, user.project_id) == (body.content, body.action, body.project_id))
         if not same:
-            raise HTTPException(409, "该请求编号已用于另一条消息")
+            raise HTTPException(409, localized_message("errors.this_request_id_was_used_for_another_message"))
         await session.commit()
         return ticket(user.id, reply)
     if row.status != "active":
-        raise HTTPException(409, "该会话已结束，请先继续学习")
+        raise HTTPException(409, localized_message("errors.resume_the_study_session_before_continuing"))
     if await session.scalar(messages.where(StudyMessage.status == "generating").limit(1)):
-        raise HTTPException(409, "上一条回复正在生成，可以中断或等待完成")
+        raise HTTPException(409, localized_message("errors.a_reply_is_still_being_generated_wait_for_it"))
 
     skills = row.context["skill_ids"]
     if not row.context["topic"] and not skills:
@@ -254,15 +255,15 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
         if identifier:
             parent = await session.scalar(messages.where(StudyMessage.id == identifier))
             if parent is None or parent.project_id != project_id or parent.status != "completed":
-                raise HTTPException(404, "消息不属于当前会话与项目")
+                raise HTTPException(404, localized_message("errors.this_message_does_not_belong_to_the_current_conversation"))
     if body.revision_of:
         original_user = await session.scalar(messages.where(StudyMessage.request_id == parent.request_id,
             StudyMessage.role == "user"))
         if not original_user:
-            raise HTTPException(409, "缺少此版本的原始提问")
+            raise HTTPException(409, localized_message("errors.the_original_question_for_this_version_is_missing"))
         anchor = (original_user.coach or {}).get("parent_message_id")
         if body.parent_message_id and body.parent_message_id not in (anchor, original_user.id):
-            raise HTTPException(409, "所选父消息与修订版本不一致")
+            raise HTTPException(409, localized_message("errors.the_selected_parent_message_does_not_match_this_revision"))
         if "parent_message_id" not in (original_user.coach or {}):
             anchor = await session.scalar(select(StudyMessage.id).where(StudyMessage.session_id == row.id,
                 StudyMessage.id < original_user.id, StudyMessage.project_id.is_not_distinct_from(project_id),
@@ -275,7 +276,7 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
         sources.append(guide_source)
     if not row.context["topic"]:
         row.context = {**row.context, "topic": body.content, "skill_ids": skills}
-        if row.title == "新的学习会话":
+        if row.title in {localized_message("session.new", "zh-CN"), localized_message("session.new", "en")}:
             row.title = body.content[:80]
     row.updated_at = datetime.now(timezone.utc)
     user = StudyMessage(session_id=row.id, role="user", action=body.action, content=body.content,
@@ -286,7 +287,8 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
     await session.flush()
     reply = StudyMessage(session_id=row.id, role="assistant", action=body.action, content="", sources=sources,
                          project_id=project_id, request_id=body.request_id, status="generating", expires_at=lease_deadline(),
-                         coach={"mode": mode, "parent_message_id": user.id, "revision_of": body.revision_of,
+                         coach={"mode": mode, "response_language": request_language(),
+                                "parent_message_id": user.id, "revision_of": body.revision_of,
                                 "trace": {"stage": "queued", "calls": []}})
     session.add(reply)
     await session.commit()
@@ -298,7 +300,7 @@ async def owned_reply(session, row, message_id):
     reply = await session.scalar(select(StudyMessage).where(StudyMessage.id == message_id,
         StudyMessage.session_id == row.id, StudyMessage.role == "assistant").with_for_update())
     if reply is None:
-        raise HTTPException(404, "回复不存在")
+        raise HTTPException(404, localized_message("errors.reply_not_found"))
     user_id = await session.scalar(select(StudyMessage.id).where(StudyMessage.session_id == row.id,
         StudyMessage.role == "user", StudyMessage.request_id == reply.request_id))
     return user_id, reply
@@ -315,7 +317,7 @@ async def interrupt(session_id: int, message_id: int, session: Db, ws: Owner,
     if reply.status == "generating":
         reply.content = interrupt_content(reply)
         reply.coach = {**reply.coach, "trace": {**reply.coach.get("trace", {}), "stage": "interrupted", "error_kind": "cancelled"}}
-        reply.status, reply.expires_at, reply.error = "interrupted", None, "已暂停生成，可重试"
+        reply.status, reply.expires_at, reply.error = "interrupted", None, localized_message("study.paused", (reply.coach or {}).get("response_language", "zh-CN"))
     await session.commit()
     notify_stream(reply)
     return ticket(user_id, reply)
@@ -332,10 +334,10 @@ async def retry(session_id: int, message_id: int, tasks: BackgroundTasks, sessio
         await session.commit()
         return ticket(user_id, reply)
     if row.status != "active":
-        raise HTTPException(409, "该会话已结束，请先继续学习")
+        raise HTTPException(409, localized_message("errors.resume_the_study_session_before_continuing"))
     if await session.scalar(select(StudyMessage.id).where(
             StudyMessage.session_id == row.id, StudyMessage.id > reply.id).limit(1)):
-        raise HTTPException(409, "已有后续对话，请另发一条消息")
+        raise HTTPException(409, localized_message("errors.the_conversation_has_moved_on_send_a_new_message"))
     # A practice attempt could have started since the interrupted generation.
     question_text = await session.scalar(select(StudyMessage.content).where(StudyMessage.id == user_id))
     await mark_help(session, ws, row, question_text)
@@ -366,7 +368,7 @@ async def stream(session_id: int, message_id: int, session: Db, ws: Owner):
     reply = await session.scalar(select(StudyMessage.id).where(StudyMessage.id == message_id,
         StudyMessage.session_id == row.id, StudyMessage.role == "assistant"))
     if reply is None:
-        raise HTTPException(404, "回复不存在")
+        raise HTTPException(404, localized_message("errors.reply_not_found"))
     # 流式期间逐帧使用独立短会话(message_stream 内部 SessionLocal),
     # 这里提前归还请求会话, 避免一条长流(最长约 30 分钟)长期占用连接池。
     await session.close()

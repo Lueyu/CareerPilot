@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.config import get_settings
 from app.db import get_session
@@ -352,7 +353,7 @@ async def publish_draft(
     session: AsyncSession = Depends(get_session),
 ):
     if dry_run is not True:
-        raise HTTPException(403, "public_writes_disabled: 仅允许本地 dry-run 预览")
+        raise HTTPException(403, localized_message("errors.public_writes_disabled_only_local_dry_run_previews_are"))
     d = await _get_draft(session, ws, draft_id)
     if d.status != DRAFT_STATUS_APPROVED:
         raise HTTPException(status_code=409, detail=f"状态 {d.status} 不可发布(需 APPROVED)")
@@ -545,7 +546,7 @@ async def rollback_publication(
     session: AsyncSession = Depends(get_session),
 ):
     """回滚: 恢复到上一个已发布版本, 建回滚分支 + PR(不自动合并)。"""
-    raise HTTPException(403, "public_writes_disabled: 本轮关闭远程回滚")
+    raise HTTPException(403, localized_message("errors.public_writes_disabled_remote_rollback_is_disabled_for_this"))
 
 
 # --------------------------------------------------------------------------

@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
+from app.i18n import message as localized_message
 from app.models import EvolutionCandidate, Exam, MemoryItem, ScoringRun, ScoringStep, Workspace
 from app.models.learning_feedback import LearningActivity, LearningGoal, LearningSubmission
 from app.services.tracing import emit_event
@@ -284,7 +285,7 @@ async def evaluate_teaching_candidate(session, workspace_id, candidate):
 
     from app.models import EvolutionRun
     if candidate.workspace_id != workspace_id:
-        raise HTTPException(404, '策略候选不存在')
+        raise HTTPException(404, localized_message("errors.strategy_candidate_not_found"))
     source = candidate.source_data or {}
     ids = source.get('submission_ids') or []
     rows = (await session.execute(select(LearningSubmission, ScoringRun).join(ScoringRun,

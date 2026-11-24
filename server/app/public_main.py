@@ -11,6 +11,7 @@ from sqlalchemy.engine import make_url
 
 from app.api import public_auth, public_coach, public_dashboard, public_feedback, public_learning, public_library, public_memory, public_native
 from app.db import Base, engine
+from app.i18n import LanguageMiddleware
 from app.services.public_native_runtime import close_native_runtime, invalidate_transfer, validate_native_config
 
 
@@ -31,6 +32,9 @@ async def initialize_public_database():
         elif await db.scalar(text("SELECT version FROM careerpilot_seed_install")) != 1:
             raise RuntimeError("Unsupported public database version")
         await db.run_sync(Base.metadata.create_all)
+        if "public_coach_turns" in tables:
+            await db.execute(text("ALTER TABLE public_coach_turns ADD COLUMN IF NOT EXISTS "
+                                  "response_language VARCHAR(8) NOT NULL DEFAULT 'zh-CN'"))
 
 
 @asynccontextmanager
@@ -47,6 +51,7 @@ async def lifespan(application):
 
 app = FastAPI(title="CareerPilot", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.middleware("http")(public_auth.public_origin_guard)
+app.add_middleware(LanguageMiddleware)
 for routes in (public_auth.router, public_library.router, public_coach.router, public_memory.router,
                public_dashboard.router, public_learning.router, public_native.router, public_feedback.router):
     app.include_router(routes, prefix="/api/v1")

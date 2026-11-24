@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.api.v1.project_autopilot import freshness, valid_report
 from app.db import get_session
@@ -47,7 +48,7 @@ async def _project(session: AsyncSession, workspace_id: int, project_id: int, *,
     )
     project = await session.scalar(query.with_for_update() if lock else query)
     if project is None:
-        raise HTTPException(404, '项目不存在')
+        raise HTTPException(404, localized_message("errors.project_not_found"))
     return project
 
 
@@ -117,12 +118,12 @@ async def get_project_resume(project_id: int, ws: Workspace = Depends(get_worksp
 async def save_project_resume(project_id: int, request: SaveResumeDraft, ws: Workspace = Depends(get_workspace),
                               session: AsyncSession = Depends(get_session)):
     if project_id != request.project_id:
-        raise HTTPException(409, '草稿不属于当前项目')
+        raise HTTPException(409, localized_message("errors.this_draft_belongs_to_a_different_project"))
     project = await _project(session, ws.id, project_id, lock=True)
     draft = await session.get(ProjectResumeDraft, (ws.id, project_id))
     current_revision = draft.revision if draft else 0
     if request.revision != current_revision:
-        raise HTTPException(409, '草稿已更新，请重新打开后再保存')
+        raise HTTPException(409, localized_message("errors.the_draft_has_changed_reopen_it_before_saving"))
 
     if draft is None:
         draft = ProjectResumeDraft(workspace_id=ws.id, project_id=project_id)

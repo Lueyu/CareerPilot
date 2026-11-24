@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 
+from app.i18n import message as localized_message
 from app.models.study_notes import StudyNote, StudyNoteVersion
 
 
@@ -35,7 +36,7 @@ async def own_note(db, workspace_id, note_id, *, lock=False):
     stmt = select(StudyNote).where(StudyNote.id == note_id, StudyNote.workspace_id == workspace_id)
     row = await db.scalar(stmt.with_for_update() if lock else stmt)
     if row is None:
-        raise HTTPException(404, "笔记不存在")
+        raise HTTPException(404, localized_message("errors.note_not_found"))
     return row
 
 
@@ -43,7 +44,7 @@ async def own_version(db, note_id, version_id, *, lock=False):
     stmt = select(StudyNoteVersion).where(StudyNoteVersion.id == version_id, StudyNoteVersion.note_id == note_id)
     row = await db.scalar(stmt.with_for_update() if lock else stmt)
     if row is None:
-        raise HTTPException(404, "笔记版本不存在")
+        raise HTTPException(404, localized_message("errors.note_version_not_found"))
     return row
 
 
@@ -69,7 +70,7 @@ async def list_notes(db, workspace_id, q: str = ""):
 async def get_note(db, workspace_id, note_id: int):
     note = await own_note(db, workspace_id, note_id)
     if not note.current_version_id:
-        raise HTTPException(404, "尚未生成可查看的笔记版本")
+        raise HTTPException(404, localized_message("errors.this_note_has_no_generated_version_yet"))
     versions = (await db.scalars(select(StudyNoteVersion).where(StudyNoteVersion.note_id == note.id)
                                  .order_by(StudyNoteVersion.id.desc()))).all()
     active = next(v for v in versions if v.id == note.current_version_id)
@@ -86,7 +87,7 @@ async def get_version(db, workspace_id, note_id: int, version_id: int):
 async def edit_note(db, workspace_id, note_id: int, body: EditIn):
     note = await own_note(db, workspace_id, note_id, lock=True)
     if note.current_version_id != body.expected_version_id:
-        raise HTTPException(409, "当前笔记已更新，请保留编辑内容并对照新版本")
+        raise HTTPException(409, localized_message("errors.this_note_changed_keep_your_edits_and_compare_them"))
     source = await own_version(db, note.id, body.source_version_id or note.current_version_id)
     version = StudyNoteVersion(note_id=note.id, title=body.title, body=body.body, author="USER",
                                base_version_id=note.current_version_id, source_version_id=source.id,

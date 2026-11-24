@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models.project import Project, ProjectFinding, ProjectScan
@@ -168,9 +169,9 @@ async def create_project(
 ):
     if body.kind == "manual":
         if not body.name.strip():
-            raise HTTPException(422, '手工项目名称不能为空')
+            raise HTTPException(422, localized_message("errors.enter_a_name_for_the_manual_project"))
         if body.repo_url or body.owner or body.repo:
-            raise HTTPException(status_code=422, detail="手工项目无需仓库；如需扫描仓库，请选择仓库项目")
+            raise HTTPException(status_code=422, detail=localized_message("errors.for_repository_scanning_choose_a_repository_project_instead_of"))
         owner, repo, provider = "", "", "manual"
     else:
         provider, owner, repo = _parse_repo_url(body)

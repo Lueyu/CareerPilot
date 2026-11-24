@@ -84,6 +84,33 @@ async def new_chat(client, headers, **body):
     return response.json()["id"]
 
 
+@pytest.mark.asyncio
+async def test_switching_language_creates_one_question_per_language(chat_client, db_session, model):
+    client, owner, other = chat_client
+    calls, outcomes = model
+    sid = await new_chat(client, owner)
+    original = "我的原始回答"
+    await turn(db_session, sid, "bilingual", "如何处理重复投递？", original)
+    path = f"/study/sessions/{sid}/interview-question"
+    chinese = await client.post(path, headers=owner)
+    assert chinese.is_success, chinese.text
+
+    async def english_guide():
+        return {"content": json.dumps({**GUIDE, "title": "How do you handle duplicate deliveries?"})}
+
+    outcomes.append(english_guide)
+    headers = {**owner, "Accept-Language": "en-US"}
+    english = await client.post(path, headers=headers)
+    assert english.is_success, english.text
+    assert english.json()["id"] != chinese.json()["id"]
+    assert english.json()["title"] == "How do you handle duplicate deliveries?"
+    assert (await client.post(path, headers=headers)).json() == english.json()
+    assert (await client.post(path, headers=owner)).json() == chinese.json()
+    assert len(calls) == 2 and "in English" in calls[-1][0]
+    assert original in json.dumps(calls[-1][1], ensure_ascii=False)
+    assert (await client.get(path, headers={**other, "Accept-Language": "en"})).status_code == 404
+
+
 async def turn(db, sid, request, text, answer, *, status="completed", project=None, coach=None,
                reply_coach=None, reply_model=None):
     user = StudyMessage(session_id=sid, role="user", request_id=request, action="explain",

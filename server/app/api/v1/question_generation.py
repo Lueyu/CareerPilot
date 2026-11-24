@@ -14,6 +14,7 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import lazyload
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
 from app.models import (
@@ -74,7 +75,7 @@ async def owned_task(session, ws_id, task_id, lock=False):
         query = query.with_for_update()
     task = await session.scalar(query.execution_options(populate_existing=True))
     if task is None:
-        raise HTTPException(404, "生成任务不存在")
+        raise HTTPException(404, localized_message("errors.generation_job_not_found"))
     return task
 
 
@@ -131,14 +132,14 @@ async def create_task(req: GenerationIn, ws: Workspace = Depends(get_workspace),
     previous = await session.scalar(select(QuestionGeneration).where(QuestionGeneration.workspace_id == ws.id, QuestionGeneration.request_key == request_key))
     if previous:
         if GenerationIn.model_validate(previous.request_json).model_dump(exclude={"request_key"}) != req.model_dump(exclude={"request_key"}):
-            raise HTTPException(409, "同一请求标识对应的输入已改变，请新建任务")
+            raise HTTPException(409, localized_message("errors.the_inputs_for_this_request_id_have_changed_create"))
         return await task_view(session, previous)
     skills = (await session.scalars(select(Skill).order_by(Skill.id))).all()
     allowed = {s.key for s in skills}
     if set(req.skill_keys) - allowed:
-        raise HTTPException(422, "技能不存在")
+        raise HTTPException(422, localized_message("errors.skill_not_found"))
     if not allowed:
-        raise HTTPException(409, "请先初始化能力域")
+        raise HTTPException(409, localized_message("errors.initialize_a_skill_domain_first"))
     try:
         projects = await build_project_context(session, ws.id, req.project_ids)
         targets = await issue_targets(session, ws.id, req.project_ids, req.source_analysis_id, req.source_issue_ids)
@@ -151,12 +152,12 @@ async def create_task(req: GenerationIn, ws: Workspace = Depends(get_workspace),
     if req.source_import_id is not None:
         imp = await session.scalar(select(ImportSession).where(ImportSession.id == req.source_import_id, ImportSession.workspace_id == ws.id))
         if not imp:
-            raise HTTPException(404, "来源导入会话不存在")
+            raise HTTPException(404, localized_message("errors.source_import_session_not_found"))
         metadata = imp.meta or {}
         if not source_text:
             source_text = metadata.get("extracted_source_text") or metadata.get("pasted_text") or imp.paste_text or ""
             if not source_text or (metadata.get("source") == "files" and not metadata.get("extracted_source_text")):
-                raise HTTPException(422, "此历史导入未保留完整原文，请粘贴原帖后再结合项目优化；仅题目标题不足以还原背景")
+                raise HTTPException(422, localized_message("errors.this_older_import_has_no_full_source_text_paste"))
         for it in imp.items:
             source_id = it.question_id or it.merged_into or it.is_duplicate_of
             if source_id:
@@ -164,9 +165,9 @@ async def create_task(req: GenerationIn, ws: Workspace = Depends(get_workspace),
                 if q and q.workspace_id in (None, ws.id) and (q.generation_meta or {}).get('assessment_use') != 'PRACTICE_ONLY':
                     source_questions.append({"id": q.id, "title": q.title, "canonical_question_id": q.canonical_question_id})
     if req.kind == "import" and not source_text:
-        raise HTTPException(422, "请粘贴面经或选择已导入会话")
+        raise HTTPException(422, localized_message("errors.paste_an_interview_account_or_select_an_existing_import"))
     if len(source_text) > 60000:
-        raise HTTPException(422, "原文超过 60000 字，请分批导入")
+        raise HTTPException(422, localized_message("errors.the_source_is_over_60_000_characters_import_it"))
     keys = req.skill_keys or [s.key for s in skills]
     # Supply existing titles so the generator can avoid duplicates or explicitly
     # identify an adaptation. Bound context size; semantic dedup still needs review.
@@ -220,10 +221,10 @@ async def store_response(session, task, raw, result_meta=None):
 async def submit_result(task_id: int, req: ResultIn, ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session)):
     task = await owned_task(session, ws.id, task_id, lock=True)
     if task.mode != "external":
-        raise HTTPException(409, "API 任务请使用生成按钮")
+        raise HTTPException(409, localized_message("errors.use_the_generate_button_for_an_api_job"))
     if task.import_session_id:
         if req.text != task.raw_response:
-            raise HTTPException(409, "本批次已进入审核，请新建任务以保留历史")
+            raise HTTPException(409, localized_message("errors.this_batch_is_already_in_review_create_a_new"))
     else:
         await store_response(session, task, req.text)
     return await task_view(session, task)
@@ -252,7 +253,7 @@ async def _run(task_id: int, workspace_id: int):
 async def run_task(task_id: int, ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session)):
     task = await owned_task(session, ws.id, task_id, lock=True)
     if task.mode != "api":
-        raise HTTPException(409, "外部聊天任务请粘贴结果")
+        raise HTTPException(409, localized_message("errors.paste_the_result_from_the_external_chat"))
     if task.status != "RUNNING" and not task.import_session_id:
         task.status, task.error = "RUNNING", None
         await session.commit()
@@ -270,18 +271,18 @@ async def edit_item(task_id: int, item_id: int, req: ItemEdit, ws: Workspace = D
     await workspace_lock(session, ws.id)
     item = await session.scalar(select(ImportItem).where(ImportItem.id == item_id, ImportItem.session_id == task.import_session_id).with_for_update())
     if item is None:
-        raise HTTPException(404, "草稿不存在")
+        raise HTTPException(404, localized_message("errors.draft_not_found"))
     if item.status != "DRAFT":
-        raise HTTPException(409, "仅待审核草稿可以编辑")
+        raise HTTPException(409, localized_message("errors.only_drafts_awaiting_review_can_be_edited"))
     ensure_not_revising(item)
     if req.revision is not None and req.revision != review_view(item)["review_revision"]:
-        raise HTTPException(409, "草稿已更新，请重新打开后编辑")
+        raise HTTPException(409, localized_message("errors.the_draft_has_changed_reopen_it_before_editing"))
     old = (item.generation_meta or {}).get("item", {})
     if req.item.get("original_question") != old.get("original_question") or req.item.get("source_question_id") != old.get("source_question_id"):
-        raise HTTPException(422, "原题与来源关系不可在编辑答案时更改")
+        raise HTTPException(422, localized_message("errors.editing_an_answer_cannot_change_the_original_question_or"))
     issue_refs = {t['fact_ref'] for t in task.input_snapshot.get('project_issue_targets') or []}
     if issue_refs.intersection(req.item.get('fact_refs') or []) != issue_refs.intersection(old.get('fact_refs') or []):
-        raise HTTPException(422, '本题关联的项目问题不可在编辑答案时更换，请新建批次')
+        raise HTTPException(422, localized_message("errors.create_a_new_batch_to_change_the_project_question"))
     try:
         validated = protocol.parse_response(json.dumps({"schema_version": 1, "batch_id": task.id, "items": [req.item]}, ensure_ascii=False), {**task.input_snapshot, "count": 1}, task.id, require_all_targets=False)[0]
         content = protocol.render_item(validated, task.input_snapshot)

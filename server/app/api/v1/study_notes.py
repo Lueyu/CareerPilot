@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import Workspace
@@ -74,7 +75,7 @@ async def own_job(db, workspace_id, job_id, *, lock=False):
     query = select(StudyNoteJob).where(StudyNoteJob.workspace_id == workspace_id, StudyNoteJob.id == job_id)
     job = await db.scalar(query.with_for_update() if lock else query)
     if not job:
-        raise HTTPException(404, "整理任务不存在")
+        raise HTTPException(404, localized_message("errors.note_generation_job_not_found"))
     return job
 
 
@@ -123,7 +124,7 @@ async def own_card(db, workspace_id, card_id, *, lock=False):
                                   StudyCard.status != "DELETED")
     card = await db.scalar(stmt.with_for_update() if lock else stmt)
     if not card:
-        raise HTTPException(404, "复习卡不存在")
+        raise HTTPException(404, localized_message("errors.review_card_not_found"))
     return card
 
 
@@ -201,12 +202,12 @@ async def delete_card(card_id: int, ws=Depends(get_workspace), db=Depends(get_se
 async def review_card(card_id: int, body: ReviewIn, ws=Depends(get_workspace), db=Depends(get_session)):
     card = await own_card(db, ws.id, card_id, lock=True)
     if card.status != "ACTIVE":
-        raise HTTPException(409, "请先将卡片加入复习")
+        raise HTTPException(409, localized_message("errors.add_the_card_to_review_first"))
     event = await db.scalar(select(StudyCardEvent).where(StudyCardEvent.card_id == card.id,
                                                         StudyCardEvent.request_id == body.request_id))
     if event:
         if event.rating != body.rating:
-            raise HTTPException(409, "该自评请求已提交其他结果")
+            raise HTTPException(409, localized_message("errors.this_self_assessment_request_already_contains_a_different_result"))
     else:
         now = service.utcnow()
         card.next_review_at = now + {"again": timedelta(minutes=10), "hard": timedelta(days=1),

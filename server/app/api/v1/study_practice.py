@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.api.v1.exams import CreateExamReq, issue_exam
 from app.db import get_session
@@ -94,7 +95,7 @@ async def retest(practice_id: int, ws: Workspace = Depends(get_workspace), sessi
     row = await service.owned_practice(session, ws.id, practice_id)
     activity = await session.get(LearningActivity, row.id)
     if not activity.latest_submission_id:
-        raise HTTPException(409, '请先提交一次原答，之后可以在新情境检查迁移')
+        raise HTTPException(409, localized_message("errors.submit_your_own_answer_before_checking_transfer_to_a"))
     return await issue_exam(CreateExamReq(kind=Exam.KIND_FOCUSED, question_count=1), ws, session, study_practice=row)
 
 

@@ -6,6 +6,7 @@ import hashlib
 import re
 from copy import deepcopy
 
+from app.i18n import message as localized_message
 from app.services.assessment_rubric import AssessmentJudgeError, rubric_version, validate_rubric
 from app.services.assessment_versions import digest
 from app.services.project_sources import is_safe_source_path, redact_source
@@ -303,27 +304,27 @@ async def validate_project_submission(session, ws, activity, payload):
     from app.models.learning_project import LearningProjectSnapshot
     snapshot_id = payload.get('project_snapshot_id')
     if type(snapshot_id) is not int:
-        raise HTTPException(409, '请先预览明确的项目提交范围，再确认检查；文字声明不能代替代码快照')
+        raise HTTPException(409, localized_message("errors.preview_the_exact_project_submission_scope_before_confirming_the"))
     row = await session.scalar(select(LearningProjectSnapshot).where(LearningProjectSnapshot.id == snapshot_id,
         LearningProjectSnapshot.workspace_id == ws.id, LearningProjectSnapshot.activity_id == activity.id,
         LearningProjectSnapshot.goal_id == activity.goal_id))
     if row is None:
-        raise HTTPException(404, '项目提交快照不存在或不属于本活动')
+        raise HTTPException(404, localized_message("errors.the_project_submission_snapshot_is_missing_or_belongs_to"))
     if row.activity_version != activity.version:
-        raise HTTPException(409, '项目快照的任务标准版本已经改变，请重新预览')
+        raise HTTPException(409, localized_message("errors.the_task_rubric_changed_preview_the_project_snapshot_again"))
     contract = activity.snapshot.get('project_contract') or {}
     project = await session.scalar(select(Project).where(Project.id == row.project_id,
         Project.id == contract.get('project_id'), Project.workspace_id == ws.id, Project.archived_at.is_(None)))
     if project is None:
-        raise HTTPException(409, '项目已撤回或任务关联不一致，不能继续评审')
+        raise HTTPException(409, localized_message("errors.this_project_was_withdrawn_or_its_task_link_changed"))
     value = row.snapshot
     actual = digest({k:v for k,v in value.items() if k != 'content_hash'})
     if actual != row.content_hash or value.get('content_hash') != row.content_hash:
-        raise HTTPException(409, '项目提交快照校验失败，原记录保留待复核')
+        raise HTTPException(409, localized_message("errors.the_project_snapshot_failed_verification_the_original_record_has"))
     if payload.get('project_snapshot_hash') != row.content_hash:
-        raise HTTPException(409, '本次提交与已预览的代码指纹不一致')
+        raise HTTPException(409, localized_message("errors.the_submission_differs_from_the_previewed_code_fingerprint"))
     if (payload.get('answer_text') or payload.get('text_answer')) != value['answer_text']:
-        raise HTTPException(409, '不能在确认后替换预览的源码；请创建新的预览版本')
+        raise HTTPException(409, localized_message("errors.create_a_new_preview_to_replace_the_confirmed_source"))
     return {**{k:v for k,v in payload.items() if k != 'text_answer'},
             'answer_text':value['answer_text'], 'project_contract':deepcopy(contract),
             'project_source_text':submission_source_text(value['files']),

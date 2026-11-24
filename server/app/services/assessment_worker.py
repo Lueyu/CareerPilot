@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
+from app.i18n import message as localized_message
 from app.models import CompetencySnapshot, ScoringRun, ScoringStep, SkillState, Trace, Workspace
 from app.services import assessment_jobs as jobs
 from app.services.assessment_rubric import JUDGE_VERSION, AssessmentJudgeError, Judgement, validate_judgement
@@ -140,7 +141,7 @@ async def execute_claim(claim,worker_id,factory,lease_seconds=45,heartbeat_secon
             goal = await session.get(LearningGoal, submission.goal_id) if submission else None
             try:
                 if goal is None:
-                    raise HTTPException(409, '练习来源绑定缺失，需要复核')
+                    raise HTTPException(409, localized_message("errors.the_practice_source_link_is_missing_and_needs_review"))
                 await assert_goal_sources(session, await session.get(Workspace, run.workspace_id), goal)
             except HTTPException as error:
                 await jobs.fail_step(session, claim, AssessmentJudgeError('SOURCE_CHANGED', str(error.detail)))

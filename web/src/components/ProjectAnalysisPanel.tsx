@@ -100,7 +100,7 @@ export default function ProjectAnalysisPanel({projectId,tab='process',manual=fal
         <Link className="btn btn-outline" to="?tab=resume">{t('projects.reviewResumeMaterial')}</Link>
       </article>
       {latest && latest.status!=='COMPLETED' && <div className="project-report-card"><ProjectRunStatus run={latest} compact/></div>}
-      {data?.partial_preview && <p className="hint">{t('projects.partialResultsSaved')}{t('projects.sentenceGap')}<Link to="?tab=process">{t('projects.viewProcess')}</Link></p>}
+      {data?.partial_preview && <p className="hint">{t('projects.partialResultsSaved')}<Link to="?tab=process">{t('projects.viewProcess')}</Link></p>}
     </>}
     {tab==='process' && <>
       <div className="project-report-steps">

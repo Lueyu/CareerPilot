@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import MemoryItem, Workspace
@@ -102,9 +103,9 @@ async def confirm_memory(
     if m is None:
         raise HTTPException(status_code=404, detail="memory not found")
     if m.mtype in ('ProjectUnderstanding','ProjectIssue','LearningObservation','LearningPreference'):
-        raise HTTPException(409, '项目和学习候选请使用带版本检查的候选审核入口')
+        raise HTTPException(409, localized_message("errors.review_project_and_learning_candidates_through_the_version_checked"))
     if m.status not in ('CANDIDATE', 'ACTIVE'):
-        raise HTTPException(409, '已替代或删除的记忆不可重新激活')
+        raise HTTPException(409, localized_message("errors.superseded_or_deleted_memories_cannot_be_reactivated"))
     if m.status == 'ACTIVE':
         return {"id": m.id, "status": m.status}
     m.status = "ACTIVE"
@@ -135,9 +136,9 @@ async def correct_memory(
     if m is None:
         raise HTTPException(status_code=404, detail="memory not found")
     if m.status != 'ACTIVE':
-        raise HTTPException(409, '只能纠正当前生效的记忆，请重新读取最新版本')
+        raise HTTPException(409, localized_message("errors.only_the_active_memory_can_be_corrected_reload_the"))
     if m.mtype in LEARNING_TYPES and req.expected_revision != m.revision:
-        raise HTTPException(409, '学习记忆版本已变化，请重新查看后纠正')
+        raise HTTPException(409, localized_message("errors.this_study_memory_has_changed_reopen_it_before_making"))
     new = MemoryItem(
         workspace_id=ws.id,
         mtype=m.mtype,

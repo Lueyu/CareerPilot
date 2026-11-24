@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import aliased
 
+from app.i18n import message as localized_message, request_language
 from app.config import get_settings
 from app.models import Question, Workspace
 from app.models.question import SOURCE_GENERATED, STUDY_CHAT_REVIEW_META
@@ -79,30 +80,30 @@ def render_guide(guide: Guide, turns: list[dict]) -> str:
     followups = "".join(f"<details><summary>{escape(item.question)}</summary><p>{escape(item.answer)}</p></details>"
                         for item in guide.followups)
     sections = [
-        "<p><strong>未验证的练习</strong></p>",
-        section("题干", guide.title),
-        section("先说人话", guide.plain),
-        section("面试口述", guide.spoken),
-        section("通俗类比", guide.analogy),
-        f'<h3>步骤拆解</h3><ol class="answer-flow">{steps}</ol>',
-        "<h3>对照表</h3><table><thead><tr><th>场景或选项</th><th>机制</th><th>适用边界</th></tr></thead>"
+        f"<p><strong>{localized_message('guide.unverified')}</strong></p>",
+        section(localized_message("guide.question"), guide.title),
+        section(localized_message("guide.plain"), guide.plain),
+        section(localized_message("guide.spoken"), guide.spoken),
+        section(localized_message("guide.analogy"), guide.analogy),
+        f'<h3>{localized_message("guide.steps")}</h3><ol class="answer-flow">{steps}</ol>',
+        f"<h3>{localized_message('guide.comparison')}</h3><table><thead><tr><th>{localized_message('guide.scenario')}</th><th>{localized_message('guide.mechanism')}</th><th>{localized_message('guide.limit')}</th></tr></thead>"
         f"<tbody>{rows}</tbody></table>",
-        section("算例或反例", guide.example),
-        "<h3>面试追问</h3>" + followups,
+        section(localized_message("guide.example"), guide.example),
+        f"<h3>{localized_message('guide.followups')}</h3>" + followups,
     ]
     if guide.project_context:
         messages = {
             turn[role]["id"]: (label, turn["project_id"], turn[role]["text"])
             for turn in turns if turn["project_id"] is not None
-            for role, label in (("user", "学习者陈述"), ("assistant", "助手讲解"))
+            for role, label in (("user", localized_message("guide.learner")), ("assistant", localized_message("guide.assistant")))
         }
-        sections.append("<h3>项目相关对话引用</h3><p>以下引文保留对话中的归因。个人贡献及项目实绩有待独立核实。</p>")
+        sections.append(f"<h3>{localized_message('guide.sources')}</h3><p>{localized_message('guide.attribution')}</p>")
         for reference in guide.project_context:
-            message = messages.get(reference.message_id)
-            if message is None or reference.quote not in message[2]:
-                raise GenerationError("项目引用不属于本次对话快照")
-            label, project_id, _ = message
-            sections.append(f"<p>项目 {project_id} · {label} · 消息 {reference.message_id}</p>"
+            quoted_turn = messages.get(reference.message_id)
+            if quoted_turn is None or reference.quote not in quoted_turn[2]:
+                raise GenerationError(localized_message("errors.the_project_citation_does_not_belong_to_this_conversation"))
+            label, project_id, _ = quoted_turn
+            sections.append(f"<p>{localized_message('guide.citation').format(project_id=project_id, speaker=label, message_id=reference.message_id)}</p>"
                             f"<blockquote>{escape(reference.quote)}</blockquote>")
     return "".join(sections)
 
@@ -181,14 +182,16 @@ async def saved_result(db, workspace_id, session_id, snapshot_hash=None):
 async def generate_question(db, workspace_id, session_id, *, session_mode):
     turns, latest = await complete_turns(db, session_id)
     if not turns:
-        raise HTTPException(409, "学习会话尚无完整的提问和回复")
+        raise HTTPException(409, localized_message("errors.this_study_session_has_no_complete_question_and_reply"))
     payload = {"turns": turns}
+    if request_language() != "zh-CN":
+        payload["response_language"] = request_language()
     snapshot_hash = digest(payload)
     saved = await saved_result(db, workspace_id, session_id, snapshot_hash)
     if saved:
         return saved
     if len(json.dumps(payload, ensure_ascii=False).encode()) > MAX_SNAPSHOT_BYTES:
-        raise HTTPException(422, "完整对话超出一次整理的范围，请另建短一些的主题会话")
+        raise HTTPException(422, localized_message("errors.the_conversation_is_too_long_to_organize_in_one"))
 
     # Resolve the model outside the transaction that will hold the advisory lock.
     cfg = organizer_profile(await get_llm_config(), *latest, session_mode)
@@ -201,7 +204,7 @@ async def generate_question(db, workspace_id, session_id, *, session_mode):
         await db.commit()
         return saved
     if cfg is None:
-        raise HTTPException(502, "当前学习档位未配置可用模型，请检查配置后重试")
+        raise HTTPException(502, localized_message("errors.no_model_is_configured_for_this_study_tier_check"))
 
     instruction = teaching_prompt("interview_question") + "\n仅输出符合以下 JSON Schema 的对象：\n" + json.dumps(
         Guide.model_json_schema(), ensure_ascii=False)
@@ -210,7 +213,7 @@ async def generate_question(db, workspace_id, session_id, *, session_mode):
         guide, _ = await read_json(instruction, payload, Guide, config={**cfg, "output_limit": output_limit})
         answer_html = render_guide(guide, turns)
     except GenerationError:
-        raise HTTPException(502, "生成面试题失败，可以重试") from None
+        raise HTTPException(502, localized_message("errors.could_not_generate_the_interview_question_try_again")) from None
 
     # Match chat's lock order and recheck visibility after the model returns.
     await db.execute(select(Workspace.id).where(Workspace.id == workspace_id).with_for_update())
@@ -219,7 +222,7 @@ async def generate_question(db, workspace_id, session_id, *, session_mode):
         StudySession.hidden_at.is_(None),
     ).with_for_update())
     if visible_session is None:
-        raise HTTPException(404, "学习会话不存在")
+        raise HTTPException(404, localized_message("errors.study_session_not_found"))
 
     question = Question(workspace_id=workspace_id, short_code="sc-" + uuid4().hex[:29],
                         title=guide.title, topic="study", source_type=SOURCE_GENERATED,

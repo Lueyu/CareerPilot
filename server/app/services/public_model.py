@@ -20,6 +20,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.i18n import message as localized_message
 from app.db import SessionLocal
 from app.models.public_model import PublicModelCall, PublicModelMonth
 
@@ -122,7 +123,7 @@ def _provider_config() -> _Provider:
                 _billing_env("SEED_DAILY_USER_CNY", _NANO_CNY, budget=True),
             )
     except (ValueError, InvalidOperation, httpx.InvalidURL):
-        raise PublicModelError(503, "模型服务暂未配置，请稍后再试。") from None
+        raise PublicModelError(503, localized_message("errors.the_model_service_is_not_configured_yet_try_again")) from None
     return _Provider(endpoint, key, model, meter, thinking)
 
 
@@ -153,7 +154,7 @@ def _prepare(
             clean.append({"role": role, "content": content})
         digest = hashlib.sha256(request_key.encode("utf-8")).hexdigest()
     except (ValueError, UnicodeError):
-        raise PublicModelError(422, "模型请求无效或内容过长。") from None
+        raise PublicModelError(422, localized_message("errors.the_model_request_is_invalid_or_too_long")) from None
 
     # Bound byte-level tokenization and allow for the provider's chat template.
     input_ceiling = byte_count + 64 * len(clean) + 256
@@ -188,7 +189,7 @@ async def _claim(
             previous = await db.get(PublicModelCall, (workspace_id, digest))
             if previous is not None:
                 if previous.result is None:
-                    raise PublicModelError(409, "此请求已提交，暂无可重放的答复。")
+                    raise PublicModelError(409, localized_message("errors.this_request_was_already_submitted_there_is_no_reply"))
                 return previous.result
 
             provider = _provider_config()
@@ -223,7 +224,7 @@ async def _claim(
                 charged_nano_cny=reserved,
             ))
     except SQLAlchemyError:
-        raise PublicModelError(503, "模型额度服务暂不可用，请稍后再试。") from None
+        raise PublicModelError(503, localized_message("errors.the_model_quota_service_is_temporarily_unavailable_try_again")) from None
     return provider
 
 
@@ -253,7 +254,7 @@ async def _finish(
             await db.execute(_LEDGER_LOCK)
             call = await db.get(PublicModelCall, (workspace_id, digest))
             if call is None:
-                raise PublicModelError(409, "此模型请求已失效。")
+                raise PublicModelError(409, localized_message("errors.this_model_request_has_expired"))
             call.result = result
             if usage is None:
                 return
@@ -266,11 +267,11 @@ async def _finish(
                 month.charged_nano_cny += actual - call.charged_nano_cny
                 call.charged_nano_cny = actual
     except SQLAlchemyError:
-        raise PublicModelError(503, "模型额度服务暂不可用，请稍后再试。") from None
+        raise PublicModelError(503, localized_message("errors.the_model_quota_service_is_temporarily_unavailable_try_again")) from None
 
 
 def _provider_error() -> PublicModelError:
-    return PublicModelError(502, "模型暂未返回可用答复，请稍后再试。")
+    return PublicModelError(502, localized_message("errors.the_model_returned_no_usable_reply_try_again_later"))
 
 
 @lru_cache(maxsize=1)
@@ -314,7 +315,7 @@ async def _response(
             finally:
                 await response.aclose()
     except (httpx.TimeoutException, TimeoutError):
-        raise PublicModelError(504, "模型响应超时，请稍后再试。") from None
+        raise PublicModelError(504, localized_message("errors.the_model_timed_out_try_again_later")) from None
     except (httpx.HTTPError, OSError):
         raise _provider_error() from None
 

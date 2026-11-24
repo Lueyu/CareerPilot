@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace, require_auth, require_local_owner
 from app.config import get_settings
 from app.db import get_session
@@ -188,7 +189,7 @@ async def update_workspace(
 ):
     data = body.model_dump(exclude_none=True)
     if not data:
-        raise HTTPException(status_code=422, detail="没有要更新的字段")
+        raise HTTPException(status_code=422, detail=localized_message("errors.there_are_no_fields_to_update"))
     for k, v in data.items():
         setattr(ws, k, v)
     await session.commit()
@@ -370,12 +371,12 @@ async def update_account(
 ):
     user = await _owner_user(session, ws)
     if user is None:
-        raise HTTPException(status_code=404, detail="找不到工作空间的账号记录")
+        raise HTTPException(status_code=404, detail=localized_message("errors.no_account_record_was_found_for_this_workspace"))
     data = body.model_dump(exclude_none=True)
     if not data:
-        raise HTTPException(status_code=422, detail="没有要更新的字段")
+        raise HTTPException(status_code=422, detail=localized_message("errors.there_are_no_fields_to_update"))
     if "email" in data and ("@" not in data["email"]):
-        raise HTTPException(status_code=422, detail="邮箱格式不正确")
+        raise HTTPException(status_code=422, detail=localized_message("errors.enter_a_valid_email_address"))
     for k, v in data.items():
         setattr(user, k, v)
     await session.commit()
@@ -450,7 +451,7 @@ async def update_llm(
 ):
     data = body.model_dump(exclude_none=True)
     if not data:
-        raise HTTPException(status_code=422, detail="没有要更新的字段")
+        raise HTTPException(status_code=422, detail=localized_message("errors.there_are_no_fields_to_update"))
     statement = select(AppSetting).where(AppSetting.key == "llm").with_for_update()
     row = (await session.execute(statement)).scalar_one_or_none()
     existing = row.value if row and isinstance(row.value, dict) else {}
@@ -539,7 +540,7 @@ async def get_github():
 async def update_github(body: GithubUpdate, session: AsyncSession = Depends(get_session)):
     token = body.token.strip()
     if not token:
-        raise HTTPException(status_code=422, detail="token 不能为空")
+        raise HTTPException(status_code=422, detail=localized_message("errors.enter_a_token"))
     row = (await session.execute(select(AppSetting).where(AppSetting.key == "github"))).scalar_one_or_none()
     if not row:
         row = AppSetting(key="github", value={"token": token})
@@ -574,7 +575,7 @@ async def update_gitcode_read_settings(
 ):
     token = body.token.strip()
     if not token or len(token) > 2048 or any(not 33 <= ord(ch) <= 126 for ch in token):
-        raise HTTPException(422, "GitCode token 格式无效")
+        raise HTTPException(422, localized_message("errors.invalid_gitcode_token_format"))
     key = f"gitcode:{ws.id}"
     row = await session.get(AppSetting, key)
     if row is None:

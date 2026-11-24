@@ -18,17 +18,17 @@ interface Session {mode?:string;project_id?:number;id:number;title:string;status
 interface Job {id:number;status:string;note_id:number;version_id?:number;message_ids:number[];conflict:boolean;error?:string}
 interface TurnTicket {user_message_id:number;assistant_message_id:number;status:string;attempt?:number}
 const actions = [
-  { id: "simplify", label: "study.explainSimply", prompt: "讲得直白一点" },
-  { id: "example", label: "study.giveAnotherExample", prompt: "换个例子" },
-  { id: "project", label: "study.relateToProject", prompt: "结合我的项目" },
-  { id: "mechanism", label: "study.explainMechanism", prompt: "讲实现机制" },
-  { id: "why", label: "study.explainDesignRationale", prompt: "讲设计缘由" },
-  { id: "diagram", label: "study.drawDiagram", prompt: "画图讲解" },
-  { id: "demo", label: "study.interactiveDemo", prompt: "交互演示" },
-  { id: "interview", label: "study.askInterviewFollowUp", prompt: "面试官追问" },
-  { id: "critique", label: "study.critiqueMyAnswer", prompt: "点评我的表达" },
-  { id: "jd", label: "study.compareJobDescription", prompt: "对照岗位 JD" },
-  { id: "improve", label: "study.suggestProjectImprovements", prompt: "项目补强建议" },
+  { id: "simplify", label: "study.explainSimply" },
+  { id: "example", label: "study.giveAnotherExample" },
+  { id: "project", label: "study.relateToProject" },
+  { id: "mechanism", label: "study.explainMechanism" },
+  { id: "why", label: "study.explainDesignRationale" },
+  { id: "diagram", label: "study.drawDiagram" },
+  { id: "demo", label: "study.interactiveDemo" },
+  { id: "interview", label: "study.askInterviewFollowUp" },
+  { id: "critique", label: "study.critiqueMyAnswer" },
+  { id: "jd", label: "study.compareJobDescription" },
+  { id: "improve", label: "study.suggestProjectImprovements" },
 ] as const;
 function RunDetails({trace}:{trace:Record<string,unknown>}){
   const t = useT();
@@ -325,13 +325,12 @@ function SessionView({id}:{id:number}) {
       const stream=streamFor(m);
       const status=stream?.status||m.status;
       const content=stream?.content??m.content;
-      const quickAction = m.role === 'user' && actions.find(action => m.action === action.id && content === action.prompt);
       const stage=stream?.stage||m.trace?.stage;
       const error=stream?.error||m.error;
       return <StudyTurn speaker={m.role} className={(status==='generating'?' is-generating':'')+(target===String(m.id)?' is-focused':'')} key={m.id} id={'study-message-'+m.id} tabIndex={-1}>
       <h4>{m.role==='user'?t("study.me"):t("study.studyAssistant")} <small>#{m.id} · {status==='generating'?<span className="coach-status-live"><ThinkingDots/>{t("study.generating")}</span>:({completed:t("study.saved"),failed:t("study.failed"),interrupted:t("study.interrupted")} as Record<string,string>)[status]||status}{m.trace?.tier?' · '+String(m.trace.tier):''}{status==='generating'&&stage?' · '+(stages[String(stage)] ? t(stages[String(stage)]) : String(stage)):''}</small></h4>
       {m.role==='assistant'&&status==='generating'&&(stream?.reasoning?<ThinkingPanel text={stream.reasoning} startedAt={liveStartedAt.current||Date.now()} open={!content}/>:!content?<p className="coach-reasoning-hint"><ThinkingDots/>{t("study.thinkingHint")}</p>:null)}
-      {m.role==='assistant'?((content||(m.blocks?.length??0))?<StudyText {...{text:content,blocks:m.blocks,sources:m.sources,streaming:status==='generating'}}/>:null):<div className="study-content">{quickAction ? t(quickAction.label) : content}</div>}{m.role==='assistant'&&<MemoSources items={m.sources}/>}
+      {m.role==='assistant'?((content||(m.blocks?.length??0))?<StudyText {...{text:content,blocks:m.blocks,sources:m.sources,streaming:status==='generating'}}/>:null):<div className="study-content">{content}</div>}{m.role==='assistant'&&<MemoSources items={m.sources}/>}
       {error&&<p role="alert">{error}</p>}{status==='generating'&&<button className="btn btn-outline" disabled={busy} onClick={()=>stop(m)}>{t("study.interruptReply")}</button>}
       {['interrupted','failed'].includes(status)&&!ended&&<button className="btn btn-outline" disabled={busy||generating} onClick={()=>perform('retry',async()=>{await api.post(path+'/messages/'+m.id+'/retry')})}>{t("study.retryReply")}</button>}
       {m.revision_of&&<small>{t("study.messageRevisionOrigin", { messageId: m.revision_of })}</small>}
@@ -347,8 +346,8 @@ function SessionView({id}:{id:number}) {
     </div></div>
     <footer className="coach-compose">
     {away&&<button className="coach-latest" onClick={()=>{follow.current=true;if(scroll.current)scroll.current.scrollTop=scroll.current.scrollHeight;setAway(false)}}>{t("study.backToLatestMessage")}</button>}
-    {error&&<small role="alert">{typeof error === "string" ? error : t(error.key, error.values)}</small>}{!ended?<><div className="coach-chips">{actions.filter(({ id })=>['simplify','mechanism','project','diagram'].includes(id)).map(({ id, label, prompt })=><button disabled={busy||generating} key={id} onClick={()=>send(id,prompt)}>{t(label)}</button>)}<button aria-expanded={more} onClick={()=>setMore(!more)}>{t("study.more")}</button></div>
-    {more&&<div className="coach-chips"><button disabled={busy||ongoing||!data.messages.length||!!cardJob} onClick={()=>organize(false,true)}>{t("study.createReviewCards")}</button><button disabled={busy||generating} onClick={()=>requestPractice('quiz')}>{t("study.quizMe")}</button>{actions.filter(({ id })=>!['simplify','mechanism','project','diagram'].includes(id)).map(({ id, label, prompt })=><button disabled={busy||generating} key={id} onClick={()=>send(id,prompt)}>{t(label)}</button>)}</div>}
+    {error&&<small role="alert">{typeof error === "string" ? error : t(error.key, error.values)}</small>}{!ended?<><div className="coach-chips">{actions.filter(({ id })=>['simplify','mechanism','project','diagram'].includes(id)).map(({ id, label })=><button disabled={busy||generating} key={id} onClick={()=>send(id,t(label))}>{t(label)}</button>)}<button aria-expanded={more} onClick={()=>setMore(!more)}>{t("study.more")}</button></div>
+    {more&&<div className="coach-chips"><button disabled={busy||ongoing||!data.messages.length||!!cardJob} onClick={()=>organize(false,true)}>{t("study.createReviewCards")}</button><button disabled={busy||generating} onClick={()=>requestPractice('quiz')}>{t("study.quizMe")}</button>{actions.filter(({ id })=>!['simplify','mechanism','project','diagram'].includes(id)).map(({ id, label })=><button disabled={busy||generating} key={id} onClick={()=>send(id,t(label))}>{t(label)}</button>)}</div>}
     {(anchor||revision)&&<small>{t("study.referringToMessage", { messageId: revision ?? anchor ?? "", editing: revision?t("study.editingMessageCopy"):t("study.followUp") })}<button onClick={()=>{setAnchor(undefined);setRevision(undefined)}}>{t("study.unlinkMessage")}</button></small>}
     {(cardJob||cardState)&&<small role="status">{cardTarget?.status==='FAILED'?t("study.retryNoteFromTools"):cardState && t(cardState.key, cardState.values)}{cardState?.key === "study.cardGenerationError"&&<button onClick={()=>setCardRetry(r=>r+1)}>{t("study.retryCards")}</button>}{!!cardJob&&<button onClick={()=>{remember(draftKey(id)+':cards','');setCardJob(0);setCardState(null)}}>{t("study.cancelFurtherGeneration")}</button>}</small>}
     {job&&(ongoing||job.status==='FAILED')&&<small role="status" className="coach-note-status">{ongoing?<><ThinkingDots/>{t("study.organizingFrozenMessages", { count: job.message_ids.length })}</>:<><span>{t("study.organizeFailed", { reason: job.error||t("study.pleaseRetry") })}</span><button className="btn btn-outline" disabled={busy} onClick={()=>perform('retry-note',async()=>{await api.post('/study/note-jobs/'+job.id+'/retry')},true)}>{t("study.retryOrganizing")}</button></>}</small>}

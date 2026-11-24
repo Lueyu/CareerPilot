@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import AnalysisStep, AppSetting, MemoryItem, Project, ProjectAnalysis, WorkerHeartbeat, Workspace
@@ -59,7 +60,7 @@ class ReviewIn(BaseModel):
 async def owned_project(session, workspace_id, project_id, allow_archived=False):
     row = await session.scalar(select(Project).where(Project.id == project_id, Project.workspace_id == workspace_id))
     if row is None or (row.archived_at and not allow_archived):
-        raise HTTPException(404, '项目不存在或已移除')
+        raise HTTPException(404, localized_message("errors.the_project_does_not_exist_or_has_been_removed"))
     return row
 
 
@@ -67,7 +68,7 @@ async def owned_run(session, workspace_id, run_id):
     row = await session.scalar(select(ProjectAnalysis).where(ProjectAnalysis.id == run_id,
         ProjectAnalysis.workspace_id == workspace_id).execution_options(populate_existing=True))
     if row is None:
-        raise HTTPException(404, '分析任务不存在')
+        raise HTTPException(404, localized_message("errors.analysis_job_not_found"))
     return row
 
 
@@ -200,7 +201,7 @@ async def get_settings(ws: Workspace = Depends(get_workspace), session: AsyncSes
 @router.put('/project-autopilot/settings')
 async def put_settings(req: SettingsIn, ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session)):
     if req.enabled and not req.acknowledge_source_transfer:
-        raise HTTPException(400, '启用前必须明确确认源码传输范围')
+        raise HTTPException(400, localized_message("errors.confirm_which_source_files_may_be_transferred_before_enabling"))
     await session.execute(text('SELECT pg_advisory_xact_lock(20261119, :ws)'), {'ws':ws.id})
     before = await settings_for(session, ws.id)
     value = {**before, 'enabled':req.enabled, 'budget':req.budget.model_dump(exclude_none=True) if req.budget else before['budget']}
@@ -263,10 +264,10 @@ async def control_run(run_id: int, action: Literal['pause','resume','cancel'], w
     run = await owned_run(session, ws.id, run_id)
     await owned_project(session, ws.id, run.project_id)
     if run.pipeline_version == 'legacy':
-        raise HTTPException(409, '旧版分析不能恢复到新后台，请完整重新分析')
+        raise HTTPException(409, localized_message("errors.this_older_analysis_cannot_resume_on_the_new_worker"))
     view = await run_view(session, run)
     if action not in view['allowed_actions']:
-        raise HTTPException(409, '当前任务不支持此操作；模型配置变化请取消旧任务并完整重新分析')
+        raise HTTPException(409, localized_message("errors.this_action_is_unavailable_for_the_current_job_if"))
     if action == 'resume':
         try:
             one_run_consent = (run.result_meta or {}).get('source_transfer_consent') == CONSENT_VERSION
@@ -274,11 +275,11 @@ async def control_run(run_id: int, action: Literal['pause','resume','cancel'], w
         except PermissionError as exc:
             raise HTTPException(409, str(exc)) from exc
         if run.model_config_fingerprint and run.model_config_fingerprint != model_fingerprint(config):
-            raise HTTPException(409, '模型配置已变化，请取消旧任务并完整重新分析，避免混用不同模型的阶段结果')
+            raise HTTPException(409, localized_message("errors.the_model_configuration_changed_cancel_the_old_job_and"))
         if run.status == 'PAUSED_BUDGET':
             limit = settings['budget'].get('max_model_calls')
             if limit is not None and limit <= (run.usage or {}).get('model_calls',0):
-                raise HTTPException(409, '预算仍不足；请在自动分析设置中明确提高预算后恢复')
+                raise HTTPException(409, localized_message("errors.the_budget_is_still_too_low_raise_it_in"))
             run.budget = dict(settings['budget'])
             await session.commit()
     try:
@@ -293,7 +294,7 @@ async def control_run(run_id: int, action: Literal['pause','resume','cancel'], w
 async def reanalyze(project_id: int, req: ReanalyzeIn, ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session)):
     project = await owned_project(session, ws.id, project_id)
     if project_kind(project) == 'manual':
-        raise HTTPException(409, '手工项目没有可分析的仓库，请继续维护个人经历')
+        raise HTTPException(409, localized_message("errors.this_manual_project_has_no_repository_to_analyze_you"))
     try:
         config, _, settings = await runtime_config(session, ws.id, require_consent=not req.acknowledge_source_transfer)
         await session.execute(text('SELECT pg_advisory_xact_lock(20261117, 0)'))
@@ -319,10 +320,10 @@ async def reanalyze(project_id: int, req: ReanalyzeIn, ws: Workspace = Depends(g
 async def check_updates(project_id: int, ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session)):
     project = await owned_project(session, ws.id, project_id)
     if project_kind(project) == 'manual':
-        raise HTTPException(409, '手工项目没有远端仓库')
+        raise HTTPException(409, localized_message("errors.this_manual_project_has_no_remote_repository"))
     settings = await settings_for(session, ws.id)
     if not settings['enabled'] or settings.get('consent_version') != CONSENT_VERSION:
-        raise HTTPException(409, '请先确认源码传输范围并启用自动分析')
+        raise HTTPException(409, localized_message("errors.confirm_the_source_transfer_scope_and_enable_automatic_analysis"))
     project.next_check_at = utcnow()
     await session.commit()
     return {'project_id':project.id, 'status':'CHECK_QUEUED', 'next_check_at':project.next_check_at.isoformat()}
@@ -346,7 +347,7 @@ async def get_report(project_id: int, analysis_id: int | None = None, ws: Worksp
     current = await latest_run(session, project)
     row = await owned_run(session, ws.id, analysis_id) if analysis_id else await valid_report(session, project)
     if row and row.project_id != project_id:
-        raise HTTPException(404, '此分析不属于该项目')
+        raise HTTPException(404, localized_message("errors.this_analysis_belongs_to_a_different_project"))
     summary = await autopilot_view(session, project)
     report = None
     if row and row.report:
@@ -400,5 +401,5 @@ async def memory_candidates(project_id: int | None = None, ws: Workspace = Depen
 @router.post('/memory-candidates/review')
 async def review_candidates(req: ReviewIn, ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session)):
     if len({x.candidate_id for x in req.items}) != len(req.items):
-        raise HTTPException(422, '同一批次不能重复提交同一候选')
+        raise HTTPException(422, localized_message("errors.a_candidate_can_only_be_submitted_once_per_batch"))
     return {'results':await project_candidates.review_candidates(session,ws.id,[x.model_dump(exclude_none=True) for x in req.items])}

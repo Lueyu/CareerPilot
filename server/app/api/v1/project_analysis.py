@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
 from app.models import Exam, ExamQuestion, ImportItem, Project, ProjectAnalysis, QuestionGeneration, Workspace
@@ -33,7 +34,7 @@ class AnalysisIn(BaseModel):
 async def owned_project(session, ws_id, project_id):
     row = await session.scalar(select(Project).where(Project.id == project_id, Project.workspace_id == ws_id))
     if row is None:
-        raise HTTPException(404, '项目不存在')
+        raise HTTPException(404, localized_message("errors.project_not_found"))
     return row
 
 
@@ -44,7 +45,7 @@ async def owned_run(session, ws_id, project_id, analysis_id, lock=False):
         query = query.with_for_update()
     row = await session.scalar(query.execution_options(populate_existing=True))
     if row is None:
-        raise HTTPException(404, '项目分析不存在')
+        raise HTTPException(404, localized_message("errors.project_analysis_not_found"))
     return row
 
 
@@ -68,7 +69,7 @@ async def list_analyses(project_id: int, ws: Workspace = Depends(get_workspace),
 async def create_analysis(project_id: int, req: AnalysisIn, ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session)):
     project = await owned_project(session, ws.id, project_id)
     if project_kind(project) not in ('github', 'gitcode') or project.archived_at:
-        raise HTTPException(409, '请选择未移除的仓库项目')
+        raise HTTPException(409, localized_message("errors.select_a_repository_project_that_has_not_been_removed"))
     from app.services.project_autopilot_config import model_fingerprint, runtime_config
     from app.services.project_jobs import enqueue
     from app.services.project_scheduler import versions
@@ -173,7 +174,7 @@ async def execute_analysis(analysis_id, workspace_id, project_id):
 async def run_analysis(project_id: int, analysis_id: int, ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session)):
     run = await owned_run(session, ws.id, project_id, analysis_id)
     if run.pipeline_version == 'legacy':
-        raise HTTPException(409, '历史分析不可在 API 内重跑，请使用重新完整分析')
+        raise HTTPException(409, localized_message("errors.start_a_full_analysis_to_replace_this_historical_run"))
     if run.status in ('PAUSED_USER','PAUSED_BUDGET','BLOCKED'):
         from app.services.project_jobs import control_run
         run = await control_run(session, run.id, ws.id, 'resume')

@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.orm import lazyload
 
+from app.i18n import message as localized_message
 from app.models import Exam, ExamQuestion, LearningGoal, LearningTask, Question, Skill, SkillState
 from app.models.project import Project
 from app.services.learning_exposure import record_reference_exposure
@@ -78,11 +79,11 @@ async def entry_context(session, ws, body):
     exam_item = None
     if body.source_type == "free":
         if body.source_id is not None:
-            raise HTTPException(422, "自由会话没有来源 ID")
+            raise HTTPException(422, localized_message("errors.a_free_form_session_has_no_source_id"))
         if body.skill_id is not None:
             skill = await session.get(Skill, body.skill_id)
             if skill is None:
-                raise HTTPException(404, "知识点不存在")
+                raise HTTPException(404, localized_message("errors.knowledge_point_not_found"))
             context["skill_ids"] = [skill.id]
         elif body.topic:
             context["skill_ids"] = await topic_skills(session, body.topic)
@@ -90,7 +91,7 @@ async def entry_context(session, ws, body):
         task = await session.scalar(select(LearningTask).where(
             LearningTask.id == body.source_id, LearningTask.workspace_id == ws.id))
         if task is None:
-            raise HTTPException(404, "学习任务不存在")
+            raise HTTPException(404, localized_message("errors.learning_task_not_found"))
         context["topic"] = task.title
         context["skill_ids"] = [task.skill_id] if task.skill_id else []
         sources.append(excerpt("task", task.id, task.title, {
@@ -110,17 +111,17 @@ async def entry_context(session, ws, body):
     elif body.source_type == "exam_question":
         exam_item = await session.scalar(completed_questions(ws.id).where(ExamQuestion.id == body.source_id))
         if exam_item is None:
-            raise HTTPException(404, "已评阅的考试题不存在")
+            raise HTTPException(404, localized_message("errors.graded_exam_question_not_found"))
     elif body.source_type == "question":
         question = await visible_question(session, ws.id, body.source_id)
         if question is None:
-            raise HTTPException(404, "题目不存在")
+            raise HTTPException(404, localized_message("errors.question_not_found_362"))
         exam_item = await session.scalar(completed_questions(ws.id).where(
             ExamQuestion.question_id == question.id).order_by(Exam.completed_at.desc(), ExamQuestion.id.desc()).limit(1))
     if exam_item and question is None:
         question = await visible_question(session, ws.id, exam_item.question_id)
         if question is None:
-            raise HTTPException(404, "题目不存在")
+            raise HTTPException(404, localized_message("errors.question_not_found_362"))
     if question:
         frozen = (exam_item.frozen_snapshot or exam_item.creation_snapshot or {}) if exam_item else {}
         title = frozen.get("title") or question.title
@@ -147,7 +148,7 @@ async def project_sources(session, workspace_id, skill_ids, project_id):
         query = query.where(Project.id == project_id)
     projects = (await session.scalars(query.order_by(Project.id.desc()).limit(2))).all()
     if project_id is not None and not projects:
-        raise HTTPException(404, "项目不存在")
+        raise HTTPException(404, localized_message("errors.project_not_found"))
     if len(projects) != 1:
         return []
     project = projects[0]

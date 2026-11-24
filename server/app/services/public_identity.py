@@ -18,6 +18,7 @@ from sqlalchemy import case, delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.models.public_auth import PublicAuthThrottle
 
 _LOOPBACK = {"localhost", "127.0.0.1", "::1"}
@@ -154,7 +155,7 @@ async def record_attempt(session: AsyncSession, *limits: AttemptLimit) -> None:
             retry_after = max(1, ceil((deadline - now).total_seconds()))
             raise HTTPException(
                 status_code=429,
-                detail="尝试次数过多，请稍后再试。",
+                detail=localized_message("errors.too_many_attempts_try_again_later"),
                 headers={"Retry-After": str(retry_after)},
             )
 

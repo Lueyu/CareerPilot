@@ -67,7 +67,7 @@ function subscribe(listener: () => void) {
 }
 
 export function useLocale(): Locale {
-  return useSyncExternalStore(subscribe, getLocale, () => 'zh-CN');
+  return useSyncExternalStore(subscribe, getLocale, getLocale);
 }
 
 export function useT() {

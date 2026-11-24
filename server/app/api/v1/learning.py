@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.api.v1.daily_learning_plan import router as daily_plan_router
 from app.db import get_session
@@ -198,7 +199,7 @@ async def complete_task(
         LearningTask.id == task_id, LearningTask.workspace_id == ws.id).with_for_update())
     task = await _own_task(session, ws, task_id)
     if task.kind == "RETEST":
-        raise HTTPException(status_code=409, detail="复测必须提交新的答卷并完成评分，不能通过完成按钮通过。")
+        raise HTTPException(status_code=409, detail=localized_message("errors.submit_a_fresh_answer_and_have_it_scored_to"))
     if task.status != "DONE":
         task.status = "DONE"
         task.completed_at = dt.datetime.now(dt.timezone.utc)
@@ -230,12 +231,12 @@ async def start_retest(task_id: int, ws: Workspace = Depends(get_workspace),
         check = task
         parent = await _own_task(session, ws, task.retest_of) if task.retest_of else None
         if parent is None or parent.status != "DONE":
-            raise HTTPException(status_code=409, detail="请先完成对应学习任务。")
+            raise HTTPException(status_code=409, detail=localized_message("errors.complete_the_associated_study_task_first"))
         if task.due_date and task.due_date > _today():
-            raise HTTPException(status_code=409, detail="延迟复测尚未到期；可从学习任务进行即时检查。")
+            raise HTTPException(status_code=409, detail=localized_message("errors.the_delayed_retest_is_not_due_yet_you_can"))
     else:
         if task.status != "DONE":
-            raise HTTPException(status_code=409, detail="请先记录学习完成，再提交新的复测答案。")
+            raise HTTPException(status_code=409, detail=localized_message("errors.record_completion_of_the_study_task_before_submitting_a"))
         check = (await session.execute(select(LearningTask).where(
             LearningTask.workspace_id == ws.id, LearningTask.retest_of == task.id,
             LearningTask.kind == "RETEST", LearningTask.retest_round == 0,
@@ -248,7 +249,7 @@ async def start_retest(task_id: int, ws: Workspace = Depends(get_workspace),
             session.add(check)
             await session.flush()
     if not check.skill_id:
-        raise HTTPException(status_code=409, detail="该任务没有明确关联的能力域，暂时不能自动复测。")
+        raise HTTPException(status_code=409, detail=localized_message("errors.link_this_task_to_a_skill_domain_before_starting"))
     if check.status == "PENDING":
         check.status = "IN_PROGRESS"
     await session.flush()
@@ -283,11 +284,11 @@ async def create_task(
 
     title = body.title.strip()
     if not title:
-        raise HTTPException(status_code=422, detail="任务标题不能为空")
+        raise HTTPException(status_code=422, detail=localized_message("errors.enter_a_task_title"))
     if body.kind not in ("UNDERSTAND", "PRACTICE", "RETEST"):
-        raise HTTPException(status_code=422, detail="kind 必须是 UNDERSTAND / PRACTICE / RETEST")
+        raise HTTPException(status_code=422, detail=localized_message("errors.the_task_kind_must_be_understand_practice_or_retest"))
     if body.kind == "RETEST" and body.retest_of_task_id is None:
-        raise HTTPException(status_code=422, detail="复测任务需要指定 retest_of_task_id（被复测的任务）")
+        raise HTTPException(status_code=422, detail=localized_message("errors.specify_the_original_task_in_retest_of_task_id"))
 
     skill_id: int | None = None
     skill_name = ""

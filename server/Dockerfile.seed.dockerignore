@@ -4,6 +4,8 @@
 !app/config.py
 !app/db.py
 !app/public_main.py
+!app/i18n.py
+!app/locales/*.json
 !app/api/__init__.py
 !app/api/public_*.py
 !app/api/product_feedback.py

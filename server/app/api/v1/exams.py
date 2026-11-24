@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import (
@@ -192,13 +193,13 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
         req.kind != Exam.KIND_BANK or not req.question_ids or req.retest_task_id is not None
         or req.project_generation_id is not None or interview_set is not None or study_practice is not None
     ):
-        raise HTTPException(422, "默认题库须单独发起练习并指定题目")
+        raise HTTPException(422, localized_message("errors.start_a_separate_practice_session_and_select_a_question"))
     if req.kind not in EXAM_KINDS:
         raise HTTPException(status_code=400, detail=f"unknown exam kind '{req.kind}'")
     if req.question_ids and (req.retest_task_id or req.kind != Exam.KIND_BANK):
-        raise HTTPException(422, "指定题目仅用于面经练习，延迟复测必须使用系统新题选择")
+        raise HTTPException(422, localized_message("errors.specific_questions_are_only_available_for_interview_practice_a"))
     if req.project_generation_id is not None and (not req.question_ids or req.kind != Exam.KIND_BANK or req.retest_task_id):
-        raise HTTPException(422, '项目批次考核需要选择该批次已审核题目')
+        raise HTTPException(422, localized_message("errors.select_an_approved_question_from_this_project_batch_for"))
     # Serialize retries and concurrent creates in the workspace transaction.
     await session.execute(select(Workspace.id).where(Workspace.id == ws.id).with_for_update())
     experienced_rows = None
@@ -209,7 +210,7 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
         catalog = catalog_questions(load_catalog(), experienced_rows)
         catalog_ids = {entry["id"] for entries in catalog.values() for entry in entries}
         if catalog_ids != set(req.question_ids):
-            raise HTTPException(422, "指定题目不属于默认题库")
+            raise HTTPException(422, localized_message("errors.the_selected_question_is_not_in_the_default_bank"))
 
     if req.idempotency_key:
         existing = (await session.execute(select(Exam).where(
@@ -220,7 +221,7 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
                 not _is_experienced_practice(existing)
                 or {question.question_id for question in existing.questions} != catalog_ids
             ):
-                raise HTTPException(409, "重复请求与已创建的题库练习不一致")
+                raise HTTPException(409, localized_message("errors.the_repeated_request_does_not_match_the_existing_practice"))
             await session.commit()
             return await _exam_detail(session, ws, existing.id)
     skill_key = req.skill_key
@@ -245,7 +246,7 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
                 [*prior, {'exam_id': previous.id, 'status': previous.status}]}
         skill = await resolve_retest_skill(session, study_practice)
         if skill is None:
-            raise HTTPException(409, '练习尚未关联明确的能力域，不能据此安排正式复测')
+            raise HTTPException(409, localized_message("errors.link_the_exercise_to_a_skill_domain_before_scheduling"))
         await assert_retest_ready(session, study_practice, skill)
         skill_key = skill.key
         study_topic = study_practice.knowledge_point
@@ -289,13 +290,13 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
             ))).all()
         by_id = {q.id: q for q in rows}
         if set(by_id) != set(req.question_ids):
-            raise HTTPException(404, "指定题目不存在或不属于当前工作空间")
+            raise HTTPException(404, localized_message("errors.the_selected_question_does_not_exist_in_this_workspace"))
         experienced_ids = {q.id for q in rows if is_owned_question(q)}
         experienced_practice = req.experienced_bank or bool(experienced_ids)
         if not req.experienced_bank and experienced_practice and (
             experienced_ids != set(by_id) or req.project_generation_id is not None or interview_set or study_practice
         ):
-            raise HTTPException(422, "默认题库须单独发起练习")
+            raise HTTPException(422, localized_message("errors.start_a_separate_practice_session_for_the_default_bank"))
         private_practice = (
             not experienced_practice and len(req.question_ids) == req.question_count == 1
             and req.project_generation_id is None and interview_set is None and study_practice is None
@@ -308,17 +309,17 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
                 not (experienced_practice or private_practice)
                 and (not interview_set or q.generation_meta.get('interview_set_id') != interview_set['id'])
             ):
-                raise HTTPException(409, '学习练习题已曝光，不能作为正式独立考题')
+                raise HTTPException(409, localized_message("errors.this_practice_question_has_already_been_seen_and_cannot"))
             if q.qtype not in ("open", "mcq") or (skill_key and (not q.skill or q.skill.key != skill_key)):
-                raise HTTPException(422, "指定题目不符合本次练习的技能或题型")
+                raise HTTPException(422, localized_message("errors.the_selected_question_does_not_match_the_skill_or"))
             root, visited = q, set()
             while root.canonical_question_id and root.id not in visited:
                 visited.add(root.id)
                 root = await session.get(Question, root.canonical_question_id)
                 if not root or root.workspace_id not in (None, ws.id):
-                    raise HTTPException(409, "题目来源关系不可用")
+                    raise HTTPException(409, localized_message("errors.the_question_s_source_record_is_unavailable"))
             if qid in excluded or root.id in excluded:
-                raise HTTPException(422, "指定题目已被本次练习排除")
+                raise HTTPException(422, localized_message("errors.the_selected_question_was_excluded_from_this_exercise"))
             if root.id not in seen:
                 selected.append(q)
                 seen.add(root.id)
@@ -354,7 +355,7 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
                                                           if study_practice else study_topic)
     if not questions:
         await session.rollback()
-        raise HTTPException(status_code=409, detail="当前能力域没有可用的新题，请先补充题库后再验证")
+        raise HTTPException(status_code=409, detail=localized_message("errors.this_skill_domain_has_no_unused_question_add_questions"))
     from app.services.project_assessment import freeze_assessment
     exam.project_assessment = await freeze_assessment(session, ws.id, questions, req.project_generation_id)
     from app.models import JobStandard, JobStandardTarget
@@ -445,7 +446,7 @@ async def save_answer(
 
     if _maybe_expire(exam):
         await session.commit()
-        raise HTTPException(409,'考试已超时，已保存的答案保留')
+        raise HTTPException(409,localized_message("errors.the_exam_has_timed_out_your_saved_answers_are"))
     from app.services.assessment_versions import save_revision
     answer=await save_revision(session,eq,req)
     await session.commit()
@@ -706,16 +707,16 @@ async def submit_exam(
         return jobs.ack(run)
     if _maybe_expire(exam):
         await session.commit()
-        raise HTTPException(409,'考试已超时，已保存答案保留')
+        raise HTTPException(409,localized_message("errors.the_exam_time_limit_was_reached_saved_answers_have"))
     if exam.status not in ('ACTIVE','SUBMITTED','SCORING_FAILED'):
-        raise HTTPException(409,'当前考试已冻结，不能重新提交答案')
+        raise HTTPException(409,localized_message("errors.the_exam_is_locked_answers_cannot_be_resubmitted"))
     if req and req.answers:
-        if exam.status!='ACTIVE':raise HTTPException(409,'已冻结的答案不能改写')
+        if exam.status!='ACTIVE':raise HTTPException(409,localized_message("errors.this_answer_is_locked_and_cannot_be_edited"))
         by_order={eq.order_no:eq for eq in exam.questions}
         if len({a.order_no for a in req.answers})!=len(req.answers):
-            raise HTTPException(422,'提交批次包含重复题号')
+            raise HTTPException(422,localized_message("errors.the_submitted_batch_contains_duplicate_question_numbers"))
         for item in req.answers:
-            if item.order_no not in by_order:raise HTTPException(404,'题号不属于本场考试')
+            if item.order_no not in by_order:raise HTTPException(404,localized_message("errors.the_question_number_does_not_belong_to_this_exam"))
             await save_revision(session,by_order[item.order_no],item)
     run=await jobs.enqueue(session,ws,exam,mode='PRACTICE' if _is_bank_practice(exam) else 'OFFICIAL')
     await session.commit()
@@ -758,7 +759,7 @@ async def rescore_exam(
         await session.commit()
         return await _exam_report(session,ws,exam.id)
     if exam.status not in ('SCORING_FAILED','NEEDS_REVIEW','SCORING','SCORING_RETRY_WAIT'):
-        raise HTTPException(409,'当前状态没有可恢复的评分任务')
+        raise HTTPException(409,localized_message("errors.there_is_no_scoring_job_to_resume_in_this"))
     try:run=await jobs.resume(session,ws,exam)
     except ValueError as exc:raise HTTPException(409,str(exc)) from None
     await session.commit()
@@ -989,7 +990,7 @@ async def exam_report_deep(
     """生成(并缓存) LLM 深度诊断。失败时诚实报错, 不造假数据。"""
     exam = await _get_own_exam(session, ws, exam_id)
     if _is_bank_practice(exam):
-        raise HTTPException(409, '题库练习报告不进行能力诊断')
+        raise HTTPException(409, localized_message("errors.question_bank_practice_reports_do_not_include_a_competency"))
     if exam.status != Exam.STATUS_COMPLETED:
         raise HTTPException(status_code=409, detail="exam not completed yet")
 
@@ -1004,7 +1005,7 @@ async def exam_report_deep(
     if not llm_adapter.active:
         await finish_trace(session, trace, "FAILED", int((time.perf_counter() - t0) * 1000), fail_reason="llm not configured")
         await session.commit()
-        raise HTTPException(status_code=409, detail="LLM 未配置：请在「设置与工作空间 → 模型」里配置模型后重试（确定性结论已在报告中给出）")
+        raise HTTPException(status_code=409, detail=localized_message("errors.configure_a_model_under_settings_models_and_try_again"))
 
     lines = [f"考试：{exam.title}（{EXAM_KINDS.get(exam.kind, {}).get('title', exam.kind)}）", f"总分：{exam.score}/100（{exam.gained_points}/{exam.total_points} 分）", ""]
     lines.append("能力域统计（得分率升序）：")
@@ -1039,7 +1040,7 @@ async def exam_report_deep(
     if resp is None:
         await finish_trace(session, trace, "FAILED", int((time.perf_counter() - t0) * 1000), fail_reason="llm call failed")
         await session.commit()
-        raise HTTPException(status_code=502, detail="LLM 调用失败，请稍后重试（确定性结论已在报告中给出，不受影响）")
+        raise HTTPException(status_code=502, detail=localized_message("errors.the_model_request_failed_try_again_later_the_rule"))
 
     try:
         deep_raw = _json.loads(resp["content"])
@@ -1048,7 +1049,7 @@ async def exam_report_deep(
     except Exception:
         await finish_trace(session, trace, "FAILED", int((time.perf_counter() - t0) * 1000), fail_reason="llm bad json")
         await session.commit()
-        raise HTTPException(status_code=502, detail="LLM 返回格式异常，请重试一次")
+        raise HTTPException(status_code=502, detail=localized_message("errors.the_model_returned_an_unexpected_format_try_again"))
 
     # 确定性校验: 只收合法条目; 缺题时用最小化材料补齐一次(修复 deepseek 偶发漏题/占位键问题)。
     expect = {str(eq.order_no) for eq in exam.questions}

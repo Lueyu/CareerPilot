@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy import func, select, update
 
+from app.i18n import message as localized_message
 from app.models import (
     CompetencySnapshot,
     Event,
@@ -79,7 +80,7 @@ async def owned_session(session, workspace_id, session_id):
     row = await session.scalar(select(StudySession).where(
         StudySession.workspace_id == workspace_id, StudySession.id == session_id))
     if row is None:
-        raise HTTPException(404, '学习会话不存在')
+        raise HTTPException(404, localized_message("errors.study_session_not_found"))
     return row
 
 
@@ -88,7 +89,7 @@ async def owned_practice(session, workspace_id, practice_id):
         StudyPractice.workspace_id == workspace_id, StudyPractice.id == practice_id)
         .execution_options(populate_existing=True))
     if row is None:
-        raise HTTPException(404, '学习练习不存在')
+        raise HTTPException(404, localized_message("errors.study_exercise_not_found"))
     return row
 
 
@@ -104,7 +105,7 @@ async def _material(session, chat, card_id, focus_message_id=None):
             .where(StudyCard.workspace_id == chat.workspace_id, StudyNote.workspace_id == chat.workspace_id,
                    StudyCard.id == card_id, StudyCard.status != 'DELETED', StudyCard.note_id == StudyNote.id))).first()
         if not result or chat.id not in result[1].session_ids:
-            raise HTTPException(404, '这张卡片不属于本次学习会话')
+            raise HTTPException(404, localized_message("errors.this_card_does_not_belong_to_this_study_session"))
         card, version = result
         origin.update(card_id=card.id, note_id=card.note_id, note_version_id=version.id,
                       card_content_version=digest([card.question, card.answer, card.knowledge_point]),
@@ -115,11 +116,11 @@ async def _material(session, chat, card_id, focus_message_id=None):
     if focus_message_id:
         focus = await session.scalar(select(StudyMessage).where(StudyMessage.id == focus_message_id, StudyMessage.session_id == chat.id, StudyMessage.status == 'completed'))
         if focus is None:
-            raise HTTPException(404, '会话中找不到这条已保存的学习消息')
+            raise HTTPException(404, localized_message("errors.the_saved_study_message_could_not_be_found_in"))
         query = query.where(StudyMessage.request_id == focus.request_id)
     reply = await session.scalar(query.order_by(StudyMessage.id.desc()).limit(1))
     if reply is None or not reply.content.strip():
-        raise HTTPException(409, '请先围绕当前问题获得一条完整讲解，再开始练习')
+        raise HTTPException(409, localized_message("errors.get_a_complete_explanation_of_your_current_question_before"))
     source = await session.scalar(select(StudyMessage).where(StudyMessage.session_id == chat.id,
         StudyMessage.request_id == reply.request_id, StudyMessage.role == 'user'))
     topic = context.get('topic') or chat.title
@@ -151,7 +152,7 @@ async def _resolve_skill(session, context, point, requested, *, card_evidence=()
         skill = next((s for s in skills if s.key == requested), None)
         if (skill is None or (anchored and skill.id not in anchored) or
                 (point_ids and skill.id not in point_ids)):
-            raise HTTPException(422, '所选能力域与学习来源不一致')
+            raise HTTPException(422, localized_message("errors.the_selected_skill_domain_differs_from_the_study_source"))
         return skill
     topic_ids = matches(context.get('topic') or '') if not card_evidence else set()
     eligible = set(anchored or point_ids or topic_ids)
@@ -174,7 +175,7 @@ async def create_practice(session, ws, session_id, body):
         StudyPractice.session_id == chat.id, StudyPractice.request_key == body.request_key))
     if previous:
         if previous.request_hash != request_hash:
-            raise HTTPException(409, '请求标识已用于不同练习')
+            raise HTTPException(409, localized_message("errors.this_request_id_has_already_been_used_for_another_exercise"))
         return previous
     question, reference, point, origin = await _material(session, chat, body.card_id, getattr(body, 'focus_message_id', None))
     note_evidence = origin.pop('_note_skill_context', ())
@@ -255,12 +256,12 @@ def tutoring_may_help(context, skill, text):
 
 async def assert_retest_ready(session, row, skill):
     if await session.scalar(select(LearningActivity.status).where(LearningActivity.id == row.id)) == 'SKIPPED':
-        raise HTTPException(409, '本次练习已跳过，请开始新的练习后再复测')
+        raise HTTPException(409, localized_message("errors.this_exercise_was_skipped_start_a_new_exercise_before"))
     pending = (await session.execute(select(StudySession.id, StudySession.context)
         .join(StudyMessage).where(StudySession.workspace_id == row.workspace_id,
             StudyMessage.status == 'generating', StudyMessage.expires_at > func.now()))).all()
     if any(sid == row.session_id or tutoring_may_help(context, skill, '') for sid, context in pending):
-        raise HTTPException(409, '请等待相关讲解结束或中断回复，再开始独立复测')
+        raise HTTPException(409, localized_message("errors.finish_or_interrupt_the_current_explanation_before_starting_an"))
 
 
 async def mark_active_retest_help(session, ws, exam_id):
@@ -374,7 +375,7 @@ async def card_event_through(session, practice):
 async def retest_result(session, ws, row):
     from app.api.v1.exams import _get_own_exam, _maybe_expire
     if row.retest_exam_id is None:
-        raise HTTPException(404, '此练习还没有新情境复测')
+        raise HTTPException(404, localized_message("errors.this_exercise_has_no_new_scenario_retest_yet"))
     exam = await _get_own_exam(session, ws, row.retest_exam_id, lock=True)
     if _maybe_expire(exam):
         await session.commit()
