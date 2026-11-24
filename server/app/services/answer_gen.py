@@ -20,7 +20,7 @@ import json
 import re
 from typing import Any
 
-from app.generation_i18n import generation_message, with_output_language
+from app.generation_i18n import generation_message, generation_skill_name, with_output_language
 from app.i18n import Locale, request_language
 
 from app.services.llm import AgentAdapter
@@ -441,6 +441,22 @@ async def _llm_answer(
 
 # ---------------------------------------------------------------- 规则路径
 
+def _english_practice_outline() -> dict[str, Any]:
+    points = [
+        {
+            "title": generation_message(f"answer.fallback_{key}_title", "en"),
+            "detail": generation_message(f"answer.fallback_{key}_detail", "en"),
+        }
+        for key in ("constraints", "approach", "verification")
+    ]
+    return {
+        "tldr": generation_message("answer.fallback_unavailable", "en"),
+        "steps": points,
+        "how_to_answer": generation_message("answer.fallback_script", "en"),
+        "key_points": points,
+    }
+
+
 def _rule_answer(title: str, skill_key: str, skill_name: str) -> dict[str, Any]:
     frame = DOMAIN_FRAME.get(skill_key) or DOMAIN_FRAME["agent"]
     topics = _match_topics(title, skill_key)
@@ -533,8 +549,9 @@ def render_html(
 
     tldr = (data.get("tldr") or "").strip()
     if tldr:
+        heading = msg("fallback_heading" if source == "rule" and language == "en" else "short")
         parts.append(
-            f'<div class="ans-tldr"><div class="ans-tldr-label">{esc(msg("short"))}</div>'
+            f'<div class="ans-tldr"><div class="ans-tldr-label">{esc(heading)}</div>'
             f'<p>{esc(tldr)}</p></div>'
         )
 
@@ -672,6 +689,11 @@ async def generate_answer(
     data = await _llm_answer(title, skill_key, skill_name, qtype, review_feedback)
     source = "llm"
     if not data:
-        data = _rule_answer(title, skill_key, skill_name)
         source = "rule"
+        language = request_language()
+        if language == "en":
+            data = _english_practice_outline()
+            skill_name = generation_skill_name(skill_key, skill_name, language)
+        else:
+            data = _rule_answer(title, skill_key, skill_name)
     return render_html(title, skill_name, data, source), build_rubric(data, title), source

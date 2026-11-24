@@ -17,7 +17,7 @@ from sqlalchemy.orm import lazyload
 from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
-from app.generation_i18n import generation_message, saved_language
+from app.generation_i18n import generation_message, generation_skill_name, saved_language
 from app.i18n import request_language
 from app.models import (
     ImportItem,
@@ -102,13 +102,17 @@ async def list_tasks(ws: Workspace = Depends(get_workspace), session: AsyncSessi
 async def suggestions(ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session)):
     skills = (await session.scalars(select(Skill).order_by(Skill.id))).all()
     counts = dict((await session.execute(select(Question.skill_id, func.count(Question.id)).where((Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id), Question.canonical_question_id.is_(None), Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY')).group_by(Question.skill_id))).all())
-    items = [{
-        "id": f"coverage-{s.key}",
-        "title": generation_message("suggestion.coverage_title").format(skill=s.name),
-        "reason": generation_message("suggestion.coverage_reason").format(count=counts.get(s.id, 0)),
-        "kind": "supplement", "count": 5, "skill_keys": [s.key], "project_ids": [],
-        "purpose": generation_message("suggestion.coverage_purpose").format(skill=s.name),
-    } for s in sorted(skills, key=lambda s: counts.get(s.id, 0))[:3]]
+    language = request_language()
+    items = []
+    for skill in sorted(skills, key=lambda s: counts.get(s.id, 0))[:3]:
+        name = generation_skill_name(skill.key, skill.name, language)
+        items.append({
+            "id": f"coverage-{skill.key}",
+            "title": generation_message("suggestion.coverage_title").format(skill=name),
+            "reason": generation_message("suggestion.coverage_reason").format(count=counts.get(skill.id, 0)),
+            "kind": "supplement", "count": 5, "skill_keys": [skill.key], "project_ids": [],
+            "purpose": generation_message("suggestion.coverage_purpose").format(skill=name),
+        })
     projects = (await session.scalars(select(Project).where(Project.workspace_id == ws.id,Project.archived_at.is_(None)).order_by(Project.id).limit(10))).all()
     for p in projects:
         latest_analysis = p.latest_valid_analysis_id or await session.scalar(select(ProjectAnalysis.id).where(ProjectAnalysis.project_id == p.id,

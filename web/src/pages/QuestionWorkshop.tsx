@@ -1,4 +1,4 @@
-import { t as translate, useLocale, useT } from '../i18n';
+import { getLocale, t as translate, useLocale, useT, type Locale } from '../i18n';
 import React, {useEffect, useRef, useState} from 'react';
 import {Link, useLocation, useNavigate} from 'react-router-dom';
 import {api} from '../api/client';
@@ -24,11 +24,14 @@ export default function QuestionWorkshop() {
   const sourceImportId = query.get('source_import');
   const projectId = Number(query.get('project'));
   const [projects,setProjects] = useState<ProjectRecord[]>([]);
-  const [suggestions,setSuggestions] = useState<WorkshopSuggestion[]>([]);
+  const [suggestionResult, setSuggestionResult] = useState<{ locale: Locale; items: WorkshopSuggestion[] }>();
+  const [suggestionRevision, setSuggestionRevision] = useState(0);
+  const suggestions = suggestionResult?.locale === locale ? suggestionResult.items : [];
   const [history,setHistory] = useState<WorkshopTask[]>([]);
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState<BankMessage>('');
-  const [notice,setNotice] = useState<{key: string; name?: string} | null>(null);
+  const [notice,setNotice] = useState<{key: string; suggestionId?: string} | null>(null);
+  const suggestionName = suggestions.find(s => s.id === notice?.suggestionId)?.title;
   const [busy,setBusy] = useState(false);
   const [kind,setKind] = useState<'import'|'supplement'>(sourceImportId || (location.state as any)?.sourceText ? 'import':'supplement');
   const [mode,setMode] = useState<'api'|'external'>('api');
@@ -53,16 +56,29 @@ export default function QuestionWorkshop() {
   const openedProject = useRef<number|null>(null);
 
   const loadResources = async () => {
-    const [p,s,h] = await Promise.all([api.get<{items:ProjectRecord[]}>('/projects'),api.get<{items:WorkshopSuggestion[]}>('/question-generation/suggestions'),api.get<{items:WorkshopTask[]}>('/question-generation')]);
-    setProjects(p.items);setSuggestions(s.items);setHistory(h.items);
+    const [p,h] = await Promise.all([api.get<{items:ProjectRecord[]}>('/projects'),api.get<{items:WorkshopTask[]}>('/question-generation')]);
+    setProjects(p.items);setHistory(h.items);
+    setSuggestionRevision(revision => revision + 1);
   };
   useEffect(()=>{
     let active = true;
-    Promise.all([api.get<{items:ProjectRecord[]}>('/projects'),api.get<{items:WorkshopSuggestion[]}>('/question-generation/suggestions'),api.get<{items:WorkshopTask[]}>('/question-generation')])
-      .then(([p,s,h])=>{if(active){setProjects(p.items);setSuggestions(s.items);setHistory(h.items);}})
+    Promise.all([api.get<{items:ProjectRecord[]}>('/projects'),api.get<{items:WorkshopTask[]}>('/question-generation')])
+      .then(([p,h])=>{if(active){setProjects(p.items);setHistory(h.items);}})
       .catch(e=>{if(active)setError({ key: 'bank.workshopLoadFailed', values: { error: messageOf(e) } });}).finally(()=>{if(active)setLoading(false);});
     return ()=>{active=false;};
   },[]);
+  useEffect(() => {
+    if (getLocale() !== locale) return;
+    let active = true;
+    api.get<{ items: WorkshopSuggestion[] }>('/question-generation/suggestions')
+      .then(({ items }) => {
+        if (active) setSuggestionResult({ locale, items });
+      })
+      .catch(error => {
+        if (active) setError({ key: 'bank.workshopLoadFailed', values: { error: messageOf(error) } });
+      });
+    return () => { active = false; };
+  }, [locale, suggestionRevision]);
   useEffect(()=>{
     if(projectId>0 && !sourceAnalysisId && openedProject.current!==projectId){const chosen=projects.find(p=>p.id===projectId);if(chosen){openedProject.current=projectId;setEditingProject(chosen);}}
   },[projectId,projects,sourceAnalysisId]);
@@ -183,7 +199,7 @@ export default function QuestionWorkshop() {
     <PageHead title={t('bank.workshopTitle')} sub={t('bank.workshopSubtitle')}><Link className="btn btn-outline" to="/bank">{t('bank.backToBank')}</Link></PageHead>
     <p className="hint" style={{marginBottom:18}}>{t('bank.workshopWarning')}</p>
     {error && <div role="alert" className="demo-banner demo-banner-err" style={{marginBottom:16}}>{bankMessageText(error, t)} <button className="btn btn-ghost btn-sm" onClick={()=>setError('')}>{t('bank.dismissNotice')}</button></div>}
-    {notice && <div role="status" className="demo-banner" style={{marginBottom:16}}>{t(notice.key, { name: notice.name ?? '' })}</div>}
+    {notice && (!notice.suggestionId || suggestionName) && <div role="status" className="demo-banner" style={{marginBottom:16}}>{t(notice.key, { name: suggestionName ?? '' })}</div>}
     {loading && <div className="card" style={panel}>{t('bank.loadingWorkshop')}</div>}
     <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr)',gap:0}}>
       {editingProject!==undefined && <ProjectContextEditor key={editingProject?.id || 'new'} project={editingProject} onCancel={()=>setEditingProject(undefined)} onSaved={async()=>{setEditingProject(undefined);await loadResources();setNotice({key: 'bank.projectProfileSaved'});}} />}
@@ -212,7 +228,7 @@ export default function QuestionWorkshop() {
             <p className="hint">{t('bank.projectSourceWarning')}</p>
             <button className="btn btn-ghost btn-sm" onClick={()=>{setSourceAnalysisId(null);setSourceIssueIds([]);setSourceAnalysis(null);setSourceError('');navigate('/bank/workshop',{replace:true});}}>{t('bank.clearProjectIssue')}</button>
           </div>}
-          {suggestions.length>0 && <details style={{marginBottom:18}} open><summary>{t('bank.workshopSuggestions')}</summary><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))',gap:10,marginTop:12}}>{suggestions.map(s=><div key={s.id} style={{border:'1px solid var(--border)',borderRadius:8,padding:14}}><strong>{s.title}</strong><p className="hint">{s.reason}</p><button className="btn btn-outline btn-sm" onClick={()=>{setKind(s.kind);setCount(s.count);setSkills(s.skill_keys.length ? s.skill_keys : SKILLS.map(skill=>skill.key));setProjectIds(s.project_ids);setPurpose(s.purpose);setSourceAnalysisId(s.source_analysis_id || null);setSourceIssueIds(s.source_issue_ids || []);setSourceProjectId(s.project_ids[0] || null);setNotice({key: 'bank.suggestionSelected', name: s.title});}}>{t('bank.useSuggestion')}</button></div>)}</div></details>}
+          {suggestions.length>0 && <details style={{marginBottom:18}} open><summary>{t('bank.workshopSuggestions')}</summary><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))',gap:10,marginTop:12}}>{suggestions.map(s=><div key={s.id} style={{border:'1px solid var(--border)',borderRadius:8,padding:14}}><strong>{s.title}</strong><p className="hint">{s.reason}</p><button className="btn btn-outline btn-sm" onClick={()=>{setKind(s.kind);setCount(s.count);setSkills(s.skill_keys.length ? s.skill_keys : SKILLS.map(skill=>skill.key));setProjectIds(s.project_ids);setPurpose(s.purpose);setSourceAnalysisId(s.source_analysis_id || null);setSourceIssueIds(s.source_issue_ids || []);setSourceProjectId(s.project_ids[0] || null);setNotice({key: 'bank.suggestionSelected', suggestionId: s.id});}}>{t('bank.useSuggestion')}</button></div>)}</div></details>}
           <div className="form-row"><label className="field"><span>{t('bank.taskType')}</span><select className="select" aria-label={t('bank.taskType')} value={kind} onChange={e=>setKind(e.target.value as typeof kind)}><option value="import">{t('bank.adaptInterviewNotes')}</option><option value="supplement">{t('bank.fillBankGaps')}</option></select></label><label className="field"><span>{t('bank.generationCount')}</span><input className="inp" type="number" min={1} max={20} aria-label={t('bank.generationCount')} value={count} onChange={e=>setCount(Number(e.target.value))}/></label></div>
           {kind==='import' && <label className="field"><span>{t('bank.originalNotes')}{sourceImportId ? t('bank.useImportSession', { id: sourceImportId }):''}</span><textarea className="textarea" aria-label={t('bank.originalNotes')} rows={7} maxLength={60000} placeholder={t('bank.pasteOriginalNotesHint')} value={sourceText} onChange={e=>setSourceText(e.target.value)}/></label>}
           <label className="field"><span>{t('bank.generationRequirements')}</span><textarea className="textarea" aria-label={t('bank.generationGoal')} rows={3} maxLength={3000} placeholder={t('bank.generationRequirementsHint')} value={purpose} onChange={e=>setPurpose(e.target.value)}/></label>

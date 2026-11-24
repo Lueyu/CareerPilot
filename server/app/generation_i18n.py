@@ -17,6 +17,10 @@ def generation_message(key: str, language: Locale | None = None) -> str:
     return _catalog(language or request_language())[key]
 
 
+def generation_skill_name(key: str, stored_name: str, language: Locale) -> str:
+    return _catalog(language).get(f"skill.{key}", stored_name)
+
+
 def saved_language(value: object) -> Locale:
     return "en" if value == "en" else "zh-CN"
 
