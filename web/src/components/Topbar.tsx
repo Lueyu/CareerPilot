@@ -30,7 +30,7 @@ const PAGE_NAMES: Record<string, string> = {
 
 type Theme = 'light' | 'dark';
 
-function currentTheme(): Theme {
+export function currentTheme(): Theme {
   try {
     const saved = localStorage.getItem(workspaceStorageKey('cp-theme'));
     if (saved === 'light' || saved === 'dark') return saved;
