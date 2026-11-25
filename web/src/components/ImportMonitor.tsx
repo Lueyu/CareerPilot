@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAppState } from './AppState';
 import { ImportFinished, TrackedImport, importProgressNote, onImportFinished, subscribeImports } from '../lib/importTracker';
 
-export default function ImportMonitor() {
+export default function ImportMonitor({ reviewPath = '/bank?review=1' }: { reviewPath?: string }) {
   const t = useT();
   const [list, setList] = useState<TrackedImport[]>([]);
   const { toast } = useAppState();
@@ -35,7 +35,7 @@ export default function ImportMonitor() {
         <div
           key={item.id}
           className="import-monitor-item"
-          onClick={() => navigate('/bank?review=1')}
+          onClick={() => navigate(reviewPath)}
           title={t('bank.openReviewFromMonitor')}
         >
           <span className="import-monitor-spin" />

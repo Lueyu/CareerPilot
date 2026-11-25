@@ -43,6 +43,7 @@ class Exam(Base):
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"))
     retest_task_id: Mapped[int | None] = mapped_column(ForeignKey("learning_tasks.id", ondelete="SET NULL"), nullable=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    interview_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     title: Mapped[str] = mapped_column(String(200))
     kind: Mapped[str] = mapped_column(String(24))
     status: Mapped[str] = mapped_column(String(24), default=STATUS_CREATED)
