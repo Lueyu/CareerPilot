@@ -97,7 +97,12 @@ if static_dir := os.environ.get("SEED_STATIC_DIR"):
     @app.get("/{page:path}", include_in_schema=False)
     async def workspace_page(page: str):
         # Match browser navigation without serving index.html for missing API or asset requests.
-        pages = {"", "bank", "study", "exam", "memory", "learning", "settings", "onboarding",
+        if page in {"podcast-offline.html", "podcast-sw.js"}:
+            path = directory / page
+            if not path.is_file():
+                raise HTTPException(404)
+            return FileResponse(path, headers={"Cache-Control": "no-cache"})
+        pages = {"", "bank", "podcasts", "study", "exam", "memory", "learning", "settings", "onboarding",
                  "profile", "benchmark", "assets", "observatory", "evolution", "beta", "account"}
         if page.split("/", 1)[0] not in pages or page.startswith("assets/") and Path(page).suffix:
             raise HTTPException(404)

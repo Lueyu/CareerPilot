@@ -152,6 +152,8 @@ def fixture_sources(work, ops):
     write(work / "web" / "package-lock.json",
           '{"name":"seed-fixture","lockfileVersion":3,"packages":{"":{"name":"seed-fixture"}}}\n')
     write(work / "web" / "public" / "old-bank.json", '{"fixture": "private"}\n')
+    write(work / "web" / "public" / "podcast-sw.js", "self.clients.claim()")
+    write(work / "web" / "podcast-offline.html", "<html>offline entry</html>")
     write(work / "web" / "src" / "data" / "old-bank.json", '{"fixture": "private"}\n')
     write(work / "web" / "index.html", '<script type="module" src="/src/main.tsx"></script>')
     write(work / "web" / "src" / "main.tsx", 'import App from "./workspace-entry";')
@@ -171,12 +173,14 @@ for (const path of [
 }
 fs.mkdirSync("dist-seed/static-assets", { recursive: true });
 for (const path of [
-    "index.html", "src/main.tsx", "src/App.tsx", "src/workspace-entry.ts",
+    "index.html", "podcast-offline.html", "public/podcast-sw.js", "src/main.tsx", "src/App.tsx", "src/workspace-entry.ts",
     "src/seed/RegisteredApp.tsx", "src/data/demo.ts", "vite.seed.config.ts",
 ]) {
     if (!fs.existsSync(path)) throw new Error("missing registered entry: " + path);
 }
 fs.writeFileSync("dist-seed/index.html", "seed fixture");
+fs.copyFileSync("podcast-offline.html", "dist-seed/podcast-offline.html");
+fs.copyFileSync("public/podcast-sw.js", "dist-seed/podcast-sw.js");
 fs.writeFileSync("dist-seed/static-assets/fixture.js", "console.log('fixture')");
 """)
     for path in (
@@ -217,9 +221,11 @@ assert not any(Path(path).exists() for path in (
 """)
         build("web", builder, "--target", "build")
         docker("run", "--rm", "--network", "none", builder, "sh", "-ec", """
-for path in .env public src/data/bank.json src/pages/legacyBank.ts src/api/localTransport.ts seed/index.html; do
+for path in .env src/data/bank.json src/pages/legacyBank.ts src/api/localTransport.ts seed/index.html; do
     test ! -e "$path"
 done
+test "$(find public -type f)" = public/podcast-sw.js
+test -f podcast-offline.html
 test -f src/main.tsx
 test -f src/App.tsx
 test -f src/data/demo.ts
@@ -230,6 +236,8 @@ test -f src/seed/legacyBank.ts
         docker("run", "--rm", "--network", "none", "--entrypoint", "sh", web, "-ec", """
 cd /srv/seed
 test -f index.html
+test -f podcast-offline.html
+test -f podcast-sw.js
 grep -Eq 'src="/static-assets/[^"]+[.]js"' index.html
 test ! -e assets
 test -z "$(find static-assets -type f -name '*.json' -print)"
@@ -270,11 +278,15 @@ def check_proxy(compose):
     first = client()
     second = client()
     try:
-        for route in ("/", "/assets", "/assets/project/42"):
+        for route in ("/", "/podcasts", "/assets", "/assets/project/42"):
             first.request("GET", route)
             response = first.getresponse()
             assert response.status == 200, route
             assert response.read() == b"seed fixture", route
+        for path, content in (("/podcast-offline.html", b"<html>offline entry</html>"), ("/podcast-sw.js", b"self.clients.claim()")):
+            first.request("GET", path)
+            response = first.getresponse()
+            assert response.status == 200 and response.read() == content, path
         first.request("GET", "/static-assets/fixture.js")
         response = first.getresponse()
         assert response.status == 200

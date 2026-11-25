@@ -4,6 +4,8 @@
 !tsconfig.json
 !vite.seed.config.ts
 !index.html
+!podcast-offline.html
+!public/podcast-sw.js
 !src/**
 src/data/**
 !src/data/demo.ts
