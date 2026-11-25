@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, readMessageStream, type MessageStreamEvent } from "../../api/client";
-import { changeEvent, errorText, type Session } from "./model";
+import { changeEvent, errorText, type Session, type WorkflowRun } from "./model";
 
 export const sessionsPath = "/study/sessions";
 export const sessionPath = (id: number) => sessionsPath + "/" + id;
@@ -33,6 +33,19 @@ export function useConversation(sessionId?: number) {
   const invalidate = useCallback(() => {
     sequence.current++;
   }, []);
+  const applyWorkflow = useCallback(
+    (workflow: WorkflowRun) => {
+      invalidate();
+      setSession(
+        (current) =>
+          current && {
+            ...current,
+            context: { ...current.context, interview_workflow: workflow },
+          },
+      );
+    },
+    [invalidate],
+  );
   useEffect(() => {
     void refresh().catch(() => {});
     return invalidate;
@@ -76,5 +89,5 @@ export function useConversation(sessionId?: number) {
       return { ...message, content: stream.content, error: stream.error };
     }) ?? [];
 
-  return { session, generating, messages, error, refresh };
+  return { session, generating, messages, error, refresh, applyWorkflow };
 }

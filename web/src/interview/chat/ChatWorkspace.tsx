@@ -146,7 +146,14 @@ function Conversation({
   const { key: locationKey } = useLocation();
   const navigationType = useNavigationType();
   const [params, setParams] = useSearchParams();
-  const { session, generating, messages, error: readError, refresh } = useConversation(sessionId);
+  const {
+    session,
+    generating,
+    messages,
+    error: readError,
+    refresh,
+    applyWorkflow,
+  } = useConversation(sessionId);
   const draftKey = workspaceStorageKey("ia-chat-draft:" + (sessionId ?? "new"));
   const [input, setInput] = useState(() => restore(draftKey));
   const [selectedRole, setLocalRole] = useState<Role | null>(null);
@@ -349,10 +356,11 @@ function Conversation({
           )?.name ?? "技能对话",
         ));
       try {
-        await api.patch<WorkflowRun>(sessionPath(id) + "/interview-workflow", {
+        const workflow = await api.patch<WorkflowRun>(sessionPath(id) + "/interview-workflow", {
           ...operation,
           expected_revision: run?.revision ?? 0,
         });
+        if (id === sessionId && active.current) applyWorkflow(workflow);
       } catch (err) {
         await refresh().catch(() => {});
         throw err;
