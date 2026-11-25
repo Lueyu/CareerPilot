@@ -222,6 +222,16 @@ function WorkspacePodcasts() {
     if (dialog.kind === "deleteEpisode") {
       void act("节目删除失败", async () => {
         await podcastApi.remove(dialog.id);
+        if (batch) {
+          const ids = batch.ids.filter((id) => id !== dialog.id);
+          const remaining = jobs.filter((job) => job.id !== dialog.id);
+          const questionIds = batch.questionIds.filter((id) =>
+            id !== dialogEpisode?.question_id || remaining.some((job) => job.question_id === id),
+          );
+          setView(ids.length || remaining.length
+            ? { kind: "production", batch: { ...batch, ids, questionIds } }
+            : { kind: "library" });
+        }
         notifyPlayer();
         setDialog(undefined);
         setNotice("节目已从节目库及所有歌单删除。");
@@ -291,6 +301,7 @@ function WorkspacePodcasts() {
           busy={busy}
           onBack={backToLibrary}
           onPlay={player.play}
+          onDelete={(id) => openDialog({ kind: "deleteEpisode", id })}
           onRetry={(id) => {
             void act("这集重试失败", async () => {
               await podcastApi.retry(id);

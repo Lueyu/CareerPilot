@@ -62,6 +62,7 @@ export function PodcastProduction({
   onBack,
   onSynthesize,
   onRetry,
+  onDelete,
   onPlay,
 }: {
   episodes: PodcastEpisode[];
@@ -71,6 +72,7 @@ export function PodcastProduction({
   onBack: () => void;
   onSynthesize: (episodes: PodcastEpisode[]) => Promise<void>;
   onRetry: (id: number) => void;
+  onDelete: (id: number) => void;
   onPlay: StartPodcastPlayback;
 }) {
   const [previewId, setPreviewId] = useState<number>();
@@ -199,6 +201,12 @@ export function PodcastProduction({
                     >
                       <PodcastIcon name="retry" />
                       {episode.status === "script_failed" ? "重试这集讲稿" : "只重试这一集"}
+                    </button>
+                  )}
+                  {episode.status !== "ready" && (
+                    <button type="button" className="podlib-button podlib-outline" disabled={busy}
+                      aria-label={`删除节目，${episode.title}`} onClick={() => onDelete(episode.id)}>
+                      删除
                     </button>
                   )}
                   {episode.status === "ready" && (

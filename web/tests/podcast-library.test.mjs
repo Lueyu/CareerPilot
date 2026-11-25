@@ -139,6 +139,7 @@ test("reading preview exposes one draft on demand, confirms only selected parts 
   const scripts = [];
   const synthesized = [];
   const retried = [];
+  const deleted = [];
   podcastApi.script = async (id) => {
     scripts.push(id);
     return { title: "第二集讲稿", script: "可读讲稿" };
@@ -157,12 +158,15 @@ test("reading preview exposes one draft on demand, confirms only selected parts 
       onBack() {},
       onPlay() {},
       onRetry: (id) => retried.push(id),
+      onDelete: (id) => deleted.push(id),
       onSynthesize: async (episodes) => {
         synthesized.push(episodes.map((item) => item.id));
       },
     }),
   );
   assert.deepEqual(scripts, []);
+  act(() => root.findByProps({ "aria-label": "删除节目，失败集" }).props.onClick());
+  assert.deepEqual(deleted, [8]);
   await act(async () =>
     root
       .findAllByType("button")
