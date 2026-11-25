@@ -1,4 +1,20 @@
-import type { PodcastEpisode, PodcastLibrary } from "../../api/podcasts";
+import type { PodcastEpisode, PodcastLanguage, PodcastLibrary } from "../../api/podcasts";
+
+export const podcastLanguages = {
+  zh: "中文",
+  en: "英文",
+  bilingual: "中英双语",
+} satisfies Record<PodcastLanguage, string>;
+
+export const defaultPodcastLanguage: PodcastLanguage = "zh";
+
+export function isPodcastLanguage(value: string): value is PodcastLanguage {
+  return Object.prototype.hasOwnProperty.call(podcastLanguages, value);
+}
+
+export function episodeLanguageLabel(episode: PodcastEpisode) {
+  return podcastLanguages[episode.language ?? defaultPodcastLanguage];
+}
 
 export const episodeStatus = {
   generating: "正在生成讲稿",
@@ -51,21 +67,22 @@ export function playlistEpisodes(library: PodcastLibrary, ids: number[]) {
   });
 }
 
-export function importedEpisodes(
-  episodes: PodcastEpisode[],
-  batch: {
-    ids: number[];
-    questionIds: number[];
-    previousIds: ReadonlySet<number>;
-  },
-) {
+export interface ImportBatch {
+  ids: number[];
+  questionIds: number[];
+  sourceIds?: number[];
+  skippedCount?: number;
+}
+
+export function importedEpisodes(episodes: PodcastEpisode[], batch: ImportBatch) {
   const returned = new Set(batch.ids);
+  const sources = new Set(batch.sourceIds ?? episodes.filter((e) => returned.has(e.id)).map((e) => e.source_id));
   const questions = new Map(batch.questionIds.map((id, index) => [id, index]));
   return episodes
     .filter(
       (episode) =>
         returned.has(episode.id) ||
-        (questions.has(episode.question_id) && !batch.previousIds.has(episode.id)),
+        (episode.source_id != null && sources.has(episode.source_id)),
     )
     .sort(
       (a, b) =>

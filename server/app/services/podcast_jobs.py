@@ -22,7 +22,7 @@ MAX_AUDIO_BYTES = 64 * 1024 * 1024
 
 FAILURES = {
     EpisodeStatus.GENERATING: (EpisodeStatus.SCRIPT_FAILED, "讲稿生成失败。请检查已配置的模型后重试。"),
-    EpisodeStatus.SYNTHESIZING: (EpisodeStatus.AUDIO_FAILED, "音频合成失败。请检查本机中文语音引擎后重试。"),
+    EpisodeStatus.SYNTHESIZING: (EpisodeStatus.AUDIO_FAILED, "音频合成失败。请检查本机语音引擎后重试。"),
 }
 
 
@@ -113,6 +113,7 @@ async def _generate_scripts(claim, content):
                     PodcastSource.topic,
                     PodcastSource.series,
                     PodcastSource.source_type,
+                    PodcastSource.language,
                 )
                 .select_from(PodcastEpisode)
                 .join(PodcastSource)
@@ -131,6 +132,7 @@ async def _generate_scripts(claim, content):
             topic=source.topic,
             series=source.series,
             source=source.source_type,
+            **({"language": source.language} if source.language != "zh" else {}),
         )
 
     if not isinstance(scripts, list) or not scripts or (not source.series and len(scripts) != 1):
@@ -146,11 +148,19 @@ async def _generate_scripts(claim, content):
 
 async def _generate_audio(claim, content):
     async with SessionLocal() as session:
-        script = await session.scalar(select(PodcastEpisode.script).where(claim.condition()))
-    if script is None:
+        episode = (
+            await session.execute(
+                select(PodcastEpisode.script, PodcastSource.language)
+                .join(PodcastSource)
+                .where(claim.condition())
+            )
+        ).one_or_none()
+    if episode is None or episode.script is None:
         return None
 
-    audio, seconds = await content.synthesize_mp3(script)
+    audio, seconds = await content.synthesize_mp3(
+        episode.script, **({"language": episode.language} if episode.language != "zh" else {})
+    )
     if not isinstance(audio, bytes) or not 0 < len(audio) <= MAX_AUDIO_BYTES:
         raise ValueError("Invalid podcast audio data")
     if not math.isfinite(seconds) or seconds <= 0:

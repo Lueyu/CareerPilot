@@ -601,3 +601,60 @@ async def test_real_lifespan_retries_frozen_script_and_delivers_audio_first(
             await db_session.execute(delete(Workspace).where(Workspace.id == test_workspace.id))
             await db_session.commit()
             assert await db_session.scalar(select(PodcastEpisode.id).where(PodcastEpisode.id == original_id)) is None
+
+
+@pytest.mark.asyncio
+async def test_languages_keep_frozen_versions_and_reach_jobs(db_session, test_workspace, content, monkeypatch):
+    from app.services import podcast_jobs
+
+    original = await question(db_session, test_workspace)
+    scripted = []
+    synthesized = []
+
+    async def make_scripts(session, workspace_id, *, title, answer, topic, series, source, language="zh"):
+        scripted.append((language, answer))
+        return [{"title": f"Generated {language}", "script": f"Spoken {language}"}]
+
+    async def synthesize_mp3(script, language="zh"):
+        synthesized.append((language, script))
+        return MP3, 1.0
+
+    monkeypatch.setattr(content, "make_scripts", make_scripts)
+    monkeypatch.setattr(content, "synthesize_mp3", synthesize_mp3)
+    async with client(test_workspace) as api:
+        chinese, = await import_questions(api, original.id)
+        versions = {}
+        for language in ("zh", "en", "bilingual"):
+            request = {"question_ids": [original.id], "language": language}
+            response = await api.post(ROOT + "/import", json=request)
+            assert response.status_code == 200
+            episode_id, = response.json()["episode_ids"]
+            versions[language] = episode_id
+            repeated = await api.post(ROOT + "/import", json=request)
+            assert repeated.json()["episode_ids"] == [episode_id]
+            assert len(response.json()["source_ids"]) == 1
+            assert repeated.json()["source_ids"] == response.json()["source_ids"]
+        assert versions["zh"] == chinese
+        assert len(set(versions.values())) == 3
+        rejected = await api.post(ROOT + "/import", json={"question_ids": [original.id], "language": "fr"})
+        assert rejected.status_code == 422
+
+        frozen_answer = original.answer_html
+        original.answer_html = "<p>Edited reference</p>"
+        await db_session.commit()
+        for _ in versions:
+            assert await podcast_jobs.process_next()
+        rows = (await library(api))["episodes"]
+        assert {row["language"]: row["id"] for row in rows} == versions
+        assert all(row["title"] == original.title and "script" not in row for row in rows)
+        assert scripted == [(language, frozen_answer) for language in versions]
+
+        for episode_id in versions.values():
+            assert (await api.post(f"{ROOT}/episodes/{episode_id}/synthesize")).status_code == 200
+            assert await podcast_jobs.process_next()
+        assert synthesized == [(language, f"Spoken {language}") for language in versions]
+        assert all(row["status"] == "ready" for row in (await library(api))["episodes"])
+
+        edited = await api.post(ROOT + "/import", json={"question_ids": [original.id], "language": "en"})
+        assert edited.status_code == 200
+        assert edited.json()["episode_ids"][0] not in versions.values()

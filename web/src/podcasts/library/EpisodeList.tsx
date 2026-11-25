@@ -1,5 +1,5 @@
 import type { PodcastEpisode } from "../../api/podcasts";
-import { duration, episodeStatus, familiarityLabel } from "./model";
+import { duration, episodeLanguageLabel, episodeStatus, familiarityLabel } from "./model";
 import { PodcastIcon } from "./PodcastUi";
 
 export function EpisodeList({
@@ -38,6 +38,7 @@ export function EpisodeList({
                 {[
                   episode.question_code,
                   episode.topic,
+                  episodeLanguageLabel(episode),
                   episode.part > 1 ? `第 ${episode.part} 集` : "",
                 ]
                   .filter(Boolean)

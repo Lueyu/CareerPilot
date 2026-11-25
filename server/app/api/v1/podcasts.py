@@ -11,7 +11,14 @@ from sqlalchemy.orm import load_only, raiseload
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import Question, Workspace
-from app.models.podcast import EpisodeStatus, Familiarity, PodcastEpisode, PodcastPlaylist, PodcastSource
+from app.models.podcast import (
+    EpisodeStatus,
+    Familiarity,
+    PodcastEpisode,
+    PodcastLanguage,
+    PodcastPlaylist,
+    PodcastSource,
+)
 from app.services import podcast_library as library
 from app.services.learning_exposure import record_reference_exposure
 
@@ -30,6 +37,7 @@ PRIVATE_HEADERS = {"Cache-Control": "private, no-store", "X-Content-Type-Options
 class ImportRequest(BaseModel):
     question_ids: QuestionIds
     series: bool = False
+    language: PodcastLanguage = "zh"
     playlist_id: Annotated[int, Field(gt=0, le=2**63 - 1)] | None = None
 
 
@@ -79,7 +87,9 @@ async def get_sources(
 
 @router.post("/import")
 async def import_questions(body: ImportRequest, ws: WorkspaceDep, session: SessionDep):
-    return await library.import_sources(session, ws.id, body.question_ids, body.series, body.playlist_id)
+    return await library.import_sources(
+        session, ws.id, body.question_ids, body.series, body.playlist_id, language=body.language
+    )
 
 
 async def _deliver_material(session, ws, episode_id, field, source):
