@@ -38,7 +38,6 @@ import "./podcasts.css";
 type ImportBatch = {
   ids: number[];
   questionIds: number[];
-  previousIds: Set<number>;
   skippedCount?: number;
 };
 
@@ -282,8 +281,7 @@ function WorkspacePodcasts() {
           playlists={data.playlists}
           onClose={backToLibrary}
           onImported={(ids, questionIds, skippedCount) => {
-            const previousIds = new Set(data.episodes.map((episode) => episode.id));
-            go({ kind: "production", batch: { ids, questionIds, previousIds, skippedCount } });
+            go({ kind: "production", batch: { ids, questionIds, skippedCount } });
             void refresh();
             notifyPlayer();
           }}

@@ -13,6 +13,7 @@ export interface PodcastSource {
 }
 
 export interface PodcastEpisode extends PodcastSource {
+  source_id: number;
   question_id: number;
   language?: PodcastLanguage;
   part: number;

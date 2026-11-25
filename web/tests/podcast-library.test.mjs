@@ -19,6 +19,7 @@ import {
 const episode = (id, question_id, title, status = "ready", part = 1) => ({
   id,
   question_id,
+  source_id: id,
   title,
   status,
   part,
@@ -39,12 +40,12 @@ test("deep links accept unique bank IDs and search combines title, question code
 test("batch includes delayed series parts and reused IDs without importing old versions or other questions", () => {
   const draft = episode(8, 91, "工具调用", "generating");
   const reuse = episode(4, 24, "超时后的处理");
-  const second = episode(9, 91, "顺序选择", "draft", 2);
+  const second = { ...episode(9, 91, "顺序选择", "draft", 2), source_id: draft.source_id };
+  const otherLanguage = { ...episode(11, 91, "同步生成的英文版", "draft", 2), language: "en" };
   assert.deepEqual(
-    importedEpisodes([reuse, second, draft, episode(3, 91, "旧节目"), episode(10, 2, "其他题")], {
+    importedEpisodes([reuse, second, draft, otherLanguage, episode(3, 91, "旧节目"), episode(10, 2, "其他题")], {
       ids: [8, 4],
       questionIds: [91, 24],
-      previousIds: new Set([3, 4]),
     }),
     [draft, second, reuse],
   );

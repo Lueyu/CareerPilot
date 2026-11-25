@@ -72,16 +72,16 @@ export function importedEpisodes(
   batch: {
     ids: number[];
     questionIds: number[];
-    previousIds: ReadonlySet<number>;
   },
 ) {
   const returned = new Set(batch.ids);
+  const sources = new Set(episodes.filter((e) => returned.has(e.id)).map((e) => e.source_id));
   const questions = new Map(batch.questionIds.map((id, index) => [id, index]));
   return episodes
     .filter(
       (episode) =>
         returned.has(episode.id) ||
-        (questions.has(episode.question_id) && !batch.previousIds.has(episode.id)),
+        (episode.source_id != null && sources.has(episode.source_id)),
     )
     .sort(
       (a, b) =>

@@ -173,6 +173,7 @@ async def import_sources(session, workspace_id, question_ids, series, playlist_i
 def episode_payload(episode, question_id, question_code, topic, title, language):
     return {
         "id": episode.id,
+        "source_id": episode.source_id,
         "question_id": question_id,
         "question_code": question_code,
         "title": title,
