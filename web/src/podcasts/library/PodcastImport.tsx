@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { podcastApi, type PodcastPlaylist, type PodcastSource } from "../../api/podcasts";
-import { errorDetail } from "./model";
+import {
+  podcastApi,
+  type PodcastLanguage,
+  type PodcastPlaylist,
+  type PodcastSource,
+} from "../../api/podcasts";
+import {
+  defaultPodcastLanguage,
+  errorDetail,
+  isPodcastLanguage,
+  podcastLanguages,
+} from "./model";
 import { PodcastHeading, PodcastIcon, PodcastSteps } from "./PodcastUi";
 
 const PAGE_SIZE = 15;
@@ -17,6 +27,7 @@ export function PodcastImport({
   onImported: (ids: number[], questionIds: number[], skippedCount?: number) => void;
 }) {
   const [selected, setSelected] = useState(() => new Set(initialIds));
+  const [language, setLanguage] = useState<PodcastLanguage>(defaultPodcastLanguage);
   const [series, setSeries] = useState(false);
   const [playlistId, setPlaylistId] = useState<number>();
   const [query, setQuery] = useState("");
@@ -78,6 +89,7 @@ export function PodcastImport({
         questionIds,
         series,
         playlistId,
+        language,
       );
       if (!episode_ids.length) {
         setImportError("没有找到可导入的题目，请确认所选题目有参考答案。");
@@ -215,6 +227,23 @@ export function PodcastImport({
           )}
           <div className="podlib-options">
             <label className="podlib-field">
+              节目语言
+              <select
+                value={language}
+                aria-describedby="podlib-bilingual-description"
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (isPodcastLanguage(value)) setLanguage(value);
+                }}
+              >
+                {Object.entries(podcastLanguages).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="podlib-field">
               存入歌单
               <select
                 value={playlistId ?? ""}
@@ -237,6 +266,9 @@ export function PodcastImport({
               拆成系列
             </label>
           </div>
+          <p className="podlib-note" id="podlib-bilingual-description">
+            中英双语包含中文讲解和英文面试回答。
+          </p>
           <p className="podlib-note">题目需要有参考答案。可复用同一答案版本生成过的节目。</p>
           {selected.size > 100 && (
             <p className="podlib-error" role="alert">

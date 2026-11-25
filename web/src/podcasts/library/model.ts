@@ -1,4 +1,20 @@
-import type { PodcastEpisode, PodcastLibrary } from "../../api/podcasts";
+import type { PodcastEpisode, PodcastLanguage, PodcastLibrary } from "../../api/podcasts";
+
+export const podcastLanguages = {
+  zh: "中文",
+  en: "英文",
+  bilingual: "中英双语",
+} satisfies Record<PodcastLanguage, string>;
+
+export const defaultPodcastLanguage: PodcastLanguage = "zh";
+
+export function isPodcastLanguage(value: string): value is PodcastLanguage {
+  return Object.prototype.hasOwnProperty.call(podcastLanguages, value);
+}
+
+export function episodeLanguageLabel(episode: PodcastEpisode) {
+  return podcastLanguages[episode.language ?? defaultPodcastLanguage];
+}
 
 export const episodeStatus = {
   generating: "正在生成讲稿",

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { podcastApi, type PodcastEpisode } from "../../api/podcasts";
 import type { StartPodcastPlayback } from "../podcastQueue";
-import { canPreview, episodeStatus, errorDetail, readyEpisodes } from "./model";
+import { canPreview, episodeLanguageLabel, episodeStatus, errorDetail, readyEpisodes } from "./model";
 import { PodcastDialog, PodcastHeading, PodcastIcon, PodcastSteps } from "./PodcastUi";
 
 type PreviewState =
@@ -47,7 +47,7 @@ export function PodcastScript({ episode }: { episode: PodcastEpisode }) {
     );
   return (
     <article className="podlib-script">
-      <p className="podlib-note">第 {episode.part} 集 · 单人中文讲解</p>
+      <p className="podlib-note">第 {episode.part} 集 · {episodeLanguageLabel(episode)}</p>
       <h2>{preview.title}</h2>
       <div className="podlib-transcript">{preview.script}</div>
     </article>
@@ -154,7 +154,9 @@ export function PodcastProduction({
                 <div>
                   <strong>{episode.title}</strong>
                   <small>
-                    {[episode.question_code, `第 ${episode.part} 集`].filter(Boolean).join(" · ")}
+                    {[episode.question_code, `第 ${episode.part} 集`, episodeLanguageLabel(episode)]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </small>
                 </div>
                 <span className="podlib-stage" data-status={episode.status}>

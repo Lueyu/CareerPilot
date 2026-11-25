@@ -1,5 +1,7 @@
 import { api, downloadNativeBlob } from './client';
 
+export type PodcastLanguage = 'zh' | 'en' | 'bilingual';
+
 export type Familiarity = 'unmarked' | 'familiar' | 'unfamiliar';
 export type EpisodeStatus = 'generating' | 'draft' | 'synthesizing' | 'ready' | 'script_failed' | 'audio_failed';
 
@@ -12,6 +14,7 @@ export interface PodcastSource {
 
 export interface PodcastEpisode extends PodcastSource {
   question_id: number;
+  language?: PodcastLanguage;
   part: number;
   status: EpisodeStatus;
   duration_seconds: number;
@@ -41,9 +44,9 @@ export const podcastApi = {
     const params = new URLSearchParams({ q, offset: String(offset), limit: String(limit) });
     return api.get<{ items: PodcastSource[]; total: number }>(root + '/sources?' + params);
   },
-  importQuestions(question_ids: number[], series: boolean, playlist_id?: number) {
+  importQuestions(question_ids: number[], series: boolean, playlist_id?: number, language?: PodcastLanguage) {
     return api.post<{ episode_ids: number[]; skipped_question_ids?: number[] }>(
-      root + '/import', { question_ids, series, playlist_id },
+      root + '/import', { question_ids, series, playlist_id, language },
     );
   },
   script: (id: number) => api.get<{ title: string; script: string }>(episode(id) + '/script'),
