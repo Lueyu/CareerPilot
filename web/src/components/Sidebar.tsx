@@ -11,12 +11,14 @@ const EXAM: NavItem = { ic: '📝', label: 'shell.examsInterviews', to: '/exam',
 const STUDY: NavItem = { ic: '💬', label: 'shell.studyChat', to: '/study/chat', match: (p) => p.startsWith('/study/') };
 const LEARNING: NavItem = { ic: '📚', label: 'shell.learningPlan', to: '/learning', match: (p) => p.startsWith('/learning') };
 const MEMORY: NavItem = { ic: '🧠', label: 'shell.memoryCenter', to: '/memory', match: (p) => p.startsWith('/memory') };
+const PODCASTS: NavItem = { ic: '🎧', label: 'shell.podcasts', to: '/podcasts', match: (p) => p === '/podcasts' };
 
 const NAV: NavItem[] = [
   HOME,
   { ic: '🎯', label: 'shell.skillsRoles', to: '/benchmark', match: (p) => p === '/benchmark' || p.startsWith('/profile') },
   { ...EXAM, match: (p) => EXAM.match(p) || p === '/bank' },
   { ...STUDY, label: 'shell.studyChatNotes' },
+  PODCASTS,
   LEARNING,
   { ic: '🚀', label: 'shell.projectsResume', to: '/assets', match: (p) => p.startsWith('/assets') },
 ];
@@ -31,6 +33,7 @@ const REGISTERED_NAV: NavItem[] = [
   HOME,
   { ic: '📚', label: 'shell.questionBank', to: '/bank', match: (p) => p === '/bank' },
   STUDY,
+  PODCASTS,
   EXAM,
   LEARNING,
   MEMORY,

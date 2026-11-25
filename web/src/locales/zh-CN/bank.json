@@ -1,4 +1,11 @@
 {
+  "selectForPodcast": "多选制作播客",
+  "preparePodcasts": "制作播客 · {count} 题",
+  "pickPodcastQuestions": "勾选要制作播客的题目",
+  "cancelPodcastSelection": "取消多选",
+  "selectPodcastQuestion": "选择「{title}」制作播客",
+  "selectQuestionForPodcast": "选入播客",
+  "makePodcast": "制作播客",
   "adaptInterviewNotes": "整理面经，结合项目改写",
   "adaptNotesKind": "面经优化",
   "addDraftPair": "添加{group}",
