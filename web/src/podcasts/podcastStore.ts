@@ -66,6 +66,15 @@ export function rememberPodcastResume(identity: PodcastIdentity, resume: Resume 
   return checkpoint;
 }
 
+export function clearPodcastResume(identity: PodcastIdentity, id: number) {
+  try {
+    if (readPodcastResume(identity)?.id === id) localStorage.removeItem(resumeKey(identity));
+  } catch { /* Still clear the IndexedDB checkpoint when local storage is unavailable. */ }
+  return updateWorkspace(identity, record => {
+    if (record.resume?.id === id) delete record.resume;
+  });
+}
+
 function emptyWorkspace(): WorkspaceRecord {
   return { packs: [], pending: {}, overrides: {} };
 }

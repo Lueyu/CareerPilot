@@ -54,7 +54,7 @@ export function usePodcastAudio(options: AudioOptions) {
     if (source?.url) URL.revokeObjectURL(source.url);
   }
 
-  function lock() {
+  function reset() {
     dispose();
     setEpisode(undefined);
     setPosition(0);
@@ -138,6 +138,10 @@ export function usePodcastAudio(options: AudioOptions) {
     return !!active.current?.wantsPlay;
   }
 
+  function getSelection(): Readonly<Pick<Source, 'episode'>> | null {
+    return active.current;
+  }
+
   function pause() {
     if (active.current) active.current.wantsPlay = false;
     element.current?.pause();
@@ -216,5 +220,5 @@ export function usePodcastAudio(options: AudioOptions) {
     };
   }, []);
 
-  return { element, episode, position, duration, playing, error, loading, select, play, pause, seek, lock, wantsPlayback };
+  return { element, episode, position, duration, playing, error, loading, select, play, pause, seek, reset, wantsPlayback, getSelection };
 }

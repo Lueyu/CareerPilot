@@ -14,7 +14,8 @@ import {
   type PlaybackLibrary, type PlaybackScope, type StartPodcastPlayback,
 } from './podcastQueue';
 import {
-  flushPodcastChanges, readPodcastResume, readPodcastWorkspace, readSavedMedia, removePodcastPack, rememberPodcastResume, savePodcastChange,
+  clearPodcastResume, flushPodcastChanges, readPodcastResume, readPodcastWorkspace, readSavedMedia,
+  removePodcastPack, rememberPodcastResume, savePodcastChange,
   type EpisodePatch, type OfflinePlaylist, type Resume,
 } from './podcastStore';
 import { usePodcastAudio } from './usePodcastAudio';
@@ -202,10 +203,26 @@ function ScopedPlayer({ identity, access, children }: { identity: PodcastIdentit
     if (!isCurrent()) return;
     const signal = lifetime.current?.signal;
     const request = ++refreshId.current;
+    const selectionAtRequest = audio.getSelection();
     const knownRevision = changeRevision.current;
     try {
       const data = access ? await access.library() : await offlineLibrary(identity);
       if (signal?.aborted || !isCurrent() || request !== refreshId.current) return;
+      const selected = audio.getSelection();
+      if (access && selected && !data.episodes.some(item => item.id === selected.episode.id)) {
+        if (selected !== selectionAtRequest) {
+          // This snapshot predates the selection. Check again with the new episode active.
+          void refresh(restore);
+          return;
+        }
+        audio.reset();
+        navigator.mediaSession?.setPositionState?.();
+        close();
+        setStatus('');
+        void clearPodcastResume(identity, selected.episode.id).catch(() => {
+          if (isCurrent()) setStatus('这台设备未能清除已删除节目的收听进度。');
+        });
+      }
       authorized.current = true;
       setLibrary(data);
       const local = await readPodcastWorkspace(identity).catch(() => undefined);
@@ -249,7 +266,7 @@ function ScopedPlayer({ identity, access, children }: { identity: PodcastIdentit
       clearTimeout(syncTimer.current);
       setVisible(false);
       setLocked(true);
-      audio.lock();
+      audio.reset();
     };
     const unwatch = watchPodcastIdentity(verify);
     const reconnect = () => { void refresh(true); };
@@ -546,7 +563,7 @@ function ScopedPlayer({ identity, access, children }: { identity: PodcastIdentit
           <button type="button" disabled={pending} onClick={() => void operate(async () => {
             if (offline) setScope(allScope);
             await removePodcastPack(identity, pack.id);
-            if (offline && episode && !(await readSavedMedia(identity, episode.id))) audio.lock();
+            if (offline && episode && !(await readSavedMedia(identity, episode.id))) audio.reset();
             window.dispatchEvent(new Event(podcastPacksChanged));
           }, '已移除此设备上的副本')}>移除</button>
         </div>)}

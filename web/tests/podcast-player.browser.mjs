@@ -64,6 +64,13 @@ const server = createServer(async (request, response) => {
     if (!data.has(scope)) data.set(scope, structuredClone(library));
     const store = data.get(scope);
     if (!id) return send(200, store);
+    const item = store.episodes.find(candidate => candidate.id === Number(id));
+    if (!item) return send(404, { detail: '节目已删除' });
+    if (request.method === 'DELETE') {
+      store.episodes = store.episodes.filter(candidate => candidate.id !== item.id);
+      for (const list of store.playlists) list.episode_ids = list.episode_ids.filter(id => id !== item.id);
+      return send(200, {});
+    }
     if (resource === 'script') return send(200, { title: '讲解', script: '查看第 ' + id + ' 集的已保存讲稿。' });
     if (resource === 'audio') {
       if (Number(id) === unavailableAudio) return send(503, { detail: '音频暂不可用' });
@@ -75,7 +82,6 @@ const server = createServer(async (request, response) => {
       for await (const chunk of request) chunks.push(chunk);
       const patch = JSON.parse(Buffer.concat(chunks).toString());
       updates.push({ scope, id: Number(id), patch });
-      const item = store.episodes.find(candidate => candidate.id === Number(id));
       Object.assign(item, patch);
       return send(200, item);
     }
@@ -117,6 +123,75 @@ async function savePack(tab, dialog) {
   assert.ok(cached.includes('/podcast-offline.html'));
   assert.ok(cached.some(url => /^\/assets\/podcast-offline.+\.js$/.test(url)));
   assert.ok(cached.every(url => url === '/podcast-offline.html' || url.startsWith('/assets/')));
+}
+
+async function checkDeletedPlayback(tab, dialog) {
+  // Start from a paused restore so switching tracks doesn't sync a playback checkpoint.
+  await tab.reload();
+  await tab.getByRole('button', { name: '打开播放器，测试第 1 集' }).click();
+  const scope = dialog.getByRole('combobox', { name: '播放范围' });
+  await scope.selectOption('playlist:number:1');
+
+  // An older library snapshot may not include a track the listener just selected.
+  const release = Promise.withResolvers();
+  await tab.route('**/api/v1/podcasts', async route => {
+    await release.promise;
+    await route.fulfill({ json: {
+      episodes: library.episodes.filter(item => item.id !== 2),
+      playlists: library.playlists,
+    } });
+  }, { times: 1 });
+  try {
+    await Promise.all([
+      tab.waitForRequest('**/api/v1/podcasts'),
+      tab.evaluate(() => window.dispatchEvent(new Event('careerpilot-podcast-library-changed'))),
+    ]);
+    await dialog.getByRole('button', { name: '下一集', exact: true }).click();
+    await dialog.getByRole('heading', { name: '测试第 2 集' }).waitFor();
+    await dialog.getByRole('button', { name: '播放', exact: true }).click();
+    await dialog.getByRole('button', { name: '暂停', exact: true }).waitFor();
+    data.get('personal').playlists.push({ id: 99, name: '最新的歌单', episode_ids: [] });
+  } finally {
+    release.resolve();
+  }
+  await scope.locator('option[value="playlist:number:99"]').waitFor({ state: 'attached' });
+  await dialog.getByRole('button', { name: '暂停', exact: true }).waitFor();
+  await dialog.getByRole('button', { name: '逐字稿', exact: true }).click();
+  await dialog.getByText('查看第 2 集的已保存讲稿。').waitFor();
+  await tab.waitForFunction(() => navigator.mediaSession.metadata?.title === '测试第 2 集');
+
+  const status = await tab.evaluate(async () => {
+    const response = await fetch('/api/v1/podcasts/episodes/2', {
+      method: 'DELETE', headers: { 'X-Workspace': 'personal' },
+    });
+    window.dispatchEvent(new CustomEvent('careerpilot-podcast-library-changed', { detail: { source: 'library' } }));
+    return response.status;
+  });
+  assert.equal(status, 200);
+  await tab.waitForFunction(() => {
+    const audio = document.querySelector('audio');
+    return audio.paused && !audio.hasAttribute('src') && !navigator.mediaSession.metadata &&
+      navigator.mediaSession.playbackState === 'none' && !document.querySelector('.podcast-mini');
+  }, undefined, { timeout: 5000 });
+  assert.equal(await tab.getByText('查看第 2 集的已保存讲稿。').count(), 0);
+  const resume = await tab.evaluate(async () => {
+    const journal = Object.keys(localStorage).filter(key => key.startsWith('careerpilot-podcast-resume:'))
+      .map(key => JSON.parse(localStorage.getItem(key)).id);
+    const db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open('careerpilot-podcasts');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const records = await new Promise((resolve, reject) => {
+        const request = db.transaction('workspaces').objectStore('workspaces').getAll();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      return [...journal, ...records.map(record => record.resume?.id)];
+    } finally { db.close(); }
+  });
+  assert.ok(!resume.includes(2), 'deleted episode still has a resume checkpoint');
 }
 
 try {
@@ -212,12 +287,20 @@ try {
   assert.equal(download.suggestedFilename(), '测试第 1 集.mp3');
   assert.deepEqual(await readFile(await download.path()), mp3);
 
+  await checkDeletedPlayback(page, dialog);
+
   await page.close();
   await context.setOffline(true);
   page = await context.newPage();
   await page.goto(offlinePath);
   const savedPacks = page.locator('main section').filter({ has: page.getByRole('heading', { name: '通勤歌单' }) });
   await savedPacks.nth(1).waitFor();
+  await savedPacks.first().getByRole('button', { name: /^测试第 2 集/ }).click();
+  dialog = page.getByRole('dialog', { name: '播客播放器' });
+  await dialog.getByRole('button', { name: '暂停', exact: true }).waitFor();
+  await dialog.getByRole('button', { name: '逐字稿', exact: true }).click();
+  await dialog.getByText('查看第 2 集的已保存讲稿。').waitFor();
+  await dialog.getByRole('button', { name: '收起播放器' }).click();
   await savedPacks.nth(1).getByRole('button', { name: /^测试第 1 集/ }).click();
   dialog = page.getByRole('dialog', { name: '播客播放器' });
   await dialog.getByRole('button', { name: '下一集，测试第 3 集' }).waitFor();
@@ -274,7 +357,7 @@ try {
   await page.reload();
   await page.getByText('当前工作区在这台设备上没有可打开的离线歌单。', { exact: false }).waitFor();
   assert.ok(!updates.some(item => item.scope === 'registered:43' && item.patch.familiarity === 'familiar'));
-  console.log('Passed: topic and unfamiliar advancement, search/production order, same-name playlists online/offline, swipe, loop, transcript, atomic save, MP3, resume, sync, and workspace/account isolation.');
+  console.log('Passed: scoped playback, swipe, loop, transcript, stale refresh, active deletion, saved copies offline, atomic save, MP3, resume, sync, and workspace/account isolation.');
 } finally {
   await browser.close();
   await new Promise(resolve => server.close(resolve));
