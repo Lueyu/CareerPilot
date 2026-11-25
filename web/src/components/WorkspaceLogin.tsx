@@ -1,11 +1,15 @@
 import { useT } from '../i18n';
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { api, workspaceLogin } from '../api/client';
 import LanguageSelector from './LanguageSelector';
+import { invalidatePodcastDeviceSession, podcastDeviceLoginState, recordPodcastDeviceLogin } from '../podcasts/podcastOfflineIdentity';
 
 export default function WorkspaceLogin({ children }: { children: ReactNode }) {
   const t = useT();
-  const [ready, setReady] = useState(() => !workspaceLogin || !!sessionStorage.getItem('cp-login-token'));
+  const [ready, setReady] = useState(() => !workspaceLogin ||
+    (!!sessionStorage.getItem('cp-login-token') && (!isSecureContext || podcastDeviceLoginState() === 'active')));
+  const [restoring, setRestoring] = useState(() => !ready && !!sessionStorage.getItem('cp-login-token') &&
+    podcastDeviceLoginState() === 'uninitialized');
   const [slug, setSlug] = useState('');
   const [token, setToken] = useState('');
   const [failure, setFailure] = useState<{ detail?: string } | null>(null);
@@ -16,6 +20,24 @@ export default function WorkspaceLogin({ children }: { children: ReactNode }) {
     sessionStorage.removeItem('cp-login-token');
   }
 
+  useEffect(() => {
+    if (!restoring) return;
+    const previousToken = sessionStorage.getItem('cp-login-token');
+    if (!previousToken) {
+      setRestoring(false);
+      return;
+    }
+    let active = true;
+    void api.get('/settings/overview').then(async () => {
+      if (!active) return;
+      await recordPodcastDeviceLogin(previousToken);
+      if (active) setReady(true);
+    }).catch(() => {}).finally(() => {
+      if (active) setRestoring(false);
+    });
+    return () => { active = false; };
+  }, [restoring]);
+
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -24,6 +46,7 @@ export default function WorkspaceLogin({ children }: { children: ReactNode }) {
     sessionStorage.setItem('cp-login-token', token.trim());
     try {
       await api.get('/settings/overview');
+      await recordPodcastDeviceLogin(token.trim()).catch(() => undefined);
       setToken('');
       setReady(true);
     } catch (error) {
@@ -34,10 +57,11 @@ export default function WorkspaceLogin({ children }: { children: ReactNode }) {
     }
   }
 
+  if (restoring) return <p role="status">{t('registered.workspaceOpening')}</p>;
   if (ready) return <>
     {workspaceLogin && <button className="btn btn-outline" onClick={() => {
       clear();
-      setReady(false);
+      try { invalidatePodcastDeviceSession(); } finally { setReady(false); }
     }}>{t('shell.signOutWorkspace')}</button>}
     {children}
   </>;

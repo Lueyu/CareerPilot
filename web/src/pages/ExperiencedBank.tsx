@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigationType, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import StudyEntryButton from '../components/StudyEntryButton';
+import { PodcastQuestionAction, PodcastSelectionBar, usePodcastSelection } from '../components/PodcastQuestionAction';
 import { bankMessageText, messageOf, type BankMessage } from '../lib/questionWorkshop';
 import { experiencedPracticePath } from '../lib/experiencedBankPath';
 
@@ -111,6 +112,7 @@ function QuestionActions({ question, onRetestMapping }: {
     {open && <div id={actionsId} className="bank-actions experienced-extra-actions">
       {question.source === 'legacy' && <button type="button" className="btn btn-outline btn-sm" onClick={() => onRetestMapping(question)}>{t('bank.retestMapping')}</button>}
       <StudyEntryButton kind="question" id={question.id} bankKey={question.short_code} />
+      <PodcastQuestionAction id={question.id} title={question.title} />
     </div>}
   </>;
 }
@@ -134,6 +136,7 @@ export default function ExperiencedBank({
   const locale = useLocale();
   const [catalog, setCatalog] = useState<CatalogState>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const podcastSelection = usePodcastSelection();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const navigationType = useNavigationType();
@@ -366,6 +369,7 @@ export default function ExperiencedBank({
           <section className="card bank-section experienced-questions" aria-labelledby="bank-catalog-title">
             <div className="experienced-list-head">
               <h2 id="bank-catalog-title">{t('bank.catalogQuestions')}</h2>
+              <PodcastSelectionBar selection={podcastSelection} />
               <span className="hint" role="status">{t('bank.catalogResultCount', { count: results.length })}</span>
             </div>
             {results.length === 0 ? <p className="experienced-empty">{t('bank.noCatalogMatches')}</p> : (
@@ -391,6 +395,7 @@ export default function ExperiencedBank({
                         {t('bank.viewReference')}
                       </button>
                       <QuestionActions question={question} onRetestMapping={onRetestMapping} />
+                      {podcastSelection.ids && <PodcastQuestionAction id={question.id} title={question.title} selection={podcastSelection} />}
                     </div>
                     {practiceError?.id === question.short_code && <p role="alert">{t('bank.practiceFailed', { error: practiceError.message })}</p>}
                   </li>

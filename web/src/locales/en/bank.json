@@ -1,4 +1,11 @@
 {
+  "selectForPodcast": "Select for podcast",
+  "preparePodcasts": "Create podcasts · {count} questions",
+  "pickPodcastQuestions": "Select questions for your podcasts",
+  "cancelPodcastSelection": "Cancel selection",
+  "selectPodcastQuestion": "Select {title} for a podcast",
+  "selectQuestionForPodcast": "Select for podcast",
+  "makePodcast": "Make a podcast",
   "adaptInterviewNotes": "Adapt interview notes to your projects",
   "adaptNotesKind": "Interview note adaptation",
   "addDraftPair": "Add item to {group}",

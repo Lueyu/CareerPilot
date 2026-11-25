@@ -5,7 +5,7 @@ import { act, create } from 'react-test-renderer';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { RegisteredWorkspaceLayout, WorkspaceLayout } from '../src/components/WorkspaceLayout.tsx';
 
-const registeredRoutes = ['/', '/bank', '/study/chat', '/exam', '/learning', '/memory', '/settings'];
+const registeredRoutes = ['/', '/bank', '/study/chat', '/podcasts', '/exam', '/learning', '/memory', '/settings'];
 
 function renderShell(t, path, layout) {
   const original = { window: globalThis.window, document: globalThis.document, localStorage: globalThis.localStorage, fetch };
@@ -93,7 +93,7 @@ test('personal shell keeps its routes, workspace switcher and injected controls'
   }));
   const sidebar = root.findByType('aside');
   assert.deepEqual(navDestinations(sidebar),
-    ['/', '/benchmark', '/exam', '/study/chat', '/learning', '/assets', '/memory', '/observatory', '/evolution', '/settings']);
+    ['/', '/benchmark', '/exam', '/study/chat', '/podcasts', '/learning', '/assets', '/memory', '/observatory', '/evolution', '/settings']);
   assert.equal(sidebar.findByProps({ className: 'ws-label' }).children[0], '演示工作空间');
   act(() => sidebar.findByType('button').props.onClick());
   act(() => root.findByProps({ className: 'search-box' }).props.onClick());

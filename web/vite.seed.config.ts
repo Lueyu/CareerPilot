@@ -12,11 +12,16 @@ export default defineConfig({
       { find: /^\.\/localTransport$/, replacement: fileURLToPath(new URL('./src/seed/noLocalTransport.ts', import.meta.url)) },
     ],
   },
-  publicDir: false,
   build: {
     outDir: fileURLToPath(new URL('./dist-seed', import.meta.url)),
     assetsDir: 'static-assets',
     emptyOutDir: true,
     sourcemap: false,
+    rollupOptions: {
+      input: [
+        fileURLToPath(new URL('./index.html', import.meta.url)),
+        fileURLToPath(new URL('./podcast-offline.html', import.meta.url)),
+      ],
+    },
   },
 });

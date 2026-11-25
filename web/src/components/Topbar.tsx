@@ -17,6 +17,7 @@ const PAGE_NAMES: Record<string, string> = {
   '/study/notes': 'shell.studyNotes',
   '/learning': 'shell.learningPlan',
   '/bank': 'shell.questionBank',
+  '/podcasts': 'shell.podcasts',
   '/assets': 'shell.projectsResume',
   '/memory': 'shell.memoryCenter',
   '/observatory': 'shell.observatory',
