@@ -12,14 +12,21 @@ MODEL = "kokoro-int8-multi-lang-v1_1"
 URL = f"https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/{MODEL}.tar.bz2"
 SHA256 = "259c9c8bc906d6078e4e0570421885dabb68b539c2f970fcbb890a58eeaf3e9c"
 DEFAULT_DIR = Path(__file__).resolve().parents[1] / "personal" / "models" / MODEL
-REQUIRED = ("model.int8.onnx", "voices.bin", "tokens.txt", "lexicon-zh.txt", "lexicon-us-en.txt")
+REQUIRED = (
+    "model.int8.onnx", "voices.bin", "tokens.txt", "lexicon-zh.txt", "lexicon-us-en.txt",
+    "phone-zh.fst", "date-zh.fst", "number-zh.fst", "espeak-ng-data/phondata",
+)
+
+
+def complete_pack(directory: Path) -> bool:
+    return all((directory / name).is_file() and (directory / name).stat().st_size > 0 for name in REQUIRED)
 
 
 def install(destination: Path, archive: Path | None) -> None:
     marker = destination / ".archive-sha256"
     if destination.exists():
         if (marker.is_file() and marker.read_text().strip() == SHA256
-                and all((destination / name).is_file() for name in REQUIRED)):
+                and complete_pack(destination)):
             return
         raise SystemExit(f"Model directory already exists. Choose an empty destination: {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -36,7 +43,7 @@ def install(destination: Path, archive: Path | None) -> None:
         with tarfile.open(archive, "r:bz2") as package:
             package.extractall(staging, filter="data")
         unpacked = staging / MODEL
-        if not all((unpacked / name).is_file() for name in REQUIRED):
+        if not complete_pack(unpacked):
             raise SystemExit("The voice pack is missing required model files.")
         (unpacked / marker.name).write_text(SHA256 + "\n", encoding="ascii")
         unpacked.rename(destination)
