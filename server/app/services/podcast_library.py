@@ -10,7 +10,14 @@ from sqlalchemy import case, delete, func, or_, select, tuple_, update
 from sqlalchemy.orm import lazyload
 
 from app.models import Event, Question, Workspace
-from app.models.podcast import EpisodeStatus, PodcastEpisode, PodcastPlaylist, PodcastPlaylistEpisode, PodcastSource
+from app.models.podcast import (
+    EpisodeStatus,
+    PodcastEpisode,
+    PodcastLanguage,
+    PodcastPlaylist,
+    PodcastPlaylistEpisode,
+    PodcastSource,
+)
 from app.services.answer_guides import current_reference
 from app.services.bank_practice import bank_list_question_clause
 from app.services.experienced_bank import list_installed_pack
@@ -62,7 +69,7 @@ def _reference_with_options(question, answer):
     return "<p>选项</p><ul>" + "".join(options) + "</ul><p>参考答案</p>" + answer
 
 
-async def import_sources(session, workspace_id, question_ids, series, playlist_id):
+async def import_sources(session, workspace_id, question_ids, series, playlist_id, *, language: PodcastLanguage = "zh"):
     rows = await session.scalars(
         select(Question)
         .options(lazyload("*"))
@@ -80,12 +87,10 @@ async def import_sources(session, workspace_id, question_ids, series, playlist_i
             skipped_question_ids.append(question_id)
             continue
         answer = _reference_with_options(question, answer)
-        version = hashlib.sha256(
-            json.dumps(
-                [question.short_code, question.title, question.topic, question.source_type, answer],
-                ensure_ascii=False,
-            ).encode()
-        ).hexdigest()
+        version_fields = [question.short_code, question.title, question.topic, question.source_type, answer]
+        if language != "zh":
+            version_fields.append(language)
+        version = hashlib.sha256(json.dumps(version_fields, ensure_ascii=False).encode()).hexdigest()
         snapshots[question_id, version] = PodcastSource(
             workspace_id=workspace_id,
             question_id=question_id,
@@ -96,6 +101,7 @@ async def import_sources(session, workspace_id, question_ids, series, playlist_i
             answer=answer,
             version=version,
             series=series,
+            language=language,
         )
 
     if not snapshots:
@@ -117,6 +123,7 @@ async def import_sources(session, workspace_id, question_ids, series, playlist_i
         .where(
             PodcastSource.workspace_id == workspace_id,
             PodcastSource.series == series,
+            PodcastSource.language == language,
             tuple_(PodcastSource.question_id, PodcastSource.version).in_(list(snapshots)),
         )
         .order_by(PodcastEpisode.part)
@@ -163,13 +170,14 @@ async def import_sources(session, workspace_id, question_ids, series, playlist_i
     return {"episode_ids": episode_ids, "skipped_question_ids": skipped_question_ids}
 
 
-def episode_payload(episode, question_id, question_code, topic, title):
+def episode_payload(episode, question_id, question_code, topic, title, language):
     return {
         "id": episode.id,
         "question_id": question_id,
         "question_code": question_code,
         "title": title,
         "topic": topic,
+        "language": language,
         "part": episode.part,
         "status": episode.status,
         "duration_seconds": episode.duration_seconds,
@@ -198,6 +206,7 @@ def episode_rows(workspace_id):
             PodcastSource.question_code,
             PodcastSource.topic,
             title,
+            PodcastSource.language,
         )
         .join(PodcastSource)
         .where(PodcastEpisode.workspace_id == workspace_id)

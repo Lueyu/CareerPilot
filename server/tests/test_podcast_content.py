@@ -90,6 +90,51 @@ async def test_draft_uses_workspace_model_and_keeps_visible_source_details(confi
     }]
 
 
+_ENGLISH_ANSWER = (
+    "I would use a stable operation key for each coupon. On timeout, I would look up the result with the original "
+    "key before retrying. A unique constraint prevents concurrent requests from issuing two coupons. That costs "
+    "an extra lookup and means the service must keep the result for the whole retry window."
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("language", ["en", "bilingual"])
+async def test_language_selects_prompt_validation_and_synthesis(configured, monkeypatch, language):
+    session, adapter = configured
+    if language == "en":
+        draft = episode(
+            title="Retrying a coupon request",
+            opening="Imagine your support team issues a replacement coupon and times out. Would you send it again?",
+            explanation=_ENGLISH_ANSWER + " The customer could otherwise receive the coupon twice.",
+            interview_answer=_ENGLISH_ANSWER,
+        )
+    else:
+        draft = episode(
+            opening=episode()["opening"].replace("补发优惠券", "通过 Coupon API 补发优惠券"),
+            interview_answer="这段面试回答可以这样说。 " + _ENGLISH_ANSWER,
+        )
+    adapter.return_value = completion(draft)
+    result, = await make_scripts(session, 27, **_QUESTION, language=language)
+    _, prompt, request = adapter.await_args.args
+    assert json.loads(request)["language"] == language
+    assert ("conversational English" if language == "en" else "四十个英文单词") in prompt
+    assert draft["interview_answer"] in result["script"]
+    worker = AsyncMock(return_value=(b"audio", 1.0))
+    monkeypatch.setattr(podcast_content, "render_mp3_in_worker", worker)
+    assert await synthesize_mp3(result["script"], language) == (b"audio", 1.0)
+    spoken = worker.await_args.args[0]
+    assert spoken.startswith(draft["opening"])
+    assert _SOURCE_URL not in spoken
+    worker.assert_awaited_once_with(spoken, language=language)
+
+    draft["interview_answer"] = (
+        _ENGLISH_ANSWER + "中文" if language == "en" else "会用 idempotency key，避免 duplicate side effects。"
+    )
+    adapter.return_value = completion(draft)
+    with pytest.raises(PodcastScriptError, match="语言不符"):
+        await make_scripts(session, 27, **_QUESTION, language=language)
+
+
 @pytest.mark.asyncio
 async def test_series_preserves_plain_answer_and_episode_order(configured):
     session, adapter = configured

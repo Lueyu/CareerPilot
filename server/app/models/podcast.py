@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, Index, UniqueConstraint
@@ -9,6 +10,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import BigInteger, Double, LargeBinary, String, Text
 
 from app.db import Base
+
+PodcastLanguage = Literal["zh", "en", "bilingual"]
 
 
 class EpisodeStatus(StrEnum):
@@ -32,6 +35,7 @@ class PodcastSource(Base):
         UniqueConstraint("id", "workspace_id", name="podcast_sources_scope"),
         UniqueConstraint("workspace_id", "question_id", "version", "series", name="podcast_sources_version"),
         Index("ix_podcast_sources_question_id", "question_id"),
+        CheckConstraint("language IN ('zh', 'en', 'bilingual')", name="podcast_sources_language"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -44,6 +48,7 @@ class PodcastSource(Base):
     answer: Mapped[str] = mapped_column(Text, deferred=True)
     version: Mapped[str] = mapped_column(String(64))
     series: Mapped[bool]
+    language: Mapped[PodcastLanguage] = mapped_column(String(9), server_default="zh")
 
 
 class PodcastEpisode(Base):
