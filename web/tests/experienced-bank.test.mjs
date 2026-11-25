@@ -341,7 +341,7 @@ test('legacy actions expand on demand and use the existing mapping and study ent
   await click(tree, '复测映射');
   assert.match(rendered(tree), /审核复测映射/);
   assert.deepEqual(calls.map(call => call.endpoint), ['/bank/experienced', mappingPath]);
-  await click(tree, '✕');
+  await click(tree, '关闭');
   await click(tree, '围绕这个问题学习');
   assert.equal(location().pathname, '/study/chat/51');
   assert.deepEqual(calls.map(call => call.endpoint), ['/bank/experienced', mappingPath, '/study/sessions']);

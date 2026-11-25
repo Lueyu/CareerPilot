@@ -1,7 +1,9 @@
 """Reject incompatible durable checkpoints before planning or using their outputs."""
 from collections.abc import Mapping
 
+from app.generation_i18n import saved_language
 from app.services import project_autopilot_engine as engine
+from app.services.project_report_i18n import report_message
 
 
 def assert_compatible(run, artifacts):
@@ -31,18 +33,23 @@ def assert_compatible(run, artifacts):
         reject()
     if not isinstance(artifacts, Mapping):
         reject()
-    for artifact in artifacts.values():
+    run_meta = getattr(run, 'result_meta', None) or {}
+    language = saved_language(run_meta.get('generation_language'))
+    for key, artifact in artifacts.items():
         provenance = artifact.get('provenance') if isinstance(artifact, Mapping) else None
         if not isinstance(provenance, Mapping) or any(provenance.get(field) != value
                                                      for field, value in expected.items()):
             reject()
+        generated = key in {'manifest', 'impact', 'report', 'candidates'} or key.startswith(
+            ('plan:', 'analyze:', 'merge:', 'module:', 'cross:', 'section:', 'candidate-part:'))
+        if generated and saved_language(provenance.get('generation_language')) != language:
+            raise engine.StageError('CONFIG_CHANGED', report_message('checkpoint.language_changed', language))
     # Both Worker entry points call this before consuming/publishing outputs.
     # An opt-in must never relabel old downstream outputs, including already
     # assembled reports that would otherwise bypass the later planning guard.
-    engine._claim_contract({'claim_input_contract': (getattr(run, 'result_meta', None) or {}).get(
-        'claim_input_contract', 'legacy')}, artifacts)
+    engine._claim_contract({'claim_input_contract': run_meta.get('claim_input_contract', 'legacy')}, artifacts)
     engine.stage_splits.validate_splits({
         **{key: getattr(run, key, None) for key in engine.stage_splits.IDENTITY_FIELDS},
         'run_id': getattr(run, 'id', None) or getattr(run, 'run_id', None),
-        'source_splits': (getattr(run, 'result_meta', None) or {}).get('source_splits', []),
+        'source_splits': run_meta.get('source_splits', []),
     }, artifacts)

@@ -8,6 +8,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from test_llm_stream_transport import DONE, frame
 
 from app.config import get_settings
 from app.db import get_session
@@ -84,6 +85,50 @@ async def new_chat(client, headers, **body):
     return response.json()["id"]
 
 
+@pytest.mark.asyncio
+async def test_switching_language_creates_one_question_per_language(chat_client, db_session, model):
+    client, owner, other = chat_client
+    calls, outcomes = model
+    sid = await new_chat(client, owner)
+    original = "我的原始回答"
+    user, _ = await turn(db_session, sid, "bilingual", "如何处理重复投递？", original)
+    path = f"/study/sessions/{sid}/interview-question"
+    headers = {**owner, "Accept-Language": "en-US"}
+
+    async def false_attribution():
+        return {"content": json.dumps({**GUIDE, "project_context": [
+            {"message_id": user.id, "quote": user.content},
+        ]})}
+
+    outcomes.append(false_attribution)
+    assert (await client.post(path, headers=headers)).status_code == 502
+    assert (await client.get(path, headers=headers)).json() is None
+
+    chinese = await client.post(path, headers=owner)
+    assert chinese.is_success, chinese.text
+
+    async def english_guide():
+        return {"content": json.dumps({
+            **GUIDE, "title": "How do you handle duplicate deliveries?", "project_context": [],
+        })}
+
+    outcomes.append(english_guide)
+    english = await client.post(path, headers=headers)
+    assert english.is_success, english.text
+    assert english.json()["id"] != chinese.json()["id"]
+    assert english.json()["title"] == "How do you handle duplicate deliveries?"
+    assert (await client.post(path, headers=headers)).json() == english.json()
+    assert (await client.post(path, headers=owner)).json() == chinese.json()
+    assert len(calls) == 3 and "in English" in calls[-1][0]
+    assert "没有关联项目" in calls[1][0] and "no linked project" in calls[-1][0]
+    for system, _ in calls:
+        schema = json.loads(system.rsplit("\n", 1)[1])
+        assert schema["properties"]["project_context"]["maxItems"] == 0
+        assert "project_context" not in schema["required"]
+    assert original in json.dumps(calls[-1][1], ensure_ascii=False)
+    assert (await client.get(path, headers={**other, "Accept-Language": "en"})).status_code == 404
+
+
 async def turn(db, sid, request, text, answer, *, status="completed", project=None, coach=None,
                reply_coach=None, reply_model=None):
     user = StudyMessage(session_id=sid, role="user", request_id=request, action="explain",
@@ -97,6 +142,202 @@ async def turn(db, sid, request, text, answer, *, status="completed", project=No
     db.add(reply)
     await db.commit()
     return user, reply
+
+
+@pytest.mark.parametrize(("tier", "tier_limit", "study_budget", "config_limit", "expected_limit"), [
+    ("flash", 6000, 16000, None, 6000),
+    ("strong", 12000, 16000, None, 12000),
+    ("flash", 6000, 3200, None, 3200),
+    ("strong", 2400, 16000, None, 2400),
+    ("flash", 6000, 16000, 1800, 1800),
+    ("strong", 12000, 0, None, 0),
+])
+@pytest.mark.asyncio
+async def test_interview_question_respects_budget_and_rejects_truncation(
+    chat_client, db_session, monkeypatch, tier, tier_limit, study_budget, config_limit, expected_limit,
+):
+    client, owner, _ = chat_client
+    settings = get_settings()
+    monkeypatch.setattr(settings, "study_flash_model", "flash-fixture")
+    monkeypatch.setattr(settings, "study_flash_thinking", "enabled")
+    monkeypatch.setattr(settings, "study_strong_model", "strong-fixture")
+    for name in ("provider", "base_url", "api_key"):
+        monkeypatch.setattr(settings, f"study_strong_{name}", "")
+    monkeypatch.setattr(settings, f"study_{tier}_output_tokens", tier_limit)
+    monkeypatch.setattr(settings, "study_output_budget", study_budget)
+
+    async def config():
+        base = {"model": "base-fixture", "provider": "fixture", "api_key": "fixture",
+                "base_url": "https://fixture.invalid"}
+        if config_limit is not None:
+            base["output_limit"] = config_limit
+        return base
+
+    monkeypatch.setattr(study_interview_questions, "get_llm_config", config)
+    sent = []
+    title = "How would you make duplicate task delivery safe?"
+    provider_requirement = 5000
+    original_client = httpx.AsyncClient
+
+    def event(delta, finish=None):
+        return "data: " + json.dumps({
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+        }) + "\n\n"
+
+    def upstream(request):
+        payload = json.loads(request.content)
+        sent.append(payload)
+        finish = "stop" if payload["max_tokens"] >= provider_requirement else "length"
+        # Even valid JSON is unusable when the provider marks the stream truncated.
+        body = event({"content": json.dumps({**GUIDE, "title": title})}) + event({}, finish) + "data: [DONE]\n\n"
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(
+        transport=httpx.MockTransport(upstream), **kwargs))
+    headers = {**owner, "Accept-Language": "en"}
+    sid = await new_chat(client, headers)
+    await turn(db_session, sid, "budget-fixture", "How do retries affect this design?", "重试时使用相同的业务键。",
+               reply_coach={"trace": {"tier": tier}})
+    path = f"/study/sessions/{sid}/interview-question"
+
+    response = await client.post(path, headers=headers)
+    assert [payload["max_tokens"] for payload in sent] == ([expected_limit] if expected_limit else [])
+    saved = await client.get(path, headers=headers)
+    if expected_limit < provider_requirement:
+        assert response.status_code == 502 and saved.json() is None
+    else:
+        assert response.status_code == 200, response.text
+        assert response.json()["title"] == title
+        assert saved.json() == response.json()
+    if sent:
+        assert sent[0]["model"] == f"{tier}-fixture"
+        assert sent[0].get("thinking") == ({"type": "enabled"} if tier == "flash" else None)
+
+
+@pytest.mark.parametrize(("context", "language", "project"), [
+    (8192, "en", 15), (8192, "en", None), (512, "en", 15), (0, "zh-CN", 15), (-1, "en", 15),
+])
+@pytest.mark.asyncio
+async def test_interview_question_fits_full_prompt_in_context(
+    chat_client, db_session, monkeypatch, context, language, project,
+):
+    client, owner, _ = chat_client
+    settings = get_settings()
+    monkeypatch.setattr(settings, "study_flash_context", context)
+    monkeypatch.setattr(settings, "study_flash_output_tokens", 3000)
+    monkeypatch.setattr(settings, "study_output_budget", 16000)
+    headers = {**owner, "Accept-Language": language}
+    sid = await new_chat(client, headers)
+    question = '原始引文包含 "café"。'
+    answer = "原始回答第一行\n第二行 🧪"
+    user, reply = await turn(db_session, sid, "context-fixture", question, answer, project=project)
+    path = f"/study/sessions/{sid}/interview-question"
+    title = "How do you preserve the original evidence?"
+
+    async def config():
+        return {"model": "fixture-model", "provider": "fixture", "api_key": "fixture",
+                "base_url": "https://fixture.invalid"}
+
+    sent = []
+    original_client = httpx.AsyncClient
+
+    def upstream(request):
+        payload = json.loads(request.content)
+        prompt_bytes = sum(len(item["content"].encode("utf-8")) for item in payload["messages"])
+        sent.append((payload, prompt_bytes))
+        if prompt_bytes + 64 + payload["max_tokens"] > context:
+            return httpx.Response(400, json={"error": "Synthetic context limit exceeded"})
+        guide = {**GUIDE, "title": title}
+        if project is not None:
+            guide["project_context"] = [{"message_id": user.id, "quote": question}]
+        raw = frame(json.dumps(guide, ensure_ascii=False)) + frame(finish="stop") + DONE
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=raw)
+
+    monkeypatch.setattr(study_interview_questions, "get_llm_config", config)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(
+        transport=httpx.MockTransport(upstream), **kwargs))
+
+    response = await client.post(path, headers=headers)
+    if context == 8192:
+        assert response.status_code == 200, response.text
+        [(payload, prompt_bytes)] = sent
+        assert payload["max_tokens"] == 3000 <= context - prompt_bytes - 64
+        system, transcript = [item["content"] for item in payload["messages"]]
+        assert "in English" in system and '"project_context"' in system
+        assert json.loads(transcript) == {"turns": [{
+            "user": {"id": user.id, "text": question}, "assistant": {"id": reply.id, "text": answer},
+            "project_id": project,
+        }], "response_language": "en"}
+        assert ("&quot;café&quot;" in response.json()["answer_html"]) == (project is not None)
+    else:
+        assert not sent
+        assert response.status_code == 422
+        expected = "没有足够的上下文空间" if language == "zh-CN" else "does not have enough context space"
+        assert expected in response.json()["detail"]
+        assert (await client.get(path, headers=headers)).json() is None
+
+
+@pytest.mark.parametrize(("repeats", "provider_context", "expected_status"), [
+    (700, 8192, 200), (3000, 8192, 422), (700, 3000, 502),
+])
+@pytest.mark.asyncio
+async def test_interview_question_fits_reviewer_transcript(
+    chat_client, db_session, monkeypatch, repeats, provider_context, expected_status,
+):
+    client, owner, _ = chat_client
+    settings = get_settings()
+    monkeypatch.setattr(settings, "study_flash_context", 8192)
+    monkeypatch.setattr(settings, "study_flash_output_tokens", 6000)
+    monkeypatch.setattr(settings, "study_output_budget", 16000)
+    headers = {**owner, "Accept-Language": "en"}
+    sid = await new_chat(client, headers)
+    question, answer = "Fixture 中文", "Read the event. " * repeats
+    user, _ = await turn(db_session, sid, "context-review", question, answer, project=17,
+                         reply_coach={"mode": "auto", "trace": {"tier": "flash"}})
+    path = f"/study/sessions/{sid}/interview-question"
+
+    async def config():
+        return {"model": "fixture-model", "provider": "fixture", "api_key": "fixture",
+                "base_url": "https://fixture.invalid", "output_limit": 4500}
+
+    requests = []
+    original_client = httpx.AsyncClient
+
+    def upstream(request):
+        payload = json.loads(request.content)
+        system, transcript = [item["content"] for item in payload["messages"]]
+        # These are the independent reviewer's synthetic provider units, not a model tokenizer.
+        units = len((system + transcript).split())
+        ceiling = payload["max_tokens"]
+        requests.append((len((system + transcript).encode("utf-8")), units, ceiling))
+        [turn_input] = json.loads(transcript)["turns"]
+        assert turn_input["user"]["text"] == question and turn_input["assistant"]["text"] == answer
+        if units + 64 + ceiling > provider_context:
+            return httpx.Response(400, json={"error": "Synthetic provider context exceeded"})
+        guide = {**GUIDE, "project_context": [{"message_id": user.id, "quote": question}]}
+        raw = frame(json.dumps(guide, ensure_ascii=False)) + frame(finish="stop") + DONE
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=raw)
+
+    monkeypatch.setattr(study_interview_questions, "get_llm_config", config)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(
+        transport=httpx.MockTransport(upstream), **kwargs))
+    response = await client.post(path, headers=headers)
+    assert response.status_code == expected_status, response.text
+    saved = await client.get(path, headers=headers)
+    if expected_status == 422:
+        assert not requests and saved.json() is None
+        return
+    [(byte_count, units, ceiling)] = requests
+    assert byte_count > 8192
+    assert 0 < ceiling <= 4500
+    if expected_status == 200:
+        assert units + 64 + ceiling <= provider_context
+        assert question in response.json()["answer_html"]
+        assert saved.json() == response.json()
+        assert (await client.post(path, headers=headers)).json() == response.json()
+        assert len(requests) == 1
+    else:
+        assert units + 64 + ceiling > provider_context and saved.json() is None
 
 
 @pytest.mark.parametrize(("global_enabled", "strong_enabled", "session_mode", "latest_metadata", "expected"), [
@@ -255,7 +496,19 @@ async def test_chat_question_recovery_uses_all_complete_turns(chat_client, db_se
     transcript = json.dumps(payload, ensure_ascii=False)
     assert all(secret not in transcript for secret in ("OTHER-WORKSPACE", "FAILED-", "PENDING-", "RAW-PRIVATE-SOURCE"))
 
-    await turn(db_session, sid, "latest", "切回通用场景", "新解释")
+    unlinked, _ = await turn(db_session, sid, "latest", "切回通用场景", "新解释")
+
+    async def quote_from_unlinked_turn():
+        return {"content": json.dumps({**GUIDE, "project_context": [
+            {"message_id": unlinked.id, "quote": unlinked.content},
+        ]}, ensure_ascii=False)}
+
+    outcomes.append(quote_from_unlinked_turn)
+    assert (await client.post(path, headers=owner)).status_code == 502
+    assert (await client.get(path, headers=owner)).json() == body
+    system, _ = calls[-1]
+    assert "project_id 非 null" in system and "user.id" in system and "assistant.id" in system
+    assert json.loads(system.rsplit("\n", 1)[1])["properties"]["project_context"]["maxItems"] == 5
 
     async def ungrounded_project_quote():
         return {"content": json.dumps({**GUIDE, "project_context": [

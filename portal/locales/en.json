@@ -1,0 +1,157 @@
+{
+  "brandTagline": "AGENT ENGINEERING",
+  "defaultDescription": "Learn how to build, evaluate, and ship reliable AI agents.",
+  "languageSwitch": "Switch to Simplified Chinese",
+  "footerName": "© 2026 agent-interview.icu · Public knowledge portal",
+  "footerLicense": "Content licensed under CC BY-NC-SA 4.0",
+  "footerAbout": "About this site",
+  "footerCredit": "Powered by CareerPilot",
+  "navLabel": "Main navigation",
+  "toc": "On this page",
+  "readingTime": "{minutes} min read",
+  "estimatedReadingTime": "About {minutes} min read",
+  "updated": "Updated {date}",
+  "sourceLanguage": "Original content in Simplified Chinese",
+  "heroLead": "Learn to ",
+  "heroAccent": "build, evaluate, and ship",
+  "heroTail": " reliable AI agents",
+  "heroDescription": "Free learning paths, technical guides, real interview questions, and hands-on labs for AI agent engineers.",
+  "homeDescription": "A public knowledge portal for AI agent engineers",
+  "startPath": "Start the learning path",
+  "browseGuides": "Browse technical guides",
+  "pathCard": "A step-by-step path for aspiring AI agent engineers, with milestones across eight skill areas.",
+  "guideCard": "Explore tool calling, memory, RAG, evaluation, and reliability through examples and engineering principles.",
+  "questionCard": "{count} real interview questions shared with permission, with structured answers and scoring guidance.",
+  "featured": "Featured guides",
+  "popular": "Popular topics",
+  "latest": "Latest updates",
+  "careerTitle": "Want a career workspace of your own?",
+  "careerDescription": "CareerPilot is a private workspace that runs locally. Import your interview notes and projects, and use your own work to find the skills you need to practice. This portal draws on its learning material.",
+  "aboutCareerPilot": "Learn about CareerPilot",
+  "backToSection": "← Back to {section}",
+  "backToQuestions": "← Back to interview questions",
+  "questionListDescription": "Public AI agent engineering interview questions with detailed answers",
+  "publicQuestionCount": "Browse {count} questions shared with permission from a bank of {total}. Each has a detailed answer in its original language.",
+  "questionTitle": "Interview question {number} · {title}",
+  "questionDescription": "AI agent engineering interview question {number} on {topic}, with a structured answer in Simplified Chinese.",
+  "difficulty": "Difficulty {count}/5",
+  "searchDescription": "Search learning paths, technical guides, interview questions, and hands-on labs.",
+  "searchLabel": "Search the knowledge portal",
+  "searchPlaceholder": "Try tool calling, RAG, or evaluation",
+  "searchAction": "Search",
+  "searchPrompt": "Enter a keyword to find content.",
+  "searchLoading": "Searching…",
+  "searchNoResults": "No results for “{query}.”",
+  "searchOneResult": "{count} result found.",
+  "searchManyResults": "{count} results found.",
+  "searchUnavailable": "Couldn't load search results. Try again in a moment.",
+  "sections": {
+    "home": "Home",
+    "paths": "Learning paths",
+    "guides": "Technical guides",
+    "questions": "Interview questions",
+    "labs": "Hands-on labs",
+    "about": "About",
+    "search": "Search",
+    "cases": "Case studies",
+    "changelog": "Changelog",
+    "articles": "Articles"
+  },
+  "sectionDescriptions": {
+    "paths": "Learn agent engineering from the ground up, one skill area at a time.",
+    "guides": "Start with examples and analogies, then work through the concepts, common pitfalls, practical steps, and self-check questions.",
+    "labs": "Learn by building reusable engineering components."
+  },
+  "levels": {
+    "beginner": "Beginner",
+    "intermediate": "Intermediate",
+    "advanced": "Advanced"
+  },
+  "topics": {
+    "memory": "Memory",
+    "tools": "Tool calling",
+    "rag": "RAG",
+    "evaluation": "Evaluation",
+    "reliability": "Reliability",
+    "mcp": "MCP"
+  },
+  "questionTopics": {
+    "rag": "RAG and context engineering",
+    "harness": "Tool calling and agent frameworks",
+    "ctx": "State and memory",
+    "infer": "Inference and backend systems",
+    "eval": "Agent evaluation",
+    "sys": "Systems and reliability",
+    "algo": "Algorithms and fundamentals",
+    "biz": "Business applications"
+  },
+  "articleTags": {
+    "learning-path": "Learning path",
+    "agent": "Agents",
+    "career": "Career development",
+    "about": "About",
+    "tool-calling": "Tool calling",
+    "react": "ReAct",
+    "hands-on": "Hands-on",
+    "evaluation": "Evaluation",
+    "regression": "Regression testing",
+    "testing": "Testing",
+    "reliability": "Reliability",
+    "rag": "RAG",
+    "retrieval": "Retrieval",
+    "memory": "Memory",
+    "context-engineering": "Context engineering",
+    "hallucination": "Hallucinations",
+    "safety": "Safety",
+    "deployment": "Deployment",
+    "observability": "Observability",
+    "cost": "Cost"
+  },
+  "articles": {
+    "/about/": {
+      "title": "About this portal",
+      "description": "What agent-interview.icu is, how it relates to CareerPilot, where its content comes from, and how to contribute."
+    },
+    "/guides/agent-evaluation/": {
+      "title": "Getting started with agent evaluation",
+      "description": "Build an evaluation set, use metrics at each layer, design an LLM judge, and add regression tests so you can measure the impact of changes."
+    },
+    "/guides/hallucination-control/": {
+      "title": "Reducing hallucinations in AI agents",
+      "description": "Constrain responses to available evidence, verify citations, and teach agents when to say they don't know."
+    },
+    "/guides/memory-compaction/": {
+      "title": "Compacting agent memory in long conversations",
+      "description": "Use rolling summaries, structured state, and memory tiers to manage context costs as conversations grow."
+    },
+    "/guides/observability-for-agents/": {
+      "title": "Deploying and monitoring AI agents",
+      "description": "Understand what your agents do in production with staged rollouts, rollbacks, traces, and cost tracking."
+    },
+    "/guides/rag-recall-debug/": {
+      "title": "Troubleshooting low recall in RAG",
+      "description": "Follow five steps to find out whether retrieval missed an answer or ranking buried it. Learn where Recall@k and MRR apply."
+    },
+    "/guides/tool-retry-idempotency/": {
+      "title": "Retrying failed tool calls in AI agents",
+      "description": "Make tool-call failures predictable with retries, backoff, jitter, and idempotency keys."
+    },
+    "/labs/agent-eval-harness/": {
+      "title": "Lab 2 · Evaluate an agent with 20 test cases",
+      "description": "Build a small evaluation harness for the Lab 1 agent with fixed test cases, rubric-based scores, a baseline, and a regression check."
+    },
+    "/labs/minimal-tool-calling-agent/": {
+      "title": "Lab 1 · Build a minimal tool-calling agent",
+      "description": "Build a ReAct loop in about 100 lines with a tool registry, timeouts, retries, and explicit state. Then test it over 100 runs."
+    },
+    "/paths/ai-agent-engineer-0-1/": {
+      "title": "The AI agent engineering learning path",
+      "description": "Progress through eight skill areas and four stages, from calling an API to designing, evaluating, and shipping reliable agents."
+    },
+    "/tool-call-safe-retry/": {
+      "title": "Safe retries for AI agent tool calls",
+      "description": "Decide which external tool calls are safe to retry and set limits on retry attempts."
+    }
+  },
+  "otherLanguageName": "简体中文"
+}

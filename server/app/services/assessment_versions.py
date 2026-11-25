@@ -7,6 +7,7 @@ from copy import deepcopy
 from fastapi import HTTPException
 from sqlalchemy import select
 
+from app.i18n import message as localized_message
 from app.models import AnswerRevision, ExamAnswer
 
 
@@ -44,7 +45,7 @@ def question_snapshot(q, standard=None, *, private_library_practice=False):
     if private_library_practice and q.qtype == 'open' and not raw:
         raw = {'points': [{'title': '作答与论证', 'detail': '直接回答本题，并解释关键理由或可验证的做法。'}]}
     if raw.get('review_required'):
-        raise HTTPException(409,'题意或能力映射已修改，评分标准需要复核后才能创建新考试')
+        raise HTTPException(409,localized_message("errors.the_question_or_skill_mapping_has_changed_review_the"))
     try:
         material['rubric']=compile_rubric(raw,question_id=q.id,title=q.title,
             skill_ids=[q.skill_id] if q.skill_id else [],role_level=material['role_level'],
@@ -71,7 +72,7 @@ async def ensure_revision(session,eq):
         row=AnswerRevision(exam_question_id=eq.id,revision=answer.revision,payload=payload,content_hash=digest(payload))
         session.add(row);await session.flush()
     elif row.content_hash!=digest(payload):
-        raise HTTPException(409,'答卷版本与保存内容不一致，请保留草稿并复核')
+        raise HTTPException(409,localized_message("errors.the_submission_version_does_not_match_its_saved_content"))
     return row
 
 
@@ -83,12 +84,12 @@ async def save_revision(session,eq,req):
     qtype=snapshot.get('qtype',eq.question.qtype)
     options=snapshot.get('options',eq.question.options) or []
     if payload['choice_index'] is not None and (qtype!='mcq' or not 0<=payload['choice_index']<len(options)):
-        raise HTTPException(422,'选项不属于本题')
+        raise HTTPException(422,localized_message("errors.this_option_does_not_belong_to_the_question"))
     expected=getattr(req,'expected_revision',None)
     if current and answer_payload(current)==payload:
         return current
     if expected is not None and expected!=number or current is not None and expected is None and number>0:
-        raise HTTPException(409,{'code':'ANSWER_REVISION_CONFLICT','message':'该答案已在别处更新，保留当前编辑后选择版本。','server_revision':number})
+        raise HTTPException(409,{'code':'ANSWER_REVISION_CONFLICT','message':localized_message("errors.the_answer_changed_elsewhere_keep_your_edits_and_choose"),'server_revision':number})
     if current is None:
         current=ExamAnswer(exam_question_id=eq.id,revision=0,max_points=(snapshot.get('rubric') or eq.question.rubric or {}).get('max_points',5))
         session.add(current);eq.answer=current

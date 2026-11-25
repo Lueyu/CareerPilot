@@ -13,8 +13,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
+from app.generation_i18n import with_output_language
 from app.models import (
     Exam,
     ImportItem,
@@ -310,14 +312,14 @@ async def start_import_upload(
     """
     raw_items: list[tuple[str, bytes]] = []
     if len(files) > 12 or len(pasted_text) > MAX_TEXT_CHARS:
-        raise HTTPException(413, "每次最多上传 12 个文件，粘贴文本最多 60,000 字符")
+        raise HTTPException(413, localized_message("errors.upload_up_to_12_files_and_paste_up_to"))
     for f in files:
         if not f or not f.filename:
             continue
         raw_items.append((f.filename, await f.read(MAX_FILE_BYTES + 1)))
 
     if not raw_items and not (pasted_text or "").strip():
-        raise HTTPException(status_code=400, detail="没有可解析的内容: 请选择文件或粘贴文本")
+        raise HTTPException(status_code=400, detail=localized_message("errors.select_a_file_or_paste_text_to_parse"))
 
     basic_meta = [
         {"name": name, "suffix": name.rsplit(".", 1)[-1].lower() if "." in name else "", "size": len(raw), "ok": True, "chars": 0}
@@ -658,9 +660,10 @@ async def _extract_questions(text: str) -> list[dict]:
             '"skill_key": one of agent/tools/memory/rag/eval/backend/reliability/deploy, '
             '"confidence": 0-1, "draft_answer": str(原文中的答案要点, 没有就留空), '
             '"company": str, "level": str}]}。不要解释。'
+            'title、draft_answer、company 和 level 是原文资料，保留原文措辞和语言，不翻译。'
         )
         try:
-            out = await adapter.chat(sys_prompt, text[:prompt_limit], json_mode=True)
+            out = await adapter.chat(with_output_language(sys_prompt), text[:prompt_limit], json_mode=True)
             if out and out.get("content"):
                 parsed = _parse_llm_questions(out["content"])
                 if parsed:
@@ -791,7 +794,7 @@ async def _owned_import(session, ws, import_id, *, lock=False):
         query = query.with_for_update().execution_options(populate_existing=True)
     imported = await session.scalar(query)
     if imported is None:
-        raise HTTPException(404, "未找到导入记录")
+        raise HTTPException(404, localized_message("errors.the_import_record_could_not_be_found"))
     return imported
 
 
@@ -807,26 +810,26 @@ async def create_interview_set(
     item_ids = list(dict.fromkeys(req.item_ids))
     edits = {item_id: value.strip() for item_id, value in req.edits.items()}
     if any(item_id not in item_ids or not 6 <= len(text) <= 1000 for item_id, text in edits.items()):
-        raise HTTPException(422, "修订只能用于已选原题，长度须为 6–1000 字")
+        raise HTTPException(422, localized_message("errors.revisions_must_refer_to_a_selected_original_question_and"))
     if not title:
-        raise HTTPException(422, "请输入套题名称")
+        raise HTTPException(422, localized_message("errors.enter_a_name_for_the_question_set"))
     if imported.status not in {"REVIEW", "APPROVED"} or (imported.meta or {}).get("generation_task_id"):
-        raise HTTPException(409, "导入题目尚不可用于改写")
+        raise HTTPException(409, localized_message("errors.the_imported_questions_are_not_ready_to_rewrite"))
     prior = next((entry for entry in (imported.meta or {}).get('interview_sets', [])
                   if entry['request_id'] == req.request_id), None)
     if prior:
         if (prior['title'], prior['project_id'], prior['item_ids'], prior.get('edits', {})) != (title, req.project_id, item_ids, {str(key): value for key, value in edits.items()}):
-            raise HTTPException(409, "此生成请求已用于另一套题目")
+            raise HTTPException(409, localized_message("errors.this_generation_request_has_already_been_used_for_another"))
         return prior
     project = await session.scalar(select(Project).where(
         Project.workspace_id == ws.id, Project.id == req.project_id, Project.archived_at.is_(None),
     ))
     if project is None:
-        raise HTTPException(404, "未找到可用项目")
+        raise HTTPException(404, localized_message("errors.no_available_project_found"))
     project_version = (project.generation, project.last_seen_sha, project.latest_valid_analysis_id, project.meta)
     by_id = {item.id: item for item in imported.items if item.status != ImportItem.STATUS_REJECTED}
     if any(item_id not in by_id for item_id in item_ids):
-        raise HTTPException(422, "选择的原题不属于这个导入批次，或已被驳回")
+        raise HTTPException(422, localized_message("errors.the_selected_question_belongs_to_a_different_import_or"))
     skills = await _skill_map(session)
     prepared = []
     facts = {
@@ -839,7 +842,7 @@ async def create_interview_set(
         item = by_id[item_id]
         skill = skills.get(item.suggested_skill_key) or skills.get('agent')
         if skill is None:
-            raise HTTPException(409, "工作空间未配置题目能力域")
+            raise HTTPException(409, localized_message("errors.no_question_skill_domains_are_configured_for_this_workspace"))
         original_title = edits.get(item_id, item.title)
         records = await collect_project_evidence(session, ws.id, [skill.id], project.id, original_title)
         evidence = next((record for record in records if record['provenance'] == 'repository_observation'
@@ -857,18 +860,18 @@ async def create_interview_set(
     prior = next((entry for entry in entries if entry['request_id'] == req.request_id), None)
     if prior:
         if (prior['title'], prior['project_id'], prior['item_ids'], prior.get('edits', {})) != (title, req.project_id, item_ids, {str(key): value for key, value in edits.items()}):
-            raise HTTPException(409, "此生成请求已用于另一套题目")
+            raise HTTPException(409, localized_message("errors.this_generation_request_has_already_been_used_for_another"))
         return prior
     current = (await session.execute(select(Project.generation, Project.last_seen_sha, Project.latest_valid_analysis_id, Project.meta).where(
         Project.id == project.id, Project.workspace_id == ws.id, Project.archived_at.is_(None),
     ))).one_or_none()
     if current != project_version:
-        raise HTTPException(409, "项目证据版本已更新，请重新生成")
+        raise HTTPException(409, localized_message("errors.the_project_evidence_has_changed_generate_again"))
     selected_items = (await session.scalars(select(ImportItem).where(
         ImportItem.session_id == import_id, ImportItem.id.in_(item_ids),
     ).order_by(ImportItem.id).with_for_update().execution_options(populate_existing=True))).all()
     if len(selected_items) != len(item_ids) or any(item.status == ImportItem.STATUS_REJECTED for item in selected_items):
-        raise HTTPException(409, "原题审核状态已变化，请重新选择")
+        raise HTTPException(409, localized_message("errors.the_review_status_of_the_original_question_has_changed"))
     set_id = uuid4().hex
     questions = []
     skipped = []
@@ -923,7 +926,7 @@ async def create_interview_paper(
     imported = await _owned_import(session, ws, import_id)
     entry = next((item for item in (imported.meta or {}).get('interview_sets', []) if item['id'] == set_id), None)
     if entry is None:
-        raise HTTPException(404, "未找到面试套题")
+        raise HTTPException(404, localized_message("errors.interview_question_set_not_found"))
     return await issue_exam(CreateExamReq(kind=Exam.KIND_BANK,
         question_ids=[question['id'] for question in entry['questions']], duration_minutes=req.duration_minutes,
         idempotency_key=f"IS:{set_id}:{req.request_id}"), ws, session, interview_set=entry)
@@ -940,11 +943,11 @@ async def regenerate_item_answer(
     """为某条导入草稿(重新)生成详细解答。已有答案且 force=false 时直接返回。"""
     imported, item = await review_actions.lock_review_item(session, ws, import_id, item_id)
     if review_actions.generated_import(imported, item):
-        raise HTTPException(409, "请在补题工作台编辑或新建批次，普通重新生成会丢失项目资料关联")
+        raise HTTPException(409, localized_message("errors.edit_or_create_a_batch_in_the_question_workshop"))
     if not force and (item.draft_answer or "").strip():
         return _item_view(item)
     if item.status != ImportItem.STATUS_DRAFT:
-        raise HTTPException(409, "仅待审核草稿可以编辑")
+        raise HTTPException(409, localized_message("errors.only_drafts_awaiting_review_can_be_edited"))
     review_actions.ensure_not_revising(item)
 
     sm = await _skill_map(session)
@@ -956,7 +959,7 @@ async def regenerate_item_answer(
     answer_html, rubric, source = await generate_answer(title, skill_key, skill_name)
     _, item = await review_actions.lock_review_item(session, ws, import_id, item_id)
     if item.status != ImportItem.STATUS_DRAFT or review_actions.review_view(item)["review_revision"] != revision:
-        raise HTTPException(409, "草稿已更新，请重新打开后编辑")
+        raise HTTPException(409, localized_message("errors.the_draft_has_changed_reopen_it_before_editing"))
     review_actions.ensure_not_revising(item)
     item.draft_answer = answer_html
     item.draft_rubric = {**rubric, "source": source}
@@ -987,9 +990,9 @@ async def generate_question_answer(
         raise HTTPException(status_code=404, detail="question not found")
 
     if force and is_owned_question(question):
-        raise HTTPException(403, "默认题库为只读")
+        raise HTTPException(403, localized_message("errors.the_default_question_bank_is_read_only"))
     if question.generation_meta and force:
-        raise HTTPException(409, "此题来自项目补题工作台，请创建新批次以保留资料与来源")
+        raise HTTPException(409, localized_message("errors.this_question_comes_from_a_project_workshop_create_a"))
     if (question.answer_html or "").strip() and not force:
         from app.services.learning_exposure import record_reference_exposure
         await record_reference_exposure(session, ws, question, source='bank_answer')
@@ -1002,7 +1005,7 @@ async def generate_question_answer(
         }
 
     if question.workspace_id is None:
-        raise HTTPException(403, "共享题库只读；请在补题工作台创建个人版本")
+        raise HTTPException(403, localized_message("errors.create_a_personal_version_in_the_workshop_to_edit"))
 
     skill_key = question.skill.key if question.skill else _guess_skill(question.title)
     skill_name = question.skill.name if question.skill else skill_key
@@ -1089,7 +1092,7 @@ async def _approve_locked_import(session, ws, imp, req, *, commit=True, require_
         skill_key = edits.get("skill_key", it.suggested_skill_key)
         skill = sm.get(skill_key or "") or sm.get("agent")
         if skill is None:
-            raise HTTPException(409, "工作空间未配置题目能力域")
+            raise HTTPException(409, localized_message("errors.no_question_skill_domains_are_configured_for_this_workspace"))
         title_changed = title != it.title
         if require_review_content:
             it.is_duplicate_of = await _find_import_duplicate(session, ws.id, title, it.is_duplicate_of)
@@ -1189,13 +1192,13 @@ async def _own_question(session: AsyncSession, ws: Workspace, short_code: str) -
     if q is None:
         raise HTTPException(status_code=404, detail=f"题目 '{short_code}' 不存在")
     if q.workspace_id is None:
-        raise HTTPException(403, "共享题库只读；请创建个人版本再编辑")
+        raise HTTPException(403, localized_message("errors.create_a_personal_copy_before_editing_a_shared_question"))
     if q.workspace_id is not None and q.workspace_id != ws.id:
-        raise HTTPException(status_code=403, detail="无权访问其他工作空间的私有题目")
+        raise HTTPException(status_code=403, detail=localized_message("errors.you_cannot_access_private_questions_in_another_workspace"))
     if (q.generation_meta or {}).get("interview_set_id"):
-        raise HTTPException(status_code=409, detail="面经集题目随原帖与项目依据保存，不能从通用题库修改")
+        raise HTTPException(status_code=409, detail=localized_message("errors.edit_an_interview_set_question_with_its_original_post"))
     if q.is_study_chat_review:
-        raise HTTPException(409, "学习聊天复习题随对话快照保存，请在学习聊天中重新生成")
+        raise HTTPException(409, localized_message("errors.regenerate_this_review_question_in_the_study_conversation_where"))
     return q
 
 
@@ -1209,7 +1212,7 @@ async def update_question(
     q = await _own_question(session, ws, short_code)
     data = body.model_dump(exclude_unset=True)
     if not data:
-        raise HTTPException(status_code=422, detail="没有需要更新的字段")
+        raise HTTPException(status_code=422, detail=localized_message("errors.no_fields_to_update"))
     from copy import deepcopy
     from datetime import datetime, timezone
 
@@ -1252,12 +1255,12 @@ async def merge_question(
     """把 q 合并进 target: q 成为 target 的变体(canonical_question_id=target.id)。"""
     q = await _own_question(session, ws, short_code)
     if q.canonical_question_id is not None:
-        raise HTTPException(status_code=409, detail="该题已经是另一题的变体，不能重复合并")
+        raise HTTPException(status_code=409, detail=localized_message("errors.this_question_is_already_a_variant_of_another_question"))
     target = await _own_question(session, ws, body.target_short_code)
     if target.id == q.id:
-        raise HTTPException(status_code=422, detail="不能合并到自己")
+        raise HTTPException(status_code=422, detail=localized_message("errors.a_question_cannot_be_merged_into_itself"))
     if target.canonical_question_id == q.id:
-        raise HTTPException(status_code=422, detail="目标题是本题的变体，方向反了")
+        raise HTTPException(status_code=422, detail=localized_message("errors.the_target_is_a_variant_of_this_question_reverse"))
     q.canonical_question_id = target.id
     await session.commit()
     return {"merged": q.short_code, "into": target.short_code, "canonical_question_id": target.id}

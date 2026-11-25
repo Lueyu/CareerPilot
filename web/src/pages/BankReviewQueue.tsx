@@ -1,7 +1,8 @@
+import { t as translate, useT } from '../i18n';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, ApiError, ImportReview } from '../api/client';
-import { messageOf, SKILLS } from '../lib/questionWorkshop';
+import { bankMessageText, messageOf, workshopSkillLabel, type BankMessage } from '../lib/questionWorkshop';
 
 type ReviewItem = ImportReview['items'][number] & {
   question_text?: string | null;
@@ -23,20 +24,19 @@ type ReviewResult = {
 };
 type ReviewOperation =
   | { kind: 'submitting'; request: ReviewRequest }
-  | { kind: 'uncertain'; request: ReviewRequest; error: string };
+  | { kind: 'uncertain'; request: ReviewRequest; error: BankMessage };
 type QueueLoad =
   | { kind: 'loading' }
-  | { kind: 'error'; message: string }
-  | { kind: 'ready'; imports: ReviewImport[]; refreshError?: string };
+  | { kind: 'error'; message: BankMessage }
+  | { kind: 'ready'; imports: ReviewImport[]; refreshError?: BankMessage };
 
 const actionLabels: Record<ReviewAction, string> = {
-  approve: '批准入库', revise: '按反馈重生成', reject: '驳回',
+  approve: 'bank.approveToBank', revise: 'bank.regenerateFromFeedback', reject: 'bank.reject',
 };
 const outcomeLabels = {
-  approved: '已批准入库', merged: '已合并至已有题目', rejected: '已驳回并保存反馈', revised: '已更新草稿，等待审核',
+  approved: 'bank.outcomeApproved', merged: 'bank.outcomeMerged', rejected: 'bank.outcomeRejected', revised: 'bank.outcomeRevised',
 };
-const feedbackLabels: Record<FeedbackAction, string> = { revise: '修改意见', reject: '驳回原因' };
-const skillNames = Object.fromEntries(SKILLS.map(skill => [skill.key, skill.name]));
+const feedbackLabels: Record<FeedbackAction, string> = { revise: 'bank.revisionFeedback', reject: 'bank.rejectionReason' };
 
 const answerTags = new Set('a b blockquote br caption code dd del details div dl dt em figcaption figure h1 h2 h3 h4 h5 h6 hr i kbd li mark ol p pre s samp small span strong sub summary sup table tbody td tfoot th thead tr u ul var'.split(' '));
 const discardTags = new Set('audio embed iframe img input link math noscript object script select style svg template textarea video'.split(' '));
@@ -97,21 +97,21 @@ function readRubric(value: unknown) {
   return { points, maxPoints: typeof maxPoints === 'number' ? maxPoints : null };
 }
 
-function errorMessage(error: unknown) {
+function errorMessage(error: unknown): BankMessage {
   if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
-    return '当前工作空间没有访问权限，请重新登录或切换工作空间后重试。';
+    return { key: 'bank.reviewPermissionError' };
   }
   return messageOf(error);
 }
 
 function reviewProgress(row: ReviewRow, operation?: ReviewOperation) {
-  if (operation?.kind === 'uncertain') return { text: '结果待确认', color: 'amber' };
+  if (operation?.kind === 'uncertain') return { text: translate('bank.reviewUnknownResult'), color: 'amber' };
   if (operation?.kind === 'submitting') {
-    return { text: operation.request.action === 'revise' ? '重生成中' : '正在提交', color: 'blue' };
+    return { text: operation.request.action === 'revise' ? translate('bank.regenerating') : translate('bank.submitting'), color: 'blue' };
   }
-  if (row.item.review_state === 'running') return { text: '重生成中', color: 'blue' };
-  if (row.item.review_state === 'failed') return { text: '重生成失败', color: 'red' };
-  return { text: '待审核', color: 'amber' };
+  if (row.item.review_state === 'running') return { text: translate('bank.regenerating'), color: 'blue' };
+  if (row.item.review_state === 'failed') return { text: translate('bank.regenerationFailed'), color: 'red' };
+  return { text: translate('bank.pendingReview'), color: 'amber' };
 }
 
 interface Props {
@@ -126,6 +126,7 @@ interface Props {
 }
 
 export default function BankReviewQueue({ requestedKey, visible, reload, topicNames, onCountChange, onLibraryChange, onOpenImport, onUpload }: Props) {
+  const t = useT();
   const [queue, setQueue] = useState<QueueLoad>({ kind: 'loading' });
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
@@ -134,7 +135,7 @@ export default function BankReviewQueue({ requestedKey, visible, reload, topicNa
   const [detailOpen, setDetailOpen] = useState(false);
   const [feedback, setFeedback] = useState<{ key: string; action: FeedbackAction; text: string } | null>(null);
   const [operations, setOperations] = useState<Record<string, ReviewOperation>>({});
-  const [actionError, setActionError] = useState<{ key: string; message: string } | null>(null);
+  const [actionError, setActionError] = useState<{ key: string; message: BankMessage } | null>(null);
   const [notice, setNotice] = useState('');
   const fetchSequence = useRef(0);
   const submitting = useRef(new Set<string>());
@@ -158,7 +159,7 @@ export default function BankReviewQueue({ requestedKey, visible, reload, topicNa
     try {
       const result = await api.get<{ imports: ReviewImport[] }>('/bank/imports/pending');
       if (!Array.isArray(result?.imports) || result.imports.some(batch => !Array.isArray(batch?.items))) {
-        throw new Error('待审核队列返回的格式无法读取。');
+        throw new Error(translate('bank.reviewResponseInvalid'));
       }
       if (sequence === fetchSequence.current) setQueue({ kind: 'ready', imports: result.imports });
     } catch (error) {
@@ -192,8 +193,9 @@ export default function BankReviewQueue({ requestedKey, visible, reload, topicNa
   }, [queue.kind, rows.length, onCountChange]);
 
   const term = search.trim().toLowerCase();
+  const skillName = (key: string) => workshopSkillLabel(key, topicNames[key] ?? key);
   const filtered = rows.filter(({ item, batch }) => [item.title, item.question_text, item.original_question,
-    readRecord(item.generation_meta?.item)?.original_question, item.suggested_skill_key, skillNames[item.suggested_skill_key], topicNames[item.suggested_skill_key],
+    readRecord(item.generation_meta?.item)?.original_question, item.suggested_skill_key, skillName(item.suggested_skill_key), topicNames[item.suggested_skill_key],
     batch.short_code, batch.meta?.company].some(value => readText(value).toLowerCase().includes(term)));
   const missingLinkedItem = !!linkedKey && queue.kind === 'ready' && !rows.some(row => row.key === linkedKey);
   const selected = missingLinkedItem ? undefined : filtered.find(row => row.key === selection) ?? filtered[0];
@@ -242,7 +244,7 @@ export default function BankReviewQueue({ requestedKey, visible, reload, topicNa
     try {
       const result = await api.post<ReviewResult>(`/bank/imports/${row.batch.id}/items/${row.item.id}/review`, request);
       if (result.item?.id !== row.item.id || !['approved', 'merged', 'rejected', 'revised', 'running', 'failed'].includes(result.outcome)) {
-        throw new Error('服务返回的审核结果无法确认。');
+        throw new Error(translate('bank.reviewOutcomeInvalid'));
       }
       updateItem(row, result.item);
       setFeedback(previous => previous?.key === row.key ? null : previous);
@@ -292,91 +294,91 @@ export default function BankReviewQueue({ requestedKey, visible, reload, topicNa
   const answerHtml = useMemo(() => answer?.trim() ? sanitizeReviewAnswer(answer) : '', [answer]);
   const rubric = readRubric(selected?.item.draft_rubric);
   const canApproveContent = selected?.item.has_reviewable_answer ?? rubric.points.some(point => point.title && point.detail);
-  const approvalReason = generatedItem?.question_mode === 'needs_context' ? '补齐项目资料后才能批准。'
-    : !answerHtml || !canApproveContent ? '草稿需要完整的答案和评分要点才能批准。' : '';
+  const approvalReason = generatedItem?.question_mode === 'needs_context' ? t('bank.reviewNeedsProject')
+    : !answerHtml || !canApproveContent ? t('bank.reviewNeedsAnswerRubric') : '';
 
   return <div className="bank-review" hidden={!visible}>
-    {notice && <p className="bank-review-notice" role="status">{notice}</p>}
-    {queue.kind === 'loading' && <section className="card bank-review-empty" role="status">正在加载待审核题目…</section>}
+    {notice && <p className="bank-review-notice" role="status">{t(notice)}</p>}
+    {queue.kind === 'loading' && <section className="card bank-review-empty" role="status">{t('bank.loadingReviewQueue')}</section>}
     {queue.kind === 'error' && <section className="card bank-review-empty" role="alert">
-      <h2>无法加载待审核队列</h2><p>{queue.message}</p>
-      <button className="btn btn-outline" onClick={refresh} disabled={refreshing}>{refreshing ? '加载中…' : '重新加载'}</button>
+      <h2>{t('bank.loadQueueFailed')}</h2><p>{bankMessageText(queue.message, t)}</p>
+      <button className="btn btn-outline" onClick={refresh} disabled={refreshing}>{refreshing ? t('bank.loading') : t('bank.reload')}</button>
     </section>}
     {queue.kind === 'ready' && queue.refreshError && <div className="bank-review-warning" role="alert">
-      <p>刷新队列失败。{queue.refreshError}</p><button className="btn btn-outline btn-sm" onClick={refresh} disabled={refreshing}>重试刷新</button>
+      <p>{t('bank.refreshQueueFailed')}{bankMessageText(queue.refreshError, t)}</p><button className="btn btn-outline btn-sm" onClick={refresh} disabled={refreshing}>{t('bank.retryRefresh')}</button>
     </div>}
     {queue.kind === 'ready' && rows.length === 0 && <section className="card bank-review-empty">
-      <h2>没有待审核的题目</h2><p>面经导入与补题工作台的草稿会出现在这里。</p>
-      <button className="btn btn-outline" onClick={onUpload}>导入面经</button>
+      <h2>{t('bank.queueEmpty')}</h2><p>{t('bank.queueSourcesHelp')}</p>
+      <button className="btn btn-outline" onClick={onUpload}>{t('bank.importInterview')}</button>
     </section>}
     {queue.kind === 'ready' && rows.length > 0 && <div className="bank-review-layout" data-detail-open={detailOpen && !!selected}>
       <section className="card bank-review-list" aria-labelledby="bank-review-list-title">
         <div className="bank-review-list-head">
-          <div className="bank-review-list-title"><h2 id="bank-review-list-title">待审核题目</h2><span className="chip chip-slate">{rows.length} 题</span></div>
-          <input ref={pendingSearch} className="inp" type="search" aria-label="搜索待审核题目" placeholder="搜索题目、批次或技能" value={search} onChange={event => setSearch(event.target.value)} />
+          <div className="bank-review-list-title"><h2 id="bank-review-list-title">{t('bank.questionsForReview')}</h2><span className="chip chip-slate">{t('bank.reviewQueueCount', { count: rows.length })}</span></div>
+          <input ref={pendingSearch} className="inp" type="search" aria-label={t('bank.searchReview')} placeholder={t('bank.searchReviewPlaceholder')} value={search} onChange={event => setSearch(event.target.value)} />
         </div>
         {filtered.length ? <ul className="bank-review-rows">{filtered.map(row => {
           const status = reviewProgress(row, operations[row.key]);
           return <li key={row.key}><button className="bank-review-row" aria-current={row.key === selectedKey ? true : undefined} onClick={() => select(row)}>
             <span className="bank-review-row-meta"><span>{row.batch.short_code}</span><span className={`chip chip-${status.color}`}>{status.text}</span></span>
             <span className="bank-review-row-title">{row.item.title}</span>
-            <span className="bank-review-row-topic">{skillNames[row.item.suggested_skill_key] ?? topicNames[row.item.suggested_skill_key] ?? row.item.suggested_skill_key}</span>
+            <span className="bank-review-row-topic">{skillName(row.item.suggested_skill_key)}</span>
           </button></li>;
-        })}</ul> : <p className="bank-review-no-matches" role="status">没有匹配的待审核题目</p>}
+        })}</ul> : <p className="bank-review-no-matches" role="status">{t('bank.noReviewMatches')}</p>}
       </section>
-      <article className="card bank-review-detail" aria-label="待审核题目详情">
+      <article className="card bank-review-detail" aria-label={t('bank.reviewQuestionDetails')}>
         {selected ? <>
           <div className="bank-review-detail-body" ref={detailBody}>
             <header className="bank-review-detail-head">
-              <button className="btn btn-ghost btn-sm bank-review-back" onClick={backToQueue}>← 返回待审核列表</button>
-              <div className="bank-review-meta"><span className={`chip chip-${reviewProgress(selected, operation).color}`}>{reviewProgress(selected, operation).text}</span><span>{selected.batch.short_code}</span><span>{skillNames[selected.item.suggested_skill_key] ?? topicNames[selected.item.suggested_skill_key] ?? selected.item.suggested_skill_key}</span></div>
+              <button className="btn btn-ghost btn-sm bank-review-back" onClick={backToQueue}>{t('bank.backToQueue')}</button>
+              <div className="bank-review-meta"><span className={`chip chip-${reviewProgress(selected, operation).color}`}>{reviewProgress(selected, operation).text}</span><span>{selected.batch.short_code}</span><span>{skillName(selected.item.suggested_skill_key)}</span></div>
               <h2 ref={detailHeading} tabIndex={-1}>{questionText}</h2>
-              {originalQuestion && originalQuestion !== questionText?.trim() && <div className="bank-review-original"><h3>原始面经问题</h3><p>{originalQuestion}</p></div>}
+              {originalQuestion && originalQuestion !== questionText?.trim() && <div className="bank-review-original"><h3>{t('bank.originalInterviewQuestion')}</h3><p>{originalQuestion}</p></div>}
               <dl className="bank-review-facts">
-                {selected.batch.meta?.company && <div><dt>公司</dt><dd>{selected.batch.meta.company}</dd></div>}
-                {selected.batch.meta?.level && <div><dt>级别</dt><dd>{selected.batch.meta.level}</dd></div>}
-                {!generationTaskId && Number.isFinite(selected.item.extract_confidence) && <div><dt>提取置信度</dt><dd>{Math.round(selected.item.extract_confidence * 100)}%</dd></div>}
-                <div><dt>来源</dt><dd>{generationTaskId ? '补题工作台' : '面经导入'}</dd></div>
-                {!!selected.item.review_revision && <div><dt>审核版本</dt><dd>{selected.item.review_revision}</dd></div>}
-                {!!selected.item.generation_meta?.source_files?.length && <div><dt>来源文件</dt><dd>{selected.item.generation_meta.source_files.join('、')}</dd></div>}
+                {selected.batch.meta?.company && <div><dt>{t('bank.company')}</dt><dd>{selected.batch.meta.company}</dd></div>}
+                {selected.batch.meta?.level && <div><dt>{t('bank.level')}</dt><dd>{selected.batch.meta.level}</dd></div>}
+                {!generationTaskId && Number.isFinite(selected.item.extract_confidence) && <div><dt>{t('bank.extractionConfidence')}</dt><dd>{Math.round(selected.item.extract_confidence * 100)}%</dd></div>}
+                <div><dt>{t('bank.source')}</dt><dd>{generationTaskId ? t('bank.workshopSource') : t('bank.importSource')}</dd></div>
+                {!!selected.item.review_revision && <div><dt>{t('bank.reviewVersion')}</dt><dd>{selected.item.review_revision}</dd></div>}
+                {!!selected.item.generation_meta?.source_files?.length && <div><dt>{t('bank.sourceFile')}</dt><dd>{selected.item.generation_meta.source_files.join('、')}</dd></div>}
               </dl>
-              {selected.item.is_duplicate_of != null && <p className="bank-review-duplicate">此题可能与已有题目重复，批准时可能合并。</p>}
-              {generationTaskId ? <Link className="link" to={`/bank/workshop?task=${generationTaskId}`}>打开补题工作台批次</Link>
-                : <button className="btn btn-ghost btn-sm bank-review-source" onClick={() => onOpenImport(selected.batch)}>核对导入原问并整理面经集</button>}
+              {selected.item.is_duplicate_of != null && <p className="bank-review-duplicate">{t('bank.reviewDuplicate')}</p>}
+              {generationTaskId ? <Link className="link" to={`/bank/workshop?task=${generationTaskId}`}>{t('bank.openWorkshopBatch')}</Link>
+                : <button className="btn btn-ghost btn-sm bank-review-source" onClick={() => onOpenImport(selected.batch)}>{t('bank.organizeImportedSet')}</button>}
             </header>
-            {revising && <p className="bank-review-notice" role="status">正在按反馈重生成。当前显示原草稿。</p>}
-            {failed && !revising && <div className="bank-review-warning" role="alert"><p>重生成失败。{selected.item.review_error || '原草稿与反馈仍已保留。'}</p></div>}
-            {!pendingFeedback && selected.item.review_feedback && <section className="bank-review-original"><h3>最近的审核反馈</h3><p>{selected.item.review_feedback}</p></section>}
-            <section className="bank-review-reading" aria-label="答案草稿">
-              <h3>{revising || failed ? '答案草稿 · 原稿' : '答案草稿'}</h3>
-              {answerHtml ? <div className="bank-answer bank-review-answer" dangerouslySetInnerHTML={{ __html: answerHtml }} /> : <p className="hint">这道题还没有答案草稿。</p>}
+            {revising && <p className="bank-review-notice" role="status">{t('bank.regeneratingOriginalVisible')}</p>}
+            {failed && !revising && <div className="bank-review-warning" role="alert"><p>{t('bank.regenerationErrorDetail', { detail: selected.item.review_error || t('bank.draftRetained') })}</p></div>}
+            {!pendingFeedback && selected.item.review_feedback && <section className="bank-review-original"><h3>{t('bank.latestReviewFeedback')}</h3><p>{selected.item.review_feedback}</p></section>}
+            <section className="bank-review-reading" aria-label={t('bank.draftAnswer')}>
+              <h3>{revising || failed ? t('bank.originalDraftAnswer') : t('bank.draftAnswer')}</h3>
+              {answerHtml ? <div className="bank-answer bank-review-answer" dangerouslySetInnerHTML={{ __html: answerHtml }} /> : <p className="hint">{t('bank.noDraftAnswer')}</p>}
             </section>
-            <section className="bank-review-reading" aria-label="评分要点">
-              <div className="bank-review-rubric-head"><h3>评分要点</h3>{rubric.maxPoints !== null && <span className="hint">满分 {rubric.maxPoints}</span>}</div>
+            <section className="bank-review-reading" aria-label={t('bank.rubric')}>
+              <div className="bank-review-rubric-head"><h3>{t('bank.rubric')}</h3>{rubric.maxPoints !== null && <span className="hint">{t('bank.rubricMaxPoints', { points: rubric.maxPoints })}</span>}</div>
               {rubric.points.length ? <ul className="bank-review-rubric">{rubric.points.map((point, index) => <li key={index}>
                 {point.title && <strong>{point.title}</strong>}{point.detail && <p>{point.detail}</p>}
                 {point.keywords.length > 0 && <div className="bank-review-keywords">{point.keywords.map((keyword, position) => <span className="chip chip-slate" key={position}>{keyword}</span>)}</div>}
-              </li>)}</ul> : <p className="hint">这道题还没有评分要点。</p>}
+              </li>)}</ul> : <p className="hint">{t('bank.noRubric')}</p>}
             </section>
           </div>
           <footer className="bank-review-actions">
-            {actionError && actionError.key === selectedKey && <p className="bank-review-action-error" role="alert">操作失败。{actionError.message}</p>}
-            {operation?.kind === 'uncertain' && <div className="bank-review-warning" role="alert"><p>无法确认操作结果。{operation.error}</p>
-              <button className="btn btn-outline btn-sm" onClick={() => void submit(selected, operation.request)}>重试原操作</button>
+            {actionError && actionError.key === selectedKey && <p className="bank-review-action-error" role="alert">{t('bank.reviewActionErrorDetail', { error: bankMessageText(actionError.message, t) })}</p>}
+            {operation?.kind === 'uncertain' && <div className="bank-review-warning" role="alert"><p>{t('bank.reviewUnconfirmedDetail', { error: bankMessageText(operation.error, t) })}</p>
+              <button className="btn btn-outline btn-sm" onClick={() => void submit(selected, operation.request)}>{t('bank.retryReviewAction')}</button>
             </div>}
             {pendingFeedback && <form className="bank-review-feedback" onSubmit={event => {
               event.preventDefault();
               if (pendingFeedback.text.trim() && !operation && !revising) startReview(selected, pendingFeedback.action, pendingFeedback.text);
             }}>
-              <label htmlFor="bank-review-feedback">{feedbackLabels[pendingFeedback.action]} <span className="hint">必填</span></label>
+              <label htmlFor="bank-review-feedback">{t(feedbackLabels[pendingFeedback.action])} <span className="hint">{t('bank.required')}</span></label>
               <textarea ref={feedbackInput} id="bank-review-feedback" className="textarea" rows={3} required maxLength={1000}
                 value={pendingFeedback.text} disabled={!!operation || revising}
                 onChange={event => setFeedback({ ...pendingFeedback, text: event.target.value })} />
-              <p className="hint">反馈会保存在记忆中心，供同技能的题库补题参考。</p>
+              <p className="hint">{t('bank.reviewFeedbackHelp')}</p>
               <div className="bank-review-action-row">
-                <button type="button" className="btn btn-ghost" disabled={!!operation || revising} onClick={() => setFeedback(null)}>取消</button>
+                <button type="button" className="btn btn-ghost" disabled={!!operation || revising} onClick={() => setFeedback(null)}>{t('bank.cancel')}</button>
                 <button className={`btn ${pendingFeedback.action === 'reject' ? 'bank-review-reject' : 'btn-primary'}`} disabled={!pendingFeedback.text.trim() || !!operation || revising}>
-                  {operation?.kind === 'submitting' ? '提交中…' : pendingFeedback.action === 'reject' ? '确认驳回' : failed ? '重试生成' : '提交反馈并重生成'}
+                  {operation?.kind === 'submitting' ? t('bank.submittingEllipsis') : pendingFeedback.action === 'reject' ? t('bank.confirmReject') : failed ? t('bank.retryGeneration') : t('bank.submitAndRegenerate')}
                 </button>
               </div>
             </form>}
@@ -384,14 +386,14 @@ export default function BankReviewQueue({ requestedKey, visible, reload, topicNa
               {approvalReason && <p className="hint">{approvalReason}</p>}
               <div className="bank-review-action-row">
                 <button className="btn btn-primary" disabled={!!approvalReason || !!operation || revising} onClick={() => startReview(selected, 'approve')}>
-                  {operation?.kind === 'submitting' && operation.request.action === 'approve' ? '批准中…' : actionLabels.approve}
+                  {operation?.kind === 'submitting' && operation.request.action === 'approve' ? t('bank.approving') : t(actionLabels.approve)}
                 </button>
-                <button className="btn btn-outline" disabled={!!operation || revising} onClick={() => setFeedback({ key: selected.key, action: 'revise', text: failed ? selected.item.review_feedback ?? '' : '' })}>{actionLabels.revise}</button>
-                <button className="btn bank-review-reject" disabled={!!operation || revising} onClick={() => setFeedback({ key: selected.key, action: 'reject', text: '' })}>{actionLabels.reject}</button>
+                <button className="btn btn-outline" disabled={!!operation || revising} onClick={() => setFeedback({ key: selected.key, action: 'revise', text: failed ? selected.item.review_feedback ?? '' : '' })}>{t(actionLabels.revise)}</button>
+                <button className="btn bank-review-reject" disabled={!!operation || revising} onClick={() => setFeedback({ key: selected.key, action: 'reject', text: '' })}>{t(actionLabels.reject)}</button>
               </div>
             </>}
           </footer>
-        </> : <div className="bank-review-empty"><p>{missingLinkedItem ? '链接中的题目已不在待审核队列。请从列表选择其他题目。' : '搜索并选择要审核的题目。'}</p></div>}
+        </> : <div className="bank-review-empty"><p>{missingLinkedItem ? t('bank.reviewLinkGone') : t('bank.chooseReviewQuestion')}</p></div>}
       </article>
     </div>}
   </div>;

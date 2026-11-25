@@ -3,6 +3,8 @@ import json
 import math
 import re
 
+from app.i18n import Locale, message
+
 FENCE = re.compile(r"(?:^|\n)```study-blocks[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*$")
 KINDS = {'architecture', 'flow', 'sequence', 'state'}
 PRESETS = {'chunk', 'retry', 'checkpoint', 'queue'}
@@ -24,27 +26,22 @@ def wants_teaching_diagram(action, question):
                  or (len(question) >= 35 and bool(RELATION.search(question)))))
 
 
-def teaching_diagram_fallback(question):
+def teaching_diagram_fallback(question, language=None):
     if TEXT_ONLY.search(question) or not (QUEUE.search(question) and WORKER.search(question) and RECOVERY.search(question)):
         return None
     return normalize({
         'type': 'diagram', 'kind': 'sequence', 'basis': 'teaching',
-        'title': '队列与 Worker 的故障恢复示例',
-        'summary': '这是通用教学示例。关键窗口在持久化结果之后、确认任务之前；此时崩溃可能导致重新投递，所以结果写入应支持幂等。',
-        'nodes': ['任务发起者', '队列', 'Worker', '持久化存储'],
-        'edges': [[0, 1, '提交任务'], [1, 2, '投递任务'], [2, 3, '按任务标识幂等写入结果'],
-                  [2, 1, '写入成功后确认'], [1, 2, '未确认时可重新投递']],
+        'title': message("diagram.title", language),
+        'summary': message("diagram.summary", language),
+        'nodes': [message("diagram.sender", language), message("diagram.queue", language), 'Worker', message("diagram.storage", language)],
+        'edges': [[0, 1, message("diagram.submit", language)], [1, 2, message("diagram.deliver", language)], [2, 3, message("diagram.write", language)],
+                  [2, 1, message("diagram.ack", language)], [1, 2, message("diagram.redeliver", language)]],
         'sources': [],
     }, [], 0)
 
 
-def block_prompt(action, question, sources):
-    if TEXT_ONLY.search(question):
-        return "用户只要文字。只用文字解释，不输出图解、交互产物、表格或 study-blocks。"
-    return '''按需用 Markdown 表格、代码、$公式$。图解、交互请求必须给出相应产物和静态文字解释。即使用户没有要求画图，如果问题涉及多个组件间的交互、先后顺序、状态转换或故障分支，且图能帮助理解，主动给出一张对应的图。正文指出图中最关键的一步；图说明的项目事实必须来自本轮实际读取的代码或测试。缺乏依据时用教学示例或方案，不画成项目现状。使用产物时，回复末尾单独一个 ```study-blocks 的 JSON 代码块，内容是数组，最多 3 项，每项必含 title 和 summary。不要输出 HTML、JS 或 Mermaid。格式示例（替换为当前讨论内容）：
-{"type":"diagram","kind":"sequence","basis":"teaching","title":"调用顺序","summary":"描述关键关系","nodes":["用户","队列"],"edges":[[0,1,"提交"]],"sources":[]}。kind 可选 architecture/flow/sequence/state；basis 可选 teaching/project/proposal。project 必须引用本轮实际读取代码的 sources 零起始下标，图中每条关系均应有依据；建议用 proposal。
-{"type":"demo","preset":"checkpoint","title":"故障窗口","summary":"改变故障位置观察恢复结果"}。preset 可选 chunk/retry/checkpoint/queue；仅在符合讨论内容时使用。所有交互演示均为教学模拟。
-{"type":"chart","title":"等待时长","summary":"示例数据","basis":"teaching","unit":"秒","points":[["A",2],["B",3]]}。教学图必须标示模拟；真实数据 basis 为 observed，每个点还需来源下标和该来源内的数值字段路径，如 ["得分",85,0,["score"]]；无可核实数据不要画真实指标。简短问题不必加块。'''
+def block_prompt(action, question, sources, *, language: Locale | None = None):
+    return message("blocks.text_only" if TEXT_ONLY.search(question) else "blocks.instructions", language)
 
 
 def text(value, limit):

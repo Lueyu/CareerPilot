@@ -1,3 +1,5 @@
+import { getLocale } from '../i18n';
+
 const env = (import.meta as any).env;
 const localApi = env?.DEV && typeof window !== 'undefined' && env['VITE_DEV_API_' + window.location.port];
 const base = localApi || env?.VITE_API_BASE || 'http://127.0.0.1:8000/api/v1';
@@ -27,6 +29,7 @@ export function localFetch(path: string, options: RequestInit) {
     headers: {
       'X-Api-Token': workspaceLogin ? sessionStorage.getItem('cp-login-token') || '' : token,
       'X-Workspace': localWorkspace(),
+      'Accept-Language': getLocale(),
       ...options.headers,
     },
   });

@@ -1,0 +1,201 @@
+/* ==========================================================================
+   手机 App 级体验（≤760px）
+   目标：类似原生 App 的字体大小、触控尺寸、底部标签栏、安全区与底部弹层。
+   这层覆盖在 tokens/base/components 之后加载，只做手机端增量覆盖。
+   ========================================================================== */
+
+.mobile-tabbar { display: none; }
+
+@media (max-width: 760px) {
+  :root { --tabbar-h: 58px; --m-pad: 14px; }
+
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body { font-size: 16px; line-height: 1.6; }
+
+  .app { height: 100dvh; }
+
+  /* 桌面侧栏在手机上让位给「底部标签栏 + 抽屉」 */
+  .app > .sidebar { display: none; }
+
+  /* ---------- 顶栏：紧凑 + 刘海安全区 ---------- */
+  .topbar {
+    padding: max(8px, env(safe-area-inset-top)) 12px 8px;
+    gap: 6px;
+    min-height: 52px;
+  }
+  .topbar .crumb { overflow: hidden; white-space: nowrap; }
+  .topbar .crumb > .crumb-sep,
+  .topbar .crumb > span:not(.crumb-cur) { display: none; }
+  .crumb-cur { font-size: 15.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; }
+  .workspace-mobile-nav-button.btn { min-height: 40px; padding: 6px 12px; }
+  .topbar-right { gap: 6px; }
+
+  /* ---------- 内容区：单列 + 给底部标签栏留白 ---------- */
+  .app-body {
+    padding: 14px var(--m-pad) calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 22px);
+  }
+  .app-body-study { padding: 0; }
+
+  /* ---------- 触控目标 ≥ 44px ---------- */
+  .btn { min-height: 44px; padding: 10px 16px; font-size: 15px; border-radius: 11px; }
+  .btn-sm { min-height: 36px; padding: 7px 12px; font-size: 13.5px; }
+  .btn-lg { min-height: 50px; font-size: 16px; }
+  .icon-btn { width: 44px; height: 44px; font-size: 18px; border-radius: 12px; }
+  .chip { min-height: 28px; font-size: 12.5px; }
+  .link { font-size: 14px; padding-block: 4px; }
+  .nav-item { min-height: 44px; }
+
+  /* ---------- 标题 / 卡片 ---------- */
+  .page-title { font-size: 23px; line-height: 1.3; }
+  .page-sub { font-size: 14px; margin-top: 4px; }
+  .page-head { flex-direction: column; gap: 10px; }
+  .page-actions { flex-wrap: wrap; }
+  .card { padding: 16px 15px; border-radius: 14px; }
+  .card-title { font-size: 16.5px; }
+  .card-sub { font-size: 13px; }
+
+  /* ---------- 表单：16px 防止 iOS 聚焦自动放大 ---------- */
+  input, textarea, select { font-size: 16px; }
+  .tbl { font-size: 13.5px; }
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* ---------- 弹层 → 底部抽屉 ---------- */
+  .modal-mask { align-items: flex-end; padding: 0; }
+  .modal, .modal-lg, .modal-sm {
+    width: 100%;
+    max-width: 100%;
+    max-height: 92dvh;
+    border-radius: 20px 20px 0 0;
+    animation: m-sheet-up 0.24s cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+  .modal-head { padding: 16px 18px 0; }
+  .modal-title { font-size: 17px; }
+  .modal-body { padding: 14px 18px 18px; }
+  .modal-foot {
+    position: sticky;
+    bottom: 0;
+    padding: 12px 18px calc(14px + env(safe-area-inset-bottom));
+    background: var(--card);
+  }
+  .modal-x { width: 44px; height: 44px; display: grid; place-items: center; }
+
+  /* 快捷操作 / 通知面板 → 底部弹层 */
+  .pop-panel,
+  .quick-actions-panel.pop-panel {
+    position: fixed !important;
+    left: 10px !important;
+    right: 10px !important;
+    top: auto !important;
+    bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 10px) !important;
+    width: auto !important;
+    max-height: 72dvh;
+    margin: 0 !important;
+    transform: none !important;
+    border-radius: 18px;
+  }
+  .pop-body { max-height: none; overflow-y: auto; }
+  .pop-item { padding: 13px 10px; min-height: 48px; }
+
+  /* ---------- 底部标签栏 ---------- */
+  .mobile-tabbar {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 80;
+    background: var(--card);
+    background: color-mix(in srgb, var(--card) 93%, transparent);
+    backdrop-filter: saturate(1.5) blur(16px);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -8px 24px -18px rgba(16, 24, 40, 0.45);
+  }
+  .mobile-tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-height: var(--tabbar-h);
+    padding: 6px 2px;
+    font: inherit;
+    font-size: 11px;
+    color: var(--text-3);
+    border: 0;
+    background: none;
+    text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mobile-tab-ic { font-size: 20px; line-height: 1; transition: transform 0.15s; }
+  .mobile-tab-label { font-size: 11px; font-weight: 500; white-space: nowrap; }
+  .mobile-tab.active { color: var(--primary); }
+  .mobile-tab.active .mobile-tab-ic { transform: translateY(-1px) scale(1.06); }
+  .mobile-tab.active .mobile-tab-label { font-weight: 650; }
+  .mobile-tab:active { background: var(--primary-50); }
+
+  /* ---------- 学习聊天：输入区抬到标签栏之上 ---------- */
+  .coach-session .coach-compose {
+    padding-bottom: calc(max(12px, env(safe-area-inset-bottom)) + var(--tabbar-h)) !important;
+  }
+  .coach-head-inner,
+  .coach-inner,
+  .coach-compose { padding-inline: 14px; }
+  .coach-input textarea { font-size: 16px; min-height: 44px; }
+  .coach-chips button,
+  .coach-turn-actions button,
+  .coach-latest { min-height: 34px; padding: 6px 10px; font-size: 13px; }
+  .coach-tools {
+    width: 100%;
+    max-width: 100%;
+    inset: auto 0 0 0;
+    margin: 0;
+    max-height: 90dvh;
+    border-radius: 20px 20px 0 0;
+  }
+  .coach-tools::backdrop { background: rgb(16 24 40 / 50%); }
+
+  /* 学习工作区顶栏 */
+  .workspace-bar { padding: 8px 12px; min-height: 50px; }
+  .workspace-menu { min-height: 40px; }
+
+  /* ---------- 设置页：220px+1fr 双列改为单列，左导航变横向 chips ---------- */
+  .settings-layout {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  .settings-layout > div:first-child {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 6px !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .settings-layout .settings-tab {
+    flex: 0 0 auto;
+    width: auto !important;
+    white-space: nowrap;
+  }
+  .settings-layout > div:last-child { min-width: 0; }
+
+  /* 空状态 */
+  .empty { padding: 28px 12px; }
+
+  /* 表格横向滚动兜底 */
+  .table-wrap,
+  .tbl-wrap { overflow-x: auto; }
+}
+
+/* 弹层升入动画 */
+@keyframes m-sheet-up {
+  from { transform: translateY(30px); opacity: 0.5; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* ---------- 触屏设备：抑制 hover 残留，给按压反馈 ---------- */
+@media (hover: none) and (pointer: coarse) {
+  .btn:active,
+  .icon-btn:active,
+  .pop-item:active,
+  .mobile-tab:active { opacity: 0.72; }
+  .tbl tbody tr:hover td { background: transparent; }
+}

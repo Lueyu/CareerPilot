@@ -54,12 +54,14 @@ for (const route of registeredRoutes) {
     assert.equal(root.findByType('main').children[0], route);
     assert.equal(root.findAllByProps({ className: 'search-box' }).length, 0);
 
-    const menu = root.findByProps({ 'aria-haspopup': 'dialog' });
+    const menu = root.findByProps({ className: 'btn btn-outline workspace-mobile-nav-button' });
+    assert.equal(root.findByProps({ className: 'btn feedback-entry' }).children[0], '提意见');
     act(() => menu.props.onClick());
     assert.equal(dialog.open, true);
     assert.equal(menu.props['aria-expanded'], true);
-    assert.deepEqual(navDestinations(root.findByType('dialog').findByType('aside')), registeredRoutes);
-    act(() => root.findByType('dialog').findByType('button').props.onClick());
+    const drawer = root.findByProps({ className: 'workspace-mobile-drawer' });
+    assert.deepEqual(navDestinations(drawer.findByType('aside')), registeredRoutes);
+    act(() => drawer.findByType('button').props.onClick());
     assert.equal(dialog.open, false);
 
     act(() => menu.props.onClick());
@@ -95,7 +97,8 @@ test('personal shell keeps its routes, workspace switcher and injected controls'
   assert.equal(sidebar.findByProps({ className: 'ws-label' }).children[0], '演示工作空间');
   act(() => sidebar.findByType('button').props.onClick());
   act(() => root.findByProps({ className: 'search-box' }).props.onClick());
-  act(() => root.findByProps({ className: 'btn btn-primary' }).props.onClick());
+  act(() => root.findByProps({ className: 'topbar-right' }).children
+    .find(node => node.props?.className === 'btn btn-primary').props.onClick());
   act(() => root.findAllByProps({ className: 'icon-btn' })[1].props.onClick());
   assert.deepEqual(calls, ['workspace', 'search', 'quick', 'notifications']);
   assert.ok(root.findByProps({ id: 'overlays' }));
@@ -103,11 +106,39 @@ test('personal shell keeps its routes, workspace switcher and injected controls'
 
 test('navigating from the drawer closes it and updates the breadcrumb', t => {
   const { root, dialog } = renderShell(t, '/', h(RegisteredWorkspaceLayout, { accountName: 'learner' }));
-  const menu = root.findByProps({ 'aria-haspopup': 'dialog' });
+  const menu = root.findByProps({ className: 'btn btn-outline workspace-mobile-nav-button' });
   act(() => menu.props.onClick());
-  const bank = root.findByType('dialog').findByProps({ href: '/bank' });
+  const bank = root.findByProps({ className: 'workspace-mobile-drawer' }).findByProps({ href: '/bank' });
   act(() => bank.props.onClick({ button: 0, defaultPrevented: false, preventDefault() {} }));
   assert.equal(dialog.open, false);
   assert.equal(menu.props['aria-expanded'], false);
   assert.equal(root.findByProps({ className: 'crumb-cur' }).children[0], '面试题库');
 });
+
+for (const route of registeredRoutes) {
+  test(`personal mobile navigation remains available at ${route}`, t => {
+    const { root, dialog } = renderShell(t, route, h(WorkspaceLayout, {
+      workspace: {
+        kind: 'personal', label: '个人工作空间', name: 'fixture',
+        openSwitcher() {},
+        actions: { search() {}, quick() {}, notifications() {} },
+      },
+    }));
+    const compact = route.startsWith('/study/') || route === '/memory' || route.startsWith('/assets');
+    const menu = root.findAllByProps({ className: 'btn btn-outline workspace-mobile-nav-button' });
+    assert.equal(menu.length, 1);
+    assert.ok(root.findByProps({ className: 'btn feedback-entry' }));
+    if (compact) {
+      assert.ok(root.findByProps({ className: 'app app-compact-nav' }));
+      assert.ok(navDestinations(root.findByType('aside')).includes('/study/chat'));
+    } else {
+      assert.ok(root.findByProps({ className: 'app app-drawer-nav' }));
+    }
+    act(() => menu[0].props.onClick());
+    assert.equal(dialog.open, true);
+    const drawer = root.findByProps({ className: 'workspace-mobile-drawer' });
+    assert.deepEqual(navDestinations(drawer.findByType('aside')), navDestinations(root.findAllByType('aside')[0]));
+    act(() => drawer.findByProps({ className: 'btn btn-outline workspace-mobile-nav-close' }).props.onClick());
+    assert.equal(dialog.open, false);
+  });
+}

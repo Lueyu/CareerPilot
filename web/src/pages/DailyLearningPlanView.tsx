@@ -1,3 +1,4 @@
+import { getLocale, t, useT } from '../i18n';
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import './dailyLearningPlan.css';
@@ -49,23 +50,68 @@ type DialogName = 'goal' | 'replan' | 'progress';
 type CalendarStatus = 'completed' | 'scheduled' | 'shifted' | 'retest';
 
 const historyUrl = '/learning?plan=history';
-const timeBudget = (minutes: number) => minutes % 60 === 0 ? `${minutes / 60} 小时` : `${minutes} 分钟`;
-const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
-const itemStatus = { scheduled: '待完成', completed: '已记录', overdue: '已逾期', unscheduled: '待取舍' };
-const calendarStatus: Record<CalendarStatus, string> = { completed: '已完成', scheduled: '已安排', shifted: '顺延 / 逾期', retest: '复测' };
-const checkNames: Record<string, string> = { understanding: '理解', practice: '实践', transfer: '迁移', retention: '保持' };
+const stageLabels: Record<string, string> = {
+  '起点与目标': 'progress.dailyLearningPlanViewStageGoals',
+  '基础': 'progress.dailyLearningPlanViewStageFoundations',
+  '动手构建': 'progress.dailyLearningPlanViewStageBuild',
+  '工程进阶': 'progress.dailyLearningPlanViewStageAdvancedEngineering',
+  '面试演练': 'progress.dailyLearningPlanViewStageInterview',
+  'Agent 基础': 'progress.dailyLearningPlanViewStageAgentFoundations',
+  '项目冲刺': 'progress.dailyLearningPlanViewStageProjectSprint',
+  '投递准备': 'progress.dailyLearningPlanViewStageApplications',
+  '当前学习目标': 'progress.dailyLearningPlanViewStageCurrentGoal',
+  '延迟复测': 'progress.dailyLearningPlanViewStageDelayedRetest',
+};
+const timeBudget = (minutes: number) => minutes % 60 === 0 ? t('progress.dailyLearningPlanViewHours', { hours: minutes / 60 }) : t('progress.dailyLearningPlanViewMinutes', { minutes: minutes });
+const weekdayLabels = {
+  monday: 'progress.dailyLearningPlanViewMonday',
+  tuesday: 'progress.dailyLearningPlanViewTuesday',
+  wednesday: 'progress.dailyLearningPlanViewWednesday',
+  thursday: 'progress.dailyLearningPlanViewThursday',
+  friday: 'progress.dailyLearningPlanViewFriday',
+  saturday: 'progress.dailyLearningPlanViewSaturday',
+  sunday: 'progress.dailyLearningPlanViewSunday',
+};
+const weekdayKeys = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+const itemStatus = {
+  get scheduled() { return t('progress.dailyLearningPlanViewItemScheduled'); },
+  get completed() { return t('progress.dailyLearningPlanViewItemCompleted'); },
+  get overdue() { return t('progress.dailyLearningPlanViewItemOverdue'); },
+  get unscheduled() { return t('progress.dailyLearningPlanViewItemUnscheduled'); },
+};
+const calendarStatus: Record<CalendarStatus, string> = {
+  get completed() { return t('progress.dailyLearningPlanViewCalendarCompleted'); },
+  get scheduled() { return t('progress.dailyLearningPlanViewCalendarScheduled'); },
+  get shifted() { return t('progress.dailyLearningPlanViewCalendarShifted'); },
+  get retest() { return t('progress.retest'); },
+};
+const checkNames: Record<string, string> = {
+  get understanding() { return t('progress.understanding'); },
+  get practice() { return t('progress.practice'); },
+  get transfer() { return t('progress.transfer'); },
+  get retention() { return t('progress.retention'); },
+};
 const checkStatus: Record<string, string> = {
-  UNVERIFIED: '未验证', ASSISTED_CORRECT: '有辅助正确', INDEPENDENT_CORRECT: '独立正确', PRACTICE_CORRECT: '本题练习正确',
-  NOT_SUBMITTED: '未提交', PENDING_REVIEW: '待检查', NEEDS_REVISION: '需修改', TASK_VERIFIED: '本任务已验证',
-  CODE_REVIEWED: '代码检查已完成', PENDING_RETEST: '待复测', PASSED_THIS_ATTEMPT: '本次通过', NOT_DUE: '未到期',
+  get UNVERIFIED() { return t('progress.unverified'); },
+  get ASSISTED_CORRECT() { return t('progress.assistedCorrect'); },
+  get INDEPENDENT_CORRECT() { return t('progress.independentCorrect'); },
+  get PRACTICE_CORRECT() { return t('progress.dailyLearningPlanViewPracticeCorrect'); },
+  get NOT_SUBMITTED() { return t('progress.notSubmitted'); },
+  get PENDING_REVIEW() { return t('progress.awaitingReview'); },
+  get NEEDS_REVISION() { return t('progress.needsRevision'); },
+  get TASK_VERIFIED() { return t('progress.taskVerified'); },
+  get CODE_REVIEWED() { return t('progress.dailyLearningPlanViewCodeReviewComplete'); },
+  get PENDING_RETEST() { return t('progress.awaitingRetest'); },
+  get PASSED_THIS_ATTEMPT() { return t('progress.passedThisTime'); },
+  get NOT_DUE() { return t('progress.notDue'); },
 };
 
 const localDate = (value: string) => new Date(value + 'T12:00:00');
 const dateKey = (date: Date) => [
   String(date.getFullYear()).padStart(4, '0'), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0'),
 ].join('-');
-const shortDate = (value: string) => localDate(value).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
-const fullDate = (value: string) => localDate(value).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+const shortDate = (value: string) => localDate(value).toLocaleDateString(getLocale(), { month: 'long', day: 'numeric' });
+const fullDate = (value: string) => localDate(value).toLocaleDateString(getLocale(), { year: 'numeric', month: 'long', day: 'numeric' });
 const monthKey = (date: string) => date.slice(0, 7) + '-01';
 
 function isDateKey(value: string | null): value is string {
@@ -106,6 +152,7 @@ function Button({ primary = false, children, ...props }: React.ButtonHTMLAttribu
 function GoalSummary({ plan, goal, registered, onOpen }: {
   plan: Plan; goal: string; registered: boolean; onOpen: (name: DialogName) => void;
 }) {
+  const t = useT();
   const progress = plan.progress;
   const delta = progress?.delta ?? null;
   const comparable = progress?.status !== 'unavailable' && delta !== null &&
@@ -113,43 +160,45 @@ function GoalSummary({ plan, goal, registered, onOpen }: {
   const percent = progress && progress.total > 0 ? Math.round(100 * progress.completed / progress.total) : null;
   const remaining = daysBetween(plan.today, plan.deadline);
   const paceLabel = comparable
-    ? { ahead: '领先 ' + Math.abs(delta) + ' 项', on_track: '按计划', behind: '落后 ' + Math.abs(delta) + ' 项', unavailable: '暂无进度基准' }[progress.status]
-    : '暂无法比较';
+    ? { ahead: t('progress.dailyLearningPlanViewAhead', { count: Math.abs(delta) }), on_track: t('progress.dailyLearningPlanViewOnTrack'), behind: t('progress.dailyLearningPlanViewBehind', { count: Math.abs(delta) }), unavailable: t('progress.dailyLearningPlanViewNoBaseline') }[progress.status]
+    : t('progress.dailyLearningPlanViewNotComparable');
   const plannedCount = comparable && progress.baseline_completed === progress.completed ? progress.expected : null;
-  const plannedMarker = plannedCount !== null && progress && progress.total > 0 ? 100 * plannedCount / progress.total : null;
+  const plannedMarker = plannedCount !== null && progress && progress.total > 0
+    ? { count: plannedCount, left: 100 * plannedCount / progress.total }
+    : null;
 
   return <section className="daily-plan-card daily-plan-goal" aria-labelledby="daily-plan-goal">
     <div className="daily-plan-row">
-      <span className="daily-plan-eyebrow">{registered ? '学习目标' : '投递目标'}</span>
-      <Button disabled={registered && !plan.target_role} onClick={() => onOpen('goal')} aria-haspopup="dialog">调整目标</Button>
+      <span className="daily-plan-eyebrow">{registered ? t('progress.dailyLearningPlanViewLearningGoal') : t('progress.dailyLearningPlanViewApplicationGoal')}</span>
+      <Button disabled={registered && !plan.target_role} onClick={() => onOpen('goal')} aria-haspopup="dialog">{t('progress.dailyLearningPlanViewAdjustGoal')}</Button>
     </div>
     <h2 id="daily-plan-goal">{goal}</h2>
     {(!registered || plan.target_role) && <p className="daily-plan-goal-date">
-      {registered && !plan.deadline_confirmed && '建议目标日 · '}
-      <time dateTime={plan.deadline}>{fullDate(plan.deadline)}</time>{!registered && '开始投递'}
+      {registered && !plan.deadline_confirmed && t('progress.dailyLearningPlanViewSuggestedDate')}
+      <time dateTime={plan.deadline}>{registered ? fullDate(plan.deadline) : t('progress.dailyLearningPlanViewStartApplicationDate', { date: fullDate(plan.deadline) })}</time>
       <span aria-hidden="true"> · </span>
-      {remaining > 0 ? '还剩 ' + remaining + ' 天' : remaining === 0 ? '今天是目标日' : '目标日已过去 ' + Math.abs(remaining) + ' 天'}
+      {remaining > 0 ? t('progress.dailyLearningPlanViewRemaining', { days: remaining }) : remaining === 0 ? t('progress.dailyLearningPlanViewTargetToday') : t('progress.dailyLearningPlanViewPastTarget', { days: Math.abs(remaining) })}
     </p>}
     {plan.schedule_profile === 'agent_interview_sprint' && <p className="daily-plan-goal-date">
-      周一至周五每天 {timeBudget(plan.daily_minutes)} · 周末休息
-      {plan.sprint_start_date && plan.today < plan.sprint_start_date && ` · ${shortDate(plan.sprint_start_date)}开始`}
+      {t('progress.dailyLearningPlanViewWeekdayBudget', { time: timeBudget(plan.daily_minutes) })}
+      {plan.sprint_start_date && plan.today < plan.sprint_start_date && t('progress.dailyLearningPlanViewSprintStart', { date: shortDate(plan.sprint_start_date) })}
     </p>}
     <div className="daily-plan-row daily-plan-progress-line">
       <div className="daily-plan-progress-count">
         {percent !== null && <strong>{percent}%</strong>}
-        <span>{progress ? (progress.total ? progress.completed + ' / ' + progress.total + ' 项已完成' : '暂无任务') : '完成进度暂不可用'}</span>
+        <span>{progress ? (progress.total ? t('progress.dailyLearningPlanViewCompletionCount', { completed: progress.completed, total: progress.total }) : t('progress.dailyLearningPlanViewNoTasks')) : t('progress.dailyLearningPlanViewProgressUnavailable')}</span>
       </div>
       <span className={'daily-plan-badge daily-plan-pace-' + (comparable ? progress.status : 'unavailable')}>{paceLabel}</span>
     </div>
-    {percent !== null && <div className="daily-plan-track" role="progressbar" aria-label="当前计划完成进度" aria-valuenow={percent}
-      aria-valuetext={progress?.completed + ' / ' + progress?.total + ' 项已完成'}>
+    {percent !== null && <div className="daily-plan-track" role="progressbar" aria-label={t('progress.dailyLearningPlanViewCompletionProgress')} aria-valuenow={percent}
+      aria-valuetext={t('progress.dailyLearningPlanViewCompletionCount', { completed: progress?.completed ?? 0, total: progress?.total ?? 0 })}>
       <span className="daily-plan-track-fill" style={{ width: percent + '%' }} />
       {plannedMarker !== null && <span className="daily-plan-track-marker" aria-hidden="true"
-        title={'同期应完成 ' + plannedCount + ' 项'} style={{ left: plannedMarker + '%' }} />}
+        title={t('progress.dailyLearningPlanViewExpected', { count: plannedMarker.count })} style={{ left: plannedMarker.left + '%' }} />}
     </div>}
     <div className="daily-plan-row daily-plan-goal-footer">
-      <p>{comparable ? '基准任务：实际 ' + progress.baseline_completed + ' 项 · 同期应完成 ' + progress.expected + ' 项' : '计划节奏暂无法比较'}</p>
-      <button className="daily-plan-text-button" type="button" onClick={() => onOpen('progress')} aria-haspopup="dialog">进度怎么算</button>
+      <p>{comparable ? t('progress.dailyLearningPlanViewBaselineTasks', { actual: progress.baseline_completed ?? '—', expected: progress.expected ?? '—' }) : t('progress.dailyLearningPlanViewPaceUnavailable')}</p>
+      <button className="daily-plan-text-button" type="button" onClick={() => onOpen('progress')} aria-haspopup="dialog">{t('progress.dailyLearningPlanViewProgressMethod')}</button>
     </div>
   </section>;
 }
@@ -158,6 +207,7 @@ function MonthCalendar({ plan, days, month, selectedDate, onMonth, onSelect }: {
   plan: Plan; days: Map<string, Day>; month: string; selectedDate: string;
   onMonth: (value: string) => void; onSelect: (value: string) => void;
 }) {
+  const t = useT();
   const firstAvailable = plan.days[0]?.date ?? plan.today;
   const lastAvailable = plan.days[plan.days.length - 1]?.date ?? plan.today;
   const first = localDate(month);
@@ -166,27 +216,28 @@ function MonthCalendar({ plan, days, month, selectedDate, onMonth, onSelect }: {
   const previousMonth = addMonths(month, -1);
   const rowCount = Math.ceil(daysBetween(firstCell, nextMonth) / 7);
   const dates = Array.from({ length: rowCount * 7 }, (_, index) => addDays(firstCell, index));
-  const [year, monthNumber] = [first.getFullYear(), first.getMonth() + 1];
+  const year = first.getFullYear();
+  const monthLabel = getLocale() === 'zh-CN' ? first.getMonth() + 1 : first.toLocaleDateString(getLocale(), { month: 'long' });
 
   return <section className="daily-plan-card daily-plan-calendar" aria-labelledby="daily-plan-month">
     <header className="daily-plan-row">
-      <h2 id="daily-plan-month" aria-live="polite">{year} 年 {monthNumber} 月</h2>
-      <nav className="daily-plan-calendar-nav" aria-label="月份导航">
-        <Button className="btn btn-outline daily-plan-month-arrow" aria-label="上个月" disabled={month <= monthKey(firstAvailable)}
+      <h2 id="daily-plan-month" aria-live="polite">{t('progress.dailyLearningPlanViewMonthTitle', { year, month: monthLabel })}</h2>
+      <nav className="daily-plan-calendar-nav" aria-label={t('progress.dailyLearningPlanViewMonthNavigation')}>
+        <Button className="btn btn-outline daily-plan-month-arrow" aria-label={t('progress.dailyLearningPlanViewPreviousMonth')} disabled={month <= monthKey(firstAvailable)}
           onClick={() => onMonth(previousMonth)}><span className="daily-plan-chevron" aria-hidden="true" /></Button>
-        <Button onClick={() => onSelect(plan.today)}>回到今天</Button>
-        <Button className="btn btn-outline daily-plan-month-arrow" aria-label="下个月" disabled={month >= monthKey(lastAvailable)}
+        <Button onClick={() => onSelect(plan.today)}>{t('progress.dailyLearningPlanViewBackToday')}</Button>
+        <Button className="btn btn-outline daily-plan-month-arrow" aria-label={t('progress.dailyLearningPlanViewNextMonth')} disabled={month >= monthKey(lastAvailable)}
           onClick={() => onMonth(nextMonth)}><span className="daily-plan-chevron" aria-hidden="true" /></Button>
       </nav>
     </header>
-    <ul className="daily-plan-legend" aria-label="日历状态">
-      <li><span className="daily-plan-dot daily-plan-completed" />已完成</li>
-      <li><span className="daily-plan-dot daily-plan-scheduled" />已安排</li>
-      <li><span className="daily-plan-dot daily-plan-shifted" />顺延 / 逾期</li>
-      <li><span className="daily-plan-dot daily-plan-retest" />复测</li>
+    <ul className="daily-plan-legend" aria-label={t('progress.dailyLearningPlanViewCalendarStatus')}>
+      <li><span className="daily-plan-dot daily-plan-completed" />{t('progress.dailyLearningPlanViewCalendarCompleted')}</li>
+      <li><span className="daily-plan-dot daily-plan-scheduled" />{t('progress.dailyLearningPlanViewCalendarScheduled')}</li>
+      <li><span className="daily-plan-dot daily-plan-shifted" />{t('progress.dailyLearningPlanViewCalendarShifted')}</li>
+      <li><span className="daily-plan-dot daily-plan-retest" />{t('progress.retest')}</li>
     </ul>
     <div className="daily-plan-calendar-grid">
-      {weekdays.map(weekday => <span key={weekday} className="daily-plan-weekday" aria-hidden="true">{weekday}</span>)}
+      {weekdayKeys.map(weekday => <span key={weekday} className="daily-plan-weekday" aria-hidden="true">{t(weekdayLabels[weekday])}</span>)}
       {dates.map(date => {
         const day = days.get(date);
         const kinds = calendarStatuses(day?.items ?? []);
@@ -196,19 +247,19 @@ function MonthCalendar({ plan, days, month, selectedDate, onMonth, onSelect }: {
         const isSelected = date === selectedDate;
         const completed = day?.items.filter(item => item.status === 'completed').length ?? 0;
         const shortSummary = day?.items.length
-          ? completed === day.items.length ? '完成 ' + completed + '\u00a0项' : day.items.length + ' 项 · ' + day.minutes + '\u00a0分'
+          ? completed === day.items.length ? t('progress.dailyLearningPlanViewDayCompleted', { count: completed }) : t('progress.dailyLearningPlanViewDayCompact', { count: day.items.length, minutes: day.minutes })
           : null;
         const label = [
-          fullDate(date), isToday && '今天', isDeadline && (plan.target_role === undefined ? '投递目标日' : '学习目标日'), isSelected && '已选择',
-          day?.capacity_minutes === 0 && '周末休息',
-          day ? day.items.length ? day.items.length + ' 项任务，' + day.minutes + ' 分钟' : '当天没有安排' : '日期暂无数据',
+          fullDate(date), isToday && t('progress.today'), isDeadline && (plan.target_role === undefined ? t('progress.dailyLearningPlanViewApplicationTargetDate') : t('progress.dailyLearningPlanViewLearningTargetDate')), isSelected && t('progress.dailyLearningPlanViewSelected'),
+          day?.capacity_minutes === 0 && t('progress.dailyLearningPlanViewWeekendRest'),
+          day ? day.items.length ? t('progress.dailyLearningPlanViewDayTasks', { count: day.items.length, minutes: day.minutes }) : t('progress.dailyLearningPlanViewNoPlanThatDay') : t('progress.dailyLearningPlanViewNoDateData'),
           ...kinds.map(kind => calendarStatus[kind]),
-        ].filter(Boolean).join('，');
+        ].filter(Boolean).join(getLocale() === 'zh-CN' ? '，' : ', ');
         const content = <>
           <span className="daily-plan-cell-heading">
             <time dateTime={date}>{Number(date.slice(-2))}</time>
-            {isToday && <span className="daily-plan-cell-today">今天</span>}
-            {isDeadline && <span className="daily-plan-cell-deadline">目标日</span>}
+            {isToday && <span className="daily-plan-cell-today">{t('progress.today')}</span>}
+            {isDeadline && <span className="daily-plan-cell-deadline">{t('progress.dailyLearningPlanViewTargetDay')}</span>}
           </span>
           {shortSummary && <span className="daily-plan-cell-summary">{shortSummary}</span>}
           {kinds.length > 0 && <span className="daily-plan-cell-dots">
@@ -227,9 +278,10 @@ function MonthCalendar({ plan, days, month, selectedDate, onMonth, onSelect }: {
 }
 
 function QuestionLinks({ questionId, registered }: { questionId: number; registered: boolean }) {
+  const t = useT();
   return <>
-    <Link className="btn btn-primary" to={(registered ? '/beta' : '') + '/study/chat?question=' + questionId}>开始学习</Link>
-    <Link className="btn btn-outline" to={(registered ? '/beta' : '') + '/exam?question=' + questionId}>开始答题</Link>
+    <Link className="btn btn-primary" to={(registered ? '/beta' : '') + '/study/chat?question=' + questionId}>{t('progress.dailyLearningPlanViewStartLearning')}</Link>
+    <Link className="btn btn-outline" to={(registered ? '/beta' : '') + '/exam?question=' + questionId}>{t('progress.dailyLearningPlanViewStartQuestion')}</Link>
   </>;
 }
 
@@ -237,6 +289,7 @@ function TaskCard({ item, selectedDate, plan, recommended, focused, registered, 
   item: Item; selectedDate: string; plan: Plan; recommended: boolean; focused: boolean; registered: boolean;
   onSave: (itemKey: string, note: string) => Promise<boolean>; busy: boolean; error: string;
 }) {
+  const t = useT();
   const [note, setNote] = useState<string | null>(null);
   const evidenceId = useId();
   const card = useRef<HTMLElement>(null);
@@ -252,41 +305,41 @@ function TaskCard({ item, selectedDate, plan, recommended, focused, registered, 
 
   return <article ref={card} className={'daily-plan-task' + (focused ? ' daily-plan-task-source' : '')} tabIndex={focused ? -1 : undefined}>
     <div className="daily-plan-task-badges">
-      <span className={'daily-plan-badge ' + (isRetest ? 'daily-plan-retest-badge' : 'daily-plan-task-stage')}>{item.stage} · {item.minutes} 分钟</span>
+      <span className={'daily-plan-badge ' + (isRetest ? 'daily-plan-retest-badge' : 'daily-plan-task-stage')}>{t('progress.dailyLearningPlanViewStageDuration', { stage: item.source !== 'question' && stageLabels[item.stage] ? t(stageLabels[item.stage]) : item.stage, minutes: item.minutes })}</span>
       {(!recommended || isCompleted) && <span className={'daily-plan-badge daily-plan-item-' + item.status}>{itemStatus[item.status]}</span>}
     </div>
-    <h3>{recommended ? '学习建议：先做「' : ''}{item.title}{recommended && '」'}</h3>
+    <h3>{recommended ? t('progress.dailyLearningPlanViewRecommended', { title: item.title }) : item.title}</h3>
     <p>{item.criteria}</p>
-    {awaitingPriorRound && !isCompleted && <p>先记录同一道题的上一遍，再记录这一遍。</p>}
-    {item.verification && <div className="daily-plan-task-badges" aria-label="独立验证状态">
+    {awaitingPriorRound && !isCompleted && <p>{t('progress.dailyLearningPlanViewPreviousPass')}</p>}
+    {item.verification && <div className="daily-plan-task-badges" aria-label={t('progress.dailyLearningPlanViewVerificationStatus')}>
       {Object.entries(item.verification).filter(([key, value]) => checkNames[key] && checkStatus[value]).map(([key, value]) =>
         <span className="chip chip-slate" key={key}>{checkNames[key]}：{checkStatus[value]}</span>)}
     </div>}
-    {item.due && <p>原定日期：{shortDate(item.due)}</p>}
-    {item.moved_from && <p>从 {shortDate(item.moved_from)} 顺延。</p>}
+    {item.due && <p>{t('progress.dailyLearningPlanViewOriginalDate', { date: shortDate(item.due) })}</p>}
+    {item.moved_from && <p>{t('progress.dailyLearningPlanViewMovedFrom', { date: shortDate(item.moved_from) })}</p>}
     {item.evidence && <details className="daily-plan-evidence-details" open={focused || undefined}>
-      <summary>查看完成依据</summary><p className="daily-plan-evidence">{item.evidence.note}</p><p>{item.question_id == null ? '能力验证仍需独立评估。' : '这是你自行记录的学习进度。'}</p>
+      <summary>{t('progress.dailyLearningPlanViewViewEvidence')}</summary><p className="daily-plan-evidence">{item.evidence.note}</p><p>{item.question_id == null ? t('progress.dailyLearningPlanViewRequiresIndependent') : t('progress.dailyLearningPlanViewSelfRecorded')}</p>
     </details>}
     {(item.question_id != null || item.task_id !== null || item.study_session_id !== null || mayRecord && note === null) &&
       <div className="daily-plan-actions">
         {item.question_id != null && <QuestionLinks registered={registered} questionId={item.question_id} />}
         {item.task_id !== null && <Link className={'btn ' + (isCompleted ? 'btn-outline' : 'btn-primary')} to={'/learning/task/' + item.task_id}>
-          {isCompleted ? '查看任务记录' : isRetest ? '打开复测' : '开始学习'}
+          {isCompleted ? t('progress.dailyLearningPlanViewViewTaskRecord') : isRetest ? t('progress.dailyLearningPlanViewOpenRetest') : t('progress.dailyLearningPlanViewStartLearning')}
         </Link>}
-        {item.study_session_id !== null && <Link className="btn btn-outline" to={(registered ? '/beta' : '') + '/study/chat/' + item.study_session_id}>打开学习记录</Link>}
-        {mayRecord && note === null && <Button primary={recommended} onClick={() => setNote('')}>记录完成依据</Button>}
+        {item.study_session_id !== null && <Link className="btn btn-outline" to={(registered ? '/beta' : '') + '/study/chat/' + item.study_session_id}>{t('progress.dailyLearningPlanViewOpenLearningRecord')}</Link>}
+        {mayRecord && note === null && <Button primary={recommended} onClick={() => setNote('')}>{t('progress.dailyLearningPlanViewRecordEvidence')}</Button>}
       </div>}
     {mayRecord && note !== null && <form className="daily-plan-form" onSubmit={async event => {
       event.preventDefault();
       if (await onSave(item.key, note.trim())) setNote(null);
     }}>
-      <label htmlFor={evidenceId}>填写答案、产物链接及你核对过的结果</label>
+      <label htmlFor={evidenceId}>{t('progress.dailyLearningPlanViewEvidenceLabel')}</label>
       <textarea id={evidenceId} className="textarea" rows={3} required minLength={8} maxLength={4000}
         value={note} onChange={event => setNote(event.target.value)} autoFocus />
       {error && <p className="daily-plan-error" role="alert">{error}</p>}
       <div className="daily-plan-actions">
-        <Button primary type="submit" disabled={busy || note.trim().length < 8}>保存完成依据</Button>
-        <Button disabled={busy} onClick={() => setNote(null)}>取消</Button>
+        <Button primary type="submit" disabled={busy || note.trim().length < 8}>{t('progress.dailyLearningPlanViewSaveEvidence')}</Button>
+        <Button disabled={busy} onClick={() => setNote(null)}>{t('progress.cancel')}</Button>
       </div>
     </form>}
   </article>;
@@ -296,8 +349,9 @@ function DayDetails({ plan, days, selectedDate, sourceKey, registered, onReplan,
   plan: Plan; days: Map<string, Day>; selectedDate: string; sourceKey: string | null; registered: boolean; onReplan: () => void;
   saveEvidence: (key: string, note: string) => Promise<boolean>; busy: boolean; notice: string; error: string;
 }) {
+  const t = useT();
   const selected = days.get(selectedDate);
-  const weekday = localDate(selectedDate).toLocaleDateString('zh-CN', { weekday: 'short' });
+  const weekday = localDate(selectedDate).toLocaleDateString(getLocale(), { weekday: 'short' });
   const items = selected?.items ?? [];
   const isToday = selectedDate === plan.today;
   const isGoalDay = selectedDate === plan.deadline;
@@ -310,36 +364,36 @@ function DayDetails({ plan, days, selectedDate, sourceKey, registered, onReplan,
       <div className="daily-plan-row">
         <h2 id="daily-plan-selected-day"><time dateTime={selectedDate}>{shortDate(selectedDate)}</time> <small>{weekday}</small></h2>
         <div className="daily-plan-task-badges">
-          {isToday && <span className="daily-plan-badge daily-plan-task-stage">今天</span>}
-          {isGoalDay && <span className="daily-plan-badge daily-plan-item-overdue">目标日</span>}
+          {isToday && <span className="daily-plan-badge daily-plan-task-stage">{t('progress.today')}</span>}
+          {isGoalDay && <span className="daily-plan-badge daily-plan-item-overdue">{t('progress.dailyLearningPlanViewTargetDay')}</span>}
         </div>
       </div>
       <p>{selected ? capacity === 0
-        ? items.length ? `周末休息 · ${items.length} 项历史记录` : '周末休息'
-        : `${items.length} 项任务 · ${selected.minutes} / ${capacity} 分钟`
-        : '日期暂无数据'}</p>
+        ? items.length ? t('progress.dailyLearningPlanViewWeekendHistory', { count: items.length }) : t('progress.dailyLearningPlanViewWeekendRest')
+        : t('progress.dailyLearningPlanViewTaskBudget', { tasks: items.length, minutes: selected.minutes, capacity: capacity })
+        : t('progress.dailyLearningPlanViewNoDateData')}</p>
     </header>
-    <div className="daily-plan-day-body" role="region" aria-label="当日任务与后续安排" tabIndex={0}>
+    <div className="daily-plan-day-body" role="region" aria-label={t('progress.dailyLearningPlanViewDailyTasksAndNext')} tabIndex={0}>
       {notice && <p className="daily-plan-notice" role="status">{notice}</p>}
-      {sourceKey && !items.some(item => item.key === sourceKey) && <p role="status">这项来源练习已不在所选日期的计划中。</p>}
+      {sourceKey && !items.some(item => item.key === sourceKey) && <p role="status">{t('progress.dailyLearningPlanViewSourceMissing')}</p>}
       {items.length ? <div className="daily-plan-task-list">{items.map(item => <TaskCard
         key={item.key} registered={registered} item={item} selectedDate={selectedDate} plan={plan} focused={sourceKey === item.key}
         recommended={nextTask?.key === item.key} busy={busy} error={recording === item.key ? error : ''}
         onSave={(itemKey, note) => { setRecording(itemKey); return saveEvidence(itemKey, note); }}
-      />)}</div> : <p className="daily-plan-empty">{selected ? capacity === 0 ? '周末不安排新任务。' : '当天没有安排，可以留作缓冲。' : '请选择日历中有数据的日期。'}</p>}
+      />)}</div> : <p className="daily-plan-empty">{selected ? capacity === 0 ? t('progress.dailyLearningPlanViewNoWeekendTasks') : t('progress.dailyLearningPlanViewBufferDay') : t('progress.dailyLearningPlanViewSelectDate')}</p>}
       <div className="daily-plan-actions daily-plan-day-links">
-        <button className="daily-plan-text-button" type="button" onClick={onReplan} aria-haspopup="dialog">查看重排原因</button>
-        {plan.target_role === undefined && <Link className="daily-plan-text-button" to={historyUrl}>学习与复测记录</Link>}
+        <button className="daily-plan-text-button" type="button" onClick={onReplan} aria-haspopup="dialog">{t('progress.dailyLearningPlanViewReplanReason')}</button>
+        {plan.target_role === undefined && <Link className="daily-plan-text-button" to={historyUrl}>{t('progress.learningHistory')}</Link>}
       </div>
-      <section className="daily-plan-upcoming" aria-label="接下来三天">
-        <h3>接下来三天</h3>
+      <section className="daily-plan-upcoming" aria-label={t('progress.dailyLearningPlanViewNextThreeDays')}>
+        <h3>{t('progress.dailyLearningPlanViewNextThreeDays')}</h3>
         <ul>{[0, 1, 2].map(offset => {
           const date = addDays(plan.today, offset);
           const day = days.get(date);
           return <li key={date}><time dateTime={date}>{shortDate(date)}</time><span aria-hidden="true"> · </span>{
-            day ? day.items.length ? day.items.length + ' 项 / ' + day.minutes + ' 分钟' : day.capacity_minutes === 0 ? '周末休息' : '暂无安排' : '暂无计划数据'
+            day ? day.items.length ? t('progress.dailyLearningPlanViewUpcomingCount', { count: day.items.length, minutes: day.minutes }) : day.capacity_minutes === 0 ? t('progress.dailyLearningPlanViewWeekendRest') : t('progress.dailyLearningPlanViewNothingScheduled') : t('progress.dailyLearningPlanViewNoPlanData')
           }{day && day.items.length > 0 && <p className="daily-plan-upcoming-tasks">
-            {day.items.map(item => item.title).join('、')}
+            {day.items.map(item => item.title).join(getLocale() === 'zh-CN' ? '、' : ', ')}
           </p>}</li>;
         })}</ul>
       </section>
@@ -350,6 +404,7 @@ function DayDetails({ plan, days, selectedDate, sourceKey, registered, onReplan,
 function PlanDialog({ title, onDismiss, busy, children }: {
   title: string; onDismiss: () => void; busy: boolean; children: React.ReactNode;
 }) {
+  const t = useT();
   const modal = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -369,7 +424,7 @@ function PlanDialog({ title, onDismiss, busy, children }: {
   }}>
     <header className="daily-plan-row">
       <h2 id="daily-plan-dialog-title" ref={heading} tabIndex={-1}>{title}</h2>
-      <Button aria-label="关闭" disabled={busy} onClick={dismiss}>×</Button>
+      <Button aria-label={t('progress.close')} disabled={busy} onClick={dismiss}>×</Button>
     </header>
     <div className="daily-plan-dialog-body">{children}</div>
   </dialog>;
@@ -378,6 +433,7 @@ function PlanDialog({ title, onDismiss, busy, children }: {
 function GoalForm({ plan, goal, registered, onSave, busy, error }: {
   plan: Plan; goal: string; registered: boolean; onSave: (next: Settings) => Promise<boolean>; busy: boolean; error: string;
 }) {
+  const t = useT();
   const [deadline, setDeadline] = useState(plan.deadline);
   const [minutes, setMinutes] = useState(String(plan.daily_minutes));
   const [confirmBaseline, setConfirmBaseline] = useState(false);
@@ -390,64 +446,70 @@ function GoalForm({ plan, goal, registered, onSave, busy, error }: {
     void onSave({ deadline, daily_minutes: Number(minutes), confirm_baseline: canAdopt && !changed && confirmBaseline });
   }}>
     <p>{goal}</p>
-    <label htmlFor="daily-deadline">{registered ? '学习目标日期' : '投递日期'}</label>
+    <label htmlFor="daily-deadline">{registered ? t('progress.dailyLearningPlanViewLearningGoalDateField') : t('progress.dailyLearningPlanViewApplicationDate')}</label>
     <input id="daily-deadline" type="date" required min={plan.today} max={addDays(plan.today, 180)}
       value={deadline} onChange={event => setDeadline(event.target.value)} />
-    <label htmlFor="daily-minutes">{plan.schedule_profile ? '每个工作日学习容量（分钟）' : '每日学习容量（分钟）'}</label>
+    <label htmlFor="daily-minutes">{plan.schedule_profile ? t('progress.dailyLearningPlanViewWeekdayCapacity') : t('progress.dailyLearningPlanViewDailyCapacity')}</label>
     <input id="daily-minutes" type="number" required min={35} max={480} value={minutes} onChange={event => setMinutes(event.target.value)} />
-    <p>调整日期或每天的学习时间会重排任务，并以今天的计划重新建立节奏基准。已有完成记录会保留。</p>
+    <p>{t('progress.dailyLearningPlanViewReplanExplanation')}</p>
     {canAdopt && !changed && <label className="daily-plan-checkbox">
       <input type="checkbox" checked={confirmBaseline} onChange={event => setConfirmBaseline(event.target.checked)} />
-      从今天起为现有计划建立进度基准
+      {t('progress.dailyLearningPlanViewSetBaseline')}
     </label>}
     {error && <p className="daily-plan-error" role="alert">{error}</p>}
-    <div className="daily-plan-actions"><Button primary type="submit" disabled={busy}>保存并查看重排</Button></div>
+    <div className="daily-plan-actions"><Button primary type="submit" disabled={busy}>{t('progress.dailyLearningPlanViewSaveAndReview')}</Button></div>
   </form>;
 }
 
 function RescheduleDetails({ plan, registered, onEdit, onReplan, busy, error }: {
   plan: Plan; registered: boolean; onEdit: () => void; onReplan?: () => void; busy: boolean; error: string;
 }) {
+  const t = useT();
   const changes = plan.days.flatMap(day => day.items
     .filter(item => (item.moved_from && item.status !== 'completed') || item.status === 'overdue')
     .map(item => ({ day: day.date, item })));
   return <>
-    <p>未完成的逾期任务会按剩余容量顺延。{!registered && '复测保留最早可验证日期，'}已完成的任务保留在实际完成日。</p>
+    <p>{registered ? t('progress.dailyLearningPlanViewRegisteredRescheduleRules') : t('progress.dailyLearningPlanViewPersonalRescheduleRules')}</p>
     <section className="daily-plan-upcoming">
-      <h3>调整后的安排</h3>
+      <h3>{t('progress.dailyLearningPlanViewUpdatedSchedule')}</h3>
       {changes.length ? <ul>{changes.map(({ day, item }) => <li key={item.key}>{item.title}：{
-        item.moved_from ? shortDate(item.moved_from) + ' → ' + shortDate(day) : shortDate(day) + '逾期，待重排'
-      }</li>)}</ul> : <p>目前没有日期变动。</p>}
+        item.moved_from ? shortDate(item.moved_from) + ' → ' + shortDate(day) : shortDate(day) + t('progress.dailyLearningPlanViewOverdueToReschedule')
+      }</li>)}</ul> : <p>{t('progress.dailyLearningPlanViewNoScheduleChanges')}</p>}
     </section>
     {plan.overflow.length > 0 && <section className="daily-plan-upcoming">
-      <h3>目标日前排不下的 {plan.overflow.length} 项</h3>
-      <ul>{plan.overflow.map(item => <li key={item.key}>{item.title}（{item.minutes} 分钟{
-        item.moved_from ? '，原安排 ' + shortDate(item.moved_from) : ''
-      }）{item.question_id != null && <div className="daily-plan-actions"><QuestionLinks registered={registered} questionId={item.question_id} /></div>}</li>)}</ul>
+      <h3>{t('progress.dailyLearningPlanViewOverflow', { count: plan.overflow.length })}</h3>
+      <ul>{plan.overflow.map(item => <li key={item.key}>{item.moved_from
+        ? t('progress.dailyLearningPlanViewMovedOverflowItem', { title: item.title, minutes: item.minutes, date: shortDate(item.moved_from) })
+        : t('progress.dailyLearningPlanViewOverflowItem', { title: item.title, minutes: item.minutes })}{item.question_id != null && <div className="daily-plan-actions"><QuestionLinks registered={registered} questionId={item.question_id} /></div>}</li>)}</ul>
     </section>}
     {registered && error && <p className="daily-plan-error" role="alert">{error}</p>}
     <div className="daily-plan-actions">
-      <Button disabled={registered && !plan.target_role} onClick={onEdit}>{registered ? '调整学习目标' : '调整投递目标'}</Button>
-      {onReplan && plan.target_role && <Button disabled={busy} onClick={onReplan}>重新安排</Button>}
+      <Button disabled={registered && !plan.target_role} onClick={onEdit}>{registered ? t('progress.dailyLearningPlanViewEditLearningGoal') : t('progress.dailyLearningPlanViewEditApplicationGoal')}</Button>
+      {onReplan && plan.target_role && <Button disabled={busy} onClick={onReplan}>{t('progress.dailyLearningPlanViewReschedule')}</Button>}
     </div>
   </>;
 }
 
 function ProgressDetails({ plan }: { plan: Plan }) {
+  const t = useT();
   const progress = plan.progress;
   return <>
-    <p>完成百分比按当前计划计算。已记录学习完成的任务计入已完成，目标日前排不下的任务也计入计划总数。</p>
-    <p>计划节奏只比较基准里的同一批任务。系统按基准日期及当时排定的日程，计算到今天应完成多少项，再和同一批任务的实际完成数比较。</p>
-    <p>当进度条包含基准之外的已完成任务时，计划和实际的同期对照仍在下方单独显示。</p>
-    {progress?.baseline_date && <p>基准日期：{fullDate(progress.baseline_date)}。</p>}
+    <p>{t('progress.dailyLearningPlanViewCompletionFormula')}</p>
+    <p>{t('progress.dailyLearningPlanViewPaceFormula')}</p>
+    <p>{t('progress.dailyLearningPlanViewBaselineComparison')}</p>
+    {progress?.baseline_date && <p>{t('progress.dailyLearningPlanViewBaselineDated', { date: fullDate(progress.baseline_date) })}</p>}
     {plan.target_role !== '' && (!progress || progress.status === 'unavailable') && <p>{progress?.baseline_date
-      ? '基准内没有可比较的任务。可以在「调整目标」中查看设置。'
-      : '目前没有可比较的进度基准。可以在「调整目标」中从今天起建立基准。'}</p>}
-    {plan.target_role === undefined ? <p>能力验证记录在「学习与复测记录」中。</p> : <p>完成依据是你自行记录的学习进度。</p>}
+      ? t('progress.dailyLearningPlanViewNoBaselineTasks')
+      : t('progress.dailyLearningPlanViewSetBaselineSuggestion')}</p>}
+    {plan.target_role === undefined ? <p>{t('progress.dailyLearningPlanViewVerifyInHistory')}</p> : <p>{t('progress.dailyLearningPlanViewEvidenceScope')}</p>}
   </>;
 }
 
-const dialogTitles: Record<DialogName, string> = { goal: '调整投递目标', replan: '查看重排原因', progress: '进度怎么算' };
+const dialogTitles: Record<DialogName, string> = {
+  get goal() { return t('progress.dailyLearningPlanViewEditApplicationGoal'); },
+  get replan() { return t('progress.dailyLearningPlanViewReplanReason'); },
+  get progress() { return t('progress.dailyLearningPlanViewProgressMethod'); },
+};
 
 type Props = {
   data?: Plan;
@@ -460,6 +522,7 @@ type Props = {
 };
 
 export default function DailyLearningPlanView({ data, loading, loadError, mode, saveSettings, saveEvidence, replan }: Props) {
+  const t = useT();
   const [params, setParams] = useSearchParams();
   const [saved, setSaved] = useState<Plan>();
   const [busy, setBusy] = useState(false);
@@ -468,7 +531,7 @@ export default function DailyLearningPlanView({ data, loading, loadError, mode, 
   const [monthOverride, setMonthOverride] = useState<{ selectedDate: string; month: string }>();
   const plan = saved ?? data;
   const registered = mode.kind === 'registered';
-  const goal = registered ? plan?.target_role || '尚未设置目标岗位' : mode.goal;
+  const goal = registered ? plan?.target_role || t('progress.dailyLearningPlanViewTargetRoleMissing') : mode.goal;
   const banner = mode.kind === 'personal' ? mode.banner : null;
   const view = params.get('plan');
   const modal = view === 'goal' || view === 'replan' || view === 'progress' ? view : undefined;
@@ -483,7 +546,7 @@ export default function DailyLearningPlanView({ data, loading, loadError, mode, 
       setSaved(await request());
       return true;
     } catch (problem) {
-      setError(problem instanceof Error ? problem.message : '保存失败，请重试。');
+      setError(problem instanceof Error ? problem.message : t('progress.dailyLearningPlanViewSaveError'));
       return false;
     } finally {
       setBusy(false);
@@ -491,12 +554,12 @@ export default function DailyLearningPlanView({ data, loading, loadError, mode, 
   };
 
   const heading = <header className="daily-plan-heading">
-    <div><h1>学习计划</h1><p>{registered ? '根据目标岗位的已保存题目安排每天的练习。' : '看清每天要做什么，以及离投递目标还有多远。'}</p></div>
-    {!registered && <Link className="btn btn-outline" to={historyUrl}>学习与复测记录</Link>}
+    <div><h1>{t('progress.dailyLearningPlanViewHeading')}</h1><p>{registered ? t('progress.dailyLearningPlanViewRegisteredDescription') : t('progress.dailyLearningPlanViewPersonalDescription')}</p></div>
+    {!registered && <Link className="btn btn-outline" to={historyUrl}>{t('progress.learningHistory')}</Link>}
   </header>;
 
   if (!plan) return <main className="daily-plan">
-    {heading}{banner}<p role={loadError ? 'alert' : 'status'}>{loading ? '正在读取计划…' : loadError ?? '学习计划暂不可用。'}</p>
+    {heading}{banner}<p role={loadError ? 'alert' : 'status'}>{loading ? t('progress.dailyLearningPlanViewLoading') : loadError ?? t('progress.dailyLearningPlanViewUnavailable')}</p>
   </main>;
 
   const requestedDate = params.get('date');
@@ -509,10 +572,10 @@ export default function DailyLearningPlanView({ data, loading, loadError, mode, 
     ? monthOverride.month : selectedMonth >= firstMonth && selectedMonth <= lastMonth ? selectedMonth : monthKey(plan.today);
   const shifted = plan.days.reduce((count, day) => count + day.items.filter(item => item.moved_from && item.status === 'scheduled').length, 0);
   const replanSummary = [
-    shifted > 0 && shifted + ' 项已顺延',
-    plan.overdue_count > 0 && plan.overdue_count + ' 项逾期',
-    plan.overflow.length > 0 && plan.overflow.length + ' 项在目标日前排不下',
-  ].filter(Boolean).join('，');
+    shifted > 0 && t('progress.dailyLearningPlanViewShiftedCount', { count: shifted }),
+    plan.overdue_count > 0 && t('progress.dailyLearningPlanViewOverdueCount', { count: plan.overdue_count }),
+    plan.overflow.length > 0 && t('progress.dailyLearningPlanViewOverflowCount', { count: plan.overflow.length }),
+  ].filter(Boolean).join(getLocale() === 'zh-CN' ? '，' : ', ');
 
   const selectDate = (date: string) => {
     setMonthOverride(undefined);
@@ -535,7 +598,7 @@ export default function DailyLearningPlanView({ data, loading, loadError, mode, 
     {banner}
     <GoalSummary plan={plan} goal={goal} registered={registered} onOpen={setModal} />
     {registered && !plan.progress?.total && <p className="daily-plan-card">
-      {plan.target_role ? '在题库中为当前岗位保存题目，日历就会安排练习。' : '请先在题库中设置目标岗位并保存练习题。'}
+      {plan.target_role ? t('progress.dailyLearningPlanViewSaveQuestions') : t('progress.dailyLearningPlanViewSetRoleAndSave')}
     </p>}
     <div className="daily-plan-layout">
       <MonthCalendar plan={plan} days={days} month={month} selectedDate={selectedDate}
@@ -544,16 +607,16 @@ export default function DailyLearningPlanView({ data, loading, loadError, mode, 
         onReplan={() => setModal('replan')} busy={busy} error={error} notice={notice}
         saveEvidence={async (itemKey, note) => {
           const ok = await write(() => saveEvidence(itemKey, note, plan));
-          if (ok) setNotice('已保存学习记录。');
+          if (ok) setNotice(t('progress.dailyLearningPlanViewRecordSaved'));
           return ok;
         }} />
     </div>
     {replanSummary && <section className="daily-plan-card daily-plan-replan">
-      <p><span className="daily-plan-badge daily-plan-item-overdue">重排提醒</span>{replanSummary}。</p>
-      <Button onClick={() => setModal('replan')} aria-haspopup="dialog">查看变动</Button>
+      <p><span className="daily-plan-badge daily-plan-item-overdue">{t('progress.dailyLearningPlanViewReplanNotice')}</span>{t('progress.dailyLearningPlanViewRescheduleSummary', { summary: replanSummary })}</p>
+      <Button onClick={() => setModal('replan')} aria-haspopup="dialog">{t('progress.dailyLearningPlanViewViewChanges')}</Button>
     </section>}
-    {modal && <PlanDialog title={registered && modal === 'goal' ? '调整学习目标' : dialogTitles[modal]} busy={busy} onDismiss={() => setModal()}>
-      {modal === 'goal' && registered && !plan.target_role && <p>请先在题库中设置目标岗位。</p>}
+    {modal && <PlanDialog title={registered && modal === 'goal' ? t('progress.dailyLearningPlanViewEditLearningGoal') : dialogTitles[modal]} busy={busy} onDismiss={() => setModal()}>
+      {modal === 'goal' && registered && !plan.target_role && <p>{t('progress.dailyLearningPlanViewSetRole')}</p>}
       {modal === 'goal' && (!registered || plan.target_role) && <GoalForm busy={busy} error={error} plan={plan} goal={goal} registered={registered} onSave={async settings => {
         const ok = await write(() => saveSettings(settings, plan));
         if (ok) setModal('replan');

@@ -8,6 +8,7 @@ from pydantic import BaseModel, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.public_auth import current_workspace
 from app.db import get_session
 from app.models import Event, MemoryItem, Question, Workspace
@@ -73,7 +74,7 @@ async def add_memory(body: Experience, db: Db, ws: Owner):
 async def owned_memory(db: Db, ws: Owner, memory_id: int):
     row = await db.scalar(memory_query(ws.id).where(MemoryItem.id == memory_id).with_for_update())
     if row is None:
-        raise HTTPException(404, "找不到这条经历")
+        raise HTTPException(404, localized_message("errors.experience_record_not_found"))
     return row
 
 
@@ -100,7 +101,7 @@ async def submit_feedback(body: Feedback, db: Db, ws: Owner):
     question = await db.scalar(select(Question.id).where(
         Question.id == body.question_id, Question.workspace_id == ws.id))
     if question is None:
-        raise HTTPException(404, "找不到这道题")
+        raise HTTPException(404, localized_message("errors.question_not_found"))
     event = Event(workspace_id=ws.id, kind="seed.question_feedback", ref_type="question",
                   ref_id=question, payload={"text": body.text})
     db.add(event)

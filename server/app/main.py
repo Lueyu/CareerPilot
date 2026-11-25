@@ -17,12 +17,14 @@ from app.api.v1 import (
     dashboard,
     evolution,
     exams,
+    feedback,
     learning,
     learning_feedback,
     learning_memory,
     learning_projects,
     memory,
     observatory,
+    ops,
     profile,
     project_analysis,
     project_autopilot,
@@ -36,9 +38,11 @@ from app.api.v1 import (
     study_chat,
     study_notes,
     study_practice,
+    telemetry,
 )
 from app.config import get_settings
 from app.db import engine
+from app.i18n import LanguageMiddleware
 from app.models import Base  # noqa: F401  (注册全部模型)
 from app.services.study_chat import recover_interrupted as recover_study_chat
 
@@ -62,6 +66,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(LanguageMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -72,7 +77,7 @@ app.add_middleware(
 )
 
 # 认证在 get_workspace 依赖链内(require_auth), /healthz 开放
-for router in (study_chat.router, study_notes.router, study_practice.router, dashboard.router, benchmark.router, profile.router, exams.router, bank.router, learning.router, memory.router, observatory.router, public_content.router, settings.router, projects.router, career_assets.router, evolution.router):
+for router in (study_chat.router, study_notes.router, study_practice.router, dashboard.router, benchmark.router, profile.router, exams.router, bank.router, learning.router, memory.router, observatory.router, ops.router, public_content.router, settings.router, projects.router, career_assets.router, evolution.router, telemetry.router):
     app.include_router(router, prefix="/api/v1")
 app.include_router(question_generation.router, prefix="/api/v1")
 app.include_router(project_analysis.router, prefix="/api/v1")
@@ -84,6 +89,7 @@ app.include_router(learning_feedback.router, prefix="/api/v1")
 app.include_router(learning_projects.router, prefix="/api/v1")
 app.include_router(learning_memory.router, prefix="/api/v1")
 app.include_router(retest_mappings.router, prefix="/api/v1")
+app.include_router(feedback.router, prefix="/api/v1")
 
 
 @app.get("/healthz")

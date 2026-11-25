@@ -1,3 +1,4 @@
+import { useT } from '../i18n';
 import React from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 
@@ -5,30 +6,30 @@ import { Link, NavLink, useLocation } from 'react-router-dom';
 
 type NavItem = { ic: string; label: string; to: string; match: (p: string) => boolean };
 
-const HOME: NavItem = { ic: '🏠', label: '首页', to: '/', match: (p) => p === '/' };
-const EXAM: NavItem = { ic: '📝', label: '考试与面经', to: '/exam', match: (p) => p === '/exam' || p.startsWith('/exam/') };
-const STUDY: NavItem = { ic: '💬', label: '学习聊天', to: '/study/chat', match: (p) => p.startsWith('/study/') };
-const LEARNING: NavItem = { ic: '📚', label: '学习计划', to: '/learning', match: (p) => p.startsWith('/learning') };
-const MEMORY: NavItem = { ic: '🧠', label: '记忆中心', to: '/memory', match: (p) => p.startsWith('/memory') };
+const HOME: NavItem = { ic: '🏠', label: 'shell.home', to: '/', match: (p) => p === '/' };
+const EXAM: NavItem = { ic: '📝', label: 'shell.examsInterviews', to: '/exam', match: (p) => p === '/exam' || p.startsWith('/exam/') };
+const STUDY: NavItem = { ic: '💬', label: 'shell.studyChat', to: '/study/chat', match: (p) => p.startsWith('/study/') };
+const LEARNING: NavItem = { ic: '📚', label: 'shell.learningPlan', to: '/learning', match: (p) => p.startsWith('/learning') };
+const MEMORY: NavItem = { ic: '🧠', label: 'shell.memoryCenter', to: '/memory', match: (p) => p.startsWith('/memory') };
 
 const NAV: NavItem[] = [
   HOME,
-  { ic: '🎯', label: '能力与岗位', to: '/benchmark', match: (p) => p === '/benchmark' || p.startsWith('/profile') },
+  { ic: '🎯', label: 'shell.skillsRoles', to: '/benchmark', match: (p) => p === '/benchmark' || p.startsWith('/profile') },
   { ...EXAM, match: (p) => EXAM.match(p) || p === '/bank' },
-  { ...STUDY, label: '学习聊天与笔记' },
+  { ...STUDY, label: 'shell.studyChatNotes' },
   LEARNING,
-  { ic: '🚀', label: '项目与简历', to: '/assets', match: (p) => p.startsWith('/assets') },
+  { ic: '🚀', label: 'shell.projectsResume', to: '/assets', match: (p) => p.startsWith('/assets') },
 ];
 
 const ADVANCED: NavItem[] = [
   MEMORY,
-  { ic: '📡', label: '系统观测台', to: '/observatory', match: (p) => p.startsWith('/observatory') },
-  { ic: '🧬', label: '进化实验室', to: '/evolution', match: (p) => p.startsWith('/evolution') },
+  { ic: '📡', label: 'shell.observatory', to: '/observatory', match: (p) => p.startsWith('/observatory') },
+  { ic: '🧬', label: 'shell.evolutionLab', to: '/evolution', match: (p) => p.startsWith('/evolution') },
 ];
 
 const REGISTERED_NAV: NavItem[] = [
   HOME,
-  { ic: '📚', label: '面试题库', to: '/bank', match: (p) => p === '/bank' },
+  { ic: '📚', label: 'shell.questionBank', to: '/bank', match: (p) => p === '/bank' },
   STUDY,
   EXAM,
   LEARNING,
@@ -41,6 +42,7 @@ export type SidebarWorkspace = {
 } & ({ kind: 'personal'; openSwitcher: () => void } | { kind: 'registered' });
 
 export default function Sidebar({ workspace }: { workspace: SidebarWorkspace }) {
+  const t = useT();
   const personal = workspace.kind === 'personal';
   const { pathname } = useLocation();
 
@@ -60,7 +62,7 @@ export default function Sidebar({ workspace }: { workspace: SidebarWorkspace }) 
         <div className="brand-logo">CP</div>
         <div>
           <div className="brand-name">CareerPilot</div>
-          <div className="brand-sub">CAREER INTELLIGENCE</div>
+          <div className="brand-sub">{t('shell.brandTagline')}</div>
         </div>
       </Link>
 
@@ -76,29 +78,29 @@ export default function Sidebar({ workspace }: { workspace: SidebarWorkspace }) 
           <NavLink
             key={n.to}
             to={n.to}
-            title={n.label}
+            title={t(n.label)}
             className={itemCls(n.match(pathname))}
             end={n.to === '/'}
           >
             <span className="nav-num">{n.ic}</span>
-            <span>{n.label}</span>
+            <span>{t(n.label)}</span>
           </NavLink>
         ))}
       </nav>
 
       {personal && (
         <>
-          <div className="nav-adv-label">高级区</div>
+          <div className="nav-adv-label">{t('shell.advanced')}</div>
           <nav className="nav nav-adv">
             {ADVANCED.map((n) => (
               <NavLink
                 key={n.to}
                 to={n.to}
-                title={n.label}
+                title={t(n.label)}
                 className={`nav-item nav-item-sub ${n.match(pathname) ? 'active' : ''}`}
               >
                 <span className="nav-num">{n.ic}</span>
-                <span>{n.label}</span>
+                <span>{t(n.label)}</span>
               </NavLink>
             ))}
           </nav>
@@ -108,15 +110,15 @@ export default function Sidebar({ workspace }: { workspace: SidebarWorkspace }) 
       <div className="side-tip">
         <span className="side-tip-ic">🎯</span>
         <div>
-          <b>只学你真正缺少的</b>
-          <p>证据驱动，不刷题、不堆时长。</p>
+          <b>{t('shell.sidebarTipTitle')}</b>
+          <p>{t('shell.sidebarTip')}</p>
         </div>
       </div>
 
       <div className="nav-settings">
-        <NavLink to="/settings" title="设置与工作空间" className={itemCls(pathname.startsWith('/settings'))}>
+        <NavLink to="/settings" title={t('shell.settingsWorkspace')} className={itemCls(pathname.startsWith('/settings'))}>
           <span className="nav-num">⚙</span>
-          <span>设置与工作空间</span>
+          <span>{t('shell.settingsWorkspace')}</span>
         </NavLink>
       </div>
     </aside>

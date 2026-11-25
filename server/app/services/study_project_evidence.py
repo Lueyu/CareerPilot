@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import lazyload
 
+from app.i18n import message as localized_message
 from app.config import get_settings
 from app.models.project import Project
 from app.models.project_analysis import ProjectAnalysis
@@ -531,7 +532,7 @@ async def collect_project_evidence(session, workspace_id, skill_ids, project_id,
         Project.id == project_id, Project.workspace_id == workspace_id, Project.archived_at.is_(None),
     ))
     if project is None:
-        raise HTTPException(404, "项目不存在")
+        raise HTTPException(404, localized_message("errors.project_not_found"))
 
     analysis_query = select(ProjectAnalysis).where(
         ProjectAnalysis.workspace_id == workspace_id, ProjectAnalysis.project_id == project_id,

@@ -1,16 +1,24 @@
+import { useT } from '../i18n';
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState } from './AppState';
 import { Modal } from './ui';
 import { api, useApi, getWorkspace, selectWorkspace, ProfileData, LearningData } from '../api/client';
 const QUICK_ACTIONS = [
-  { ic: '📥', label: '导入面经', desc: '解析并整理面试题', to: '/bank?import=1' },
-  { ic: '🎯', label: '开始独立诊断', desc: '提交真实作答', to: '/exam/diagnosis' },
-  { ic: '📚', label: '查看学习任务', desc: '补齐具体失分项', to: '/learning' },
+  { ic: '📥', label: 'shell.importInterviewNotes', desc: 'shell.importInterviewNotesHint', to: '/bank?import=1' },
+  { ic: '🎯', label: 'shell.startDiagnosis', desc: 'shell.startDiagnosisHint', to: '/exam/diagnosis' },
+  { ic: '📚', label: 'shell.viewTasks', desc: 'shell.viewTasksHint', to: '/learning' },
 ];
+
+const TASK_STATUS_LABELS = new Map([
+  ['PENDING', 'shell.taskPending'],
+  ['IN_PROGRESS', 'shell.taskInProgress'],
+  ['DONE', 'shell.taskDone'],
+]);
 
 // —— ⌘K 全局搜索 ——
 export function CommandPalette() {
+  const t = useT();
   const { cmdOpen, setCmdOpen } = useAppState();
   const [q, setQ] = useState('');
   const [selectedTo, setSelectedTo] = useState<string | null>(null);
@@ -51,14 +59,38 @@ export function CommandPalette() {
 
   const groups = useMemo(() => {
     const all = [
-      { g: '技能', items: (profile.data?.domains ?? []).map(d => ({ ic: '🧠', name: d.name, meta: d.level == null ? '未知' : `${d.level}/5`, to: `/profile/${d.key}` })) },
-      { g: '任务', items: (learning.data?.today ?? []).map(t => ({ ic: '📌', name: t.title, meta: t.status, to: `/learning/task/${t.id}` })) },
+      {
+        id: 'skills',
+        label: t('shell.skills'),
+        items: (profile.data?.domains ?? []).map(domain => {
+          const meta = domain.level == null ? t('shell.unknown') : `${domain.level}/5`;
+          return {
+            ic: '🧠', name: domain.name, meta,
+            rawMeta: meta,
+            to: `/profile/${domain.key}`,
+          };
+        }),
+      },
+      {
+        id: 'tasks',
+        label: t('shell.tasks'),
+        items: (learning.data?.today ?? []).map(task => {
+          const statusKey = TASK_STATUS_LABELS.get(task.status);
+          const meta = statusKey ? t(statusKey) : task.status;
+          return { ic: '📌', name: task.title, meta, rawMeta: task.status, to: `/learning/task/${task.id}` };
+        }),
+      },
     ];
     const kw = q.trim().toLowerCase();
     return all
-      .map((g) => ({ ...g, items: kw ? g.items.filter((it) => (it.name + it.meta).toLowerCase().includes(kw)) : g.items }))
+      .map(group => ({
+        ...group,
+        items: kw ? group.items.filter(item =>
+          [item.rawMeta, item.meta].some(meta => (item.name + meta).toLowerCase().includes(kw)),
+        ) : group.items,
+      }))
       .filter((g) => g.items.length > 0);
-  }, [q, profile.data, learning.data]);
+  }, [q, profile.data, learning.data, t]);
 
   const items = groups.flatMap(g => g.items);
   const activeIndex = Math.max(0, items.findIndex(item => item.to === selectedTo));
@@ -94,7 +126,7 @@ export function CommandPalette() {
   if (!cmdOpen) return null;
   return (
     <div className="modal-mask" onClick={() => setCmdOpen(false)}>
-      <div className="modal cmdk" role="dialog" aria-label="全局搜索" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+      <div className="modal cmdk" role="dialog" aria-label={t('shell.search')} aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <div className="cmdk-input">
           <span>🔍</span>
           <input
@@ -106,25 +138,25 @@ export function CommandPalette() {
             }}
             onKeyDown={onInputKey}
             role="combobox"
-            aria-label="搜索技能、证据、任务"
+            aria-label={t('shell.searchPrompt')}
             aria-autocomplete="list"
             aria-controls={listId}
             aria-expanded="true"
             aria-activedescendant={activeId}
-            placeholder="搜索技能、证据、任务…"
+            placeholder={t('shell.searchPlaceholder')}
           />
           <span className="kbd">ESC</span>
         </div>
         <div className="cmdk-groups">
-          {(profile.loading || learning.loading) && <p role="status" className="hint">正在读取当前空间…</p>}
-          {(profile.error || learning.error) && <p role="alert">搜索读取失败：{profile.error || learning.error}</p>}
+          {(profile.loading || learning.loading) && <p role="status" className="hint">{t('shell.searchLoading')}</p>}
+          {(profile.error || learning.error) && <p role="alert">{t('shell.searchError', { error: profile.error || learning.error || '' })}</p>}
           {!profile.loading && !learning.loading && !items.length && (
-            <div className="empty" role="status" style={{ padding: 20 }}><b>无匹配结果</b></div>
+            <div className="empty" role="status" style={{ padding: 20 }}><b>{t('shell.searchNoResults')}</b></div>
           )}
-          <div role="listbox" id={listId} aria-label="搜索结果">
+          <div role="listbox" id={listId} aria-label={t('shell.searchResults')}>
             {groups.map((g) => (
-              <div role="group" aria-label={g.g} key={g.g}>
-                <div className="cmdk-group-title" aria-hidden="true">{g.g}</div>
+              <div role="group" aria-label={g.label} key={g.id}>
+                <div className="cmdk-group-title" aria-hidden="true">{g.label}</div>
                 {g.items.map((it) => {
                   const selected = it.to === activeItem?.to;
                   return (
@@ -148,9 +180,9 @@ export function CommandPalette() {
           </div>
         </div>
         <div className="cmdk-foot">
-          <span>↑↓ 选择</span>
-          <span>↵ 打开</span>
-          <span>ESC 关闭</span>
+          <span>{t('shell.searchSelect')}</span>
+          <span>{t('shell.searchOpen')}</span>
+          <span>{t('shell.searchClose')}</span>
         </div>
       </div>
     </div>
@@ -159,17 +191,18 @@ export function CommandPalette() {
 
 // —— 通知中心 ——
 export function NotificationsPanel() {
+  const t = useT();
   const { notifOpen, setNotifOpen } = useAppState();
   if (!notifOpen) return null;
   return (
     <div className="modal-mask" onClick={() => setNotifOpen(false)}>
       <div className="pop-panel" style={{ right: 'auto', left: '50%', transform: 'translateX(-50%)', top: '64px', position: 'absolute' }} onClick={(e) => e.stopPropagation()}>
         <div className="pop-head">
-          <span className="pop-title">通知中心</span>
-          <span className="kbd" style={{ cursor: 'pointer' }} onClick={() => setNotifOpen(false)}>关闭 ✕</span>
+          <span className="pop-title">{t('shell.notifications')}</span>
+          <span className="kbd" style={{ cursor: 'pointer' }} onClick={() => setNotifOpen(false)}>{t('shell.closeWithIcon')}</span>
         </div>
         <div className="pop-body">
-          <p className="hint">暂无可读取的通知。请在考试记录和学习计划中查看实际进展。</p>
+          <p className="hint">{t('shell.noNotifications')}</p>
         </div>
       </div>
     </div>
@@ -178,33 +211,45 @@ export function NotificationsPanel() {
 
 // —— 快捷操作 ——
 export function QuickActionsPanel() {
+  const t = useT();
   const { quickOpen, setQuickOpen } = useAppState();
   const navigate = useNavigate();
+  const close = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    if (!quickOpen) return;
+    const opener = document.activeElement;
+    close.current?.focus();
+    return () => { if (opener instanceof HTMLElement) opener.focus(); };
+  }, [quickOpen]);
   if (!quickOpen) return null;
   return (
     <div className="modal-mask" onClick={() => setQuickOpen(false)}>
-      <div className="pop-panel" style={{ right: 'auto', left: '50%', transform: 'translateX(-50%)', top: '64px', position: 'absolute', width: 420 }} onClick={(e) => e.stopPropagation()}>
+      <div className="pop-panel quick-actions-panel" role="dialog" aria-label={t('shell.quickActions')}
+        onClick={e => e.stopPropagation()} onKeyDown={e => {
+          if (e.key === 'Escape') setQuickOpen(false);
+        }}>
         <div className="pop-head">
-          <span className="pop-title">快捷操作</span>
-          <span className="kbd" style={{ cursor: 'pointer' }} onClick={() => setQuickOpen(false)}>关闭 ✕</span>
+          <span className="pop-title">{t('shell.quickActions')}</span>
+          <button className="kbd" type="button" ref={close} onClick={() => setQuickOpen(false)}>{t('shell.closeWithIcon')}</button>
         </div>
         <div className="pop-body">
           {QUICK_ACTIONS.map((a) => (
-            <div
+            <button
               className="pop-item"
-              key={a.label}
+              type="button"
+              key={a.to}
               onClick={() => {
                 setQuickOpen(false);
                 navigate(a.to);
               }}
             >
-              <span className="pop-item-ic">{a.ic}</span>
-              <div className="pop-item-main">
-                <div className="pop-item-title">{a.label}</div>
-                <div className="pop-item-sub">{a.desc}</div>
-              </div>
-              <span className="pop-item-arrow">→</span>
-            </div>
+              <span className="pop-item-ic" aria-hidden="true">{a.ic}</span>
+              <span className="pop-item-main">
+                <span className="pop-item-title">{t(a.label)}</span>
+                <span className="pop-item-sub">{t(a.desc)}</span>
+              </span>
+              <span className="pop-item-arrow" aria-hidden="true">→</span>
+            </button>
           ))}
         </div>
       </div>
@@ -212,30 +257,192 @@ export function QuickActionsPanel() {
   );
 }
 
-// —— 工作空间切换 ——
-type Workspace = { id: number; name: string; slug: string; is_demo: boolean };
+// —— 工作空间切换与管理(创建/编辑/删除) ——
+type Workspace = { id: number; name: string; slug: string; is_demo: boolean; target_role?: string | null; target_level?: string | null };
 export function WorkspaceSwitcher() {
+  const t = useT();
   const { wsOpen, setWsOpen } = useAppState();
-  const { data, loading, error } = useApi<{ workspaces: Workspace[] }>(wsOpen ? '/settings/workspaces' : null);
-  const [createErr, setCreateErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newRole, setNewRole] = useState('');
+  const [newLevel, setNewLevel] = useState('');
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editRole, setEditRole] = useState('');
+  const [editLevel, setEditLevel] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [confirmSlug, setConfirmSlug] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [personalBusy, setPersonalBusy] = useState(false);
+
+  const load = async () => {
+    setLoading(true); setError(null);
+    try {
+      const result = await api.get<{ workspaces: Workspace[] }>('/settings/workspaces');
+      setWorkspaces(result.workspaces ?? []);
+    } catch (e: any) {
+      setError(String(e.message || e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { if (wsOpen) void load(); }, [wsOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const select = (workspace: Workspace) => {
     selectWorkspace(workspace.slug);
     window.location.assign('/');
   };
+  const create = async () => {
+    const name = newName.trim();
+    if (!name) { setError(t('shell.workspaceNameRequired')); return; }
+    setCreating(true); setError(null);
+    try {
+      const result = await api.post<{ workspace: Workspace }>('/settings/workspaces', {
+        name,
+        ...(newRole.trim() ? { target_role: newRole.trim() } : {}),
+        ...(newLevel.trim() ? { target_level: newLevel.trim() } : {}),
+      });
+      setNewName(''); setNewRole(''); setNewLevel('');
+      select(result.workspace);
+    } catch (e: any) {
+      setError(t('shell.workspaceCreateFailed', { error: String(e.message || e) }));
+      setCreating(false);
+    }
+  };
+  const startEdit = (workspace: Workspace) => {
+    setEditingId(workspace.id); setDeletingId(null);
+    setEditName(workspace.name); setEditRole(workspace.target_role ?? ''); setEditLevel(workspace.target_level ?? '');
+  };
+  const saveEdit = async (workspace: Workspace) => {
+    const name = editName.trim();
+    if (!name) { setError(t('shell.workspaceNameRequired')); return; }
+    setSavingEdit(true); setError(null);
+    try {
+      await api.patch(`/settings/workspaces/${workspace.id}`, {
+        name,
+        ...(editRole.trim() ? { target_role: editRole.trim() } : {}),
+        ...(editLevel.trim() ? { target_level: editLevel.trim() } : {}),
+      });
+      setEditingId(null);
+      await load();
+    } catch (e: any) {
+      setError(t('shell.saveFailed', { error: String(e.message || e) }));
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+  const startDelete = (workspace: Workspace) => {
+    setDeletingId(workspace.id); setEditingId(null); setConfirmSlug('');
+  };
+  const remove = async (workspace: Workspace) => {
+    if (confirmSlug !== workspace.slug) { setError(t('shell.confirmSlugError', { slug: workspace.slug })); return; }
+    setDeleting(true); setError(null);
+    try {
+      await api.del(`/settings/workspaces/${workspace.id}`, { confirm_slug: workspace.slug });
+      setDeletingId(null); setConfirmSlug('');
+      const wasCurrent = workspace.slug === getWorkspace();
+      await load();
+      if (wasCurrent) {
+        const next = workspaces.find(w => w.id !== workspace.id) ?? workspaces[0];
+        selectWorkspace(next?.slug ?? 'personal');
+        window.location.assign('/');
+      }
+    } catch (e: any) {
+      setError(t('shell.deleteFailed', { error: String(e.message || e) }));
+      setDeleting(false);
+    }
+  };
   const personal = async () => {
-    setBusy(true); setCreateErr(null);
+    setPersonalBusy(true); setError(null);
     try { const result = await api.post<{ workspace: Workspace }>('/settings/workspaces/personal'); select(result.workspace); }
-    catch (e: any) { setCreateErr(String(e.message || e)); setBusy(false); }
+    catch (e: any) { setError(String(e.message || e)); setPersonalBusy(false); }
   };
   if (!wsOpen) return null;
-  return <Modal title="切换工作空间" onClose={() => setWsOpen(false)} size="sm">
-    {loading && <p>正在读取真实工作空间…</p>}
-    {(error || createErr) && <p role="alert">{error || createErr}</p>}
-    {(data?.workspaces ?? []).map(w => <button className="pop-item" key={w.id} onClick={() => select(w)} style={{ width: '100%', textAlign: 'left' }}>
-      <span className="ws-avatar">🧭</span><span className="pop-item-main"><span className="pop-item-title">{w.name}</span><span className="pop-item-sub">{w.is_demo ? '演示空间' : '真实个人空间'} · {w.slug}</span></span>
-      {w.slug === getWorkspace() && <span className="chip chip-purple">当前</span>}
-    </button>)}
-    <button className="btn btn-outline" disabled={busy} onClick={personal}>{busy ? '准备个人空间…' : '进入或创建真实个人空间'}</button>
+  return <Modal title={t('shell.switchWorkspace')} onClose={() => setWsOpen(false)} size="lg">
+    {loading && <p>{t('shell.loadingWorkspaces')}</p>}
+    {error && <p role="alert">{error}</p>}
+    {/* 新建 */}
+    <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+      <p style={{ fontWeight: 600, margin: '0 0 8px' }}>{t('shell.createWorkspace')}</p>
+      <label style={{ display: 'grid', gap: 4, marginBottom: 8 }}>
+        <span>{t('shell.workspaceName')}</span>
+        <input className="field" value={newName} onChange={e => setNewName(e.target.value)} maxLength={120} placeholder={t('shell.workspaceName')} />
+      </label>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+        <label style={{ display: 'grid', gap: 4 }}>
+          <span>{t('shell.targetRole')}</span>
+          <input className="field" value={newRole} onChange={e => setNewRole(e.target.value)} maxLength={160} />
+        </label>
+        <label style={{ display: 'grid', gap: 4 }}>
+          <span>{t('shell.targetLevel')}</span>
+          <input className="field" value={newLevel} onChange={e => setNewLevel(e.target.value)} maxLength={16} placeholder={t('shell.levelExample')} />
+        </label>
+      </div>
+      <button className="btn btn-primary" disabled={creating || !newName.trim()} onClick={create}>
+        {creating ? t('shell.creating') : t('shell.create')}
+      </button>
+    </div>
+    {/* 列表 */}
+    {workspaces.map(w => {
+      const isEditing = editingId === w.id;
+      const isDeleting = deletingId === w.id;
+      const active = w.slug === getWorkspace();
+      return <div key={w.id} className="card" style={{ padding: 10, marginBottom: 8 }}>
+        {!isEditing && !isDeleting && <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="ws-avatar">🧭</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600 }}>{w.name}</div>
+              <div className="pop-item-sub">{t('shell.workspaceWithSlug', { label: t(w.is_demo ? 'shell.demoSpace' : 'shell.personalSpace'), slug: w.slug })}</div>
+            </div>
+            {active && <span className="chip chip-purple">{t('shell.activeWorkspace')}</span>}
+            <button className="btn btn-sm" onClick={() => select(w)}>{t('shell.enterWorkspace')}</button>
+            <button className="btn btn-sm" onClick={() => startEdit(w)}>{t('shell.edit')}</button>
+            <button className="btn btn-sm" onClick={() => startDelete(w)}>{t('shell.deleteWorkspace')}</button>
+          </div>
+          {(w.target_role || w.target_level) && <div className="pop-item-sub" style={{ marginTop: 4 }}>
+            {t('shell.roleAndLevel', { role: w.target_role ?? '—', level: w.target_level ?? '—' })}
+          </div>}
+        </>}
+        {isEditing && <>
+          <label style={{ display: 'grid', gap: 4, marginBottom: 6 }}>
+            <span>{t('shell.workspaceName')}</span>
+            <input className="field" value={editName} onChange={e => setEditName(e.target.value)} maxLength={120} />
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+            <label style={{ display: 'grid', gap: 4 }}>
+              <span>{t('shell.targetRole')}</span>
+              <input className="field" value={editRole} onChange={e => setEditRole(e.target.value)} maxLength={160} />
+            </label>
+            <label style={{ display: 'grid', gap: 4 }}>
+              <span>{t('shell.targetLevel')}</span>
+              <input className="field" value={editLevel} onChange={e => setEditLevel(e.target.value)} maxLength={16} placeholder={t('shell.levelExample')} />
+            </label>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-primary" disabled={savingEdit || !editName.trim()} onClick={() => saveEdit(w)}>{savingEdit ? t('shell.creating') : t('shell.save')}</button>
+            <button className="btn" onClick={() => setEditingId(null)}>{t('shell.cancel')}</button>
+          </div>
+        </>}
+        {isDeleting && <>
+          <p style={{ fontWeight: 600, margin: '0 0 4px' }}>{t('shell.deleteWorkspaceTitle')}</p>
+          <p className="pop-item-sub" style={{ marginBottom: 8 }}>{t('shell.deleteWorkspaceHint')}</p>
+          <label style={{ display: 'grid', gap: 4, marginBottom: 8 }}>
+            <span>{t('shell.confirmSlug', { slug: w.slug })}</span>
+            <input className="field" value={confirmSlug} onChange={e => setConfirmSlug(e.target.value)} placeholder={w.slug} />
+          </label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-danger" disabled={deleting} onClick={() => remove(w)}>{deleting ? t('shell.deleting') : t('shell.deleteWorkspace')}</button>
+            <button className="btn" onClick={() => setDeletingId(null)}>{t('shell.cancel')}</button>
+          </div>
+        </>}
+      </div>;
+    })}
+    <button className="btn btn-outline" disabled={personalBusy} onClick={personal}>{personalBusy ? t('shell.openingPersonalWorkspace') : t('shell.enterPersonalWorkspace')}</button>
   </Modal>;
 }

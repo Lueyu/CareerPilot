@@ -12,8 +12,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import lazyload
 
+from app.i18n import message as localized_message
 from app.api.public_auth import current_workspace
 from app.db import get_session
+from app.i18n import message
 from app.models.public_coach import CoachCandidate, CoachThread, CoachTurn
 from app.models.question import SOURCE_GENERATED, Question
 from app.models.study_chat import StudySession
@@ -93,7 +95,7 @@ async def _thread(db, workspace_id, thread_id, *, lock=False):
     stmt = _threads(workspace_id).where(CoachThread.id == thread_id)
     thread = await db.scalar(stmt.with_for_update() if lock else stmt)
     if thread is None:
-        raise HTTPException(404, "找不到这段对话")
+        raise HTTPException(404, localized_message("errors.conversation_not_found"))
     return thread
 
 
@@ -132,9 +134,9 @@ async def create_thread(body: ThreadInput, db: Database, ws: MemberWorkspace):
             )
         )
         if question is None:
-            raise HTTPException(404, "找不到这道题")
+            raise HTTPException(404, localized_message("errors.question_not_found"))
     if body.mode == "interview" and question is None:
-        raise HTTPException(422, "请先从题库选择一道面试题")
+        raise HTTPException(422, localized_message("errors.choose_an_interview_question_from_the_question_bank_first"))
     role, direction = ws.target_role, body.direction
     if question is not None:
         meta = question.generation_meta or {}
@@ -153,7 +155,7 @@ async def create_thread(body: ThreadInput, db: Database, ws: MemberWorkspace):
             or ""
         )
 
-    title = question.title if question is not None else direction or "学习对话"
+    title = question.title if question is not None else direction or message("session.study")
     row = CoachThread(
         workspace_id=ws.id,
         mode=body.mode,
@@ -187,7 +189,7 @@ async def create_turn(
     prior = next((item for item in turns if item.request_id == str(body.request_id)), None)
     if prior is not None:
         if (prior.action, prior.user_text, prior.target_number) != (body.action, body.text, body.target_number):
-            raise HTTPException(409, "请求编号已被另一条消息使用")
+            raise HTTPException(409, localized_message("errors.this_request_id_is_already_in_use_for_a"))
         return turn_view(prior)
     turn = admit_turn(thread, turns, body)
     if body.target_number is not None:
@@ -199,7 +201,7 @@ async def create_turn(
             )
         )
         if exists is None:
-            raise HTTPException(409, "找不到当前题号，请刷新候选题")
+            raise HTTPException(409, localized_message("errors.question_number_not_found_refresh_the_list_of_draft"))
     if not turns and thread.mode == "study" and thread.question_title is None:
         thread.title = (body.text or thread.title)[:64]
     thread.updated_at = now()
@@ -224,11 +226,11 @@ async def retry_turn(
     turns = await thread_turns(db, thread_id)
     turn = next((item for item in turns if item.id == turn_id), None)
     if turn is None:
-        raise HTTPException(404, "找不到这条消息")
+        raise HTTPException(404, localized_message("errors.message_not_found"))
     if effective_status(turn) != "failed" or body.attempt != turn.attempt:
         return turn_view(turn)
     if turn.id != turns[-1].id:
-        raise HTTPException(409, "请重试最新一轮，或继续对话")
+        raise HTTPException(409, localized_message("errors.retry_the_latest_turn_or_continue_the_conversation"))
     workspace_id = ws.id
     turn.attempt += 1
     # A hint may already have been read when its first attempt failed.
@@ -256,7 +258,7 @@ async def stream_turn(thread_id: int, turn_id: int, db: Database, ws: MemberWork
         )
     )
     if owns_turn is None:
-        raise HTTPException(404, "找不到这条消息")
+        raise HTTPException(404, localized_message("errors.message_not_found"))
     # Release the dependency's transaction and connection before entering the SSE loop.
     await db.rollback()
     return StreamingResponse(
@@ -279,11 +281,11 @@ async def collect_candidate(thread_id: int, candidate_id: int, db: Database, ws:
         )
     )
     if candidate is None:
-        raise HTTPException(404, "找不到这道候选题")
+        raise HTTPException(404, localized_message("errors.draft_question_not_found"))
     if candidate.question_id is not None:
         return {"question_id": candidate.question_id}
     if candidate.superseded:
-        raise HTTPException(409, "这道候选题已有新版本")
+        raise HTTPException(409, localized_message("errors.a_newer_version_of_this_draft_question_is_available"))
     reference = escape(candidate.reference).replace("\n", "<br>") if candidate.reference else None
     question = Question(
         short_code=f"PC-{uuid4().hex[:24]}",
@@ -363,7 +365,7 @@ async def save_reply(thread_id: int, turn_id: int, db: Database, ws: MemberWorks
     thread = await _thread(db, ws.id, thread_id, lock=True)
     turn = await db.scalar(select(CoachTurn).where(CoachTurn.thread_id == thread.id, CoachTurn.id == turn_id))
     if thread.mode != "study" or not turn or turn.status != "completed" or not turn.reply.strip():
-        raise HTTPException(404, "找不到可保存的学习回复")
+        raise HTTPException(404, localized_message("errors.no_study_reply_is_available_to_save"))
 
     # The native notebook owns version history. Its origin session anchors this explicit snapshot.
     existing = await db.scalar(

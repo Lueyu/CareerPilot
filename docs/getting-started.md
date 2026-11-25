@@ -13,7 +13,9 @@ cp .env.example .env
 docker compose up -d --build --wait
 ```
 
-打开 [本机工作空间](http://127.0.0.1:5173/)。从左侧进入 **考试与面经 → 查看题库**，选一道题点 **查看参考**。在自己的工作空间里，也可以点 **导入面经**，粘贴题目，审核后保存在「我的题目」。
+打开 [本机工作空间](http://127.0.0.1:5173/)。顶部语言菜单可选 **简体中文** 或 **English**，学习助手的新回复和面试官的新提问会使用所选语言。
+
+从左侧进入 **考试与面经 → 查看题库**，选一道题点 **查看参考**。在自己的工作空间里，也可以点 **导入面经**，粘贴题目，审核后保存在「我的题目」。
 
 ## 打开首页截图里的工作空间
 
@@ -37,4 +39,4 @@ docker compose exec server python -m app.showcase
 - **提示端口已占用**　在 `.env` 中调整相应端口并运行 `docker compose up -d --wait`。例如将 `WEB_HOST_PORT` 改为 `127.0.0.1:15173` 后，用 `http://127.0.0.1:15173/` 访问。配置保留 `127.0.0.1` 以供本机使用。
 - **页面或服务没起来**　运行 `docker compose ps` 看服务状态，运行 `docker compose logs --tail=60 server web` 查看启动错误。构建阶段下载失败时，先检查 Docker 的网络或代理配置，再重试启动命令。
 
-[在 Windows 分别启动前后端](getting-started-windows.md) · [备份与恢复](../LOCAL_DEPLOYMENT_GUIDE.md) · [参与开发](../CONTRIBUTING.md)
+[在 Windows 分别启动前后端](getting-started-windows.md) · [备份与恢复](../LOCAL_DEPLOYMENT_GUIDE.md) · [配置反馈邮箱](product-feedback.md) · [参与开发](../CONTRIBUTING.md)

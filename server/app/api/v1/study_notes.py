@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from app.api.deps import get_workspace
 from app.db import get_session
+from app.i18n import message as localized_message, request_language, using_language
 from app.models import Workspace
 from app.models.study_notes import StudyCard, StudyCardEvent, StudyNoteJob
 from app.services import note_store as notebook
@@ -30,6 +31,7 @@ class JobIn(Input):
 
 class CardGenIn(Input):
     version_id: int = Field(gt=0)
+    note_job_id: int | None = Field(default=None, gt=0)
 
 
 class CardEditIn(Input):
@@ -50,11 +52,15 @@ def expired(job):
 
 def job_view(job):
     stale = expired(job)
-    return {"id": job.id, "session_id": job.session_id, "status": "FAILED" if stale else job.status,
+    status = "FAILED" if stale else job.status
+    error = service.interrupted_note_error(job) if stale else job.error
+    if status == "FAILED" and not error:
+        error = localized_message("note.failed", service.note_output_language(job.snapshot))
+    return {"id": job.id, "session_id": job.session_id, "status": status,
             "base_version_id": job.base_version_id, "version_id": job.version_id, "note_id": job.note_id,
             "request_id": job.request_id, "conflict": job.conflict, "created_at": job.created_at,
             "message_ids": [m["id"] for m in job.snapshot],
-            "error": "上次整理已中断，可以重试" if stale else job.error}
+            "error": error}
 
 
 @router.post("/sessions/{session_id}/note-jobs", status_code=202)
@@ -74,7 +80,7 @@ async def own_job(db, workspace_id, job_id, *, lock=False):
     query = select(StudyNoteJob).where(StudyNoteJob.workspace_id == workspace_id, StudyNoteJob.id == job_id)
     job = await db.scalar(query.with_for_update() if lock else query)
     if not job:
-        raise HTTPException(404, "整理任务不存在")
+        raise HTTPException(404, localized_message("errors.note_generation_job_not_found"))
     return job
 
 
@@ -123,7 +129,7 @@ async def own_card(db, workspace_id, card_id, *, lock=False):
                                   StudyCard.status != "DELETED")
     card = await db.scalar(stmt.with_for_update() if lock else stmt)
     if not card:
-        raise HTTPException(404, "复习卡不存在")
+        raise HTTPException(404, localized_message("errors.review_card_not_found"))
     return card
 
 
@@ -138,9 +144,16 @@ async def create_cards(note_id: int, body: CardGenIn, ws=Depends(get_workspace),
     # Only generation on this immutable version waits on the bounded provider call.
     # If the request is interrupted, its transaction releases the lock for a retry.
     version = await notebook.own_version(db, note_id, body.version_id, lock=True)
+    language = request_language()
+    if body.note_job_id is not None:
+        job = await own_job(db, ws.id, body.note_job_id)
+        if job.note_id != note_id or job.version_id != version.id or job.status != "SUCCEEDED":
+            raise HTTPException(404, localized_message("errors.note_generation_job_not_found"))
+        language = service.note_output_language(job.snapshot)
     if not version.cards_generated:
         try:
-            generated = await service.generate_cards(version.body)
+            with using_language(language):
+                generated = await service.generate_cards(version.body)
         except service.GenerationError as exc:
             raise HTTPException(502, str(exc)) from exc
         for item in generated:
@@ -201,12 +214,12 @@ async def delete_card(card_id: int, ws=Depends(get_workspace), db=Depends(get_se
 async def review_card(card_id: int, body: ReviewIn, ws=Depends(get_workspace), db=Depends(get_session)):
     card = await own_card(db, ws.id, card_id, lock=True)
     if card.status != "ACTIVE":
-        raise HTTPException(409, "请先将卡片加入复习")
+        raise HTTPException(409, localized_message("errors.add_the_card_to_review_first"))
     event = await db.scalar(select(StudyCardEvent).where(StudyCardEvent.card_id == card.id,
                                                         StudyCardEvent.request_id == body.request_id))
     if event:
         if event.rating != body.rating:
-            raise HTTPException(409, "该自评请求已提交其他结果")
+            raise HTTPException(409, localized_message("errors.this_self_assessment_request_already_contains_a_different_result"))
     else:
         now = service.utcnow()
         card.next_review_at = now + {"again": timedelta(minutes=10), "hard": timedelta(days=1),

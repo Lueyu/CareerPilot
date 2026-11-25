@@ -1,3 +1,4 @@
+import { useT } from '../i18n';
 import { forwardRef, type ComponentPropsWithoutRef, type KeyboardEvent, type ReactNode } from 'react';
 
 export function submitKey(event: KeyboardEvent<HTMLTextAreaElement>, send: () => void) {
@@ -7,7 +8,7 @@ export function submitKey(event: KeyboardEvent<HTMLTextAreaElement>, send: () =>
   }
 }
 
-const dayGroups = ['今天', '昨天', '近七天', '较早'];
+const dayGroups = ["study.today", "study.yesterday", "study.lastSevenDays", "study.older"] as const;
 function dayGroup(value: string) {
   const date = new Date(value);
   const midnight = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
@@ -31,8 +32,9 @@ export function StudyHistory<Row extends { id: number; updated_at?: string }>({ 
   rows: Row[];
   renderRow: (row: Row) => ReactNode;
 }) {
+  const t = useT();
   return <>{dayGroups.map(group => {
-    const items = rows.filter(row => (row.updated_at ? dayGroup(row.updated_at) : '较早') === group);
-    return items.length > 0 && <section key={group}><h2>{group}</h2>{items.map(renderRow)}</section>;
+    const items = rows.filter(row => (row.updated_at ? dayGroup(row.updated_at) : 'study.older') === group);
+    return items.length > 0 && <section key={group}><h2>{t(group)}</h2>{items.map(renderRow)}</section>;
   })}</>;
 }

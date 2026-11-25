@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useT } from '../i18n';
 import MemoryTimeline, { type MemoryEntry } from '../components/MemoryTimeline';
-import { useWorkspaceApi } from './api';
+import { messageFor, renderMessage, useWorkspaceApi, type UiMessage } from './api';
 
 type Experience = {
   id: number;
@@ -24,24 +25,25 @@ function toMemoryEntry(experience: Experience): MemoryEntry {
 }
 
 export default function Memory() {
+  const t = useT();
   const { request } = useWorkspaceApi();
   const [entries, setEntries] = useState<Experience[]>([]);
   const [draft, setDraft] = useState('');
   const [editing, setEditing] = useState<number | null>(null);
   const [removing, setRemoving] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<UiMessage | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
+  const [loadError, setLoadError] = useState<UiMessage | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
-    setLoadError('');
+    setLoadError(null);
     try {
       setEntries(await request<Experience[]>('/memories', { signal }));
     } catch (error) {
-      if (!signal?.aborted) setLoadError(error instanceof Error ? error.message : '无法读取经历。');
+      if (!signal?.aborted) setLoadError(messageFor(error, 'registered.experienceLoadFailed'));
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
@@ -61,7 +63,7 @@ export default function Memory() {
   async function save() {
     if (busy || loading || !draft.trim()) return;
     setBusy(true);
-    setError('');
+    setError(null);
     try {
       const path = editing === null ? '/memories' : '/memories/' + editing;
       const saved = await request<Experience>(path, {
@@ -71,7 +73,7 @@ export default function Memory() {
       setEntries(old => editing === null ? [saved, ...old] : old.map(entry => entry.id === saved.id ? saved : entry));
       cancelEdit();
     } catch (error) {
-      setError(error instanceof Error ? error.message : '无法保存经历。');
+      setError(messageFor(error, 'registered.experienceSaveFailed'));
     } finally {
       setBusy(false);
     }
@@ -79,14 +81,14 @@ export default function Memory() {
 
   async function remove(id: number) {
     setBusy(true);
-    setError('');
+    setError(null);
     try {
       await request('/memories/' + id, { method: 'DELETE' });
       setEntries(old => old.filter(entry => entry.id !== id));
       setRemoving(null);
       if (editing === id) cancelEdit();
     } catch (error) {
-      setError(error instanceof Error ? error.message : '无法删除经历。');
+      setError(messageFor(error, 'registered.experienceDeleteFailed'));
     } finally {
       setBusy(false);
     }
@@ -96,16 +98,16 @@ export default function Memory() {
   return <div className="memory-page">
     <header className="page-head">
       <div>
-        <h1 className="page-title">项目记忆</h1>
-        <p className="page-sub">写下你亲自做过的事。确认后，学习助手和面试官可以引用这些经历。</p>
+        <h1 className="page-title">{t('registered.projectMemory')}</h1>
+        <p className="page-sub">{t('registered.projectMemoryGuidance')}</p>
       </div>
       <div className="page-actions">
-        <button type="button" className="btn btn-outline" disabled={disabled} onClick={() => void refresh()}>刷新记忆</button>
+        <button type="button" className="btn btn-outline" disabled={disabled} onClick={() => void refresh()}>{t('registered.refreshMemory')}</button>
       </div>
     </header>
     <form className="card memory-panel" onSubmit={event => { event.preventDefault(); void save(); }}>
       <label className="field">
-        <span>{editing === null ? '添加一段经历' : '修改这段经历'}</span>
+        <span>{editing === null ? t('registered.addExperience') : t('registered.editExperience')}</span>
         <textarea
           ref={textarea}
           className="textarea"
@@ -115,39 +117,39 @@ export default function Memory() {
           required
           disabled={busy}
           onChange={event => setDraft(event.target.value)}
-          placeholder="例如：我负责一次校园社群拉新，设计了两种邀请文案，并比较它们的转化率。"
+          placeholder={t('registered.experiencePlaceholder')}
         />
       </label>
       <div className="mem-actions">
-        <button type="submit" className="btn btn-primary" disabled={disabled || !draft.trim()}>确认并保存经历</button>
-        {editing !== null && <button type="button" className="btn btn-outline" disabled={busy} onClick={cancelEdit}>取消修改</button>}
+        <button type="submit" className="btn btn-primary" disabled={disabled || !draft.trim()}>{t('registered.confirmAndSaveExperience')}</button>
+        {editing !== null && <button type="button" className="btn btn-outline" disabled={busy} onClick={cancelEdit}>{t('registered.cancelEdit')}</button>}
       </div>
     </form>
     {loadError && <div role="alert" className="demo-banner demo-banner-err">
-      无法读取记忆：{loadError}。<button type="button" className="btn btn-outline btn-sm" disabled={disabled} onClick={() => void refresh()}>重试</button>
+      {t('registered.memoryReadError', { error: renderMessage(loadError, t) })}<button type="button" className="btn btn-outline btn-sm" disabled={disabled} onClick={() => void refresh()}>{t('registered.retry')}</button>
     </div>}
-    {error && <div role="alert" className="demo-banner demo-banner-err">操作失败：{error}</div>}
-    {loading && <p role="status">正在读取经历…</p>}
+    {error && <div role="alert" className="demo-banner demo-banner-err">{t('registered.memoryActionError', { error: renderMessage(error, t) })}</div>}
+    {loading && <p role="status">{t('registered.experiencesLoading')}</p>}
     {(!loadError || entries.length > 0) && <MemoryTimeline
       items={entries.map(toMemoryEntry)}
-      title="已确认的经历"
-      summary={entries.length + ' 条已保存'}
-      empty={!loading && <div className="memory-panel"><h2>还没有保存的经历。</h2></div>}
+      title={t('registered.confirmedExperiences')}
+      summary={t('registered.savedExperienceCount', { count: entries.length })}
+      empty={!loading && <div className="memory-panel"><h2>{t('registered.noSavedExperiences')}</h2></div>}
       details={entry => <div className="mem-actions">
         <button type="button" className="btn btn-outline btn-sm" disabled={disabled} onClick={() => {
           setDraft(entry.content);
           setEditing(entry.id);
           setRemoving(null);
-          setError('');
+          setError(null);
           textarea.current?.focus();
-        }}>修改</button>
+        }}>{t('registered.edit')}</button>
         {removing === entry.id ? <>
-          <button type="button" className="btn btn-danger btn-sm" disabled={disabled} onClick={() => void remove(entry.id)}>确认删除这段经历</button>
-          <button type="button" className="btn btn-outline btn-sm" disabled={busy} onClick={() => setRemoving(null)}>取消</button>
+          <button type="button" className="btn btn-danger btn-sm" disabled={disabled} onClick={() => void remove(entry.id)}>{t('registered.confirmDeleteExperience')}</button>
+          <button type="button" className="btn btn-outline btn-sm" disabled={busy} onClick={() => setRemoving(null)}>{t('registered.cancel')}</button>
         </> : <button type="button" className="btn btn-ghost btn-sm" disabled={disabled} onClick={() => {
           setRemoving(entry.id);
-          setError('');
-        }}>删除</button>}
+          setError(null);
+        }}>{t('registered.delete')}</button>}
       </div>}
     />}
   </div>;

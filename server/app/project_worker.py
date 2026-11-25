@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from app.db import SessionLocal, engine
+from app.generation_i18n import saved_language
 from app.models import AnalysisStep, AppSetting, MemoryItem, Project, ProjectAnalysis, WorkerHeartbeat
 from app.services import project_autopilot_engine as analysis
 from app.services import project_jobs as jobs
@@ -19,6 +20,7 @@ from app.services.project_autopilot_config import CONSENT_VERSION, model_fingerp
 from app.services.project_candidates import invalidate_changed_sources, publish_candidates
 from app.services.project_context import project_kind
 from app.services.project_memory import PROJECT_TYPES, active_project_memories
+from app.services.project_report_i18n import report_message
 from app.services.project_run_compatibility import assert_compatible
 from app.services.tracing import emit_event
 
@@ -77,6 +79,7 @@ async def context_for(session,run,project):
         steps=(await session.scalars(select(AnalysisStep).where(AnalysisStep.run_id==baseline.id,
             AnalysisStep.workspace_id==run.workspace_id,AnalysisStep.status=='SUCCEEDED'))).all()
         previous={'snapshot':baseline.snapshot,'report':baseline.report,
+            'generation_language':saved_language((baseline.result_meta or {}).get('generation_language')),
             'artifacts':{s.step_key:s.output_json for s in steps}}
     info={k:getattr(project,k) for k in ('id','name','owner','repo','branch','repo_url')}
     info['kind']=project_kind(project)
@@ -98,6 +101,7 @@ async def context_for(session,run,project):
     context={'run_id':run.id,'workspace_id':run.workspace_id,'project_id':project.id,'project':info,
         'pipeline_version':run.pipeline_version,'prompt_bundle_version':run.prompt_bundle_version,
         'mode':run.mode,'target_sha':run.target_sha,'base_sha':baseline.source_revision if baseline else None,
+        'generation_language':saved_language((run.result_meta or {}).get('generation_language')),
         'baseline':previous,'model_config_fingerprint':run.model_config_fingerprint,'budget':run.budget,
         'claim_reviews':(run.result_meta or {}).get('claim_reviews', []),
         'source_splits':(run.result_meta or {}).get('source_splits', []),
@@ -155,7 +159,8 @@ async def reconcile(factory=SessionLocal):
                         await invalidate_changed_sources(session,project,None,run.source_revision)
                     await emit_event(session,run.workspace_id,'project.report.saved',{'coverage':'COMPLETE'},'project_analysis',run.id)
                 elif run.report_status=='PARTIAL':
-                    run.status='BLOCKED';run.error='部分模块或章节未完成，已保存阶段结果；完整报告尚未生成。'
+                    run.status='BLOCKED'
+                    run.error=report_message('coverage.partial_saved', saved_language(context.get('generation_language')))
             if 'candidates' in artifacts and run.report_status=='VALID' and run.status in jobs.ACTIVE:
                 await publish_candidates(session,run,artifacts['candidates'].get('candidates',[]))
                 run.status='COMPLETED';run.finished_at=jobs.utcnow();run.updated_at=jobs.utcnow()
@@ -200,11 +205,13 @@ async def execute_claim(claim,worker_id,factory=SessionLocal,lease_seconds=45,he
             await jobs.fail_step(session,claim,exc.category,str(exc));return
         step=await session.get(AnalysisStep,claim.step_id)
         repair=_repair_diagnostic(step)
+        run_meta = getattr(run, 'result_meta', None) or {}
         runtime=analysis.RuntimeContext(workspace_id=claim.workspace_id,project_id=claim.project_id,
             llm_config=config,credentials=credentials,max_source_bytes=run.budget.get('max_source_bytes'),
             request_timeout=run.budget.get('request_timeout',180),input_chars=run.budget.get('input_chars',40000),
-            transport_mode=(getattr(run,'result_meta',None) or {}).get('transport_mode','json'),
-            stage_timeout=(getattr(run,'result_meta',None) or {}).get('stage_timeout_seconds'))
+            transport_mode=run_meta.get('transport_mode','json'),
+            stage_timeout=run_meta.get('stage_timeout_seconds'),
+            language=saved_language(run_meta['generation_language']) if 'generation_language' in run_meta else None)
         # Recheck immediately before dispatch; a queued cancellation must not
         # launch a new external request merely because a lease was once valid.
         if not await jobs.heartbeat(session,claim,lease_seconds):return

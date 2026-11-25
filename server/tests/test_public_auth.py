@@ -201,6 +201,7 @@ async def test_origin_and_host_guard_covers_every_write_and_keeps_credentials_ou
             ("POST", "/register"),
             ("POST", "/login"),
             ("POST", "/recover"),
+            ("POST", "/password"),
             ("POST", "/logout"),
             ("DELETE", "/account"),
         ]:
@@ -274,6 +275,31 @@ async def test_attempt_limits_persist_across_instances_and_charge_parallel_failu
         assert sorted(attempt.status_code for attempt in attempts) == [201] * 6 + [429]
     async with browser(ip="192.0.2.30") as second:
         assert (await second.post(f"{AUTH}/register", json=credentials("later_registration"))).status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_change_password_rotates_sessions_and_keeps_the_current_one(browser):
+    async with browser() as owner, browser() as other:
+        registration = await owner.post(f"{AUTH}/register", json=credentials("rotate_pw"))
+        assert registration.status_code == 201
+        assert (await other.post(f"{AUTH}/login", json=credentials("rotate_pw"))).status_code == 200
+
+        wrong = await owner.post(f"{AUTH}/password", json={"current_password": "wrong", "new_password": REPLACEMENT})
+        assert wrong.status_code == 401
+        assert "wrong" not in wrong.text
+
+        changed = await owner.post(f"{AUTH}/password", json={"current_password": PASSWORD, "new_password": REPLACEMENT})
+        assert changed.status_code == 204
+        assert changed.content == b""
+        # The current session stays valid; every other session is revoked.
+        assert (await owner.get(f"{AUTH}/me")).status_code == 200
+        assert (await other.get(f"{AUTH}/me")).status_code == 401
+        # The old password no longer works; the replacement does.
+        assert (await other.post(f"{AUTH}/login", json=credentials("rotate_pw"))).status_code == 401
+        assert (await other.post(f"{AUTH}/login", json=credentials("rotate_pw", REPLACEMENT))).status_code == 200
+        # A too-short replacement is rejected by validation.
+        rejected = await owner.post(f"{AUTH}/password", json={"current_password": REPLACEMENT, "new_password": "short"})
+        assert rejected.status_code == 422
 
 
 @pytest.mark.parametrize("origin", ["", "http://seed.test", "https://seed.test/", "https://a@seed.test", "https://seed.test:443"])

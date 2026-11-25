@@ -280,7 +280,8 @@ async def test_workspace_token_study_turn_uses_own_current_scan(db_session, test
         async with factory() as session:
             yield session
 
-    async def fixture_generate(turn, settings, deadline, trace, save, fail):
+    async def fixture_generate(turn, settings, deadline, trace, save, fail, language):
+        assert language == "zh-CN"
         await save("completed", status="completed", content="Synthetic response", expires_at=None)
 
     monkeypatch.setattr(worker, "_generate", fixture_generate)

@@ -11,7 +11,9 @@
 from __future__ import annotations
 
 import json
+import re
 import time
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -20,6 +22,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace, require_auth, require_local_owner
 from app.config import get_settings
 from app.db import get_session
@@ -89,6 +92,106 @@ async def create_personal_workspace(session: AsyncSession = Depends(get_session)
         raise HTTPException(409, str(exc)) from exc
     await session.commit()
     return {"workspace": _workspace_view(ws)}
+
+
+# --------------------------------------------------------------------------
+# 工作空间维护: 创建任意空间 / 按 id 编辑 / 按 id 删除(本地 owner)
+# --------------------------------------------------------------------------
+class WorkspaceCreate(BaseModel):
+    name: str
+    target_role: str | None = None
+    target_level: str | None = None
+
+
+async def _allocate_slug(session: AsyncSession, name: str) -> str:
+    """由名称生成唯一 slug: ASCII 化 -> 截 48 -> 冲突或全中文时追加短随机后缀。"""
+    base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:48]
+    if not base:
+        return f"ws-{uuid.uuid4().hex[:8]}"
+    candidate = base
+    for _ in range(8):
+        exists = (
+            await session.execute(select(Workspace.id).where(Workspace.slug == candidate))
+        ).scalar_one_or_none()
+        if exists is None:
+            return candidate
+        candidate = f"{base}-{uuid.uuid4().hex[:8]}"
+    return f"ws-{uuid.uuid4().hex[:12]}"
+
+
+async def _manageable_workspace(session: AsyncSession, workspace_id: int, scope: str | None) -> Workspace:
+    """按 id 取工作空间, 并执行与 list 一致的可见性防护:
+    - scope 为 str 时只能操作该 slug 的空间;
+    - scope 为 None(本地 owner) 时不得操作 token_hashes 里的租户空间。
+    """
+    cfg = get_settings()
+    ws = (
+        await session.execute(select(Workspace).where(Workspace.id == workspace_id))
+    ).scalar_one_or_none()
+    if ws is None:
+        raise HTTPException(status_code=404, detail=localized_message("errors.this_workspace_does_not_exist"))
+    if (scope is not None and ws.slug != scope) or (scope is None and ws.slug in cfg.workspace_token_hashes):
+        raise HTTPException(status_code=404, detail=localized_message("errors.this_workspace_does_not_exist"))
+    return ws
+
+
+@router.post("/settings/workspaces", dependencies=[Depends(require_local_owner)])
+async def create_workspace(
+    body: WorkspaceCreate,
+    session: AsyncSession = Depends(get_session),
+):
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail=localized_message("errors.enter_a_workspace_name"))
+    slug = await _allocate_slug(session, name)
+    # 本地 owner 身份: 复用 personal 空间的 owner 用户
+    personal = await ensure_personal_workspace(session)
+    owner = await _owner_user(session, personal)
+    ws = Workspace(
+        slug=slug,
+        name=name,
+        target_role=body.target_role,
+        target_level=body.target_level,
+        is_demo=False,
+    )
+    session.add(ws)
+    await session.flush()
+    if owner is not None:
+        session.add(WorkspaceMember(workspace_id=ws.id, user_id=owner.id, role="owner"))
+    await session.commit()
+    return {"workspace": _workspace_view(ws)}
+
+
+@router.patch("/settings/workspaces/{workspace_id}", dependencies=[Depends(require_local_owner)])
+async def update_workspace_by_id(
+    workspace_id: int,
+    body: WorkspaceUpdate,
+    session: AsyncSession = Depends(get_session),
+    scope: str | None = Depends(require_auth),
+):
+    ws = await _manageable_workspace(session, workspace_id, scope)
+    data = body.model_dump(exclude_none=True)
+    if not data:
+        raise HTTPException(status_code=422, detail=localized_message("errors.there_are_no_fields_to_update"))
+    for k, v in data.items():
+        setattr(ws, k, v)
+    await session.commit()
+    return {"workspace": _workspace_view(ws)}
+
+
+@router.delete("/settings/workspaces/{workspace_id}", dependencies=[Depends(require_local_owner)])
+async def delete_workspace_by_id(
+    workspace_id: int,
+    body: WorkspaceDelete,
+    session: AsyncSession = Depends(get_session),
+    scope: str | None = Depends(require_auth),
+):
+    ws = await _manageable_workspace(session, workspace_id, scope)
+    if body.confirm_slug != ws.slug:
+        raise HTTPException(status_code=422, detail=f"确认标识不匹配: 需要输入工作空间标识 '{ws.slug}'")
+    await session.execute(delete(Workspace).where(Workspace.id == ws.id))
+    await session.commit()
+    return {"deleted": ws.slug}
 
 
 # --------------------------------------------------------------------------
@@ -188,7 +291,7 @@ async def update_workspace(
 ):
     data = body.model_dump(exclude_none=True)
     if not data:
-        raise HTTPException(status_code=422, detail="没有要更新的字段")
+        raise HTTPException(status_code=422, detail=localized_message("errors.there_are_no_fields_to_update"))
     for k, v in data.items():
         setattr(ws, k, v)
     await session.commit()
@@ -370,12 +473,12 @@ async def update_account(
 ):
     user = await _owner_user(session, ws)
     if user is None:
-        raise HTTPException(status_code=404, detail="找不到工作空间的账号记录")
+        raise HTTPException(status_code=404, detail=localized_message("errors.no_account_record_was_found_for_this_workspace"))
     data = body.model_dump(exclude_none=True)
     if not data:
-        raise HTTPException(status_code=422, detail="没有要更新的字段")
+        raise HTTPException(status_code=422, detail=localized_message("errors.there_are_no_fields_to_update"))
     if "email" in data and ("@" not in data["email"]):
-        raise HTTPException(status_code=422, detail="邮箱格式不正确")
+        raise HTTPException(status_code=422, detail=localized_message("errors.enter_a_valid_email_address"))
     for k, v in data.items():
         setattr(user, k, v)
     await session.commit()
@@ -450,7 +553,7 @@ async def update_llm(
 ):
     data = body.model_dump(exclude_none=True)
     if not data:
-        raise HTTPException(status_code=422, detail="没有要更新的字段")
+        raise HTTPException(status_code=422, detail=localized_message("errors.there_are_no_fields_to_update"))
     statement = select(AppSetting).where(AppSetting.key == "llm").with_for_update()
     row = (await session.execute(statement)).scalar_one_or_none()
     existing = row.value if row and isinstance(row.value, dict) else {}
@@ -539,7 +642,7 @@ async def get_github():
 async def update_github(body: GithubUpdate, session: AsyncSession = Depends(get_session)):
     token = body.token.strip()
     if not token:
-        raise HTTPException(status_code=422, detail="token 不能为空")
+        raise HTTPException(status_code=422, detail=localized_message("errors.enter_a_token"))
     row = (await session.execute(select(AppSetting).where(AppSetting.key == "github"))).scalar_one_or_none()
     if not row:
         row = AppSetting(key="github", value={"token": token})
@@ -574,7 +677,7 @@ async def update_gitcode_read_settings(
 ):
     token = body.token.strip()
     if not token or len(token) > 2048 or any(not 33 <= ord(ch) <= 126 for ch in token):
-        raise HTTPException(422, "GitCode token 格式无效")
+        raise HTTPException(422, localized_message("errors.invalid_gitcode_token_format"))
     key = f"gitcode:{ws.id}"
     row = await session.get(AppSetting, key)
     if row is None:

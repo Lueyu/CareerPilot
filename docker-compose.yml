@@ -1,3 +1,17 @@
+x-backend-environment: &backend-environment
+  DATABASE_URL: postgresql+asyncpg://careerpilot:careerpilot_dev@postgres:5432/careerpilot
+  API_TOKEN: ${API_TOKEN:-cp-dev-token}
+  DEFAULT_WORKSPACE_SLUG: ${DEFAULT_WORKSPACE_SLUG:-personal}
+  LLM_PROVIDER: ${LLM_PROVIDER:-}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_BASE_URL: ${LLM_BASE_URL:-}
+  LLM_MODEL: ${LLM_MODEL:-}
+  GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+  PORTAL_TARGET_REPO: ${PORTAL_TARGET_REPO:-Lueyu/agent-interview}
+  PORTAL_BASE_BRANCH: ${PORTAL_BASE_BRANCH:-master}
+  PORTAL_CONTENT_DIR: ${PORTAL_CONTENT_DIR:-portal/content}
+  PORTAL_AUTO_MERGE: ${PORTAL_AUTO_MERGE:-false}
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -21,21 +35,18 @@ services:
     container_name: careerpilot-api
     volumes:
       - ./web/src/data/bank.json:/web/src/data/bank.json:ro
-    environment: &backend-environment
-      DATABASE_URL: postgresql+asyncpg://careerpilot:careerpilot_dev@postgres:5432/careerpilot
-      API_TOKEN: ${API_TOKEN:-cp-dev-token}
-      DEFAULT_WORKSPACE_SLUG: ${DEFAULT_WORKSPACE_SLUG:-personal}
-      # AI 对话使用下列模型配置；浏览题库和已有答卷可留空
-      LLM_PROVIDER: ${LLM_PROVIDER:-}
-      LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_BASE_URL: ${LLM_BASE_URL:-}
-      LLM_MODEL: ${LLM_MODEL:-}
-      # 公开内容发布(GitHub, 可选)
-      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      PORTAL_TARGET_REPO: ${PORTAL_TARGET_REPO:-Lueyu/agent-interview}
-      PORTAL_BASE_BRANCH: ${PORTAL_BASE_BRANCH:-master}
-      PORTAL_CONTENT_DIR: ${PORTAL_CONTENT_DIR:-portal/content}
-      PORTAL_AUTO_MERGE: ${PORTAL_AUTO_MERGE:-false}
+    environment:
+      <<: *backend-environment
+      FEEDBACK_TO: ${FEEDBACK_TO:-}
+      FEEDBACK_SMTP_HOST: ${FEEDBACK_SMTP_HOST:-}
+      FEEDBACK_SMTP_PORT: ${FEEDBACK_SMTP_PORT:-}
+      FEEDBACK_SMTP_TLS: ${FEEDBACK_SMTP_TLS:-}
+      FEEDBACK_SMTP_USERNAME: ${FEEDBACK_SMTP_USERNAME:-}
+      FEEDBACK_SMTP_PASSWORD: ${FEEDBACK_SMTP_PASSWORD:-}
+      FEEDBACK_SMTP_FROM: ${FEEDBACK_SMTP_FROM:-}
+      FEEDBACK_REVIEW_BASE_URL: ${FEEDBACK_REVIEW_BASE_URL:-}
+      FEEDBACK_REVIEW_MODEL: ${FEEDBACK_REVIEW_MODEL:-}
+      FEEDBACK_REVIEW_API_KEY: ${FEEDBACK_REVIEW_API_KEY:-}
     ports:
       - "${API_HOST_PORT:-8000}:8000"  # 本机 8000 被占用时可用 API_HOST_PORT 改口
     depends_on:

@@ -13,6 +13,8 @@ import json
 import re as _re
 import time
 
+from app.generation_i18n import generation_message, with_output_language
+from app.i18n import request_language
 from app.services.tracing import finish_trace, start_trace
 
 TEACH_SYSTEM = """你是面向 AI 工程师的职业教练, 给学员生成一份「能照着学会」的教学任务内容。
@@ -105,7 +107,7 @@ async def _collect_material(session, skill_id: int | None, skill_key: str | None
         )
         seg = f"《{q.title[:60]}》"
         if kp_text:
-            seg += f" 评分要点: {kp_text}"
+            seg += " " + generation_message("teaching.material_criteria").format(criteria=kp_text)
         if ans:
             seg += f"\n{ans}"
         parts.append(seg)
@@ -119,7 +121,10 @@ def _task_content(task) -> dict:
         if content.get("source") in ("llm", "rule"):
             for key in ("analogy", "example", "principles", "steps", "verify", "source"):
                 content.pop(key, None)
-        content.pop("help_cache", None)
+        if content.get("help_cache"):
+            content["help_cache"] = {
+                key: reply for key, reply in content["help_cache"].items() if ":" in key
+            }
         content["source_context_version"] = 2
     return content
 
@@ -140,47 +145,27 @@ async def _collect_task_material(session, task, skill_key: str | None, limit: in
         .where(ExamQuestion.id == source_id, Exam.workspace_id == task.workspace_id)
     )).scalar_one_or_none()
     if not snapshot:
-        return "原题冻结参考资料不可用；仅依据已有失分观察说明缺口，不补入其他题目或推测原题标准。"
+        return generation_message("teaching.source_unavailable")
     answer = _strip_html(snapshot.get("answer_html") or "", 6000)
-    return (
-        f"原题（冻结）：《{snapshot.get('title') or '未记录题目标题'}》\n"
-        f"原题冻结评分标准：{json.dumps(snapshot.get('rubric') or {}, ensure_ascii=False)}\n"
-        f"原题冻结参考答案：\n{answer or '（原题未保存参考答案，仅依据上述评分标准，不推测补全。）'}"
+    return generation_message("teaching.frozen_source").format(
+        title=snapshot.get("title") or generation_message("teaching.source_untitled"),
+        rubric=json.dumps(snapshot.get("rubric") or {}, ensure_ascii=False),
+        answer=answer or generation_message("teaching.source_no_answer"),
     )
 
 
 def _rule_content(task, skill_name: str, material: str) -> dict:
     """规则路径: 从材料确定性抽取教学内容(诚实但结构完整)。"""
     lines = [ln.strip() for ln in material.split("\n") if ln.strip()]
-    analogy = (
-        f"「{skill_name}」可以类比成一条流水线：每个环节都要有输入、处理和验收，"
-        "哪一环没有验收标准，问题就会流到下一环。这个类比的对应关系是——评分要点=验收标准，"
-        "证据=产出物；失效之处在于流水线是线性的，而实际工程常常要回滚重做。"
-        if material
-        else f"「{skill_name}」可以类比成一条有验收标准的流水线：每个环节有输入、处理和验收。"
-        "对应关系是评分要点=验收标准、证据=产出物；类比在线性流程上成立，遇到需要回滚迭代的场景会失效。"
-    )
-    example = (
-        lines[0][:220] if lines else
-        f"举个例子：在面试中被问到「{skill_name}」时，先用一句话给结论，再用 2-3 个机制细节支撑，"
-        "最后主动说一个坑和应对办法——这个三段式本身就是可复用的例子。"
-    )
+    analogy_key = "teaching.analogy_with_material" if material else "teaching.analogy_without_material"
+    analogy = generation_message(analogy_key).format(skill=skill_name)
+    example = lines[0][:220] if lines else generation_message("teaching.example").format(skill=skill_name)
     principles = [
         ln for ln in lines
         if 8 <= len(ln) <= 80 and ("：" in ln or "是" in ln)
-    ][:4] or [
-        "先给结论再展开机制(面试与工作都适用的表达结构)",
-        "任何机制都要能说出一个真实坑与应对",
-        "知识要落到可验证的产出物上(代码/笔记/证据)",
-    ]
-    steps = [
-        "阅读参考资料里最简单的一道题的答案解析(5 分钟)",
-        "用自己的话把答案复述一遍, 写在任务笔记里(5 分钟)",
-        "对照评分要点, 标出自己复述里缺失的部分(5 分钟)",
-        "把缺失部分重新学习并补进笔记(10 分钟)",
-        "保存学习笔记，再独立回答一道新题；笔记本身不作为掌握证据(2 分钟)",
-    ]
-    verify = task.acceptance or "能脱稿讲清 3 个核心概念及适用边界"
+    ][:4] or [generation_message(f"teaching.principle_{index}") for index in range(1, 4)]
+    steps = [generation_message(f"teaching.step_{index}") for index in range(1, 6)]
+    verify = task.acceptance or generation_message("teaching.verify")
     return {
         "analogy": analogy,
         "example": example,
@@ -224,7 +209,7 @@ async def build_teaching_content(
         trace = await start_trace(session, task.workspace_id, "teaching", task.title,
                                   trigger_ref=f"learning_task:{task.id}")
         started = time.perf_counter()
-        raw = await adapter.chat(TEACH_SYSTEM, user, json_mode=True, timeout=90.0,
+        raw = await adapter.chat(with_output_language(TEACH_SYSTEM), user, json_mode=True, timeout=90.0,
                                  trace=trace, session=session, span_name="teaching_generation")
         await finish_trace(session, trace, "SUCCESS" if raw else "FAILED",
                            int((time.perf_counter() - started) * 1000))
@@ -248,9 +233,15 @@ async def build_teaching_content(
     if generated is None:
         generated = _rule_content(task, skill_name, material)
         if observation:
-            generated["example"] = f"原回答：{observation.get('answer_excerpt', '')}\n需要补足：{observation.get('criterion', '')}"[:500]
-            generated["principles"] = [f"本题标准：{observation.get('criterion_detail') or observation.get('criterion')}",
-                                       "材料摘录与学习笔记不代表通过，需提交新题答案重新评分。"]
+            generated["example"] = generation_message("teaching.observation_example").format(
+                answer=observation.get("answer_excerpt", ""), criterion=observation.get("criterion", ""),
+            )[:500]
+            generated["principles"] = [
+                generation_message("teaching.observation_standard").format(
+                    standard=observation.get("criterion_detail") or observation.get("criterion"),
+                ),
+                generation_message("teaching.observation_verify"),
+            ]
         generated["steps"] = [str(s) for s in (content.get("steps") or [])] or generated["steps"]
         if content.get("principles"):
             generated["principles"] = [str(p) for p in content.get("principles")][:6]
@@ -273,18 +264,24 @@ async def help_answer(
     """生成并缓存针对当前任务的求助回答。"""
     desc = HELP_MODES.get(mode)
     if not desc:
-        return {"mode": mode, "text": None, "source": "none", "error": f"未知求助类型: {mode}"}
+        error = generation_message("teaching.help_unknown_mode").format(mode=mode)
+        return {"mode": mode, "text": None, "source": "none", "error": error}
 
+    language = request_language()
+    cache_key = f"{language}:{mode}"
     content = _task_content(task)
-    cache = dict(content.get("help_cache") or {})
-    cached = cache.get(mode)
+    cache = content.get("help_cache") or {}
+    cached = cache.get(cache_key)
+    if cached is None and language == "zh-CN":
+        # Legacy entries were keyed only by mode. Keep the Chinese fallback.
+        cached = cache.get(mode)
     if isinstance(cached, dict) and cached.get("source") == "llm" and cached.get("text"):
         return {"mode": mode, "text": cached["text"], "source": "llm"}
 
     if hasattr(adapter, "_effective"):
         await adapter._effective()
     if not adapter.active:
-        return {"mode": mode, "text": None, "source": "none", "error": "学习助手尚未配置模型，请在设置中配置后重试。"}
+        return {"mode": mode, "text": None, "source": "none", "error": generation_message("teaching.help_no_model")}
 
     material = await _collect_task_material(session, task, skill_key, limit=2)
     step_hint = ""
@@ -302,7 +299,7 @@ async def help_answer(
     trace = await start_trace(session, task.workspace_id, "teaching", task.title,
                               trigger_ref=f"learning_task:{task.id}:help:{mode}")
     started = time.perf_counter()
-    raw = await adapter.chat(HELP_SYSTEM, user, json_mode=True, timeout=60.0,
+    raw = await adapter.chat(with_output_language(HELP_SYSTEM), user, json_mode=True, timeout=60.0,
                              trace=trace, session=session, span_name="teaching_help")
     parsed = _parse_json_reply(raw)
     value = parsed.get("text") if parsed else None
@@ -311,8 +308,11 @@ async def help_answer(
                        int((time.perf_counter() - started) * 1000),
                        fail_reason=None if text else "model_response_unavailable")
     if not text:
-        return {"mode": mode, "text": None, "source": "none", "error": "AI 暂时未生成可用解答，请重试。"}
+        return {"mode": mode, "text": None, "source": "none", "error": generation_message("teaching.help_retry")}
 
-    cache[mode] = {"text": text, "source": "llm"}
-    task.content = {**content, "help_cache": cache}
+    saved_content = task.content or {}
+    task.content = {
+        **saved_content,
+        "help_cache": {**(saved_content.get("help_cache") or {}), cache_key: {"text": text, "source": "llm"}},
+    }
     return {"mode": mode, "text": text, "source": "llm"}

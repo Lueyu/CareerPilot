@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import JdSource, JobStandard, Skill, Workspace
@@ -96,7 +97,7 @@ async def import_jd(
 ):
     text = body.text.strip()
     if len(text) < 30:
-        raise HTTPException(status_code=422, detail="JD 原文太短（至少 30 字）")
+        raise HTTPException(status_code=422, detail=localized_message("errors.the_job_description_must_contain_at_least_30_characters"))
 
     trace = await start_trace(session, ws.id, "benchmark_jd", "导入 JD 并生成对标版本", trigger="manual")
     try:
@@ -130,7 +131,7 @@ async def import_jd(
                 )
             ).scalar_one_or_none()
             if base is None:
-                raise HTTPException(status_code=409, detail="没有可用的基准标准（种子标准缺失）")
+                raise HTTPException(status_code=409, detail=localized_message("errors.no_baseline_standard_is_available_the_initial_standard_is"))
             base_targets = [
                 {
                     "skill_id": t.skill_id,

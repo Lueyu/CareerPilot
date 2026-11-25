@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, text
 
+from app.i18n import message as localized_message, request_language
 from app.models import AnalysisStep, Exam, ExamAnswer, ScoringRun, ScoringStep, Workspace
 from app.services.assessment_rubric import JUDGE_VERSION
 from app.services.assessment_versions import digest, ensure_revision, question_snapshot
@@ -44,21 +45,22 @@ async def enqueue(session, ws, exam, *, mode='OFFICIAL'):
         if existing.workspace_id!=ws.id or existing.exam_id!=exam.id:raise ValueError('任务作用域不匹配')
         return existing
     cfg,_,_=await runtime_config(session,ws.id,require_consent=False)
+    language = request_language()
     inputs=[]
     for eq in exam.questions:
         from fastapi import HTTPException
         if eq.frozen_snapshot and (not eq.frozen_snapshot.get('question_version')
                 or not (eq.frozen_snapshot.get('rubric') or {}).get('rubric_version')
                 or not eq.frozen_snapshot.get('answer_revision_id')):
-            raise HTTPException(409,'旧答卷缺少可核对的评分版本，已保留原答和历史结果；请新建考试或做独立影子复核，不能自动混合新旧评分')
+            raise HTTPException(409,localized_message("errors.the_scoring_version_for_this_older_submission_cannot_be"))
         if not eq.creation_snapshot and not eq.frozen_snapshot:
-            raise HTTPException(409,'这份旧试卷未在开考时冻结题目与标准；已保留答卷，请新建版本明确的考试')
+            raise HTTPException(409,localized_message("errors.this_older_exam_has_no_frozen_question_and_rubric"))
         revision=await ensure_revision(session,eq)
         if (eq.creation_snapshot or {}).get('study_practice_id'):
             paper_type = eq.creation_snapshot['qtype']
             if ((paper_type == 'mcq' and revision.payload.get('choice_index') is None) or
                     (paper_type == 'open' and not (revision.payload.get('text_answer') or '').strip())):
-                raise HTTPException(422, '请提交自己的原答再进行复测；未作答的学习目标保留待验证')
+                raise HTTPException(422, localized_message("errors.submit_your_own_answer_before_retesting_unanswered_learning_goals"))
         if not eq.frozen_snapshot:
             base=deepcopy(eq.creation_snapshot or question_snapshot(eq.question))
             if base.get('interview_set'):
@@ -75,9 +77,9 @@ async def enqueue(session, ws, exam, *, mode='OFFICIAL'):
                 'answer_revision_id':revision.id,'answer_revision':revision.revision,'answer_hash':revision.content_hash}
         frozen=deepcopy(eq.frozen_snapshot)
         if frozen.get('qtype')=='open' and (frozen.get('rubric') or {}).get('schema_version')!=2:
-            raise HTTPException(409,'旧开放题标准与当前评分器不兼容，不能自动改写历史标准')
+            raise HTTPException(409,localized_message("errors.the_old_open_ended_rubric_is_incompatible_with_the"))
         frozen.setdefault('answer_revision_id',revision.id)
-        inputs.append((eq,frozen))
+        inputs.append((eq,{**frozen, 'generation_language': language}))
     route = scoring_route(inputs)
     cfg = scoring_config(cfg, route)
     exam.scoring_generation=(exam.scoring_generation or 0)+1

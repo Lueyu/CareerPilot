@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useT } from '../i18n';
 import Account from './Account';
 import {
-  announceSessionChange, createWorkspaceApi, requestAuth, SeedApiError, sessionChangeKey,
-  WorkspaceApiContext, type AccountInfo,
+  announceSessionChange, createWorkspaceApi, messageFor, renderMessage, requestAuth, SeedApiError, sessionChangeKey,
+  WorkspaceApiContext, type AccountInfo, type UiMessage,
 } from './api';
 import { AccountFrame } from './AccountFrame';
 
 type WorkspaceView = { kind: 'workspace'; user: AccountInfo; api: ReturnType<typeof createWorkspaceApi>; key: number };
-type SessionView = WorkspaceView | { kind: 'opening' } | { kind: 'anonymous' } | { kind: 'error'; message: string };
+type SessionView = WorkspaceView | { kind: 'opening' } | { kind: 'anonymous' } | { kind: 'error'; message: UiMessage };
 
 export default function RegisteredSession({ children }: { children: (user: AccountInfo, signedOut: () => void) => ReactNode }) {
+  const t = useT();
   const [session, setSession] = useState<SessionView>({ kind: 'opening' });
   const workspace = useRef<WorkspaceView | null>(null);
   const workspaceKey = useRef(0);
@@ -44,7 +46,7 @@ export default function RegisteredSession({ children }: { children: (user: Accou
         clearWorkspace();
         setSession({ kind: 'anonymous' });
       } else if (!workspace.current) {
-        setSession({ kind: 'error', message: error instanceof Error ? error.message : '暂时无法连接账号服务。' });
+        setSession({ kind: 'error', message: messageFor(error, 'registered.accountConnectionUnavailable') });
       }
     } finally {
       if (sessionCheck.current === check) sessionCheck.current = null;
@@ -88,9 +90,9 @@ export default function RegisteredSession({ children }: { children: (user: Accou
     </WorkspaceApiContext.Provider>;
   }
   return <AccountFrame>
-    {session.kind === 'opening' ? <p role="status">正在打开工作空间…</p>
-      : session.kind === 'error' ? <div className="card account-form"><p role="alert">{session.message}</p>
-        <button className="btn btn-outline" onClick={() => void loadUser(true)}>重新连接</button></div>
+    {session.kind === 'opening' ? <p role="status">{t('registered.workspaceOpening')}</p>
+      : session.kind === 'error' ? <div className="card account-form"><p role="alert">{renderMessage(session.message, t)}</p>
+        <button className="btn btn-outline" onClick={() => void loadUser(true)}>{t('registered.reconnect')}</button></div>
       : <Account onStart={startAccountFlow} onFinish={finishAccountFlow} />}
   </AccountFrame>;
 }

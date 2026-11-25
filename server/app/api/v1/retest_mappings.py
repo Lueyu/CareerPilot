@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import Question, RetestCriterionMapping, Workspace
@@ -35,15 +36,15 @@ async def _question(session, workspace_id, question_id, *, for_update=False):
         query = query.with_for_update(of=Question)
     question = await session.scalar(query)
     if question is None:
-        raise HTTPException(404, "未找到题目")
+        raise HTTPException(404, localized_message("errors.could_not_find_the_question"))
     return question
 
 
 def _rubric(question):
     if question.qtype != "open":
-        raise HTTPException(409, "仅开放题支持复测行为映射")
+        raise HTTPException(409, localized_message("errors.retest_behavior_mapping_is_available_only_for_open_ended"))
     if not isinstance(question.rubric, dict):
-        raise HTTPException(409, "题目需要有效的评分标准")
+        raise HTTPException(409, localized_message("errors.this_question_requires_a_valid_scoring_rubric"))
     return question_snapshot(question)["rubric"]
 
 
@@ -119,14 +120,14 @@ async def approve_review(
     session: AsyncSession = Depends(get_session),
 ):
     if not review.confirm:
-        raise HTTPException(422, "请明确确认已审核当前评分项")
+        raise HTTPException(422, localized_message("errors.confirm_that_you_reviewed_the_current_scoring_criteria"))
     question = await _question(session, ws.id, question_id, for_update=True)
     rubric = _rubric(question)
     if rubric["rubric_version"] != review.rubric_version:
-        raise HTTPException(409, "评分标准已变更，请重新查看并审核")
+        raise HTTPException(409, localized_message("errors.the_rubric_has_changed_read_and_review_it_again"))
     criterion = next((row for row in rubric["criteria"] if row["criterion_id"] == criterion_id), None)
     if criterion is None:
-        raise HTTPException(422, "评分项不属于当前评分标准")
+        raise HTTPException(422, localized_message("errors.this_criterion_belongs_to_a_different_rubric"))
     mapping = await _mapping(session, ws.id, question_id, review.rubric_version, criterion_id)
     conflicting = await session.scalar(_mappings(ws.id, question_id, review.rubric_version).where(
         RetestCriterionMapping.behavior_key == review.behavior_key,

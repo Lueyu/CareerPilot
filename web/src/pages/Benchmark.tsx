@@ -1,3 +1,4 @@
+import { useT } from '../i18n';
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DemoBanner, PageHead, StatusChip, plainConfidence, plainLevel, OBSERVATION_COVERAGE_NOTE } from '../components/ui';
@@ -5,6 +6,7 @@ import { useApi, BenchmarkData } from '../api/client';
 
 
 export default function Benchmark() {
+  const t = useT();
   const navigate = useNavigate();
   const { data, loading, error } = useApi<BenchmarkData>('/benchmark');
 
@@ -22,8 +24,8 @@ export default function Benchmark() {
       }))
     : [];
 
-  const role = data?.standard?.role || '待设置';
-  const level = data?.standard?.level || '待设置';
+  const role = data?.standard?.role || t('progress.notSet');
+  const level = data?.standard?.level || t('progress.notSet');
   const jd = data?.standard?.jd_sample_count ?? '—';
   const version = data?.standard?.version ? `benchmark ${data.standard.version}` : '—';
 
@@ -38,65 +40,65 @@ export default function Benchmark() {
   return (
     <div>
       <PageHead
-        title="岗位对标"
-        sub="以真实 JD 为基准，量化你的能力差距 · 种子假设，非统计结论"
+        title={t('progress.benchmarkHeading')}
+        sub={t('progress.benchmarkDescription')}
       >
-        <button className="btn btn-outline" onClick={() => navigate('/benchmark')}>↻ 更新对标</button>
-        <button className="btn btn-primary" onClick={() => navigate('/exam/diagnosis')}>开始独立诊断</button>
+        <button className="btn btn-outline" onClick={() => navigate('/benchmark')}>{t('progress.benchmarkRefresh')}</button>
+        <button className="btn btn-primary" onClick={() => navigate('/exam/diagnosis')}>{t('progress.benchmarkDiagnose')}</button>
       </PageHead>
-      <DemoBanner text="DEMO · 对标权重为种子假设（benchmark v1.1），不代表行业统计。" />
+      <DemoBanner text={t('progress.benchmarkDemo')} />
 
       {/* 对标总卡 */}
       <div className="card" style={{ marginBottom: 18 }}>
         <div className="bench-head">
           <div>
-            <div className="hero-label" style={{ color: 'var(--text-4)' }}>当前目标岗位</div>
+            <div className="hero-label" style={{ color: 'var(--text-4)' }}>{t('progress.benchmarkRole')}</div>
             <h2 style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>
               {role}
-              <span className="chip chip-purple" style={{ marginLeft: 10 }}>对标 {level}</span>
+              <span className="chip chip-purple" style={{ marginLeft: 10 }}>{t('progress.benchmarkLevel') + ' '}{level}</span>
             </h2>
             <div className="bench-meta">
-              <span>公司样本 <b>{jd}</b> 份 JD</span>
+              <span>{t('progress.benchmarkSample') + ' '}{t('progress.benchmarkJobDescriptions', { count: jd })}</span>
               <i className="dot-sep" />
-              <span>权重来源 <b>种子假设</b></span>
+              <span>{t('progress.benchmarkWeightSource') + ' '}<b>{t('progress.benchmarkInitialEstimates')}</b></span>
               <i className="dot-sep" />
               <span>{version}</span>
             </div>
           </div>
           <div className="bench-gap">
-            <div className="big">{gap == null ? '未知' : gap.toFixed(1)}<span>/5</span></div>
-            <div className="note">加权能力差距</div>
+            <div className="big">{gap == null ? t('progress.unknown') : gap.toFixed(1)}<span>/5</span></div>
+            <div className="note">{t('progress.benchmarkWeightedGap')}</div>
           </div>
         </div>
         <div className="grid grid-4" style={{ marginTop: 20 }}>
-          <div className="mini-stat"><b>{rows.length}</b><span>能力域</span></div>
-          <div className="mini-stat"><b>{nBelow}</b><span>低于目标/待验证</span></div>
-          <div className="mini-stat"><b>{nMeets}</b><span>达到目标</span></div>
-          <div className="mini-stat"><b>{nAbove}</b><span>高于目标</span></div>
+          <div className="mini-stat"><b>{rows.length}</b><span>{t('progress.benchmarkDomainCount')}</span></div>
+          <div className="mini-stat"><b>{nBelow}</b><span>{t('progress.benchmarkBelowOrUnverified')}</span></div>
+          <div className="mini-stat"><b>{nMeets}</b><span>{t('progress.atTarget')}</span></div>
+          <div className="mini-stat"><b>{nAbove}</b><span>{t('progress.aboveTarget')}</span></div>
         </div>
       </div>
 
-      {loading && <div className="demo-banner" style={{ marginBottom: 12 }}>正在从后端加载实时数据…</div>}
-      {error && <div className="demo-banner demo-banner-err" style={{ marginBottom: 12 }}>后端不可用（{error}），无法读取当前空间数据</div>}
+      {loading && <div className="demo-banner" style={{ marginBottom: 12 }}>{t('progress.loadingLive')}</div>}
+      {error && <div className="demo-banner demo-banner-err" style={{ marginBottom: 12 }}>{t('progress.benchmarkLoadError', { error })}</div>}
 
       <div className="card">
         <div className="card-head">
-          <span className="card-title">能力域对标明细</span>
-          <span className="card-sub">权重 × 差距 = 优先学习顺序</span>
+          <span className="card-title">{t('progress.benchmarkDetails')}</span>
+          <span className="card-sub">{t('progress.benchmarkPriorityFormula')}</span>
         </div>
         <p className="hint">{OBSERVATION_COVERAGE_NOTE}</p>
         <div className="table-wrap">
           <table className="tbl">
             <thead>
               <tr>
-                <th>能力项</th>
-                <th>权重</th>
-                <th>目标等级</th>
-                <th>当前估计</th>
-                <th>状态</th>
-                <th>证据覆盖</th>
-                <th>观察覆盖说明</th>
-                <th>下一步</th>
+                <th>{t('progress.benchmarkCompetency')}</th>
+                <th>{t('progress.benchmarkWeight')}</th>
+                <th>{t('progress.benchmarkTarget')}</th>
+                <th>{t('progress.benchmarkCurrent')}</th>
+                <th>{t('progress.benchmarkStatus')}</th>
+                <th>{t('progress.benchmarkCoverage')}</th>
+                <th>{t('progress.benchmarkCoverageNote')}</th>
+                <th>{t('progress.benchmarkNext')}</th>
               </tr>
             </thead>
             <tbody>
@@ -110,7 +112,7 @@ export default function Benchmark() {
                     <div className="plain-hint">{plainLevel(r.current_level)}</div>
                   </td>
                   <td><StatusChip status={r.status} /></td>
-                  <td className="num">{r.evidence_coverage} 条</td>
+                  <td className="num">{t('progress.evidenceCount', { count: r.evidence_coverage })}</td>
                   <td>
                     <div className="plain-hint">{plainConfidence(r.confidence)}</div>
                   </td>
@@ -124,10 +126,10 @@ export default function Benchmark() {
 
       <div className="card mt-18">
         <div className="card-head">
-          <span className="card-title">差距加权排序</span>
-          <span className="card-sub">优先投入：权重高 × 差距大</span>
+          <span className="card-title">{t('progress.benchmarkPriority')}</span>
+          <span className="card-sub">{t('progress.benchmarkPriorityDescription')}</span>
         </div>
-        <p className="hint">未知能力项不参与差距数值排序；请先补充作答证据。</p>
+        <p className="hint">{t('progress.benchmarkMissingEvidence')}</p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {[...rows].filter(r => r.current_level != null)
             .map((r) => ({ ...r, priority: r.weight_pct * Math.max(0, r.target_level - (r.current_level ?? 0)) }))

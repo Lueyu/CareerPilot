@@ -3,9 +3,12 @@ import asyncio
 import importlib
 import importlib.util
 import json
+import re
 
 import httpx
 import pytest
+
+from app.i18n import message, using_language
 
 
 def module(name):
@@ -74,12 +77,16 @@ async def install_engine_fixture(monkeypatch, responses):
 
 
 @pytest.mark.asyncio
-async def test_analysis_reads_followup_sources_and_preserves_grounded_version(monkeypatch):
+@pytest.mark.parametrize('language', ['zh-CN', 'en'])
+async def test_analysis_reads_followup_sources_and_preserves_grounded_version(monkeypatch, language):
     engine, repo, prompts = await install_engine_fixture(monkeypatch, [
         {"paths": ["app/api.py"], "reason": "Trace the entry point"},
         {"paths": ["app/search.py"], "reason": "Inspect the called service"}, report(),
     ])
-    result = await engine.analyze_project({"id": 1, "kind": "github", "name": "Fixture"}, "Review reliability", {"role": "developer"})
+    original = '我负责维护搜索服务。'
+    with using_language(language):
+        result = await engine.analyze_project({"id": 1, "kind": "github", "name": "Fixture"}, "Review reliability",
+                                              {"role": "developer", "statement": original})
     assert repo.reads == ["app/api.py", "app/search.py"]
     assert result["source_revision"] == REVISION
     assert result["snapshot"]["coverage"]["files_read"] == 2
@@ -88,7 +95,12 @@ async def test_analysis_reads_followup_sources_and_preserves_grounded_version(mo
     assert result["report"]["issues"][0]["status"] == "hypothesis"
     assert result["result_meta"]["calls"] == 3
     assert result["result_meta"]["usage"]["total_tokens"] == 30
-    assert "个人能力" in prompts[-1][0]
+    assert ("个人能力" if language == 'zh-CN' else "personal ability") in prompts[-1][0]
+    for system, payload in prompts:
+        assert message('language', language) in system
+        assert payload['personal_context']['statement'] == original
+        if language == 'en':
+            assert not re.search(r'[\u3400-\u9fff]', system)
     assert "app/search.py" in json.dumps(prompts[-1], ensure_ascii=False)
     assert "fixture-key" not in json.dumps(result)
 
@@ -371,7 +383,8 @@ def report_for_paths(paths):
 
 
 @pytest.mark.asyncio
-async def test_large_source_uses_bounded_parallel_reviews_and_small_synthesis(monkeypatch):
+@pytest.mark.parametrize('language', ['zh-CN', 'en'])
+async def test_large_source_uses_bounded_parallel_reviews_and_small_synthesis(monkeypatch, language):
     engine = module('app.services.project_deep_analysis')
     review = getattr(engine, 'review_inspected_sources', None)
     assert callable(review), 'Large source must be reviewed in bounded groups before synthesis'
@@ -379,6 +392,9 @@ async def test_large_source_uses_bounded_parallel_reviews_and_small_synthesis(mo
     async def chat(self, cfg, system, user, **kwargs):
         nonlocal active, peak
         payload = json.loads(user)
+        assert message('language', language) in system
+        if language == 'en':
+            assert not re.search(r'[\u3400-\u9fff]', system)
         prompts.append(payload)
         adapters.append(self)
         if 'module_index' in payload:
@@ -396,8 +412,9 @@ async def test_large_source_uses_bounded_parallel_reviews_and_small_synthesis(mo
     files = large_files()
     context = {'project_name': 'fixture', 'source_revision': REVISION, 'focus': '',
                'manifest': [{'path': f'never-copy-full-manifest/{i}'} for i in range(4000)]}
-    result = await review(files, context, {'files_read': len(files), 'eligible_files': 4000},
-                          cfg={'provider': 'fixture', 'model': 'fixture'}, progress=progress)
+    with using_language(language):
+        result = await review(files, context, {'files_read': len(files), 'eligible_files': 4000},
+                              cfg={'provider': 'fixture', 'model': 'fixture'}, progress=progress)
     modules = [p for p in prompts if 'module_index' in p]
     assert len(modules) == 3
     assert sorted(f['path'] for p in modules for f in p['inspected_files']) == sorted(f['path'] for f in files)

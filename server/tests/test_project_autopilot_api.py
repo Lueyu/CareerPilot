@@ -1,5 +1,6 @@
 """HTTP contracts for local project automation; all data is an isolated fixture."""
 import importlib.util
+from copy import deepcopy
 from datetime import timedelta
 from uuid import uuid4
 
@@ -7,18 +8,34 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.deps import get_workspace
 from app.db import get_session
+from app.i18n import LanguageMiddleware
 from app.models import AnalysisStep, AppSetting, MemoryItem, Project, ProjectAnalysis, Workspace
 from app.services.project_autopilot_config import CONSENT_VERSION
 from app.services.project_jobs import utcnow
+
+
+def test_report_changes_use_the_saved_locale_without_rewriting_originals():
+    from app.api.v1.project_autopilot import normalized_report
+
+    original = {'sections': [{'id': 'overview', 'title': '项目用途', 'body': '原始报告'}],
+                'changes': {'changes': [{'status': 'modified', 'path': '源码/入口.py'}]}}
+    frozen = deepcopy(original)
+    assert normalized_report(original)['changes'] == ['修改：源码/入口.py']
+    projected = normalized_report({**original, 'generation_language': 'en'})
+    assert projected['changes'] == ['Modified 源码/入口.py']
+    assert projected['sections'][0]['body'] == '原始报告'
+    assert original == frozen
 
 
 def api(session, workspace):
     assert importlib.util.find_spec('app.api.v1.project_autopilot'), 'Project Autopilot HTTP API is missing'
     from app.api.v1 import project_autopilot
     app = FastAPI()
+    app.add_middleware(LanguageMiddleware)
     app.include_router(project_autopilot.router, prefix='/api/v1')
     async def db(): yield session
     async def ws(): return workspace
@@ -92,18 +109,79 @@ async def test_enable_requires_explicit_transfer_consent_and_queues_existing_rep
 
 
 @pytest.mark.asyncio
-async def test_check_updates_only_marks_due_without_source_or_model_requests(db_session,test_workspace,monkeypatch):
+@pytest.mark.parametrize(('headers', 'language'), [({'Accept-Language': 'en'}, 'en'), ({}, 'zh-CN')])
+async def test_check_updates_only_marks_due_without_source_or_model_requests(db_session,test_workspace,monkeypatch,headers,language):
     from app.services import project_scheduler
     p=await project(db_session,test_workspace);await consent(db_session,test_workspace)
     p.next_check_at=utcnow()+timedelta(hours=6);await db_session.commit()
     async def forbidden(*args,**kwargs):raise AssertionError('HTTP route must not fetch repositories')
-    monkeypatch.setattr(project_scheduler,'check_project',forbidden)
-    monkeypatch.setattr(project_scheduler,'probe_repository',forbidden)
-    async with api(db_session,test_workspace) as client:
-        response=await client.post(f'/projects/{p.id}/check-updates',json={})
-        assert response.status_code==202,response.text
-        await db_session.refresh(p);assert p.next_check_at<=utcnow()
-        assert await db_session.scalar(select(func.count()).select_from(ProjectAnalysis).where(ProjectAnalysis.project_id==p.id))==0
+    with monkeypatch.context() as guard:
+        guard.setattr(project_scheduler, 'check_project', forbidden)
+        guard.setattr(project_scheduler, 'probe_repository', forbidden)
+        async with api(db_session, test_workspace) as client:
+            for _ in range(2):
+                response = await client.post(f'/projects/{p.id}/check-updates', json={}, headers=headers)
+                assert response.status_code == 202, response.text
+            await db_session.refresh(p)
+            assert p.next_check_at <= utcnow()
+            assert await db_session.scalar(select(func.count()).select_from(ProjectAnalysis).where(
+                ProjectAnalysis.project_id == p.id)) == 0
+
+    async def probe(*args, **kwargs):
+        return {'target_sha': 'a' * 40, 'branch': 'main'}
+
+    monkeypatch.setattr(project_scheduler, 'probe_repository', probe)
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False, autoflush=False)
+    await project_scheduler.tick(factory)
+    await db_session.refresh(p)
+    run = (await db_session.scalars(select(ProjectAnalysis).where(ProjectAnalysis.project_id == p.id))).one()
+    assert run.result_meta['generation_language'] == language
+    assert p.pending_update is None
+    assert p.next_check_at > utcnow()
+
+    async with api(db_session, test_workspace) as client:
+        response = await client.post(f'/projects/{p.id}/check-updates', json={}, headers=headers)
+        assert response.status_code == 202, response.text
+    await project_scheduler.tick(factory)
+    await db_session.refresh(p)
+    assert p.pending_update is None
+    assert await db_session.scalar(select(func.count()).select_from(ProjectAnalysis).where(
+        ProjectAnalysis.project_id == p.id)) == 1
+
+
+@pytest.mark.asyncio
+async def test_manual_check_keeps_pending_full_scan_and_its_request_key(db_session, test_workspace, monkeypatch):
+    from app.services import project_jobs, project_scheduler
+
+    p = await project(db_session, test_workspace)
+    await consent(db_session, test_workspace)
+    active = await project_jobs.enqueue(db_session, p, 'active', target_sha='a' * 40)
+    await project_jobs.enqueue(db_session, p, 'pending-full')
+    await db_session.commit()
+
+    async def probe(*args, **kwargs):
+        return {'target_sha': 'b' * 40, 'branch': 'main'}
+
+    monkeypatch.setattr(project_scheduler, 'probe_repository', probe)
+    async with api(db_session, test_workspace) as client:
+        response = await client.post(f'/projects/{p.id}/check-updates', headers={'Accept-Language': 'en'})
+        assert response.status_code == 202, response.text
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False, autoflush=False)
+    await project_scheduler.tick(factory)
+    await db_session.refresh(p)
+    assert p.pending_update == {'mode': 'full', 'request_key': 'pending-full',
+                                'generation_language': 'en', 'target_sha': 'b' * 40}
+    await db_session.refresh(active)
+    assert active.result_meta['generation_language'] == 'zh-CN'
+
+    active.status = 'COMPLETED'
+    p.next_check_at = utcnow()
+    await db_session.commit()
+    await project_scheduler.tick(factory)
+    run = (await db_session.scalars(select(ProjectAnalysis).where(
+        ProjectAnalysis.project_id == p.id, ProjectAnalysis.request_key == 'pending-full'))).one()
+    assert run.mode == 'full' and run.target_sha == 'b' * 40
+    assert run.result_meta['generation_language'] == 'en'
 
 
 @pytest.mark.asyncio

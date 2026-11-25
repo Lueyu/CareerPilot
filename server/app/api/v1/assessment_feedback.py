@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import Event, Exam, ExamQuestion, Workspace
@@ -48,19 +49,19 @@ async def create_feedback(exam_id: int, exam_question_id: int, req: FeedbackIn,
     row = (await session.execute(select(ExamQuestion, Exam).join(Exam, Exam.id == ExamQuestion.exam_id)
         .where(Exam.workspace_id == ws.id, Exam.id == exam_id, ExamQuestion.id == exam_question_id))).first()
     if row is None:
-        raise HTTPException(404, '本场考试中没有这道题')
+        raise HTTPException(404, localized_message("errors.this_question_is_not_part_of_the_exam"))
     question, exam = row
     if exam.status not in FROZEN_STATES:
-        raise HTTPException(409, '请在答卷提交后从本场报告反馈题目问题')
+        raise HTTPException(409, localized_message("errors.submit_the_exam_then_report_the_question_from_its"))
     snapshot = question.frozen_snapshot or question.creation_snapshot
     if not snapshot:
-        raise HTTPException(409, '本题缺少冻结版本，暂不能建立可追溯的题目反馈')
+        raise HTTPException(409, localized_message("errors.this_question_has_no_saved_version_for_traceable_feedback"))
     existing = await session.scalar(select(Event).where(Event.workspace_id == ws.id,
         Event.kind == EVENT_KIND, Event.payload['exam_question_id'].as_integer() == question.id,
         Event.payload['request_key'].as_string() == req.request_key))
     if existing:
         if existing.payload.get('reason') != req.reason or existing.payload.get('category') != req.category:
-            raise HTTPException(409, '该反馈请求已保存其他内容，请重新提交新的反馈')
+            raise HTTPException(409, localized_message("errors.this_feedback_request_already_contains_different_content_create_a"))
         await session.commit()
         return feedback_view(existing)
     frozen = deepcopy({key: snapshot.get(key) for key in (

@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from app.i18n import message as localized_message
 from app.models import Workspace
 
 
@@ -45,7 +46,7 @@ def target_client(target: NativeTarget, streaming: bool) -> httpx.AsyncClient:
     if target.workspace != "personal":
         state = _sync.get(target.workspace)
         if state is None or state.target != target:
-            raise HTTPException(503, "工作台地址已更新，请重试。")
+            raise HTTPException(503, localized_message("errors.the_workspace_address_changed_try_again"))
     lanes = _clients.setdefault(target, {})
     if streaming not in lanes:
         lanes[streaming] = _new_client(2 if streaming else 6)
@@ -76,7 +77,7 @@ def validate_native_config():
 @lru_cache(maxsize=1)
 def local_runtime():
     if os.environ.get("SEED_NATIVE_LOCAL_TENANTS") != "1":
-        raise HTTPException(503, "此部署尚未配置独立工作台。")
+        raise HTTPException(503, localized_message("errors.dedicated_workspaces_are_not_configured_for_this_deployment"))
     from deploy.tenant.runtime import TenantRuntime
 
     return TenantRuntime()
@@ -128,7 +129,7 @@ async def _prepare(state, db, ws):
         Workspace.id == ws.id, Workspace.slug == ws.slug
     ).with_for_update(read=True, key_share=True))
     if exists is None:
-        raise HTTPException(401, "账号会话已失效。")
+        raise HTTPException(401, localized_message("errors.your_account_session_expired"))
     runtime = local_runtime()
     if state.target is None or state.check_after <= time.monotonic():
         tenant = await asyncio.to_thread(runtime.ensure, ws.slug, ws.target_role)
@@ -151,10 +152,10 @@ async def native_target(db: AsyncSession, ws: Workspace) -> NativeTarget:
     if is_bound_owner(ws):
         token = os.environ.get("SEED_NATIVE_OWNER_API_TOKEN")
         if not token:
-            raise HTTPException(503, "原个人工作台尚未连接。")
+            raise HTTPException(503, localized_message("errors.the_original_personal_workspace_is_not_connected_yet"))
         return NativeTarget("http://127.0.0.1:8000", "personal", token)
     if not re.fullmatch(r"seed-[0-9a-f]{32}", ws.slug) or ws.is_demo:
-        raise HTTPException(403, "无效的注册工作空间。")
+        raise HTTPException(403, localized_message("errors.invalid_registered_workspace"))
     state = _sync.setdefault(ws.slug, SyncState())
     try:
         async with state.lock:
@@ -174,7 +175,7 @@ async def native_target(db: AsyncSession, ws: Workspace) -> NativeTarget:
                             await work
                         raise
     except (OSError, RuntimeError, TimeoutError) as exc:
-        raise HTTPException(503, "独立工作台暂时未就绪，请重试。") from exc
+        raise HTTPException(503, localized_message("errors.the_dedicated_workspace_is_not_ready_try_again")) from exc
 
 async def close_native_runtime():
     for target in list(_clients):
@@ -194,11 +195,11 @@ async def remove_native_workspace(ws: Workspace):
     if os.environ.get("SEED_NATIVE_LOCAL_TENANTS") != "1":
         return
     if not re.fullmatch(r"seed-[0-9a-f]{32}", ws.slug):
-        raise HTTPException(409, "无法确认独立工作台的归属。")
+        raise HTTPException(409, localized_message("errors.unable_to_verify_workspace_ownership"))
     try:
         await asyncio.to_thread(local_runtime().remove, ws.slug)
     except (OSError, RuntimeError) as exc:
-        raise HTTPException(503, "暂时无法清理独立工作台，账号仍保留。") from exc
+        raise HTTPException(503, localized_message("errors.workspace_cleanup_is_temporarily_unavailable_your_account_has_been")) from exc
     state = _sync.pop(ws.slug, None)
     if state and state.target:
         await _close_clients(state.target)

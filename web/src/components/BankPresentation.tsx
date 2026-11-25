@@ -1,11 +1,13 @@
+import { useT } from '../i18n';
 import { useRef, useState, type ReactNode } from 'react';
 
 export function BankSearch({ value, onChange, maxLength }: { value: string; onChange: (value: string) => void; maxLength?: number }) {
+  const t = useT();
   return (
     <input
       className="inp bank-search"
-      aria-label="搜索我的题目"
-      placeholder="搜索题目关键词…"
+      aria-label={t('bank.searchMine')}
+      placeholder={t('bank.searchKeywords')}
       value={value}
       maxLength={maxLength}
       onChange={(event) => onChange(event.target.value)}
@@ -40,6 +42,7 @@ export function BankUploadPicker({ accept, description, disabled, multiple, onFi
   multiple?: boolean;
   onFiles: (files: FileList | null) => void;
 }) {
+  const t = useT();
   const input = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -74,12 +77,12 @@ export function BankUploadPicker({ accept, description, disabled, multiple, onFi
       }}
     >
       <div className="dropzone-ic">📥</div>
-      <b>拖拽文件到这里，或点击选择</b>
+      <b>{t('bank.dropFiles')}</b>
       <p>{description}</p>
       <input
         ref={input}
         type="file"
-        aria-label="选择面经文件"
+        aria-label={t('bank.chooseInterviewFiles')}
         accept={accept}
         multiple={multiple}
         disabled={disabled}

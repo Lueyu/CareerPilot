@@ -1,3 +1,4 @@
+import { useT } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
@@ -11,24 +12,28 @@ interface Practice {
   card_id?:number; kind:'quiz'|'explain'; status:string; submissions:Submission[]; retest_exam_id?:number; assistance:{hint_used:boolean;reference_viewed:boolean};
 }
 function Feedback({value,answer}:{value:Record<string,unknown>;answer:string}) {
+  const t = useT();
+
   const criteria=Array.isArray(value.criterion_scores) ? value.criterion_scores : [];
-  return <section className="study-practice-feedback" aria-label="本次评价"><h4>本次评价</h4>
+  return <section className="study-practice-feedback" aria-label={t("study.practiceFeedback")}><h4>{t("study.practiceFeedback")}</h4>
     {criteria.map((row,index)=>{
       const quotes=[...new Set<string>((row.answer_quotes||[]).filter((quote:unknown)=>typeof quote==='string' && quote.trim() && answer.includes(quote)))];
       const gaps=[...new Set<string>([row.why_not_higher,...(row.missing_points||[])].filter(Boolean))];
-      return <div key={row.criterion_id}><h5>评分要点 {index+1} · {row.score}/4</h5>
-        {quotes.length>0 && <p>原答引用：{quotes.map(quote=><q key={quote}>{quote}</q>)}</p>}
-        {row.reasoning_summary && <p>{row.score>0?'答对之处':'本项表现'}：{row.reasoning_summary}</p>}
-        {row.score<4 && gaps.length>0 && <p>仍有缺口：{gaps.join('；')}</p>}
+      return <div key={row.criterion_id}><h5>{t("study.criterionScore", { criterionNumber: index+1, score: row.score })}</h5>
+        {quotes.length>0 && <p>{t("study.originalAnswerQuote")}{quotes.map(quote=><q key={quote}>{quote}</q>)}</p>}
+        {row.reasoning_summary && <p>{t("study.criterionFeedback", { label: t(row.score>0 ? "study.whatWorked" : "study.criterionPerformance"), explanation: row.reasoning_summary })}</p>}
+        {row.score<4 && gaps.length>0 && <p>{t("study.remainingGaps", { gaps: gaps.join(t("study.clauseSeparator")) })}</p>}
       </div>;
     })}
     {typeof value.scope_note==='string' && <p className="hint">{value.scope_note}</p>}
   </section>;
 }
-const statusLabel:Record<string,string>={COMPLETED:'已评价',FAILED:'评价失败',NEEDS_REVIEW:'待人工复核',CANCELLED:'评价已取消',QUEUED:'等待评价',RUNNING:'正在评价'};
+const statusLabel:Record<string,string>={COMPLETED:"study.evaluated",FAILED:"study.evaluationFailed",NEEDS_REVIEW:"study.awaitingManualReview",CANCELLED:"study.evaluationCanceled",QUEUED:"study.awaitingEvaluation",RUNNING:"study.evaluating"};
 
 export interface PracticeRequest { kind: 'quiz' | 'explain'; messageId?: number; key: string }
 export default function StudyPracticePanel({sessionId,cardId,ended,focusMessageId,initialRequest}:{sessionId:number;cardId?:number;ended:boolean;focusMessageId?:number;initialRequest?:PracticeRequest}) {
+  const t = useT();
+
   const base='/study/sessions/'+sessionId+'/practices';
   const [params]=useSearchParams();
   const cardQuiz=cardId && params.get('practice')==='quiz' ? cardId : undefined;
@@ -113,35 +118,35 @@ export default function StudyPracticePanel({sessionId,cardId,ended,focusMessageI
   const sub=p?.submissions[p.submissions.length-1];
   const path='/study/practices/'+p?.id;
   const active=p && p.status!=='SKIPPED';
-  return <section className="card study-practice" aria-label="主动练习">
-    <div className="study-actions"><h3>主动练习</h3>{!cardId&&focusMessageId&&<small>练习依据：消息 #{focusMessageId}</small>}
-      {!ended && <><label>练习知识点 <select value={skill} onChange={e=>setSkill(e.target.value)}><option value="">沿用当前主题</option>{skills.map(s=><option key={s.key} value={s.key}>{s.name}</option>)}</select></label>
-      <button className="btn btn-outline" disabled={!ready||busy} id="study-restate" onClick={()=>start('explain')}>让我试着解释</button>
-      <button className="btn btn-outline" disabled={!ready||busy} id="study-quiz" onClick={()=>start('quiz')}>{cardId?'用这张卡测一下':'测一下'}</button></>}
+  return <section className="card study-practice" aria-label={t("study.activePractice")}>
+    <div className="study-actions"><h3>{t("study.activePractice")}</h3>{!cardId&&focusMessageId&&<small>{t("study.practiceBasedOnMessage", { messageId: focusMessageId })}</small>}
+      {!ended && <><label>{t("study.practiceTopic")}<select value={skill} onChange={e=>setSkill(e.target.value)}><option value="">{t("study.useCurrentTopic")}</option>{skills.map(s=><option key={s.key} value={s.key}>{s.name}</option>)}</select></label>
+      <button className="btn btn-outline" disabled={!ready||busy} id="study-restate" onClick={()=>start('explain')}>{t("study.letMeExplain")}</button>
+      <button className="btn btn-outline" disabled={!ready||busy} id="study-quiz" onClick={()=>start('quiz')}>{cardId?t("study.quizMeOnCard"):t("study.quizMe")}</button></>}
     </div>
     {err && <p role="alert">{err}</p>}
-    {!ready && !err && <p role="status">正在加载练习…</p>}
-    {!p && ready && busy && <p role="status">正在准备练习…</p>}
-    {p && <article><p className="hint">{p.knowledge_point} · {p.skill_name||'未关联能力项'}</p><div className="study-practice-question"><small>当前问题</small><p className="study-content">{p.question}</p></div>
-    {p.submissions.map(s=><details key={s.submission_id} open><summary>{s.revision===1?'首次原答':'修正 #'+s.revision} · {statusLabel[s.status]||'评价中'}</summary>
+    {!ready && !err && <p role="status">{t("study.loadingPractice")}</p>}
+    {!p && ready && busy && <p role="status">{t("study.preparingPractice")}</p>}
+    {p && <article><p className="hint">{p.knowledge_point} · {p.skill_name||t("study.noLinkedSkill")}</p><div className="study-practice-question"><small>{t("study.currentQuestion")}</small><p className="study-content">{p.question}</p></div>
+    {p.submissions.map(s=><details key={s.submission_id} open><summary>{s.revision===1?t("study.firstAnswer"):t("study.practiceAttemptRevision", { revision: s.revision })} · {t(statusLabel[s.status] || "study.evaluationInProgress")}</summary>
       <blockquote>{s.payload.text_answer}</blockquote>
-      <p className="hint">{[s.assistance?.hint_used?'使用过提示':'',s.assistance?.reference_viewed?'看过答案':'',s.assistance?.feedback_seen?'已见反馈':''].filter(Boolean).join(' · ')||'提交时未记录辅助'}</p>
+      <p className="hint">{[s.assistance?.hint_used?t("study.hintUsed"):'',s.assistance?.reference_viewed?t("study.referenceViewed"):'',s.assistance?.feedback_seen?t("study.feedbackSeen"):''].filter(Boolean).join(' · ')||t("study.noAssistanceRecorded")}</p>
       {s.status==='COMPLETED' && s.feedback && <Feedback value={s.feedback} answer={s.payload.text_answer}/>}
-      {s.error && <p role="alert">{s.error.message||'评价失败'}</p>}
-      {s.can_retry && <button className="btn btn-outline" onClick={()=>perform('retry',async()=>{await api.post('/learning/submissions/'+s.submission_id+'/retry')})}>重试评价</button>}
+      {s.error && <p role="alert">{s.error.message||t("study.evaluationFailed")}</p>}
+      {s.can_retry && <button className="btn btn-outline" onClick={()=>perform('retry',async()=>{await api.post('/learning/submissions/'+s.submission_id+'/retry')})}>{t("study.retryEvaluation")}</button>}
     </details>)}
-    {active && !ended && <><label>{sub?'修正回答':'我的原答'}<textarea value={answer} onChange={e=>setAnswer(e.target.value)} rows={3}/></label>
+    {active && !ended && <><label>{sub?t("study.reviseAnswer"):t("study.myOriginalAnswer")}<textarea value={answer} onChange={e=>setAnswer(e.target.value)} rows={3}/></label>
       <div className="study-actions"><button className="btn btn-primary" disabled={busy||pending||!answer.trim()} onClick={()=>perform('answer-'+p.id+'-'+answer,async key=>{
         await api.post(path+'/answers',{text_answer:answer.trim(),request_key:key,parent_submission_id:sub?.submission_id});setAnswer('');
-      })}>{sub?'提交修正':'提交原答'}</button>
+      })}>{sub?t("study.submitRevision"):t("study.submitOriginalAnswer")}</button>
       {(['hint','reference'] as const).map(kind=><button key={kind} className="btn btn-outline" disabled={busy} onClick={()=>perform(kind,async key=>{
         const data=await api.post(path+'/assistance',{kind,request_key:key});setHelp(data.content)
-      })}>{kind==='hint'?'请求提示':'查看参考答案'}</button>)}
-      <button className="btn btn-ghost" disabled={busy} onClick={()=>perform('skip',async()=>{await api.post(path+'/skip');setHelp('')})}>跳过并继续讲解</button></div></>}
+      })}>{kind==='hint'?t("study.requestHint"):t("study.viewSampleAnswer")}</button>)}
+      <button className="btn btn-ghost" disabled={busy} onClick={()=>perform('skip',async()=>{await api.post(path+'/skip');setHelp('')})}>{t("study.skipAndContinueExplanation")}</button></div></>}
     {help && <p className="study-content">{help}</p>}
-    {sub && active && (!p.retest_exam_id || ['ABORTED','EXPIRED'].includes(result?.status)) && !ended && <button className="btn btn-outline" disabled={busy||pending} onClick={()=>perform('retest',async()=>{await api.post(path+'/retest')})}>生成新情境复测</button>}
-    {p.retest_exam_id && <p><Link to={'/study/retest'+(result?.status==='COMPLETED'?'/report':'')+'?id='+p.retest_exam_id}>打开新情境复测</Link> {result && <span> · {result.status} · {result.skill_key} · 有效证据 {result.evidence_ids.length} 条 · 当前等级 {result.skill_state?.estimated_level??'待验证'}</span>}</p>}
+    {sub && active && (!p.retest_exam_id || ['ABORTED','EXPIRED'].includes(result?.status)) && !ended && <button className="btn btn-outline" disabled={busy||pending} onClick={()=>perform('retest',async()=>{await api.post(path+'/retest')})}>{t("study.generateNewScenarioRetest")}</button>}
+    {p.retest_exam_id && <p><Link to={'/study/retest'+(result?.status==='COMPLETED'?'/report':'')+'?id='+p.retest_exam_id}>{t("study.openNewScenarioRetest")}</Link> {result && <span>{t("study.retestOverview", { status: result.status, skill: result.skill_key, evidenceCount: result.evidence_ids.length, level: result.skill_state?.estimated_level??t("study.awaitingVerification") })}</span>}</p>}
     </article>}
-    {history.length>0 && <details><summary>其他练习（{history.length}）</summary>{history.map(r=><div key={r.id}><strong>{r.question}</strong>{r.submissions.map(s=><p key={s.submission_id}>{s.revision===1?'原答':'修正'}：{s.payload.text_answer} · {statusLabel[s.status]||'评价中'}</p>)}{r.retest_exam_id&&<Link to={'/study/retest?id='+r.retest_exam_id}>查看复测 #{r.retest_exam_id}</Link>}</div>)}</details>}
+    {history.length>0 && <details><summary>{t("study.otherPracticeAttempts", { count: history.length })}</summary>{history.map(r=><div key={r.id}><strong>{r.question}</strong>{r.submissions.map(s=><p key={s.submission_id}>{t("study.practiceHistoryAnswer", { kind: t(s.revision===1 ? "study.originalAnswer" : "study.revisionLabel"), answer: s.payload.text_answer, status: t(statusLabel[s.status] || "study.evaluationInProgress") })}</p>)}{r.retest_exam_id&&<Link to={'/study/retest?id='+r.retest_exam_id}>{t("study.viewRetest", { examId: r.retest_exam_id })}</Link>}</div>)}</details>}
   </section>
 }

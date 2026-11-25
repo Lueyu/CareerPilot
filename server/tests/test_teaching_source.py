@@ -1,10 +1,18 @@
 """Teaching uses the assessed frozen source, not current same-domain questions."""
+import asyncio
 import json
 from types import SimpleNamespace
 from uuid import uuid4
 
+import httpx
 import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.api import deps
+from app.api.v1 import learning
+from app.db import get_session
+from app.i18n import message
+from app.main import app
 from app.models import Exam, ExamQuestion, LearningTask, Question, Skill, Workspace
 from app.services import teaching
 
@@ -69,11 +77,14 @@ async def test_teaching_and_help_use_only_frozen_source(db_session, test_workspa
     assert all(value in prompt for value in ("FROZEN_SOURCE_TITLE", "FROZEN_SOURCE_ANSWER",
                                              "FROZEN_CRITERION", "FROZEN_STANDARD", "ORIGINAL_USER_ANSWER"))
     assert not any(value in prompt for value in ("MUTABLE_LIVE", "MUTABLE_RUBRIC", "UNRELATED_", "OLD_DOMAIN"))
-    assert task.content["source_context_version"] == 2
     if operation == "build":
+        assert task.content["source_context_version"] == 2
         await teaching.build_teaching_content(db_session, adapter, task=task,
                                              skill_name=skill.name, skill_key=skill.key)
     else:
+        if old_cache:
+            assert task.content["analogy"] == "OLD_DOMAIN_TEACHING"
+            assert task.content["help_cache"]["simpler"]["text"] == "OLD_DOMAIN_HELP"
         await teaching.help_answer(db_session, adapter, task=task, skill_name=skill.name,
                                    skill_key=skill.key, mode="simpler")
     assert len(adapter.prompts) == 1, "The current source context remains cached"
@@ -133,3 +144,86 @@ async def test_help_retries_legacy_rule_cache_after_failed_generation(db_session
     assert "FROZEN_STANDARD" in adapter.prompts[-1]
     assert await teaching.help_answer(db_session, adapter, **kwargs) == result
     assert len(adapter.prompts) == 2
+
+
+@pytest.mark.asyncio
+async def test_learning_task_language_switch_preserves_lesson_and_reuses_help_by_language(
+    db_session, test_workspace, monkeypatch,
+):
+    task, _ = await source_task(db_session, test_workspace)
+    task.status = "IN_PROGRESS"
+    task.content = {
+        "observation": {"answer_excerpt": "我的原始回答", "criterion": "幂等", "criterion_detail": "说明去重边界"},
+        "artifact_text": "我的学习笔记",
+    }
+    await db_session.commit()
+
+    async def workspace():
+        return test_workspace
+
+    session_factory = async_sessionmaker(db_session.bind, expire_on_commit=False, autoflush=False)
+
+    async def session():
+        async with session_factory() as db:
+            yield db
+
+    monkeypatch.setitem(app.dependency_overrides, deps.get_workspace, workspace)
+    monkeypatch.setitem(app.dependency_overrides, get_session, session)
+    monkeypatch.setattr(learning, "_llm", SimpleNamespace(active=False))
+    path = f"/api/v1/learning/tasks/{task.id}"
+    zh, en = {"Accept-Language": "zh-CN"}, {"Accept-Language": "en-US"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        lesson = (await client.get(f"{path}/content", headers=en)).json()["content"]
+        assert lesson["source"] == "rule"
+        assert "pipeline" in lesson["analogy"]
+        assert lesson["example"] == "Original answer: 我的原始回答\nWhat to add: 幂等"
+        assert lesson["principles"][0] == "Scoring standard: 说明去重边界"
+        assert lesson["steps"][0].startswith("Read ")
+        assert lesson["verify"] == task.acceptance
+        assert (await client.get(f"{path}/content", headers=zh)).json()["content"] == lesson
+
+        await db_session.refresh(task)
+        legacy_help = {"text": "旧的中文解答", "source": "llm"}
+        task.content = {**task.content, "help_cache": {"simpler": legacy_help}}
+        await db_session.commit()
+
+        async def help_for(headers, mode="simpler"):
+            return await client.post(f"{path}/help", json={"mode": mode}, headers=headers)
+
+        invalid = await help_for(en, "invalid")
+        assert invalid.status_code == 422
+        assert invalid.json()["detail"] == "Unknown help mode: invalid"
+        unavailable = await help_for(en)
+        assert unavailable.json()["text"] is None
+        assert unavailable.json()["error"].startswith("Configure a model")
+        assert (await help_for(zh)).json()["text"] == "旧的中文解答"
+
+        calls = []
+
+        async def chat(system, user, **kwargs):
+            calls.append((system, user))
+            if len(calls) == 1:
+                return {"content": '{"text": []}'}
+            text = "Explain the deduplication boundary." if message("language", "en") in system else "解释去重边界。"
+            return {"content": {"text": text}}
+
+        monkeypatch.setattr(learning, "_llm", SimpleNamespace(active=True, chat=chat))
+        assert (await help_for(en)).json()["error"] == "AI didn’t generate a usable answer. Try again."
+        english = (await help_for(en)).json()
+        assert english["text"] == "Explain the deduplication boundary."
+        assert (await help_for(en)).json() == english
+        assert (await help_for(zh)).json()["text"] == "旧的中文解答"
+        chinese_reply, english_reply = await asyncio.gather(help_for(zh, "diagram"), help_for(en, "diagram"))
+        chinese = chinese_reply.json()
+        assert chinese["text"] == "解释去重边界。"
+        assert english_reply.json()["text"] == english["text"]
+        assert (await help_for(en, "diagram")).json() == english_reply.json()
+        assert (await help_for(zh, "diagram")).json() == chinese
+        assert len(calls) == 4
+        assert all("FROZEN_SOURCE_ANSWER" in user and "我的原始回答" in user for _, user in calls)
+
+        saved = (await client.get(path, headers=zh)).json()
+        assert saved["id"] == task.id and saved["status"] == "IN_PROGRESS"
+        assert saved["source_exam_question_id"] == task.source_exam_question_id
+        assert saved["content"]["help_cache"]["simpler"] == legacy_help
+        assert {key: saved["content"][key] for key in lesson} == lesson

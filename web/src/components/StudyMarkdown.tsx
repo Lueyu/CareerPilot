@@ -1,3 +1,4 @@
+import { useT } from '../i18n';
 import { useRef, useState, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import gfm from 'remark-gfm';
@@ -7,29 +8,36 @@ import highlight from 'rehype-highlight';
 import 'katex/dist/katex.min.css';
 
 function Code({ children }: { children?: ReactNode }) {
+  const t = useT();
+
   const ref = useRef<HTMLPreElement>(null);
   const [notice, setNotice] = useState('');
 
   async function copy() {
     try {
       await navigator.clipboard.writeText(ref.current?.textContent ?? '');
-      setNotice('已复制');
+      setNotice("study.copied");
     } catch {
-      setNotice('请选中代码复制');
+      setNotice("study.selectCodeToCopy");
     }
   }
 
   return <div className="study-code">
-    <button type="button" onClick={() => void copy()}>{notice || '复制代码'}</button>
+    <button type="button" onClick={() => void copy()}>{t(notice || "study.copyCode")}</button>
     <pre ref={ref}>{children}</pre>
   </div>;
+}
+
+function ImagePlaceholder({ alt }: { alt?: string }) {
+  const t = useT();
+  return <span>{alt || t("study.image")}</span>;
 }
 
 const markdownComponents = {
   pre: Code,
   table: ({ children }: { children?: ReactNode }) =>
     <div className="study-table-scroll"><table>{children}</table></div>,
-  img: ({ alt }: { alt?: string }) => <span>{alt || '图片'}</span>,
+  img: ImagePlaceholder,
   a: ({ href, children }: { href?: string; children?: ReactNode }) =>
     href && /^(https?:\/\/|#)/i.test(href)
       ? <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
