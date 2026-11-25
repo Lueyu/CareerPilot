@@ -67,15 +67,16 @@ export function playlistEpisodes(library: PodcastLibrary, ids: number[]) {
   });
 }
 
-export function importedEpisodes(
-  episodes: PodcastEpisode[],
-  batch: {
-    ids: number[];
-    questionIds: number[];
-  },
-) {
+export interface ImportBatch {
+  ids: number[];
+  questionIds: number[];
+  sourceIds?: number[];
+  skippedCount?: number;
+}
+
+export function importedEpisodes(episodes: PodcastEpisode[], batch: ImportBatch) {
   const returned = new Set(batch.ids);
-  const sources = new Set(episodes.filter((e) => returned.has(e.id)).map((e) => e.source_id));
+  const sources = new Set(batch.sourceIds ?? episodes.filter((e) => returned.has(e.id)).map((e) => e.source_id));
   const questions = new Map(batch.questionIds.map((id, index) => [id, index]));
   return episodes
     .filter(

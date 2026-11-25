@@ -49,6 +49,9 @@ test("batch includes delayed series parts and reused IDs without importing old v
     }),
     [draft, second, reuse],
   );
+  assert.deepEqual(importedEpisodes([second, otherLanguage], {
+    ids: [draft.id], sourceIds: [draft.source_id], questionIds: [91],
+  }), [second]);
 });
 
 test("playlist order stays explicit and excludes unfinished episodes from playback", () => {
@@ -102,7 +105,7 @@ test("multi-question language and selection survive pagination and submit with s
   });
   t.mock.method(api, "post", async (path, body) => {
     submitted.push([path, JSON.parse(JSON.stringify(body))]);
-    return { episode_ids: [40], skipped_question_ids: [18] };
+    return { episode_ids: [40], source_ids: [24], skipped_question_ids: [18] };
   });
 
   const root = render(
@@ -140,7 +143,7 @@ test("multi-question language and selection survive pagination and submit with s
   assert.deepEqual(submitted, [["/podcasts/import", {
     question_ids: [18, 36], series: true, playlist_id: 6, language: "bilingual",
   }]]);
-  assert.deepEqual(imported, [[[40], [18, 36], 1]]);
+  assert.deepEqual(imported, [[{ ids: [40], sourceIds: [24], questionIds: [18, 36], skippedCount: 1 }]]);
 });
 
 for (const language of ["zh", "en"]) {

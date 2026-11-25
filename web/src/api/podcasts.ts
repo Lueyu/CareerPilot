@@ -46,7 +46,7 @@ export const podcastApi = {
     return api.get<{ items: PodcastSource[]; total: number }>(root + '/sources?' + params);
   },
   importQuestions(question_ids: number[], series: boolean, playlist_id?: number, language?: PodcastLanguage) {
-    return api.post<{ episode_ids: number[]; skipped_question_ids?: number[] }>(
+    return api.post<{ episode_ids: number[]; source_ids?: number[]; skipped_question_ids?: number[] }>(
       root + '/import', { question_ids, series, playlist_id, language },
     );
   },

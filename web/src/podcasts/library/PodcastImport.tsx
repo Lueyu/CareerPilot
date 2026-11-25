@@ -9,6 +9,7 @@ import {
   defaultPodcastLanguage,
   errorDetail,
   isPodcastLanguage,
+  type ImportBatch,
   podcastLanguages,
 } from "./model";
 import { PodcastHeading, PodcastIcon, PodcastSteps } from "./PodcastUi";
@@ -24,7 +25,7 @@ export function PodcastImport({
   initialIds: number[];
   playlists: PodcastPlaylist[];
   onClose: () => void;
-  onImported: (ids: number[], questionIds: number[], skippedCount?: number) => void;
+  onImported: (batch: ImportBatch) => void;
 }) {
   const [selected, setSelected] = useState(() => new Set(initialIds));
   const [language, setLanguage] = useState<PodcastLanguage>(defaultPodcastLanguage);
@@ -85,7 +86,7 @@ export function PodcastImport({
     setImportError("");
     const questionIds = [...selected];
     try {
-      const { episode_ids, skipped_question_ids } = await podcastApi.importQuestions(
+      const { episode_ids, source_ids, skipped_question_ids } = await podcastApi.importQuestions(
         questionIds,
         series,
         playlistId,
@@ -95,7 +96,7 @@ export function PodcastImport({
         setImportError("没有找到可导入的题目，请确认所选题目有参考答案。");
         return;
       }
-      onImported(episode_ids, questionIds, skipped_question_ids?.length);
+      onImported({ ids: episode_ids, sourceIds: source_ids, questionIds, skippedCount: skipped_question_ids?.length });
     } catch (error) {
       setImportError(errorDetail(error, "导入失败"));
     } finally {

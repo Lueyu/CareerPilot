@@ -28,18 +28,13 @@ import {
 import {
   errorDetail,
   importedEpisodes,
+  type ImportBatch,
   isProducing,
   parseQuestionIds,
   playlistEpisodes,
   readyEpisodes,
 } from "../podcasts/library/model";
 import "./podcasts.css";
-
-type ImportBatch = {
-  ids: number[];
-  questionIds: number[];
-  skippedCount?: number;
-};
 
 function notifyPlayer() {
   window.dispatchEvent(new CustomEvent(podcastLibraryChanged, { detail: { source: "library" } }));
@@ -81,9 +76,7 @@ function WorkspacePodcasts() {
   const screen: View = linked === null ? view : { kind: "import" };
   const data = library ?? emptyLibrary;
   const batch = screen.kind === "production" ? screen.batch : undefined;
-  const active =
-    data.episodes.some(isProducing) ||
-    Boolean(batch?.ids.some((id) => !data.episodes.some((episode) => episode.id === id)));
+  const active = data.episodes.some(isProducing);
 
   const refresh = useCallback(async () => {
     const id = ++requestId.current;
@@ -222,12 +215,12 @@ function WorkspacePodcasts() {
       void act("节目删除失败", async () => {
         await podcastApi.remove(dialog.id);
         if (batch) {
-          const ids = batch.ids.filter((id) => id !== dialog.id);
           const remaining = jobs.filter((job) => job.id !== dialog.id);
+          const ids = remaining.map((job) => job.id);
           const questionIds = batch.questionIds.filter((id) =>
             id !== dialogEpisode?.question_id || remaining.some((job) => job.question_id === id),
           );
-          setView(ids.length || remaining.length
+          setView(remaining.length
             ? { kind: "production", batch: { ...batch, ids, questionIds } }
             : { kind: "library" });
         }
@@ -280,8 +273,9 @@ function WorkspacePodcasts() {
           initialIds={parseQuestionIds(linked)}
           playlists={data.playlists}
           onClose={backToLibrary}
-          onImported={(ids, questionIds, skippedCount) => {
-            go({ kind: "production", batch: { ids, questionIds, skippedCount } });
+          onImported={(batch) => {
+            setLibrary(undefined);
+            go({ kind: "production", batch });
             void refresh();
             notifyPlayer();
           }}
@@ -292,9 +286,7 @@ function WorkspacePodcasts() {
       content = (
         <PodcastProduction
           episodes={jobs}
-          waiting={Boolean(
-            batch && !fetchError && batch.ids.some((id) => !jobs.some((job) => job.id === id)),
-          )}
+          waiting={!library && !fetchError}
           missingQuestions={batch?.skippedCount ?? missingQuestions}
           busy={busy}
           onBack={backToLibrary}

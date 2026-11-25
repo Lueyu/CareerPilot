@@ -117,6 +117,7 @@ async def import_sources(session, workspace_id, question_ids, series, playlist_i
         select(
             PodcastSource.question_id,
             PodcastSource.version,
+            PodcastSource.id,
             PodcastEpisode.id,
         )
         .join(PodcastEpisode)
@@ -129,13 +130,16 @@ async def import_sources(session, workspace_id, question_ids, series, playlist_i
         .order_by(PodcastEpisode.part)
     )
     existing = {}
-    for question_id, version, episode_id in rows:
+    source_ids = {}
+    for question_id, version, source_id, episode_id in rows:
+        source_ids[question_id, version] = source_id
         existing.setdefault((question_id, version), []).append(episode_id)
 
     new = {key: snapshot for key, snapshot in snapshots.items() if key not in existing}
     if new:
         session.add_all(new.values())
         await session.flush()
+        source_ids.update({key: snapshot.id for key, snapshot in new.items()})
         seeds = {
             key: PodcastEpisode(
                 source_id=snapshot.id,
@@ -167,7 +171,11 @@ async def import_sources(session, workspace_id, question_ids, series, playlist_i
             start=0 if position is None else position + 1,
         )
     await session.commit()
-    return {"episode_ids": episode_ids, "skipped_question_ids": skipped_question_ids}
+    return {
+        "episode_ids": episode_ids,
+        "source_ids": [source_ids[key] for key in snapshots],
+        "skipped_question_ids": skipped_question_ids,
+    }
 
 
 def episode_payload(episode, question_id, question_code, topic, title, language):

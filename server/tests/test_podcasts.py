@@ -632,6 +632,8 @@ async def test_languages_keep_frozen_versions_and_reach_jobs(db_session, test_wo
             versions[language] = episode_id
             repeated = await api.post(ROOT + "/import", json=request)
             assert repeated.json()["episode_ids"] == [episode_id]
+            assert len(response.json()["source_ids"]) == 1
+            assert repeated.json()["source_ids"] == response.json()["source_ids"]
         assert versions["zh"] == chinese
         assert len(set(versions.values())) == 3
         rejected = await api.post(ROOT + "/import", json={"question_ids": [original.id], "language": "fr"})
