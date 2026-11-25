@@ -10,6 +10,8 @@ import {
 import { PodcastPlaybackProvider, usePodcastPlayer } from './PodcastPlayback';
 import { podcastTime } from './PodcastPlayerDialog';
 
+const libraryPath = import.meta.env.VITE_REGISTERED ? '/podcasts' : '/library/podcasts';
+
 function SavedPlaylists({ identity }: { identity: PodcastIdentity }) {
   const [library, setLibrary] = useState<PlaybackLibrary>();
   const [error, setError] = useState(false);
@@ -31,7 +33,7 @@ function SavedPlaylists({ identity }: { identity: PodcastIdentity }) {
   }, [identity]);
 
   return <main className="podcast-standalone">
-    <header><div><p>CareerPilot</p><h1>离线播客</h1></div><a href="/podcasts">返回节目库</a></header>
+    <header><div><p>CareerPilot</p><h1>离线播客</h1></div><a href={libraryPath}>返回节目库</a></header>
     {error && <p role="alert">无法读取已保存的节目。</p>}
     {!library && !error && <p role="status">正在打开离线节目…</p>}
     {library && (library.playlists.length ? <>
@@ -84,7 +86,7 @@ function OfflinePodcastEntry() {
   }, [initial]);
 
   if (!identity) return <main className="podcast-standalone">
-    <header><h1>离线播客</h1><a href="/podcasts">返回节目库</a></header>
+    <header><h1>离线播客</h1><a href={libraryPath}>返回节目库</a></header>
     <p role="status">{identity === undefined ? '正在打开离线播放器…'
       : '当前工作区在这台设备上没有可打开的离线歌单。请联网并从节目库重新保存。'}</p>
   </main>;
