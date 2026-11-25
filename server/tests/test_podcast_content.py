@@ -135,6 +135,74 @@ async def test_language_selects_prompt_validation_and_synthesis(configured, monk
         await make_scripts(session, 27, **_QUESTION, language=language)
 
 
+_GERMAN_ANSWER = (
+    "Ich verwende bei jeder Anfrage denselben festen Wert und speichere das Ergebnis in der Datenbank. "
+    "Wenn eine Antwort verloren geht, lese ich den alten Wert aus der Datenbank und sende ihn erneut. "
+    "Dadurch bleibt die Anzahl der Buchungen auch nach einem Fehler immer gleich."
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("language", "changes"), [
+    ("en", {
+        "title": "Wiederholung bei einem Fehler",
+        "opening": "Was machen Sie mit einer Anfrage wenn die Antwort auf dem Weg zum Kunden verloren geht?",
+        "explanation": _GERMAN_ANSWER * 2,
+        "interview_answer": _GERMAN_ANSWER,
+    }),
+    ("bilingual", {"interview_answer": "面试中可以这样回答。 " + _GERMAN_ANSWER}),
+    ("bilingual", {
+        "explanation": "如果请求超时了，我们需要先检查数据库里有没有执行记录，再决定能否重试。" * 4
+        + " " + _ENGLISH_ANSWER * 6,
+        "interview_answer": _ENGLISH_ANSWER,
+    }),
+])
+async def test_draft_rejects_wrong_language_in_spoken_prose(configured, language, changes):
+    session, adapter = configured
+    adapter.return_value = completion(episode(**changes))
+    with pytest.raises(PodcastScriptError, match="语言不符"):
+        await make_scripts(session, 27, **_QUESTION, language=language)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("language", ["zh", "en", "bilingual"])
+async def test_draft_accepts_short_questions_and_technical_terms(configured, language):
+    session, adapter = configured
+    if language == "en":
+        draft = episode(
+            title="Redis + HTTP 429",
+            opening="Retry the API call?",
+            explanation=_ENGLISH_ANSWER + " The customer could otherwise receive the same coupon twice.",
+            interview_answer=_ENGLISH_ANSWER,
+        )
+    else:
+        explanation = (
+            episode()["explanation"]
+            .replace("同一个超时", "同一个 API timeout")
+            .replace("固定单号", "固定的 idempotency key")
+            .replace("一次查询", "一次 Redis lookup")
+        )
+        draft = episode(opening="HTTP 429 要重试吗？", explanation=explanation)
+        if language == "bilingual":
+            draft["interview_answer"] = "面试可以这样说。 " + _ENGLISH_ANSWER + " 这就是取舍。"
+    adapter.return_value = completion(draft)
+    result, = await make_scripts(session, 27, **_QUESTION, language=language)
+    assert result["script"].startswith(draft["opening"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("language", "script"), [
+    ("en", _GERMAN_ANSWER),
+    ("bilingual", "请听这段面试回答。 " + _GERMAN_ANSWER),
+])
+async def test_synthesis_rejects_non_english_prose_before_starting_worker(monkeypatch, language, script):
+    worker = AsyncMock()
+    monkeypatch.setattr(podcast_content, "render_mp3_in_worker", worker)
+    with pytest.raises(PodcastAudioError, match="所选语言"):
+        await synthesize_mp3(script, language)
+    worker.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_series_preserves_plain_answer_and_episode_order(configured):
     session, adapter = configured

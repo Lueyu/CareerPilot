@@ -23,6 +23,14 @@ _MAX_SCRIPT = 12000
 _SOURCE_HEADING = "\n\n参考资料（不朗读）\n"
 _ENGLISH_SOURCE_HEADING = "\n\nReferences (not spoken)\n"
 _ENGLISH_WORD = re.compile(r"\b[A-Za-z]+(?:['’\-][A-Za-z]+)*\b")
+# Common English prose words give stronger evidence than the Latin alphabet alone.
+_ENGLISH_PROSE_WORDS = frozenset(
+    "a about above after all also am and any are as at because before between both but by can cannot could "
+    "did do does during each either for from had has have he how however i if into is it its may might "
+    "more most must my need neither no not of on one only or other our out over should since some than "
+    "that the their them then there these they this those through to under until up us very we were "
+    "what when where whether which while who will with without would you your".split()
+)
 _MIN_INTERVIEW_WORDS = 40
 _HAN = re.compile(r"[\u3400-\u9fff]")
 _URL = re.compile(r"""https?://[^\s<>"'()，。；！？、【】《》]+""", re.IGNORECASE)
@@ -154,8 +162,31 @@ def _english_word_count(text: str) -> int:
     return len(_ENGLISH_WORD.findall(text))
 
 
-def _longest_english_passage(text: str) -> int:
-    return max(map(_english_word_count, _HAN.split(text)))
+def _is_english_prose(text: str, min_words: int) -> bool:
+    words = _ENGLISH_WORD.findall(text.lower())
+    if len(words) < min_words:
+        return False
+    if len(words) < 12:
+        return True  # A short technical question can consist mostly of names.
+    prose_words = [
+        word for token in words
+        if (word := token.replace("’", "'").split("'", 1)[0]) in _ENGLISH_PROSE_WORDS
+    ]
+    return len(set(prose_words)) >= 3 and len(prose_words) * 8 >= len(words)
+
+
+def _has_english_answer(text: str) -> bool:
+    return any(_is_english_prose(part, _MIN_INTERVIEW_WORDS) for part in _HAN.split(text))
+
+
+def _is_chinese_narration(text: str, min_han: int) -> bool:
+    han_count = len(_HAN.findall(text))
+    if han_count < min_han:
+        return False
+    latin_runs = map(_english_word_count, _HAN.split(text))
+    # Ignore short embedded terms. Roughly two Han characters take the airtime of one English word.
+    prose_words = sum(count for count in latin_runs if count >= 8)
+    return han_count >= 2 * prose_words
 
 
 def _matches_language(episode: _EpisodeOutput, language: PodcastLanguage) -> bool:
@@ -164,16 +195,18 @@ def _matches_language(episode: _EpisodeOutput, language: PodcastLanguage) -> boo
         return (
             not any(_HAN.search(section) for section in (episode.title, opening, explanation, answer))
             and _english_word_count(episode.title) > 0
-            and _english_word_count(opening) >= 12
-            and _english_word_count(explanation) >= 60
-            and _english_word_count(answer) >= _MIN_INTERVIEW_WORDS
+            and _is_english_prose(opening, 1)
+            and _is_english_prose(explanation, 60)
+            and _is_english_prose(answer, _MIN_INTERVIEW_WORDS)
         )
-    if len(_HAN.findall(opening)) < 20 or len(_HAN.findall(explanation)) < 100:
+    if not _is_chinese_narration(opening, 1) or not _is_chinese_narration(explanation, 100):
         return False
     if language == "bilingual":
-        return _longest_english_passage(answer) >= _MIN_INTERVIEW_WORDS
+        return _has_english_answer(answer)
     return len(_HAN.findall(answer)) >= 30 and all(
-        _longest_english_passage(section) < 20 for section in (opening, explanation, answer)
+        _english_word_count(part) < 20
+        for section in (opening, explanation, answer)
+        for part in _HAN.split(section)
     )
 
 
@@ -288,9 +321,9 @@ async def synthesize_mp3(script: str, language: PodcastLanguage = "zh") -> tuple
             raise PodcastAudioError("请确认讲稿包含有效的中文。")
         return await render_mp3_in_worker(text)
     if language == "en":
-        valid = not _HAN.search(text) and _english_word_count(text) >= 3
+        valid = not _HAN.search(text) and _is_english_prose(text, 3)
     else:
-        valid = _HAN.search(text) and _longest_english_passage(text) >= _MIN_INTERVIEW_WORDS
+        valid = _HAN.search(text) and _has_english_answer(text)
     if not valid:
         raise PodcastAudioError("请确认讲稿包含所选语言的有效内容。")
     return await render_mp3_in_worker(text, language=language)
