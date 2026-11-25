@@ -266,6 +266,7 @@ async def _gather_sources(session, turn, timeout, save):
 
 def _compose_request(turn, trace, language: Locale):
     """Route the turn and build the model prompt; fills turn with the request pieces."""
+    from app.services.interview_workflow import ROLE_INSTRUCTIONS
     from app.services.study_blocks import TEXT_ONLY, block_prompt, wants_teaching_diagram
     from app.services.study_teaching import teaching_prompt
     action = turn["action"]
@@ -294,6 +295,19 @@ def _compose_request(turn, trace, language: Locale):
         generation_message("study_chat.context_contract", language),
         block_prompt(action, question, sources, language=language),
     ))
+    agent_role = coach.get("agent_role")
+    if agent_role in ROLE_INSTRUCTIONS:
+        instruction += "\n" + ROLE_INSTRUCTIONS[agent_role]
+        instruction += "\nProvide a substantive written response. Explain the reason and what to do next before or alongside any structured block."
+        trace["agent_role"] = agent_role
+        workflow = context.get("interview_workflow")
+        if workflow and workflow["status"] != "completed":
+            request_data["interview_workflow"] = {
+                "status": workflow["status"],
+                "current_step": workflow["steps"][workflow["current"]],
+                "remaining_steps": workflow["steps"][workflow["current"] + 1:],
+            }
+            instruction += "\nIf a workflow is paused, do not move it forward. Never claim that chat text changed workflow state."
     proactive_diagram = wants_teaching_diagram(action, question)
     if proactive_diagram:
         instruction += "\n" + localized_message("blocks.proactive", language)
