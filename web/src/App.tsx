@@ -1,5 +1,5 @@
 import { useT } from './i18n';
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { Route, Link, Navigate, useSearchParams } from 'react-router-dom';
 import { AppStateProvider, useAppState } from './components/AppState';
 import { Modal } from './components/ui';
@@ -34,6 +34,8 @@ import Settings from './pages/Settings';
 import QuestionWorkshop from './pages/QuestionWorkshop';
 import Podcasts from './pages/Podcasts';
 import { WorkspacePodcastPlayer } from './podcasts/PodcastPlayer';
+
+const InterviewWorkspace = lazy(() => import('./interview/InterviewWorkspace'));
 
 function Layout({ accountName }: { accountName?: string }) {
   const t = useT();
@@ -117,5 +119,14 @@ export function NativeWorkspace({ registered }: { registered?: RegisteredPages }
 }
 
 export default function App() {
-  return <WorkspaceLogin><NativeWorkspace /></WorkspaceLogin>;
+  return <WorkspaceLogin>
+    <AppStateProvider>
+      <WorkspacePodcastPlayer key={getWorkspace()}>
+        <Suspense fallback={<p role="status">正在打开工作区…</p>}>
+          <InterviewWorkspace />
+        </Suspense>
+        <ImportMonitor reviewPath="/library/notes?review=1" />
+      </WorkspacePodcastPlayer>
+    </AppStateProvider>
+  </WorkspaceLogin>;
 }

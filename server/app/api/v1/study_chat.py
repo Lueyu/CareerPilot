@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.i18n import message as localized_message, request_language
 from app.api.deps import get_workspace
 from app.db import get_session
-from app.models import Workspace
+from app.models import Exam, Workspace
 from app.models.project import Project
 from app.models.study_chat import StudyMessage, StudySession
 from app.services.answer_guides import example_for
@@ -155,7 +155,17 @@ async def detail(session_id: int, session: Db, ws: Owner):
         await session.commit()
     messages = (await session.scalars(select(StudyMessage).where(StudyMessage.session_id == row.id)
                             .order_by(StudyMessage.id).execution_options(populate_existing=True))).all()
-    return {**session_item(row), "messages": [message_item(m) for m in messages]}
+    reports = await session.scalars(
+        select(Exam.id)
+        .where(
+            Exam.workspace_id == ws.id,
+            Exam.status == Exam.STATUS_COMPLETED,
+            Exam.interview_config["origin_session_id"].as_integer() == row.id,
+        )
+        .order_by(Exam.id.desc())
+        .limit(3)
+    )
+    return {**session_item(row), "messages": [message_item(m) for m in messages], "exam_reports": list(reports)}
 
 
 @router.patch("/{session_id}")

@@ -9,7 +9,7 @@ export { usePodcastPlayer } from './PodcastPlayback';
 
 export function WorkspacePodcastPlayer({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
-  const onPodcasts = pathname === '/podcasts' || pathname === '/podcasts/';
+  const onPodcasts = /^\/(?:library\/)?podcasts\/?$/.test(pathname);
   const [opened, setOpened] = useState(onPodcasts);
   useEffect(() => {
     if (onPodcasts) setOpened(true);

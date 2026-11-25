@@ -105,6 +105,7 @@ export interface Session {
   status: "active" | "ended";
   context: { interview_workflow?: WorkflowRun; project_id?: number; topic?: string };
   messages: Message[];
+  exam_reports?: number[];
 }
 
 export const changeEvent = "study-history-changed";

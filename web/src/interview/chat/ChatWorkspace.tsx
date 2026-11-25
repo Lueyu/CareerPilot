@@ -10,6 +10,7 @@ import {
 import { api, getWorkspace, workspaceStorageKey } from "../../api/client";
 import StudyMarkdown from "../../components/StudyMarkdown";
 import StudyArtifact from "../../components/StudyArtifacts";
+import InterviewBrief from "../InterviewBrief";
 import Composer from "./Composer";
 import {
   BenchmarkCard,
@@ -157,6 +158,7 @@ function Conversation({
   const [question, setQuestion] = useState<Question>();
   const [replaceWorkflow, setReplaceWorkflow] = useState<Workflow>();
   const [benchmarkRevision, setBenchmarkRevision] = useState(0);
+  const [hiddenReports, setHiddenReports] = useState<number[]>([]);
   const active = useRef(true);
   const inFlight = useRef(false);
   const createdSession = useRef<number>();
@@ -168,6 +170,9 @@ function Conversation({
     .reverse()
     .find((message) => message.role === "assistant" && message.status === "completed");
   const report = positiveId(params.get("report"));
+  const reports = [
+    ...new Set([...(report ? [report] : []), ...(session?.exam_reports ?? [])]),
+  ].filter((id) => !hiddenReports.includes(id));
   const externalTopic = params.get("topic")?.trim().slice(0, 500);
   const externalSkill = params.get("skill");
   const linkedWorkflow = workflows.find(
@@ -601,6 +606,7 @@ function Conversation({
               打开角色与技能
             </button>
           </header>
+          {!sessionId && !invalidId && <InterviewBrief />}
           {invalidId && (
             <p role="alert">
               此对话链接无效。 <Link to="/chat?new=1">新对话</Link>
@@ -815,7 +821,16 @@ function Conversation({
               </button>
             </div>
           )}
-          {report && <ReportCard id={report} close={() => removeQuery("report")} />}
+          {reports.map((id) => (
+            <ReportCard
+              key={id}
+              id={id}
+              close={() => {
+                setHiddenReports((current) => [...current, id]);
+                if (id === report) removeQuery("report");
+              }}
+            />
+          ))}
           {params.has("report") && !report && <p role="alert">考试结果链接无效。</p>}
           {error && <p role="alert">{error}</p>}
         </div>
