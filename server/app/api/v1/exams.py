@@ -39,6 +39,7 @@ from app.services.competency import recompute_skill_states
 from app.services.experienced_bank import catalog_questions, is_owned_question, load_catalog
 from app.generation_i18n import with_output_language
 from app.services.followup import suggest_followups
+from app.services.interview_exam import InterviewExamConfig, answer_format, localized, select_interview_paper
 from app.services.learning_loop import complete_retest_for_exam
 from app.services.llm import adapter as llm_adapter
 from app.services.llm_judge import judge_open_answer
@@ -62,6 +63,7 @@ class CreateExamReq(BaseModel):
     question_ids: list[int] = Field(default_factory=list, max_length=20)
     project_generation_id: int | None = None
     experienced_bank: bool = False
+    interview_agent: InterviewExamConfig | None = None
 
 
 class SaveAnswerReq(BaseModel):
@@ -174,6 +176,8 @@ def _exam_list_data(history: Sequence[Exam], counts: dict[str, int]) -> dict:
                 "created_at": e.created_at.isoformat(),
                 "started_at": e.started_at.isoformat() if e.started_at else None,
                 "completed_at": e.completed_at.isoformat() if e.completed_at else None,
+                **({"interview_agent": True, "origin_session_id": e.interview_config.get("origin_session_id")}
+                   if e.interview_config else {}),
             }
             for e in history
         ],
@@ -190,6 +194,18 @@ async def create_exam(
 
 
 async def issue_exam(req, ws, session, *, study_practice=None, interview_set=None):
+    config = req.interview_agent
+    if config and (
+        req.kind != Exam.KIND_BANK or req.question_ids or req.retest_task_id or req.skill_key
+        or req.exclude_question_ids or req.project_generation_id is not None or req.experienced_bank
+        or study_practice is not None or interview_set is not None
+    ):
+        raise HTTPException(422, localized("聊天组卷不能与其他选题参数混用。",
+                                           "Interview Agent configuration cannot be combined with other selectors."))
+    config_snapshot = (
+        {**config.model_dump(), "question_count": req.question_count, "duration_minutes": req.duration_minutes}
+        if config else None
+    )
     if req.experienced_bank and (
         req.kind != Exam.KIND_BANK or not req.question_ids or req.retest_task_id is not None
         or req.project_generation_id is not None or interview_set is not None or study_practice is not None
@@ -218,6 +234,8 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
             Exam.workspace_id == ws.id, Exam.idempotency_key == req.idempotency_key,
         ))).scalar_one_or_none()
         if existing:
+            if (config or existing.interview_config) and existing.interview_config != config_snapshot:
+                raise HTTPException(409, localized("本次重试的组卷设置已改变。", "This retry has different paper settings."))
             if req.experienced_bank and (
                 not _is_experienced_practice(existing)
                 or {question.question_id for question in existing.questions} != catalog_ids
@@ -225,6 +243,9 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
                 raise HTTPException(409, localized_message("errors.the_repeated_request_does_not_match_the_existing_practice"))
             await session.commit()
             return await _exam_detail(session, ws, existing.id)
+    if config and config.origin_session_id is not None:
+        from app.services.study_practice import owned_session
+        await owned_session(session, ws.id, config.origin_session_id)
     skill_key = req.skill_key
     excluded = list(req.exclude_question_ids)
     task = None
@@ -324,7 +345,10 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
             if root.id not in seen:
                 selected.append(q)
                 seen.add(root.id)
-    bank_practice = experienced_practice or private_practice
+    source_project = None
+    if config:
+        selected, source_project = await select_interview_paper(session, ws.id, config, req.question_count)
+    bank_practice = experienced_practice or private_practice or bool(config and config.mode == "practice")
     meta = EXAM_KINDS[req.kind]
 
     exam = Exam(
@@ -337,7 +361,10 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
         started_at=dt.datetime.now(dt.timezone.utc),
         retest_task_id=req.retest_task_id,
         idempotency_key=req.idempotency_key,
+        interview_config=config_snapshot,
     )
+    if config:
+        exam.title = localized("模拟考试", "Mock exam") if config.mode == "test" else localized("限时练习", "Timed practice")
     session.add(exam)
     await session.flush()
 
@@ -382,7 +409,9 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
             'status':'NOT_CONFIGURED','calibration_status':'UNCALIBRATED','targets':[],
             'scope_note':'未配置岗位目标标准；本次评分仅记录作答表现，不能判断是否达到岗位要求。'}
     snapshots = [
-        question_snapshot(q, standard_snapshot, private_library_practice=private_practice)
+        question_snapshot(q, standard_snapshot, private_library_practice=(
+            is_private_library_question(q, ws.id) if config else private_practice
+        ))
         for q in questions
     ]
     if bank_practice:
@@ -410,6 +439,20 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
                  else "本次可以练习同能力域新题，原失分评分项缺少审核映射，待验证。")
         task.content = {**(task.content or {}), "source_criterion_covered": covered, "assessment_scope": scope}
         reason += " " + scope
+    if config:
+        reason = (localized("练习评分仅用于回顾。", "Practice scores are for review.")
+                  if bank_practice else localized("按所选条件从未曝光题目中组卷。",
+                                                  "The paper uses unseen questions that match your settings."))
+        for question, snapshot in zip(questions, snapshots, strict=True):
+            snapshot["answer_format"] = answer_format(question)
+            if config.interview_set_id:
+                snapshot["interview_reference"] = {
+                    "set_id": config.interview_set_id,
+                    "project_name": source_project,
+                    "source_item_id": (question.generation_meta or {}).get("source_item_id"),
+                }
+            snapshot["question_version"] = digest({key: value for key, value in snapshot.items()
+                                                   if key != "question_version"})
     add_span(session, trace, "select_questions", int((time.perf_counter() - t0) * 1000), detail={"count": len(questions), "reason": reason})
     await finish_trace(session, trace, "SUCCESS", int((time.perf_counter() - t0) * 1000))
     exam.selection_reason = reason
@@ -417,6 +460,8 @@ async def issue_exam(req, ws, session, *, study_practice=None, interview_set=Non
         session.add(ExamQuestion(exam_id=exam.id, question_id=q.id, order_no=i,
             creation_snapshot=snapshot))
     await emit_event(session, ws.id, "exam.created", {"exam_id": exam.id, "kind": exam.kind}, "exam", exam.id)
+    if config:
+        exam.started_at = dt.datetime.now(dt.timezone.utc)
     await session.commit()
 
     return await _exam_detail(session, ws, exam.id)
@@ -455,13 +500,18 @@ async def save_answer(
 
 
 
+def _exam_deadline(exam: Exam) -> dt.datetime | None:
+    if exam.started_at is None or not exam.duration_minutes:
+        return None
+    return exam.started_at + dt.timedelta(minutes=exam.duration_minutes + (0 if exam.interview_config else 2))
+
+
 def _maybe_expire(exam: Exam) -> bool:
-    """超时未交卷 → EXPIRED(2 分钟宽限)。返回是否刚好置为 EXPIRED。"""
-    if exam.status == Exam.STATUS_ACTIVE and exam.started_at and exam.duration_minutes:
-        deadline = exam.started_at + dt.timedelta(minutes=exam.duration_minutes + 2)
-        if dt.datetime.now(dt.timezone.utc) > deadline:
-            exam.status = Exam.STATUS_EXPIRED
-            return True
+    """Expire an active paper using its persisted deadline."""
+    deadline = _exam_deadline(exam)
+    if exam.status == Exam.STATUS_ACTIVE and deadline and dt.datetime.now(dt.timezone.utc) >= deadline:
+        exam.status = Exam.STATUS_EXPIRED
+        return True
     return False
 
 
@@ -475,6 +525,7 @@ def _assessment_question(eq: ExamQuestion):
         canonical_question_id=snap.get("canonical_question_id", q.canonical_question_id or q.id),
         title=snap.get("title", q.title), qtype=snap.get("qtype", q.qtype),
         options=snap.get("options", q.options), rubric=deepcopy(snap.get("rubric", q.rubric) or {}),
+        answer_format=snap.get("answer_format"),
         answer_html=snap.get("answer_html", q.answer_html),
         skill_id=snap.get("skill_id", q.skill_id),
         skill=SimpleNamespace(key=snap.get("skill_key", skill.key if skill else "general"),
@@ -796,6 +847,7 @@ async def _exam_detail(session: AsyncSession, ws: Workspace, exam_id: int) -> di
     exam = await _get_own_exam(session, ws, exam_id, lock=True)
     if _maybe_expire(exam):
         await session.commit()  # 懒惰置为 EXPIRED, 让考试中心如实显示
+    deadline = _exam_deadline(exam)
     return {
         "id": exam.id,
         "title": exam.title,
@@ -807,12 +859,17 @@ async def _exam_detail(session: AsyncSession, ws: Workspace, exam_id: int) -> di
         "interview_set_id": next(((eq.creation_snapshot or {}).get('interview_set', {}).get('interview_set_id')
                                   for eq in exam.questions if (eq.creation_snapshot or {}).get('interview_set')), None),
         "started_at": exam.started_at.isoformat() if exam.started_at else None,
+        "deadline_at": deadline.isoformat() if deadline else None,
+        "server_now": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "origin_session_id": (exam.interview_config or {}).get("origin_session_id"),
+        "interview_agent": bool(exam.interview_config),
         "questions": [
             {
                 "order_no": eq.order_no,
                 "short_code": q.short_code,
                 "title": q.title,
                 "qtype": q.qtype,
+                "answer_format": q.answer_format,
                 "options": q.options,
                 "difficulty": q.difficulty,
                 "skill": q.skill.name if q.skill else None,
@@ -1124,6 +1181,9 @@ async def _exam_report(session: AsyncSession, ws: Workspace, exam_id: int) -> di
         "scoring_failed": ([q['order_no'] for q in scoring_task['questions'] if q['status'] in ('FAILED','RETRY_WAIT')] if scoring_task else summary.get("scoring_failed")) if degraded else None,
         "scoring_task":scoring_task,
         "score": None if degraded else exam.score,
+        "origin_session_id": (exam.interview_config or {}).get("origin_session_id"),
+        "started_at": exam.started_at.isoformat() if exam.started_at else None,
+        "submitted_at": exam.submitted_at.isoformat() if exam.submitted_at else None,
         "total_points": exam.total_points,
         "gained_points": None if degraded else exam.gained_points,
         "selection_reason": exam.selection_reason,
@@ -1145,6 +1205,15 @@ async def _exam_report(session: AsyncSession, ws: Workspace, exam_id: int) -> di
                 "options": q.options,
                 "skill": q.skill.name if q.skill else None,
                 "reference_answer": q.answer_html,
+                "answer_format": q.answer_format,
+                "correct_choice_index": q.rubric.get("answer_index") if q.qtype == "mcq" and not degraded else None,
+                "provenance": {
+                    "source": (exam.interview_config or {}).get("source"),
+                    "question_version": (eq.frozen_snapshot or {}).get("question_version"),
+                    "answer_revision": (eq.frozen_snapshot or {}).get("answer_revision"),
+                    "rubric_version": q.rubric.get("rubric_version"),
+                    "interview_reference": (eq.frozen_snapshot or {}).get("interview_reference"),
+                },
                 "frozen": eq.frozen_snapshot,
                 "answer": (
                     {
