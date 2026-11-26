@@ -56,11 +56,17 @@ def progress(run: dict, messages) -> dict:
 
 
 COMMAND = re.compile(
-    r"(?:/?(?:下一步|下一题|下一个|完成本步|完成|开始面试|开始模拟面试|这步完成|"
-    r"(?:暂停|先暂停)(?:技能|流程|训练|一下)?|(?:继续|恢复)(?:技能|流程|训练)?|"
-    r"跳过(?:这|本|当前)?(?:一步|一题|步骤|题)?|"
+    r"(?:/?(?:下一步|下一题|下一个|完成本步|完成|开始面试(?:准备)?|开始模拟面试|这步完成|"
+    r"(?:暂停|先暂停)(?:技能|流程|训练|模拟面试|面试|一下)?|"
+    r"(?:继续|恢复)(?:技能|流程|训练|模拟面试|面试)?|"
+    r"跳过(?:这|本|当前)?(?:一步|一题|步骤|题|环节|阶段)?(?:（会记录）)?|"
+    r"进入(?:准备|自我介绍|技术问答|系统设计|行为问题|复盘)|结束面试[，,]\s*查看复盘|"
+    r"请面试官提问|生成复盘报告|重试本环节回复|"
     r"next(?:\s+(?:step|stage|question))?|(?:continue|pause|resume)(?:\s+interview)?|"
-    r"skip(?:\s+(?:this\s+|current\s+)?(?:step|stage|question))?|advance|start|done|"
+    r"skip(?:\s+(?:this\s+|current\s+)?(?:step|stage|question))?(?:\s+\(recorded\))?|"
+    r"enter\s+(?:preparation|introduction|technical questions|system design|behavioral questions|review)|"
+    r"start interview preparation|ask the stage question|generate interview report|retry this reply|"
+    r"finish interview and view review|advance|start|done|"
     r"(?:把|将).{1,60}?(?:换成|改为|改成).{1,120})[。！？!?.\s]*|/\S+)", re.IGNORECASE,
 )
 

@@ -58,7 +58,13 @@ async def test_advance_requires_real_answer_and_completed_feedback(db_session, t
     await finish(db, question)
     for command_text in ("下一步", "next question", "next stage", "pause interview", "skip current stage",
                          "continue interview", "skip this question", "先暂停一下", "恢复流程", "跳过当前题",
-                         "把系统设计改为架构设计", "完成本步", "/mock"):
+                         "暂停面试", "继续面试", "恢复面试", "暂停模拟面试", "跳过本环节（会记录）",
+                         "进入自我介绍", "进入技术问答", "进入系统设计", "进入行为问题", "进入复盘",
+                         "开始面试准备", "请面试官提问", "生成复盘报告", "结束面试，查看复盘",
+                         "Start interview preparation", "Ask the stage question", "Generate interview report",
+                         "Skip this stage (recorded)", "Enter introduction", "Enter technical questions",
+                         "Enter system design", "Enter behavioral questions", "Enter review",
+                         "Finish interview and view review", "把系统设计改为架构设计", "完成本步", "/mock"):
         with pytest.raises(HTTPException, match="409"):
             await send(db, ws, sid, run, "mock_answer", command_text)
     body, answer, queue = await send(db, ws, sid, run, "mock_answer")
