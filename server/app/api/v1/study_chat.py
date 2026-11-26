@@ -216,10 +216,17 @@ async def edit_interview_workflow(session_id: int, body: WorkflowChange, session
             if any(m.status == "generating" for m in messages):
                 mock_interview.reject("请等待当前回复结束，或先停止生成。", "Wait for the current reply or stop generation first.")
         ready = False
+        accepted = None
         if is_mock and body.operation == "advance":
-            mock_interview.validate_advance(current, messages)
+            accepted = mock_interview.validate_advance(current, messages)
             ready = True
         run = change_workflow(current, body, answer_ready=ready)
+        if accepted and accepted["answer_message_id"] is not None:
+            run["accepted_answers"] = [*current.get("accepted_answers", []), {
+                **mock_interview.binding(current, "mock_answer"),
+                "answer_message_id": accepted["answer_message_id"],
+                "feedback_message_id": accepted["feedback_message_id"],
+            }]
         if run["id"] == "mock" and (body.operation in ("start", "skip", "advance") or
                 (body.operation == "change" and (body.step is None or body.step == run["current"]))):
             run = {**run, "step_revision": run["revision"], "boundary_message_id": messages[-1].id if messages else 0}

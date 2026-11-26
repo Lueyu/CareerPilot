@@ -239,12 +239,20 @@ async def _load_turn(session, message_id, attempt, coach, trace):
             StudyMessage.session_id == row.id, StudyMessage.status == "completed",
             StudyMessage.coach["workflow"]["run_id"].as_string() == scope["run_id"]
         ).order_by(StudyMessage.id))).all()
-        for answer in saved:
-            answer_scope = (answer.coach or {}).get("workflow", {})
-            if answer.role == "user" and answer_scope.get("purpose") == "mock_answer":
-                feedback = next((m for m in saved if m.role == "assistant" and m.request_id == answer.request_id), None)
-                report_evidence.append({"step": answer_scope["step"], "answer_message_id": answer.id,
-                    "answer": answer.content, "feedback": feedback.content if feedback else None})
+        by_id = {message.id: message for message in saved}
+        run = row.context.get("interview_workflow", {})
+        for accepted in run.get("accepted_answers", []) if run.get("run_id") == scope["run_id"] else []:
+            answer = by_id.get(accepted["answer_message_id"])
+            feedback = by_id.get(accepted["feedback_message_id"])
+            if not answer or not feedback or answer.role != "user" or feedback.role != "assistant":
+                continue
+            if answer.request_id != feedback.request_id or any(
+                (message.coach or {}).get("workflow", {}).get(key) != accepted[key]
+                for message in (answer, feedback) for key in ("run_id", "step", "step_revision", "purpose")
+            ):
+                continue
+            report_evidence.append({"step": accepted["step"], "answer_message_id": answer.id,
+                "feedback_message_id": feedback.id, "answer": answer.content, "feedback": feedback.content})
     return {"message_id": message_id, "attempt": attempt, "reply": reply, "row": row,
             "history": history, "question": question, "action": action, "prior": prior,
             "project_id": reply.project_id, "sources": sources, "coach": coach, "report_evidence": report_evidence}
@@ -359,6 +367,8 @@ def _compose_request(turn, trace, language: Locale):
             "scores, competency evidence or personal experience. This is formative practice, not a scored exam."
         )
         if scope["purpose"] == "mock_report":
+            request_data["turns"] = []
+            request_data.pop("earlier_excerpts", None)
             request_data["mock_interview_turn"]["saved_answers"] = turn.get("report_evidence", [])
             instruction += (
                 "\nGenerate the final interview report now. Do not ask another question or require another answer. "

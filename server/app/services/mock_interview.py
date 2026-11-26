@@ -56,9 +56,12 @@ def progress(run: dict, messages) -> dict:
 
 
 COMMAND = re.compile(
-    r"(?:/?(?:下一步|下一题|下一个|继续|完成本步|完成|跳过|暂停|恢复|开始面试|开始模拟面试|"
-    r"这步完成|next(?:\s+(?:step|question))?|continue|advance|skip|pause|resume|start|done)"
-    r"[。.!！\s]*|/\S+)", re.IGNORECASE,
+    r"(?:/?(?:下一步|下一题|下一个|完成本步|完成|开始面试|开始模拟面试|这步完成|"
+    r"(?:暂停|先暂停)(?:技能|流程|训练|一下)?|(?:继续|恢复)(?:技能|流程|训练)?|"
+    r"跳过(?:这|本|当前)?(?:一步|一题|步骤|题)?|"
+    r"next(?:\s+(?:step|stage|question))?|(?:continue|pause|resume)(?:\s+interview)?|"
+    r"skip(?:\s+(?:this\s+|current\s+)?(?:step|stage|question))?|advance|start|done|"
+    r"(?:把|将).{1,60}?(?:换成|改为|改成).{1,120})[。！？!?.\s]*|/\S+)", re.IGNORECASE,
 )
 
 
@@ -91,11 +94,13 @@ def validate_turn(run: dict | None, body, messages) -> dict | None:
 
 
 def validate_advance(run: dict, messages):
-    if progress(run, messages)["phase"] != "ready":
+    state = progress(run, messages)
+    if state["phase"] != "ready":
         if run["current"] == len(run["steps"]) - 1:
             reject("请等待最终复盘报告完整保存后再结束面试。", "Wait for the final report to be fully saved before finishing.")
         reject("请先提交本环节回答，并等待点评完成后再进入下一环节。",
                "Submit your answer and wait for completed feedback before advancing.")
+    return state
 
 
 def validate_retry(run: dict | None, reply):

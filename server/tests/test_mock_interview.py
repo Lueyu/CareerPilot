@@ -56,7 +56,9 @@ async def test_advance_requires_real_answer_and_completed_feedback(db_session, t
     with pytest.raises(HTTPException, match="409"):
         await send(db, ws, sid, run, "mock_answer")
     await finish(db, question)
-    for command_text in ("下一步", "next question", "完成本步", "/mock"):
+    for command_text in ("下一步", "next question", "next stage", "pause interview", "skip current stage",
+                         "continue interview", "skip this question", "先暂停一下", "恢复流程", "跳过当前题",
+                         "把系统设计改为架构设计", "完成本步", "/mock"):
         with pytest.raises(HTTPException, match="409"):
             await send(db, ws, sid, run, "mock_answer", command_text)
     body, answer, queue = await send(db, ws, sid, run, "mock_answer")
@@ -137,6 +139,41 @@ async def test_pause_skip_restart_and_final_report_are_durable(db_session, test_
     assert run["run_id"] != old_run["run_id"]
     with pytest.raises(HTTPException, match="409"):
         await change(db, ws, sid, run, "advance")
+
+
+@pytest.mark.asyncio
+async def test_report_uses_only_the_accepted_replacement_answer(db_session, test_workspace):
+    db, ws = db_session, test_workspace
+    sid, run = await begin(db, ws)
+    _, question, _ = await send(db, ws, sid, run, "mock_question")
+    await finish(db, question)
+    _, old_answer, _ = await send(db, ws, sid, run, "mock_answer", "Invalidated first answer.")
+    await finish(db, old_answer, content="Invalidated feedback.")
+    run = await change(db, ws, sid, run, "change", label="Replacement preparation")
+    with pytest.raises(HTTPException, match="409"):
+        await change(db, ws, sid, run, "advance")
+    _, question, _ = await send(db, ws, sid, run, "mock_question")
+    await finish(db, question)
+    _, replacement, _ = await send(db, ws, sid, run, "mock_answer", "Accepted replacement answer.")
+    await finish(db, replacement, content="Accepted replacement feedback.")
+    run = await change(db, ws, sid, run, "advance")
+    while run["current"] < 5:
+        run = await change(db, ws, sid, run, "skip")
+    _, report, _ = await send(db, ws, sid, run, "mock_report")
+    loaded = await worker._load_turn(db, report["assistant_message_id"], 1, {}, {})
+    worker._compose_request(loaded, {}, "en")
+    evidence = loaded["request_data"]["mock_interview_turn"]["saved_answers"]
+    assert loaded["request_data"]["turns"] == []
+    assert "earlier_excerpts" not in loaded["request_data"]
+    assert evidence == [{"step": 0, "answer_message_id": replacement["user_message_id"],
+        "feedback_message_id": replacement["assistant_message_id"],
+        "answer": "Accepted replacement answer.", "feedback": "Accepted replacement feedback."}]
+    row = await db.get(StudySession, sid)
+    legacy = {key: value for key, value in run.items() if key != "accepted_answers"}
+    row.context = {**row.context, "interview_workflow": legacy}
+    await db.commit()
+    loaded = await worker._load_turn(db, report["assistant_message_id"], 1, {}, {})
+    assert loaded["report_evidence"] == []
 
 
 @pytest.mark.asyncio
