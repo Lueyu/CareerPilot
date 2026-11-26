@@ -1,4 +1,3 @@
-"""Exercise exact-message diagnostics on the standalone Ops app."""
 import json
 import re
 from importlib.util import module_from_spec, spec_from_file_location
@@ -62,6 +61,63 @@ async def test_exact_lookup_requires_configured_header_auth(ops, monkeypatch):
         assert (await http.get(f"{ROUTE}/1", headers=AUTH)).status_code == 503
         assert (await http.get("/api/v1/ops/metrics")).status_code == 200
         assert "window.injected=true" not in (await http.get("/", params={"token": TOKEN})).text
+
+
+@pytest.mark.asyncio
+async def test_dashboard_refresh_keeps_auth_without_url_token(ops):
+    async with client(ops) as http:
+        assert (await http.get("/")).status_code == 401
+        assert (await http.get("/", params={"token": "wrong"})).status_code == 401
+        initial = await http.get("/", params={"token": TOKEN})
+        assert initial.status_code == 200
+        refreshed = await http.get("/")
+        assert refreshed.status_code == 200
+        assert refreshed.url.query == b""
+        assert refreshed.text == initial.text
+        assert "set-cookie" not in refreshed.headers
+        assert refreshed.headers["cache-control"] == "no-store"
+        assert refreshed.headers["referrer-policy"] == "no-referrer"
+        cookie = initial.headers["set-cookie"]
+        assert "HttpOnly" in cookie and "SameSite=strict" in cookie
+        assert "Max-Age=900" in cookie
+        assert TOKEN not in cookie
+        assert (await http.get("/", params={"token": "wrong"})).status_code == 401
+        assert (await http.get("/", headers={"X-Ops-Token": "wrong"})).status_code == 401
+        assert (await http.get("/api/v1/ops/metrics")).status_code == 401
+        assert (await http.get(f"{ROUTE}/1")).status_code == 401
+        assert (await http.get(f"{ROUTE}/1", params={"token": TOKEN})).status_code == 401
+        assert (await http.get(f"{ROUTE}/2147483647", headers=AUTH)).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_dashboard_session_expires_and_rejects_forgery(ops, monkeypatch):
+    monkeypatch.setattr(ops, "time", lambda: 1_000)
+    async with client(ops) as http:
+        assert (await http.get("/", headers=AUTH)).status_code == 200
+        session = http.cookies[ops.DASHBOARD_COOKIE]
+        expires, signature = session.split(".")
+        for forged in ("garbage", f"{int(expires) + 1}.{signature}", f"{expires}.{'0' * 64}"):
+            http.cookies.clear()
+            response = await http.get("/", headers={"Cookie": f"{ops.DASHBOARD_COOKIE}={forged}"})
+            assert response.status_code == 401
+            assert "set-cookie" not in response.headers
+        http.cookies.set(ops.DASHBOARD_COOKIE, session)
+        monkeypatch.setattr(ops, "time", lambda: 1_899)
+        assert (await http.get("/")).status_code == 200
+        monkeypatch.setattr(ops, "time", lambda: 1_900)
+        assert (await http.get("/")).status_code == 401
+        monkeypatch.setattr(ops, "time", lambda: 1_000)
+        monkeypatch.setattr(ops, "OPS_TOKEN", "rotated-secret")
+        assert (await http.get("/")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_dashboard_cookie_is_secure_on_https(ops):
+    async with AsyncClient(transport=ASGITransport(app=ops.app), base_url="https://test") as http:
+        response = await http.get("/", headers=AUTH)
+        assert response.status_code == 200
+        assert "Secure" in response.headers["set-cookie"]
+        assert (await http.get("/")).status_code == 200
 
 
 @pytest.mark.asyncio

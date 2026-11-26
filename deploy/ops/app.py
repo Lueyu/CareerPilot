@@ -14,8 +14,9 @@ import os
 import re
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
-from hmac import compare_digest
+from hmac import compare_digest, digest
 from html import escape
+from time import time
 
 import asyncpg
 from fastapi import FastAPI, HTTPException, Query, Request, Response
@@ -25,6 +26,8 @@ from study_chat_trace import study_chat_projection
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 OPS_TOKEN = os.environ.get("OPS_TOKEN", "")
 PRIVATE_HEADERS = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
+DASHBOARD_COOKIE = "careerpilot_ops_dashboard"
+DASHBOARD_SESSION_SECONDS = 900
 
 app = FastAPI(title="CareerPilot Ops Metrics", docs_url=None, openapi_url=None)
 
@@ -222,8 +225,32 @@ async def study_chat_detail(request: Request, response: Response, message_id: st
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request) -> HTMLResponse:
-    _check(request)
-    return HTMLResponse(_DASHBOARD.replace("__TOKEN__", escape(OPS_TOKEN, quote=True)), headers=PRIVATE_HEADERS)
+    session = request.cookies.get(DASHBOARD_COOKIE, "")
+    now = int(time())
+    valid_session = False
+    if OPS_TOKEN and re.fullmatch(r"[0-9]{1,12}\.[0-9a-f]{64}", session):
+        expires, signature = session.split(".")
+        valid_session = now < int(expires) <= now + DASHBOARD_SESSION_SECONDS and compare_digest(
+            signature, _dashboard_signature(expires),
+        )
+    explicit_token = "x-ops-token" in request.headers or "token" in request.query_params
+    if explicit_token or not valid_session:
+        _check(request)
+    response = HTMLResponse(
+        _DASHBOARD.replace("__TOKEN__", escape(OPS_TOKEN, quote=True)), headers=PRIVATE_HEADERS,
+    )
+    if OPS_TOKEN and (explicit_token or not valid_session):
+        expires = str(now + DASHBOARD_SESSION_SECONDS)
+        response.set_cookie(
+            DASHBOARD_COOKIE, f"{expires}.{_dashboard_signature(expires)}",
+            max_age=DASHBOARD_SESSION_SECONDS, httponly=True, samesite="strict",
+            secure=request.url.scheme == "https",
+        )
+    return response
+
+
+def _dashboard_signature(expires: str) -> str:
+    return digest(OPS_TOKEN.encode("utf-8"), f"ops-dashboard:v1:{expires}".encode("ascii"), "sha256").hex()
 
 
 _DASHBOARD = """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
