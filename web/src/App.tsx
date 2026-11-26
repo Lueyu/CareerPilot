@@ -1,5 +1,5 @@
 import { useT } from './i18n';
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { Route, Link, Navigate, useSearchParams } from 'react-router-dom';
 import { AppStateProvider, useAppState } from './components/AppState';
 import { Modal } from './components/ui';
@@ -32,6 +32,10 @@ import Ops from './pages/Ops';
 import Evolution from './pages/Evolution';
 import Settings from './pages/Settings';
 import QuestionWorkshop from './pages/QuestionWorkshop';
+import Podcasts from './pages/Podcasts';
+import { WorkspacePodcastPlayer } from './podcasts/PodcastPlayer';
+
+const InterviewWorkspace = lazy(() => import('./interview/InterviewWorkspace'));
 
 function Layout({ accountName }: { accountName?: string }) {
   const t = useT();
@@ -86,30 +90,43 @@ type RegisteredPages = {
 export function NativeWorkspace({ registered }: { registered?: RegisteredPages }) {
   return (
     <AppStateProvider>
-      <WorkspaceRoutes layout={<Layout accountName={registered?.accountName} />} onboarding={registered?.onboarding ?? <Onboarding />} home={<Dashboard />}
-        bank={<Bank registered={!!registered} />} chat={registered?.chat ?? <StudyChat />} notes={registered?.notes ?? <StudyNotebook />} exam={registered?.exam ?? <ExamCenter />}
-        learning={<Learning />} memory={<Memory />} settings={<Settings registered={!!registered} />}>
-        <Route path="/study/retest" element={<StudyRetest />} />
-        <Route path="/study/retest/report" element={<StudyRetest report />} />
-        <Route path="/benchmark" element={<CompetencyTabs />} />
-        <Route path="/profile" element={<CompetencyTabs />} />
-        <Route path="/profile/:domain" element={<ProfileDetail />} />
-        <Route path="/bank/workshop" element={<QuestionWorkshop />} />
-        <Route path="/exam/diagnosis" element={<Diagnosis />} />
-        <Route path="/exam/diagnosis/report" element={<DiagnosisReport />} />
-        <Route path="/learning/task/:id" element={<LearningTask />} />
-        <Route path="/assets" element={<Assets />} />
-        <Route path="/assets/project/:id" element={<ProjectReview />} />
-        <Route path="/assets/pipeline" element={<Pipeline />} />
-        <Route path="/observatory" element={<Observatory />} />
-        <Route path="/ops" element={<Ops />} />
-        <Route path="/evolution" element={<Evolution />} />
-        {registered?.routes}
-      </WorkspaceRoutes>
-      <ImportMonitor /></AppStateProvider>
+      <WorkspacePodcastPlayer key={getWorkspace()}>
+        <WorkspaceRoutes layout={<Layout accountName={registered?.accountName} />} onboarding={registered?.onboarding ?? <Onboarding />} home={<Dashboard />}
+          bank={<Bank registered={!!registered} />} chat={registered?.chat ?? <StudyChat />} notes={registered?.notes ?? <StudyNotebook />} exam={registered?.exam ?? <ExamCenter />}
+          learning={<Learning />} memory={<Memory />} settings={<Settings registered={!!registered} />}>
+          <Route path="/study/retest" element={<StudyRetest />} />
+          <Route path="/study/retest/report" element={<StudyRetest report />} />
+          <Route path="/benchmark" element={<CompetencyTabs />} />
+          <Route path="/profile" element={<CompetencyTabs />} />
+          <Route path="/profile/:domain" element={<ProfileDetail />} />
+          <Route path="/bank/workshop" element={<QuestionWorkshop />} />
+          <Route path="/podcasts" element={<Podcasts />} />
+          <Route path="/exam/diagnosis" element={<Diagnosis />} />
+          <Route path="/exam/diagnosis/report" element={<DiagnosisReport />} />
+          <Route path="/learning/task/:id" element={<LearningTask />} />
+          <Route path="/assets" element={<Assets />} />
+          <Route path="/assets/project/:id" element={<ProjectReview />} />
+          <Route path="/assets/pipeline" element={<Pipeline />} />
+          <Route path="/observatory" element={<Observatory />} />
+          <Route path="/ops" element={<Ops />} />
+          <Route path="/evolution" element={<Evolution />} />
+          {registered?.routes}
+        </WorkspaceRoutes>
+        <ImportMonitor />
+      </WorkspacePodcastPlayer>
+    </AppStateProvider>
   );
 }
 
 export default function App() {
-  return <WorkspaceLogin><NativeWorkspace /></WorkspaceLogin>;
+  return <WorkspaceLogin>
+    <AppStateProvider>
+      <WorkspacePodcastPlayer key={getWorkspace()}>
+        <Suspense fallback={<p role="status">正在打开工作区…</p>}>
+          <InterviewWorkspace />
+        </Suspense>
+        <ImportMonitor reviewPath="/library/notes?review=1" />
+      </WorkspacePodcastPlayer>
+    </AppStateProvider>
+  </WorkspaceLogin>;
 }

@@ -16,6 +16,7 @@ import {bankSourcePresentation} from '../lib/bankSource';
 import ExperiencedBank, { EXPERIENCED_SOURCE_LABELS, experiencedDomainLabel, experiencedLevelLabel, type ExperiencedQuestion } from './ExperiencedBank';
 import { experiencedPracticePath, rememberExperiencedFilters } from '../lib/experiencedBankPath';
 import { loadLegacyBank } from './legacyBank';
+import { PodcastQuestionAction, PodcastSelectionBar, usePodcastSelection } from '../components/PodcastQuestionAction';
 
 type ImportStage = 'upload' | 'review';
 type Facet = 'companies' | 'topics' | 'sources';
@@ -189,6 +190,7 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
   const [projectId, setProjectId] = useState('');
   const [setTitle, setSetTitle] = useState('');
   const [selectedItems, setSelectedItems] = useState<number[]>([]);
+  const podcastSelection = usePodcastSelection();
   const [edits, setEdits] = useState<Record<number,string>>({});
   const [setBusy, setSetBusy] = useState(false);
   const [paperBusy, setPaperBusy] = useState(false);
@@ -583,6 +585,7 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
               {bankLoading ? t('bank.myQuestionsLoading') : t('bank.myQuestionCount', { count: resultCount })}
             </span>
             <BankSearch value={q} onChange={(value) => {setQ(value); setPage(0);}} />
+            <PodcastSelectionBar selection={podcastSelection} />
           </div>
 
           {bankLoading ? <p className="empty" role="status">{t('bank.loadingMine')}</p> : apiErr ? <p role="alert">{t('bank.myQuestionsFailed', { error: apiErr })} <button className="btn btn-outline btn-sm" onClick={() => setReload(value => value + 1)}>{t('bank.retry')}</button></p> : rows.length === 0 ? (
@@ -609,6 +612,7 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
                     if (r.numericQuestionId != null) setMappingQuestion({ id: r.numericQuestionId, title: r.title });
                   }}>{t('bank.retestMapping')}</button>}
                   <StudyEntryButton kind="question" id={r.numericQuestionId} bankKey={r.id}/>
+                  {r.numericQuestionId != null && <PodcastQuestionAction id={r.numericQuestionId} title={r.title} selection={podcastSelection} />}
                   <button className="btn btn-outline btn-sm" disabled={practiceBusy!==null} onClick={() => startPractice(r)}>{practiceBusy===r.id?t('bank.preparingExam'):t('bank.startPractice')}</button>
                   <button className="btn btn-outline btn-sm" onClick={() => openDetail(r)}>{t('bank.viewReference')}</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => setMergeQ(r)}>{t('bank.mergeDuplicates')}</button>
@@ -636,6 +640,7 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
               </>}
               {!detailLoading && !detailErr && generalDetail?.reviewOnly && generalDetail.studySessionId && <Link className="btn btn-outline" to={`/study/chat/${generalDetail.studySessionId}`}>{t('bank.revisitStudyChat')}</Link>}
               {!generalDetail?.reviewOnly && <><StudyEntryButton key={detail.id} kind="question" id={detail.numericQuestionId} bankKey={detail.id}/>
+              {detail.numericQuestionId != null && <PodcastQuestionAction id={detail.numericQuestionId} title={detail.title} />}
               <button className="btn btn-primary" disabled={practiceBusy!==null} onClick={() => startPractice(detail, !generalDetail)}>{practiceBusy?t('bank.preparingExam'):practiceError?.id === detail.id ? t('bank.retryPractice') : t('bank.startPractice')}</button></>}
             </>
           }>

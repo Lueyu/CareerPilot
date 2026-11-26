@@ -13,10 +13,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
 from app.generation_i18n import with_output_language
+from app.i18n import message as localized_message
 from app.models import (
     Exam,
     ImportItem,
@@ -29,12 +29,15 @@ from app.models import (
     Trace,
     Workspace,
 )
-from app.models.question import STUDY_CHAT_REVIEW_META
 from app.services import bank_review_actions as review_actions
-from app.services.bank_practice import private_library_question_clause
 from app.services.answer_gen import generate_answer
 from app.services.answer_guides import current_reference, example_for
 from app.services.answer_guides import for_question as teaching_guide_for
+from app.services.bank_practice import (
+    bank_list_question_clause,
+    private_library_question_clause,
+    study_review_question_clause,
+)
 from app.services.experienced_bank import is_owned_question, list_installed_pack, owned_question_clause
 from app.services.interview_import_text import extract_structured_questions as _extract_structured_questions
 from app.services.interview_import_text import read_json
@@ -76,16 +79,12 @@ async def _skill_map(session: AsyncSession) -> dict[str, Skill]:
     return {s.key: s for s in skills}
 
 
-def _study_review_clause(workspace_id: int):
-    return (Question.workspace_id == workspace_id) & Question.generation_meta.contains(STUDY_CHAT_REVIEW_META)
-
-
 def _with_visible_study_session(query, workspace_id: int):
     return (
         query.add_columns(StudySession.id)
         .outerjoin(
             StudyInterviewQuestion,
-            (StudyInterviewQuestion.question_id == Question.id) & _study_review_clause(workspace_id),
+            (StudyInterviewQuestion.question_id == Question.id) & study_review_question_clause(workspace_id),
         )
         .outerjoin(
             StudySession,
@@ -113,15 +112,7 @@ async def list_bank(
     session: AsyncSession = Depends(get_session),
 ):
     """List public and workspace questions, or only workspace questions with scope=mine."""
-    workspace_filter = Question.workspace_id == ws.id
-    if scope != "mine":
-        workspace_filter = Question.workspace_id.is_(None) | workspace_filter
-    base = select(Question).where(
-        workspace_filter,
-        Question.canonical_question_id.is_(None),  # 变体不单独列出
-        (Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY')
-         | _study_review_clause(ws.id) | private_library_question_clause(ws.id)),
-    )
+    base = select(Question).where(bank_list_question_clause(ws.id, mine=scope == "mine"))
     company_filter = (Question.company.in_(companies) if companies else
                       Question.company.icontains(company, autoescape=True) if company else True)
     topic_filter = Question.topic.in_(topics or [topic]) if topics or topic else True
@@ -223,7 +214,7 @@ async def bank_detail(
                 Question.short_code == short_code,
                 (Question.workspace_id.is_(None)) | (Question.workspace_id == ws.id),
                 (Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY')
-                 | owned_question_clause() | _study_review_clause(ws.id) | private_library_question_clause(ws.id)),
+                 | owned_question_clause() | study_review_question_clause(ws.id) | private_library_question_clause(ws.id)),
             )
         )
     ).one_or_none()

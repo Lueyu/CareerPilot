@@ -30,6 +30,8 @@ pytestmark = pytest.mark.asyncio
 async def gateway(db_session, tmp_path, monkeypatch):
     shell = tmp_path / "index.html"
     shell.write_text("<html>synthetic shell</html>")
+    (tmp_path / "podcast-offline.html").write_text("<html>offline entry</html>")
+    (tmp_path / "podcast-sw.js").write_text("self.clients.claim()")
     assets = tmp_path / "static-assets"
     assets.mkdir()
     (assets / "entry.js").write_text("/* synthetic asset */")
@@ -173,12 +175,17 @@ async def test_account_deletion_targets_only_selected_tenant(gateway, db_session
 
 async def test_product_deep_links_and_compiled_assets(gateway):
     client, _, _ = gateway
-    for path in ("/", "/onboarding", "/bank/workshop", "/study/retest/report", "/study/chat/12",
+    for path in ("/", "/podcasts", "/onboarding", "/bank/workshop", "/study/retest/report", "/study/chat/12",
                  "/study/notes/12", "/exam/diagnosis/report", "/learning/task/12", "/profile/rag",
                  "/assets", "/assets/project/12", "/assets/pipeline", "/benchmark", "/observatory",
                  "/evolution", "/settings", "/memory", "/beta", "/account"):
         response = await client.get(path)
         assert (response.status_code, response.text) == (200, "<html>synthetic shell</html>"), path
+    for path, content, mime in (("/podcast-offline.html", "<html>offline entry</html>", "html"),
+                                ("/podcast-sw.js", "self.clients.claim()", "javascript")):
+        response = await client.get(path)
+        assert (response.status_code, response.text) == (200, content)
+        assert mime in response.headers["content-type"]
     asset = await client.get("/static-assets/entry.js")
     assert asset.status_code == 200 and asset.text == "/* synthetic asset */"
     for missing in ("/static-assets/missing.js", "/api/v1/missing"):

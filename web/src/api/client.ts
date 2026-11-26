@@ -64,13 +64,17 @@ async function fetchNative(path: string, options: RequestInit = {}, access = reg
   return localFetch(path, options);
 }
 
-export async function downloadWorkspaceExport(): Promise<Blob> {
+export async function downloadNativeBlob(path: string, signal?: AbortSignal): Promise<Blob> {
   const access = registeredAccess;
-  const res = await fetchNative('/settings/export', {}, access);
+  const res = await fetchNative(path, { signal }, access);
   if (!res.ok) throw new ApiError(res.status, await res.text());
   const blob = await res.blob();
   access?.signal.throwIfAborted();
   return blob;
+}
+
+export function downloadWorkspaceExport(): Promise<Blob> {
+  return downloadNativeBlob('/settings/export');
 }
 
 export class ApiError extends Error {
@@ -96,10 +100,11 @@ export const sendLocalFeedback: SendFeedback = async (submission, signal) => {
   return response.json();
 };
 
-async function req<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+async function req<T = any>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const access = registeredAccess;
   const res = await fetchNative(path, {
     method,
+    signal,
     headers: {
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
     },
@@ -138,7 +143,7 @@ async function reqForm<T = any>(path: string, form: FormData): Promise<T> {
 export const api = {
   get: <T = any>(path: string) => req<T>('GET', path),
   post: <T = any>(path: string, body?: unknown) => req<T>('POST', path, body ?? {}),
-  patch: <T = any>(path: string, body?: unknown) => req<T>('PATCH', path, body ?? {}),
+  patch: <T = any>(path: string, body?: unknown, signal?: AbortSignal) => req<T>('PATCH', path, body ?? {}, signal),
   put: <T = any>(path: string, body?: unknown) => req<T>('PUT', path, body ?? {}),
   del: <T = any>(path: string, body?: unknown) => req<T>('DELETE', path, body),
   upload: <T = any>(path: string, form: FormData) => reqForm<T>(path, form),

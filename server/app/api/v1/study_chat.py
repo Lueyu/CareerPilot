@@ -1,6 +1,7 @@
 """Workspace-owned tutoring sessions. A committed turn survives a lost browser connection."""
-from datetime import datetime, timezone
+import json
 import time
+from datetime import datetime, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
@@ -12,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.i18n import message as localized_message, request_language
 from app.api.deps import get_workspace
 from app.db import get_session
-from app.models import Workspace
+from app.models import Exam, Workspace
 from app.models.project import Project
 from app.models.study_chat import StudyMessage, StudySession
 from app.services.answer_guides import example_for
@@ -25,10 +26,14 @@ from app.services.study_chat_context import (
     current_skill_sources,
     entry_context,
     excerpt,
+    inventory_reply,
+    is_library_inventory,
+    library_sources,
     project_sources,  # noqa: F401 -- 本路由不直接调用，但 tests/test_study_chat.py 通过 api.project_sources 取证；也是模块命名空间契约的一部分
     topic_skills,
     visible_question,
 )
+from app.services.interview_workflow import AgentRole, WorkflowChange, change_workflow
 from app.services.study_interview_questions import InterviewQuestionResult, generate_question, saved_result
 
 router = APIRouter(prefix="/study/sessions", tags=["学习聊天"])
@@ -66,6 +71,8 @@ class InterviewQuestionRequest(Input):
 
 
 class NewMessage(Input):
+    agent_role: AgentRole | None = None
+    agent_question_id: PositiveId | None = None
     mode: Mode | None = None
     parent_message_id: PositiveId | None = None
     revision_of: PositiveId | None = None
@@ -86,7 +93,7 @@ def message_item(row):
         "id", "request_id", "role", "content", "status", "action", "sources",
         "created_at", "attempt", "error", "model", "project_id")}
     item.update({k: v for k, v in (row.coach or {}).items() if k in (
-        "blocks", "trace", "revision_of", "parent_message_id", "mode")})
+        "blocks", "trace", "revision_of", "parent_message_id", "mode", "agent_role", "library_inventory")})
     return item
 
 
@@ -136,6 +143,14 @@ async def history(session: Db, ws: Owner, offset: int = Query(0, ge=0), limit: i
     return {"items": [{key: value for key, value in session_item(row).items() if key != "context"} for row in rows]}
 
 
+@router.get("/question/{question_id}")
+async def interview_question_topic(question_id: int, session: Db, ws: Owner):
+    question = await visible_question(session, ws.id, question_id)
+    if question is None:
+        raise HTTPException(404, localized_message("errors.question_not_found_362"))
+    return {"id": question.id, "title": question.title}
+
+
 @router.get("/{session_id}")
 async def detail(session_id: int, session: Db, ws: Owner):
     row = await owned(session, ws.id, session_id)
@@ -144,7 +159,17 @@ async def detail(session_id: int, session: Db, ws: Owner):
         await session.commit()
     messages = (await session.scalars(select(StudyMessage).where(StudyMessage.session_id == row.id)
                             .order_by(StudyMessage.id).execution_options(populate_existing=True))).all()
-    return {**session_item(row), "messages": [message_item(m) for m in messages]}
+    reports = await session.scalars(
+        select(Exam.id)
+        .where(
+            Exam.workspace_id == ws.id,
+            Exam.status == Exam.STATUS_COMPLETED,
+            Exam.interview_config["origin_session_id"].as_integer() == row.id,
+        )
+        .order_by(Exam.id.desc())
+        .limit(3)
+    )
+    return {**session_item(row), "messages": [message_item(m) for m in messages], "exam_reports": list(reports)}
 
 
 @router.patch("/{session_id}")
@@ -162,6 +187,21 @@ async def edit(session_id: int, body: EditSession, session: Db, ws: Owner):
     row.updated_at = datetime.now(timezone.utc)
     await session.commit()
     return session_item(row)
+
+
+@router.patch("/{session_id}/interview-workflow")
+async def edit_interview_workflow(session_id: int, body: WorkflowChange, session: Db, ws: Owner):
+    row = await owned(session, ws.id, session_id, lock=True)
+    if row.status != "active":
+        raise HTTPException(409, localized_message("errors.resume_the_study_session_before_continuing"))
+    try:
+        run = change_workflow(row.context.get("interview_workflow"), body)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    row.context = {**row.context, "interview_workflow": run}
+    row.updated_at = datetime.now(timezone.utc)
+    await session.commit()
+    return run
 
 
 @router.get("/{session_id}/interview-question")
@@ -213,6 +253,38 @@ async def mark_help(session, ws, row, question_text):
                 return excerpt("teaching_guide", question.id, "本题的入门例子", example, "teaching_material")
 
 
+def library_retrieval_trace(sources, started_ms, finished_ms):
+    fields = {
+        "questions": ("library_question", "题库命中"),
+        "interview_sets": ("library_interview_set", "面经套题命中"),
+        "notes": ("library_note", "学习资料命中"),
+    }
+    kinds = [source.get("kind") for source in sources]
+    summary = {}
+    if "library_summary" in kinds:
+        try:
+            summary = json.loads(sources[kinds.index("library_summary")]["text"])
+        except (ValueError, TypeError, KeyError):
+            pass
+        if not isinstance(summary, dict):
+            summary = {}
+    hits = {key: summary.get(label) for key, (_, label) in fields.items()}
+    returned = {key: kinds.count(kind) for key, (kind, _) in fields.items()}
+    state = "searched" if sources else "not_requested"
+    questions_shown = summary.get("题库展示")
+    if type(questions_shown) is int and questions_shown >= 0:
+        state = "question_inventory"
+        returned = dict.fromkeys(fields)
+        returned["questions"] = questions_shown
+    return {
+        "state": state,
+        "started_ms": started_ms,
+        "finished_ms": finished_ms,
+        "hits": {key: count if type(count) is int and count >= 0 else None for key, count in hits.items()},
+        "returned": returned,
+    }
+
+
 @router.post("/{session_id}/messages", status_code=202)
 async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, session: Db, ws: Owner):
     submitted_at = time.monotonic()
@@ -240,6 +312,13 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
     if not row.context["topic"] and not skills:
         skills = await topic_skills(session, body.content)
     sources = [*row.context["sources"], *await current_skill_sources(session, ws.id, skills)]
+    listing = body.agent_role is not None and body.action == "explain" and body.agent_question_id is None
+    library_started_ms = round((time.monotonic() - submitted_at) * 1000, 2)
+    library = await library_sources(session, ws.id, body.content, inventory=listing and is_library_inventory(body.content))
+    library_finished_ms = round((time.monotonic() - submitted_at) * 1000, 2)
+    sources.extend(library["sources"])
+    library_trace = library_retrieval_trace(library["sources"], library_started_ms, library_finished_ms)
+    inventory = library["inventory"]
     project_id = body.project_id if body.project_id is not None else row.context.get("project_id")
     if not project_id and teaching_action(body.action, body.content) in ("project", "improve"):
         available = (await session.execute(select(Project.id, Project.name).where(
@@ -272,6 +351,15 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
         anchor = parent.id if parent else None
     mode = body.mode or row.context.get("mode", "auto")
     guide_source = await mark_help(session, ws, row, body.content)
+    if body.agent_question_id is not None:
+        question = await visible_question(session, ws.id, body.agent_question_id)
+        if question is None:
+            raise HTTPException(404, localized_message("errors.question_not_found_362"))
+        await record_reference_exposure(session, ws, question, source="study_chat_explanation")
+        sources.append(excerpt("question", question.id, "题库原题与评分依据", {
+            "题目": question.title, "选项": question.options, "参考答案": question.answer_html,
+            "评分标准": question.rubric,
+        }, "question_material"))
     if guide_source:
         sources.append(guide_source)
     if not row.context["topic"]:
@@ -281,18 +369,32 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
     row.updated_at = datetime.now(timezone.utc)
     user = StudyMessage(session_id=row.id, role="user", action=body.action, content=body.content,
                         project_id=project_id, request_id=body.request_id, status="completed",
-                        coach={"mode": mode, "revision_of": body.revision_of, "parent_message_id": anchor,
+                        coach={"mode": mode, "agent_role": body.agent_role, "revision_of": body.revision_of, "parent_message_id": anchor,
                                "request": body.model_dump(exclude_none=True)})
     session.add(user)
     await session.flush()
+    language = inventory["language"] if inventory is not None else request_language()
+    coach = {
+        "mode": mode, "agent_role": body.agent_role, "response_language": language,
+        "parent_message_id": user.id, "revision_of": body.revision_of,
+        "trace": {"stage": "queued", "calls": [], "library_retrieval": library_trace},
+    }
     reply = StudyMessage(session_id=row.id, role="assistant", action=body.action, content="", sources=sources,
-                         project_id=project_id, request_id=body.request_id, status="generating", expires_at=lease_deadline(),
-                         coach={"mode": mode, "response_language": request_language(),
-                                "parent_message_id": user.id, "revision_of": body.revision_of,
-                                "trace": {"stage": "queued", "calls": []}})
+                         project_id=project_id, request_id=body.request_id, status="generating", expires_at=lease_deadline())
+    if inventory is not None:
+        coach["library_inventory"] = inventory
+        coach["trace"].update(
+            stage="completed",
+            terminal_write_at=datetime.now(timezone.utc).isoformat(),
+            latency={"origin": "message_request", "finalizing_ms": round((time.monotonic() - submitted_at) * 1000, 2)},
+        )
+        reply.content = inventory_reply(inventory, language)
+        reply.status, reply.expires_at = "completed", None
+    reply.coach = coach
     session.add(reply)
     await session.commit()
-    tasks.add_task(generate_reply, reply.id, reply.attempt, submitted_at=submitted_at, accepted_at=time.monotonic())
+    if reply.status == "generating":
+        tasks.add_task(generate_reply, reply.id, reply.attempt, submitted_at=submitted_at, accepted_at=time.monotonic())
     return ticket(user.id, reply)
 
 
@@ -346,6 +448,7 @@ async def retry(session_id: int, message_id: int, tasks: BackgroundTasks, sessio
     if calls and calls[-1].get("attempt") == reply.attempt and reply.content:
         calls[-1] = {**calls[-1], "saved_output": reply.content[:16000]}
     previous_trace.pop("latency", None)
+    previous_trace.pop("terminal_write_at", None)
     reply.coach = {**reply.coach, "trace": {**previous_trace, "calls": calls, "stage": "queued", "error_kind": None}}
     reply.attempt += 1
     reply.status, reply.content, reply.error, reply.model = "generating", "", None, None

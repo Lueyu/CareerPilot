@@ -6,6 +6,16 @@
 
 ## 启动本地应用
 
+要在播客页保存离线歌单，用 `./deploy/start-personal.ps1 -BuiltWeb` 启动。它把带有本机连接配置的前端构建保存在 `personal/runtime`，供这台电脑的回环地址使用。通过手机收听时，可以导出 MP3 传到手机。如果手机已有自己的受信任 HTTPS 工作区入口，可在手机上打开节目库，先保存歌单，再通过离线播放入口收听。
+
+从题库导入时，可选「中文」「英文」或「中英双语」。双语节目先用中文讲清业务场景，再给一段可跟读的英文面试回答。同一道题可以分别制作三个版本。已有中文草稿在确认合成时使用当前安装的音色。
+
+要使用本机神经语音，先安装 `server/requirements.txt` 的依赖，再从仓库根目录运行 `python deploy/install-podcast-voice.py`。安装器下载约 147 MB 的 Kokoro 中英文模型，核对 SHA-256 后保存在 `personal/models`。配音在本机 CPU 上完成。已有模型包可用 `--archive` 安装；自定义目录需同时设置 `CAREERPILOT_PODCAST_MODEL_DIR` 指向解压后的模型目录。
+
+未安装模型时使用 Windows 的系统语音或 Linux 的 eSpeak NG。双语节目需要普通话与英语语音。离线收听和导出 MP3 的方式相同。[模型说明](https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh)
+
+已单独完成数据库迁移的现有实例可以加 `-DatabaseReady`，直接启动服务。新安装请使用默认的初始化流程。
+
 ### 查看一份完整的求职记录
 
 在已装好本地依赖的仓库根目录运行 `./deploy/start-personal.ps1 -WithShowcase`。首次运行会新建「林舟的求职笔记」。这是为展示准备流程编写的虚构履历，包含私有题库、作答、复测、项目、学习对话和笔记。已有个人空间使用原来的资料。重复运行会保留你在新空间内做过的修改。

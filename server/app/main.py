@@ -1,7 +1,8 @@
 """CareerPilot 后端入口: app 组装 + CORS + lifespan 建表。"""
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -25,6 +26,7 @@ from app.api.v1 import (
     memory,
     observatory,
     ops,
+    podcasts,
     profile,
     project_analysis,
     project_autopilot,
@@ -44,19 +46,26 @@ from app.config import get_settings
 from app.db import engine
 from app.i18n import LanguageMiddleware
 from app.models import Base  # noqa: F401  (注册全部模型)
+from app.services.podcast_jobs import run_worker as run_podcast_worker
 from app.services.study_chat import recover_interrupted as recover_study_chat
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 开发环境自动建表(生产走 Alembic 迁移)
+    # 模型定义用于启动建表；部署入口也会执行 migrations/*.sql。
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     await question_generation.recover_interrupted()
     await project_analysis.recover_interrupted()
     await recover_study_chat()
-    yield
-    await engine.dispose()
+    podcast_worker = asyncio.create_task(run_podcast_worker())
+    try:
+        yield
+    finally:
+        podcast_worker.cancel()
+        with suppress(asyncio.CancelledError):
+            await podcast_worker
+        await engine.dispose()
 
 
 app = FastAPI(
@@ -79,6 +88,7 @@ app.add_middleware(
 # 认证在 get_workspace 依赖链内(require_auth), /healthz 开放
 for router in (study_chat.router, study_notes.router, study_practice.router, dashboard.router, benchmark.router, profile.router, exams.router, bank.router, learning.router, memory.router, observatory.router, ops.router, public_content.router, settings.router, projects.router, career_assets.router, evolution.router, telemetry.router):
     app.include_router(router, prefix="/api/v1")
+app.include_router(podcasts.router, prefix="/api/v1")
 app.include_router(question_generation.router, prefix="/api/v1")
 app.include_router(project_analysis.router, prefix="/api/v1")
 app.include_router(project_autopilot.router, prefix="/api/v1")
