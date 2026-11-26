@@ -527,3 +527,24 @@ async def test_optional_diagram_keeps_the_streaming_text_with_one_call(study, mo
     assert reply["content"] == "保留已经开始流式展示的文字。"
     assert reply["trace"]["diagram_result"] == "text_only"
     assert len(requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_silent_first_attempt_leaves_time_for_the_alternate_tier(study, monkeypatch):
+    ask, settings = study
+    settings.study_timeout_seconds = 90
+    settings.study_attempt_timeout_seconds = 20
+    settings.study_first_content_timeout_seconds = 5.0
+
+    async def provider(request):
+        if json.loads(request.content)["model"] == "fixture-pro":
+            return response("深度档合成回答")
+        return httpx.Response(200, headers={"content-type": "text/event-stream"},
+                              stream=Body([b": heartbeat\r\n\r\n"], stall=True))
+
+    requests = install(monkeypatch, None, handler=provider)
+    reply = await ask("什么是幂等？", mode="auto")
+    assert (reply["status"], reply["content"]) == ("completed", "深度档合成回答"), reply
+    assert len(reply["trace"]["calls"]) == len(requests) == 2
+    assert reply["trace"]["calls"][1]["retry_kind"] == "transport_failover"
+    assert reply["trace"]["calls"][0]["error"] == "timeout"

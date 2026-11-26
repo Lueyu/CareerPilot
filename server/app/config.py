@@ -71,6 +71,11 @@ class Settings(BaseSettings):
     # stream which never emits a first visible token. Both are user-tunable.
     podcast_script_timeout_seconds: int = Field(default=150, ge=30, le=600)
     podcast_first_content_timeout_seconds: int = Field(default=90, ge=5, le=300)
+    # Study chat: cap one attempt so Auto keeps a real second chance, and cut
+    # a provider that never emits visible body text. The overall turn deadline
+    # (study_timeout_seconds) stays the outer bound.
+    study_attempt_timeout_seconds: int = Field(default=150, ge=10, le=MAX_STUDY_TIMEOUT_SECONDS)
+    study_first_content_timeout_seconds: int = Field(default=60, ge=5, le=600)
 
     # 评分引擎
     scorer_model_version: str = "rule-v1"
