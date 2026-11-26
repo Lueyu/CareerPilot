@@ -232,9 +232,22 @@ async def _load_turn(session, message_id, attempt, coach, trace):
     ):
         action = "interview"
     sources = [s for s in reply.sources or [] if not (s["kind"].startswith("project_") or s["kind"] in ("scope_gap","jd"))]
+    report_evidence = []
+    scope = coach.get("workflow")
+    if scope and scope["purpose"] == "mock_report":
+        saved = (await session.scalars(select(StudyMessage).where(
+            StudyMessage.session_id == row.id, StudyMessage.status == "completed",
+            StudyMessage.coach["workflow"]["run_id"].as_string() == scope["run_id"]
+        ).order_by(StudyMessage.id))).all()
+        for answer in saved:
+            answer_scope = (answer.coach or {}).get("workflow", {})
+            if answer.role == "user" and answer_scope.get("purpose") == "mock_answer":
+                feedback = next((m for m in saved if m.role == "assistant" and m.request_id == answer.request_id), None)
+                report_evidence.append({"step": answer_scope["step"], "answer_message_id": answer.id,
+                    "answer": answer.content, "feedback": feedback.content if feedback else None})
     return {"message_id": message_id, "attempt": attempt, "reply": reply, "row": row,
             "history": history, "question": question, "action": action, "prior": prior,
-            "project_id": reply.project_id, "sources": sources, "coach": coach}
+            "project_id": reply.project_id, "sources": sources, "coach": coach, "report_evidence": report_evidence}
 
 
 async def _gather_sources(session, turn, timeout, save):
@@ -325,6 +338,42 @@ def _compose_request(turn, trace, language: Locale):
                 "remaining_steps": workflow["steps"][workflow["current"] + 1:],
             }
             instruction += "\nIf a workflow is paused, do not move it forward. Never claim that chat text changed workflow state."
+    scope = coach.get("workflow")
+    if scope:
+        workflow = context["interview_workflow"]
+        stage_goals = (
+            "Ask which role and experience the candidate wants to practise. Explain the six stages briefly.",
+            "Ask for a concise self introduction based on the candidate's actual experience.",
+            "Ask one technical question appropriate for the role and prior answer.",
+            "Ask one concrete system design question appropriate for the candidate.",
+            "Ask one behavioral question about a real situation and personal contribution.",
+            "Ask the candidate to reflect on the interview and identify one improvement to practise.",
+        )
+        request_data["mock_interview_turn"] = {
+            **scope, "stage": workflow["steps"][scope["step"]],
+            "completed_steps": workflow.get("completed_steps", []), "skipped_steps": workflow["skipped"],
+        }
+        instruction += (
+            "\nThis is a guided mock interview. The current turn purpose and stage are authoritative. "
+            "Never advance the stage or ask a question for another stage. Never invent answers, "
+            "scores, competency evidence or personal experience. This is formative practice, not a scored exam."
+        )
+        if scope["purpose"] == "mock_report":
+            request_data["mock_interview_turn"]["saved_answers"] = turn.get("report_evidence", [])
+            instruction += (
+                "\nGenerate the final interview report now. Do not ask another question or require another answer. "
+                "Ground the report in mock_interview_turn.saved_answers from this run only. Summarize strengths, "
+                "gaps and a practice plan. Explicitly acknowledge skipped stages and unknowns. "
+                "Do not assign a score or claim the competency profile was updated."
+            )
+        elif scope["purpose"] == "mock_question":
+            instruction += "\nAsk exactly ONE question, with brief task instructions. Do not answer it. " + stage_goals[scope["step"]]
+        else:
+            instruction += (
+                "\nThe latest user message is the candidate's genuine answer. Give clear feedback citing "
+                "their words: what is supported, what is missing, and one concrete improvement. "
+                "Do not ask the next question. Tell them to use the next-stage button when ready."
+            )
     proactive_diagram = wants_teaching_diagram(action, question)
     if proactive_diagram:
         instruction += "\n" + localized_message("blocks.proactive", language)
