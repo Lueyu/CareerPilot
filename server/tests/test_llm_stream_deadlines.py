@@ -124,3 +124,35 @@ async def test_explicit_none_preserves_nonstream_default_request(monkeypatch):
     requests=install(monkeypatch,Body([]),handler=handler);adapter=AgentAdapter()
     assert await adapter.chat_with(CONFIG,'s','u',timeout=180,total_timeout=None)=={'content':'ok'}
     assert requests==[{'model':'unchanged-model','messages':[{'role':'system','content':'s'},{'role':'user','content':'u'}],'temperature':.2}]
+
+
+@pytest.mark.asyncio
+async def test_first_content_guard_aborts_stream_that_never_emits_body(monkeypatch):
+    calls = []
+
+    async def fake_record(self, **kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(AgentAdapter, '_record_metric', fake_record)
+    install(monkeypatch, Body([b': heartbeat\r\n\r\n'], stall=True))
+    adapter = AgentAdapter()
+    assert await adapter.chat_with(CONFIG, 's', 'u', timeout=2, stream=True,
+                                   total_timeout=3, first_content_timeout=.05) is None
+    assert adapter.last_error == {'kind': 'timeout'}
+    assert adapter.last_response_meta['stream_error'] == 'first_content_timeout'
+    assert calls[-1]['error_kind'] == 'timeout:first_content_timeout'
+
+
+@pytest.mark.asyncio
+async def test_first_content_guard_allows_stream_with_visible_body(monkeypatch):
+    install(monkeypatch, Body([frame('ok') + frame(finish='stop') + DONE]))
+    adapter = AgentAdapter()
+    assert await adapter.chat_with(CONFIG, 's', 'u', timeout=2, stream=True,
+                                   total_timeout=3, first_content_timeout=2) == {'content': 'ok'}
+
+
+@pytest.mark.asyncio
+async def test_first_content_guard_requires_stream(monkeypatch):
+    adapter = AgentAdapter()
+    assert await adapter.chat_with(CONFIG, 's', 'u', first_content_timeout=1) is None
+    assert adapter.last_error == {'kind': 'configuration'}

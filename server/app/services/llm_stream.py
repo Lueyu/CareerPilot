@@ -1,6 +1,7 @@
 """Bounded Chat Completions SSE reader. No partial result or reasoning retention."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
@@ -26,12 +27,17 @@ class StreamFailure(ValueError):
     """Only fixed local codes, never provider data, are exposed to diagnostics."""
     def __init__(self, code):
         super().__init__(code)
-        self.kind = 'network' if code in {'missing_done', 'incomplete_event'} else 'invalid_response'
+        self.kind = ('network' if code in {'missing_done', 'incomplete_event'}
+                     else 'timeout' if code == 'first_content_timeout'
+                     else 'invalid_response')
 
 
 class ChatCompletionStream:
-    def __init__(self, meta: dict, started_at: float):
+    def __init__(self, meta: dict, started_at: float, first_content_timeout: float | None = None):
         self.meta, self.started_at = meta, started_at
+        # Optional wall-clock guard: abort a stream that never produced a first
+        # visible token. None keeps every existing caller unchanged.
+        self.first_content_timeout = first_content_timeout
         self.limits = DEFAULT_LIMITS
         self.usage = None
         self.reported_model = None
@@ -181,7 +187,22 @@ class ChatCompletionStream:
         try:
             # Decode HTTP transfer/content encodings using HTTPX, but bound bytes before
             # accumulating SSE lines. aiter_lines would buffer an unbounded provider line.
-            async for chunk in response.aiter_bytes():
+            iterator = response.aiter_bytes().__aiter__()
+            while True:
+                try:
+                    if self.first_content_timeout is not None and 'first_content_ms' not in self.meta:
+                        remaining = self.first_content_timeout - self.elapsed() / 1000
+                        if remaining <= 0:
+                            self.fail('first_content_timeout')
+                        try:
+                            async with asyncio.timeout(remaining):
+                                chunk = await iterator.__anext__()
+                        except TimeoutError:
+                            self.fail('first_content_timeout')
+                    else:
+                        chunk = await iterator.__anext__()
+                except StopAsyncIteration:
+                    break
                 self.meta['stream_wire_bytes'] = response.num_bytes_downloaded
                 self.meta['stream_decoded_bytes'] += len(chunk)
                 if max(self.meta['stream_wire_bytes'], self.meta['stream_decoded_bytes']) > self.limits.wire_bytes:

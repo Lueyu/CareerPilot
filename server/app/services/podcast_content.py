@@ -286,23 +286,29 @@ async def make_scripts(
         row = await session.get(AppSetting, f"llm:{workspace_id}") or await session.get(AppSetting, "llm")
     except SQLAlchemyError:
         raise PodcastScriptError("无法读取模型配置，请重试。") from None
-    config = resolve_llm_config(get_settings(), row.value if row else None)
+    settings = get_settings()
+    config = resolve_llm_config(settings, row.value if row else None)
     if not all(config[field].strip() for field in ("provider", "api_key", "base_url", "model")):
         raise PodcastScriptError("请先在 CareerPilot 设置里配置可用的语言模型。")
 
+    total_timeout = settings.podcast_script_timeout_seconds
+    first_content_timeout = min(settings.podcast_first_content_timeout_seconds, total_timeout)
     adapter = AgentAdapter()
     result = await adapter.chat_with(
         {**config, "output_limit": 11000 if series else 4500, "report_usage": True},
         _PROMPT + "\n\n" + _LANGUAGE_INSTRUCTIONS[language],
         json.dumps(payload, ensure_ascii=False),
         json_mode=True,
-        timeout=120,
+        timeout=min(120, total_timeout),
         stream=True,
-        total_timeout=150,
+        total_timeout=total_timeout,
+        first_content_timeout=first_content_timeout,
         span_name="podcast_script",
     )
     if not result:
         kind = (adapter.last_error or {}).get("kind")
+        if adapter.last_response_meta.get("stream_error") == "first_content_timeout":
+            raise PodcastScriptError("模型长时间没有生成播客正文，请重试或调低讲稿长度。")
         message = {
             "configuration": "请先在 CareerPilot 设置里检查语言模型配置。",
             "timeout": "模型生成播客讲稿超时，请重试。",

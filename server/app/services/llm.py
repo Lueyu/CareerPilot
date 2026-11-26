@@ -89,6 +89,7 @@ class AgentAdapter:
                         timeout: float = 60.0, trace: Any = None, session: Any = None,
                         span_name: str | None = None, reasoning_effort: str | None = None,
                         *, stream: bool = False, total_timeout: float | None = None,
+                        first_content_timeout: float | None = None,
                         on_content=None, on_reasoning=None) -> dict[str, Any] | None:
         """用给定配置调用一次 chat; 失败返回 None(降级信号)。
 
@@ -103,6 +104,11 @@ class AgentAdapter:
             return None
         if total_timeout is not None and (not stream or type(total_timeout) not in (int, float)
                 or not 0 < total_timeout <= MAX_STUDY_TIMEOUT_SECONDS or not math.isfinite(total_timeout)):
+            self.last_error = {"kind": "configuration"}
+            return None
+        if first_content_timeout is not None and (not stream or type(first_content_timeout) not in (int, float)
+                or not 0 < first_content_timeout <= MAX_STUDY_TIMEOUT_SECONDS
+                or not math.isfinite(first_content_timeout)):
             self.last_error = {"kind": "configuration"}
             return None
         headers = {"Authorization": f"Bearer {cfg['api_key']}"}
@@ -190,7 +196,8 @@ class AgentAdapter:
 
         try:
             if stream:
-                reader = ChatCompletionStream(self.last_response_meta, t0)
+                reader = ChatCompletionStream(self.last_response_meta, t0,
+                                              first_content_timeout=first_content_timeout)
                 try:
                     # One request, no fallback/reconnect. Bound the complete operation even
                     # while data/heartbeats arrive; per-I/O timeouts alone are insufficient.

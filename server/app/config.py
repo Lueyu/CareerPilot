@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     # Frozen onto each new AI scan. Streaming may keep working while the model
     # reasons, with a bounded wall-clock deadline independent of scan budgets.
     project_scan_stage_timeout_seconds: int = Field(default=600, ge=180, le=600)
+    # Podcast script generation: wall-clock cutoff and a guard that aborts a
+    # stream which never emits a first visible token. Both are user-tunable.
+    podcast_script_timeout_seconds: int = Field(default=150, ge=30, le=600)
+    podcast_first_content_timeout_seconds: int = Field(default=90, ge=5, le=300)
 
     # 评分引擎
     scorer_model_version: str = "rule-v1"
