@@ -259,6 +259,12 @@ class AgentAdapter:
         except StreamFailure as exc:
             self.last_error = {"kind": exc.kind}
             return None
+        except asyncio.CancelledError:
+            # CancelledError derives from BaseException, so the generic handler
+            # never sees it: the metric used to be recorded as a failure with no
+            # reason at all. Classify it and preserve cancellation semantics.
+            self.last_error = {"kind": "cancelled"}
+            raise
         except Exception:
             self.last_error = {"kind": "invalid_response"}
             # Keep the existing None-return contract; callers decide whether a
@@ -289,6 +295,17 @@ class AgentAdapter:
                              status="OK" if result is not None else "ERROR")
                 except Exception:  # span 记录失败不影响主流程
                     pass
+            # Caller-facing last_error keeps its coarse `kind` contract: failover
+            # and user diagnostics read it. Only the persisted metric carries the
+            # finer SSE code, so every failure has an actionable reason. Codes
+            # are local identifiers authored in llm_stream.py, never provider data.
+            metric_error = (self.last_error or {}).get("kind")
+            if result is None and not metric_error:
+                metric_error = "unclassified"
+            stream_code = self.last_response_meta.get("stream_error")
+            if (metric_error and isinstance(stream_code, str)
+                    and stream_code.isidentifier() and len(stream_code) <= 32):
+                metric_error = f"{metric_error}:{stream_code}"
             # 工业级观测: 每次调用一行指标(尽力而为, 不阻断主流程)。
             try:
                 await self._record_metric(
@@ -299,7 +316,7 @@ class AgentAdapter:
                     ttft_ms=self.last_response_meta.get("response_headers_ms"),
                     usage=usage,
                     ok=result is not None,
-                    error_kind=(self.last_error or {}).get("kind"),
+                    error_kind=metric_error,
                     finish_reason=self.last_response_meta.get("finish_reason"),
                     stream=bool(stream),
                     session=session,
