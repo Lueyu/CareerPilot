@@ -111,7 +111,7 @@ async def _telemetry_block(session: AsyncSession) -> dict:
     return summary
 
 
-async def _agent_block(session: AsyncSession) -> dict:
+async def _agent_block(session: AsyncSession, days: int = 14) -> dict:
     """工程/质量/成本指标: AgentMetric 聚合。"""
     out: dict = {
         "calls": 0,
@@ -129,7 +129,8 @@ async def _agent_block(session: AsyncSession) -> dict:
         metrics = (
             await session.execute(
                 select(AgentMetric)
-                .where(AgentMetric.provider.is_distinct_from("fixture"))
+                .where(AgentMetric.provider.is_distinct_from("fixture"),
+                       AgentMetric.created_at >= _window_start(days))
                 .order_by(AgentMetric.id.desc()).limit(5000)
             )
         ).scalars().all()
@@ -253,8 +254,8 @@ async def _engine_block(session: AsyncSession) -> dict:
     return out
 
 
-async def _trend_block(session: AsyncSession) -> list[dict]:
-    """近 14 天: 调用数 + 成本 + 用户数(遥测)。"""
+async def _trend_block(session: AsyncSession, days: int = 14) -> list[dict]:
+    """统计窗口内: 调用数 + 成本 + 用户数(遥测)。"""
     try:
         rows = (
             await session.execute(
@@ -263,7 +264,7 @@ async def _trend_block(session: AsyncSession) -> list[dict]:
                     func.count(AgentMetric.id),
                     func.sum(AgentMetric.cost_cny),
                 )
-                .where(AgentMetric.created_at >= _window_start(14),
+                .where(AgentMetric.created_at >= _window_start(days),
                        AgentMetric.provider.is_distinct_from("fixture"))
                 .group_by(_DAY)
                 .order_by(_DAY)
@@ -282,7 +283,7 @@ async def _trend_block(session: AsyncSession) -> list[dict]:
                     func.date_trunc("day", func.timezone("Asia/Shanghai", TelemetryEvent.created_at)).label("day"),
                     func.count(func.distinct(TelemetryEvent.client_id)),
                 )
-                .where(TelemetryEvent.created_at >= _window_start(14))
+                .where(TelemetryEvent.created_at >= _window_start(days))
                 .group_by(func.date_trunc("day", func.timezone("Asia/Shanghai", TelemetryEvent.created_at)))
             )
         ).all()
@@ -297,21 +298,26 @@ async def _trend_block(session: AsyncSession) -> list[dict]:
 
 @router.get("/ops/metrics/summary")
 async def ops_summary(
+    days: int = Query(14, ge=1, le=90),
     session: AsyncSession = Depends(get_session),
     _owner=Depends(require_local_owner),
 ):
     """云服务指标汇总: 业务 / 工程 / 质量 / 成本 / 趋势。仅本地所有者可见。"""
     business = await _telemetry_block(session)
-    agent = await _agent_block(session)
+    agent = await _agent_block(session, days)
     quality = await _quality_block(session)
     engine = await _engine_block(session)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "window_days": days,
+        "sample_count": agent["calls"],
+        "agent_denominator": "每次模型调用",
+        "quality_denominator": "每条助手回复",
         "business": business,
         "agent": agent,
         "quality": quality,
         "engine": engine,
-        "trend": await _trend_block(session),
+        "trend": await _trend_block(session, days),
     }
 
 

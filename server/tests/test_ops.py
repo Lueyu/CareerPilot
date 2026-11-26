@@ -152,3 +152,43 @@ async def test_ops_summary_excludes_controlled_fixture_calls(db_session, test_wo
             assert [i["model"] for i in recent.json()["items"]] == ["deepseek-v4-pro"]
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_ops_summary_honours_time_window(db_session, test_workspace, monkeypatch):
+    """Old rows must not leak into a 14-day success rate; days widens the window."""
+    from datetime import datetime, timedelta, timezone
+    db, cfg, _ = await _setup(db_session, monkeypatch)
+    try:
+        await db.execute(AgentMetric.__table__.delete())
+        await db.commit()
+        db.add_all([
+            AgentMetric(kind="llm", provider="gateway", model="deepseek-v4-pro",
+                        duration_ms=500, ok=True, total_tokens=10),
+            AgentMetric(kind="llm", provider="gateway", model="deepseek-v4-pro",
+                        duration_ms=999999, ok=False, error_kind="timeout", total_tokens=0,
+                        created_at=datetime.now(timezone.utc) - timedelta(days=40)),
+        ])
+        await db.commit()
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture/api/v1") as client:
+            resp = await client.get("/ops/metrics/summary", headers={"X-Api-Token": cfg.api_token})
+            assert resp.status_code == 200, resp.text
+            data = resp.json()
+            assert data["window_days"] == 14
+            assert data["sample_count"] == 1
+            assert data["agent"]["calls"] == 1
+            assert data["agent"]["ok_rate"] == 100.0
+            assert data["agent_denominator"] == "每次模型调用"
+            assert data["quality_denominator"] == "每条助手回复"
+
+            wide = await client.get("/ops/metrics/summary?days=90", headers={"X-Api-Token": cfg.api_token})
+            assert wide.status_code == 200, wide.text
+            wide_data = wide.json()
+            assert wide_data["window_days"] == 90
+            assert wide_data["sample_count"] == 2
+            assert wide_data["agent"]["ok_rate"] == 50.0
+
+            bad = await client.get("/ops/metrics/summary?days=0", headers={"X-Api-Token": cfg.api_token})
+            assert bad.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
