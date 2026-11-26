@@ -11,15 +11,22 @@ traces 等表，向所有者暴露指标汇总 JSON 与一个独立的 HTML 仪�
 from __future__ import annotations
 
 import os
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
+from hmac import compare_digest, digest
+from time import time
 
 import asyncpg
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse
+from study_chat_trace import study_chat_projection
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 OPS_TOKEN = os.environ.get("OPS_TOKEN", "")
+PRIVATE_HEADERS = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
+DASHBOARD_COOKIE = "careerpilot_ops_dashboard"
+DASHBOARD_SESSION_SECONDS = 900
 
 app = FastAPI(title="CareerPilot Ops Metrics", docs_url=None, openapi_url=None)
 
@@ -37,12 +44,18 @@ async def _connect() -> asyncpg.Connection:
     return await asyncpg.connect(_dsn(), timeout=10)
 
 
-def _check(request: Request) -> None:
+def _check(request: Request, *, required: bool = False, dashboard_session: bool = False) -> None:
     if not OPS_TOKEN:
+        if required:
+            raise HTTPException(503, "OPS_TOKEN is not configured", headers=PRIVATE_HEADERS)
         return
-    token = request.headers.get("x-ops-token") or request.query_params.get("token")
-    if token != OPS_TOKEN:
-        raise HTTPException(401, "ops token required")
+    token = request.headers.get("x-ops-token")
+    if not token and not required:
+        token = request.query_params.get("token")
+    if not token and dashboard_session and _valid_dashboard_session(request.headers.get("x-ops-session", "")):
+        return
+    if not token or not compare_digest(token.encode("utf-8"), OPS_TOKEN.encode("utf-8")):
+        raise HTTPException(401, "ops token required", headers=PRIVATE_HEADERS)
 
 
 def _pct(values: list[int], ratio: float) -> int:
@@ -65,7 +78,7 @@ async def healthz() -> dict:
 
 @app.get("/api/v1/ops/metrics")
 async def metrics(request: Request, days: int = Query(14, ge=1, le=90)) -> dict:
-    _check(request)
+    _check(request, dashboard_session=True)
     conn = await _connect()
     try:
         now = datetime.now(timezone.utc)
@@ -183,15 +196,74 @@ async def metrics(request: Request, days: int = Query(14, ge=1, le=90)) -> dict:
         await conn.close()
 
 
+@app.get("/api/v1/ops/study-chat/messages/{message_id}")
+async def study_chat_detail(request: Request, response: Response, message_id: str) -> dict:
+    _check(request, required=True, dashboard_session=True)
+    if not re.fullmatch(r"[0-9]{1,10}", message_id) or not 1 <= int(message_id) <= 2_147_483_647:
+        raise HTTPException(422, "positive integer message ID required", headers=PRIVATE_HEADERS)
+    try:
+        conn = await _connect()
+        try:
+            row = await conn.fetchrow(
+                """
+                SELECT id, status, attempt, created_at, coach->>'response_language' AS locale,
+                       coach->'trace' AS trace,
+                       jsonb_typeof(coach->'library_inventory') = 'object' AS is_library_inventory,
+                       CASE WHEN coach->'trace'->'library_retrieval' IS NULL THEN sources END AS sources
+                FROM study_messages WHERE id=$1 AND role='assistant'
+                """,
+                int(message_id),
+            )
+        finally:
+            await conn.close()
+    except (asyncpg.PostgresError, OSError, TimeoutError) as exc:
+        raise HTTPException(503, "study chat diagnostics unavailable", headers=PRIVATE_HEADERS) from exc
+    if row is None:
+        raise HTTPException(404, "assistant message not found", headers=PRIVATE_HEADERS)
+    response.headers.update(PRIVATE_HEADERS)
+    return study_chat_projection(row)
+
+
 @app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request) -> str:
-    _check(request)
-    token = request.query_params.get("token") or ""
-    return _DASHBOARD.replace("__TOKEN__", token)
+async def dashboard(request: Request) -> HTMLResponse:
+    session = request.cookies.get(DASHBOARD_COOKIE, "")
+    valid_session = _valid_dashboard_session(session)
+    explicit_token = "x-ops-token" in request.headers or "token" in request.query_params
+    if explicit_token or not valid_session:
+        _check(request)
+    issue_session = bool(OPS_TOKEN) and (explicit_token or not valid_session)
+    if issue_session:
+        expires = str(int(time()) + DASHBOARD_SESSION_SECONDS)
+        session = f"{expires}.{_dashboard_signature(expires)}"
+    response = HTMLResponse(
+        _DASHBOARD.replace("__SESSION__", session if OPS_TOKEN else ""), headers=PRIVATE_HEADERS,
+    )
+    if issue_session:
+        response.set_cookie(
+            DASHBOARD_COOKIE, session,
+            max_age=DASHBOARD_SESSION_SECONDS, httponly=True, samesite="strict",
+            secure=request.url.scheme == "https",
+        )
+    return response
+
+
+def _dashboard_signature(expires: str) -> str:
+    return digest(OPS_TOKEN.encode("utf-8"), f"ops-dashboard:v1:{expires}".encode("ascii"), "sha256").hex()
+
+
+def _valid_dashboard_session(session: str) -> bool:
+    if not OPS_TOKEN or not re.fullmatch(r"[0-9]{1,12}\.[0-9a-f]{64}", session):
+        return False
+    expires, signature = session.split(".")
+    now = int(time())
+    return now < int(expires) <= now + DASHBOARD_SESSION_SECONDS and compare_digest(
+        signature, _dashboard_signature(expires),
+    )
 
 
 _DASHBOARD = """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="ops-session" content="__SESSION__">
 <title>CareerPilot · 云服务指标</title>
 <style>
 :root{--bg:#0b1020;--card:#141a2e;--text:#e7ebf5;--dim:#8b93a8;--primary:#6b7cff}
@@ -206,6 +278,17 @@ h2{font-size:15px;margin:0 0 12px;color:#c7cdfa}
 ul{margin:0;padding-left:18px}li{display:flex;justify-content:space-between;padding:2px 0}
 table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #222b47}
 th{color:var(--dim);font-weight:500}.cols3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+#trace-form{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+#trace-form input,#trace-form button{font:inherit;padding:6px 10px;border-radius:6px;border:1px solid #3d4772}
+#trace-form input{background:#0f1528;color:var(--text);width:11rem}
+#trace-form button{background:#a6afff;color:#0b1020;cursor:pointer}
+#trace-form button:disabled{opacity:.6;cursor:default}
+#trace-result{display:grid;gap:12px;margin-top:12px}
+#trace-result section{background:#0f1528;border-radius:8px;padding:12px 16px}
+#trace-result h3{margin:0 0 8px;font-size:14px}
+#trace-result dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:0}
+#trace-result dt{color:var(--dim);font-size:12px}
+#trace-result dd{margin:0;overflow-wrap:anywhere}
 #err{color:#ff8a8a}@media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.cols3{grid-template-columns:1fr}}
 </style></head><body>
 <h1>CareerPilot · 云服务指标汇总</h1><p class="sub">内部观测面板 · 仅所有者可见 · <span id="gen">—</span></p>
@@ -214,16 +297,29 @@ th{color:var(--dim);font-weight:500}.cols3{display:grid;grid-template-columns:re
 <div class="card"><h2>工程 / 质量</h2><div class="grid" id="eng"></div><div class="cols3"><div><h3>延迟</h3><ul id="lat"></ul></div><div><h3>错误</h3><ul id="errs"></ul></div><div><h3>Token</h3><ul id="tok"></ul></div></div>
 <div class="table-wrap"><table><thead><tr><th>模型</th><th>调用</th><th>错误</th><th>平均 ms</th><th>Tokens</th><th>成本 ¥</th></tr></thead><tbody id="models"></tbody></table></div></div>
 <div class="card"><h2>回复质量</h2><div class="grid" id="qual"></div></div>
+<div class="card"><h2>学习聊天消息诊断</h2>
+<form id="trace-form"><label for="trace-id">助手消息 ID</label>
+<input id="trace-id" type="text" inputmode="numeric" pattern="[0-9]{1,10}" required autocomplete="off">
+<button type="submit">查询</button></form>
+<p id="trace-status" role="status"></p><div id="trace-result"></div></div>
 <div class="card"><h2>近 14 天趋势（调用数）</h2><div id="trend" style="display:flex;gap:4px;align-items:flex-end;height:120px"></div></div>
 <script>
-const TOKEN="__TOKEN__";
+const sessionMeta = document.querySelector('meta[name="ops-session"]');
+const SESSION = sessionMeta.content;
+sessionMeta.remove();
+const authHeaders = SESSION ? {'X-Ops-Session': SESSION} : {};
+const pageUrl = new URL(location.href);
+if (pageUrl.searchParams.has('token')) {
+  pageUrl.searchParams.delete('token');
+  history.replaceState(null, '', pageUrl);
+}
 const q = v => (v === null || v === undefined) ? "—" : v;
 const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const stat = (label, value) => `<div class="stat"><span>${esc(label)}</span><b>${esc(q(value))}</b></div>`;
 const list = (id, rows) => document.getElementById(id).innerHTML = rows.map(r => `<li><span>${esc(r.name)}</span><b>${esc(r.count)}</b></li>`).join("") || '<li>—</li>';
 async function load(){
   try{
-    const r = await fetch('/api/v1/ops/metrics?token='+encodeURIComponent(TOKEN));
+    const r = await fetch('/api/v1/ops/metrics', {headers: authHeaders, cache: 'no-store'});
     if(!r.ok) throw new Error(r.status+" "+r.statusText);
     const d = await r.json();
     document.getElementById('gen').textContent = d.generated_at;
@@ -239,4 +335,89 @@ async function load(){
   }catch(e){ document.getElementById('err').textContent = "加载失败: " + e.message; }
 }
 load();
+
+const traceForm = document.getElementById('trace-form');
+const traceId = document.getElementById('trace-id');
+const traceButton = traceForm.querySelector('button');
+const traceStatus = document.getElementById('trace-status');
+const traceResult = document.getElementById('trace-result');
+const known = v => v ?? '未知';
+const ms = v => v == null ? '未知' : v + ' ms';
+const labels = {
+  matched: '有命中', empty: '零命中', not_requested: '未请求检索', unknown: '未知',
+  trace: '当前记录', saved_sources: '历史来源', recorded: '有调用记录', not_called: '未调用',
+  library_inventory: '由资料库直接生成 · 0 次模型调用',
+  message_request: '本次请求开始', worker_start: '后台任务开始',
+  stream: '流式输出', terminal: '最终保存', queued: '排队', starting: '启动',
+  retrieving: '获取上下文', routing: '路由', generating: '生成中', escalating: '切换档位',
+  repairing: '修复产物', completed: '已完成', interrupted: '已中断', failed: '失败',
+};
+const label = v => labels[v] ?? known(v);
+const detail = (heading, fields) => '<section><h3>' + esc(heading) + '</h3><dl>' +
+  fields.map(([key, value]) => '<div><dt>' + esc(key) + '</dt><dd>' + esc(value) + '</dd></div>').join('') +
+  '</dl></section>';
+const counts = (hits, returned) => ['questions', 'interview_sets', 'notes'].map((key, index) => [
+  ['题目', '面经套题', '学习资料'][index] + '（命中 / 返回）', known(hits[key]) + ' / ' + known(returned[key]),
+]);
+function renderTrace(d) {
+  const {retrieval, routing, provider, persistence} = d;
+  return [
+    detail('资料库检索', [
+      ['结果', label(retrieval.state)], ['证据', label(retrieval.evidence)],
+      ['首次请求后开始', ms(retrieval.started_ms)], ['首次请求后结束', ms(retrieval.finished_ms)],
+      ...counts(retrieval.hits, retrieval.returned),
+    ]),
+    detail('路由', [
+      ['计时起点', label(routing.timing_origin)], ['开始', ms(routing.started_ms)], ['结束', ms(routing.finished_ms)],
+      ['模式', known(routing.mode)], ['偏好档位', known(routing.preferred_tier)],
+      ['初始档位', known(routing.initial_tier)], ['所选档位', known(routing.selected_tier)],
+    ]),
+    detail('供应商与正文', [
+      ['当前尝试', label(d.reply_kind ?? provider.state)], ['首段可见正文', ms(provider.first_visible_body_ms)],
+      ['正文发布阶段', label(provider.body_release_stage)],
+    ]),
+    ...provider.calls.map(call => detail('尝试 ' + known(call.attempt) + ' · 调用 ' + known(call.generation), [
+      ['供应商', known(call.provider)], ['档位', known(call.tier)], ['结果', label(call.outcome)],
+      ['开始', ms(call.provider_start_ms)], ['结束', ms(call.provider_end_ms)], ['耗时', ms(call.elapsed_ms)],
+      ['调用开始后首段正文', ms(call.first_visible_body_ms)], ['失败类别', known(call.error)],
+      ['HTTP 状态', known(call.http_status)], ['再次调用原因', known(call.retry_kind)],
+      ['阻止回退原因', known(call.fallback_blocked)], ['输入 token', known(call.usage?.prompt_tokens)],
+      ['输出 token', known(call.usage?.completion_tokens)], ['总 token', known(call.usage?.total_tokens)],
+    ])),
+    detail('保存状态', [
+      ['状态', label(persistence.status)], ['阶段', label(persistence.stage)], ['当前尝试次数', persistence.attempt],
+      ['创建时间', persistence.created_at], ['开始保存', ms(persistence.finalizing_ms)],
+      ['最终状态写入时间', known(persistence.terminal_write_at)], ['错误类别', known(persistence.error_kind)],
+    ]),
+  ].join('');
+}
+if (!SESSION) {
+  traceButton.disabled = traceId.disabled = true;
+  traceStatus.textContent = '配置 OPS_TOKEN 后可查询消息诊断。';
+}
+traceForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!SESSION || traceButton.disabled) return;
+  traceStatus.textContent = '查询中…';
+  traceResult.replaceChildren();
+  traceButton.disabled = true;
+  try {
+    const response = await fetch('/api/v1/ops/study-chat/messages/' + encodeURIComponent(traceId.value),
+      {headers: authHeaders, cache: 'no-store'});
+    if (!response.ok) {
+      traceStatus.textContent = ({
+        401: '令牌无效。', 404: '未找到该助手消息。', 422: '请输入有效的正整数消息 ID。',
+        503: '消息诊断暂不可用。',
+      })[response.status] ?? '查询失败。';
+      return;
+    }
+    const data = await response.json();
+    traceResult.innerHTML = renderTrace(data);
+    traceStatus.textContent = '助手消息 ' + data.message_id + ' · 回复语言 ' + known(data.locale);
+  } catch {
+    traceStatus.textContent = '查询失败。';
+  } finally {
+    traceButton.disabled = false;
+  }
+});
 </script></body></html>"""
