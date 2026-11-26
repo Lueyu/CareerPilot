@@ -154,6 +154,8 @@ def test_library_browser_has_no_spurious_topic(prompt):
     "列出题库里的 RAG 面试题，解释每道题的考点",
     "List RAG questions from the question bank, briefly explain each question",
     "Explain RAG and list RAG questions from the question bank",
+    "Can you explain RAG and list RAG questions from the question bank?",
+    "List RAG questions from the question bank. Explain each question.",
 ])
 async def test_inventory_and_explanation_request_still_queues_a_model_reply(db_session, test_workspace, prompt):
     db, ws = db_session, test_workspace
