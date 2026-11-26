@@ -151,6 +151,8 @@ def test_library_browser_has_no_spurious_topic(prompt):
 @pytest.mark.parametrize("prompt", [
     "列出题库里的 RAG 面试题，并解释每道题的考点",
     "请解释 RAG，并列出题库里的 RAG 面试题",
+    "列出题库里的 RAG 面试题，解释每道题的考点",
+    "List RAG questions from the question bank, briefly explain each question",
     "Explain RAG and list RAG questions from the question bank",
 ])
 async def test_inventory_and_explanation_request_still_queues_a_model_reply(db_session, test_workspace, prompt):

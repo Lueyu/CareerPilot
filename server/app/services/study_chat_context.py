@@ -91,8 +91,9 @@ _LIST_QUESTIONS = re.compile(
 _BANK_LIBRARY = re.compile(r"资料库|题库|素材库|材料库|\b(?:question bank|my library|the library)\b", re.I)
 _QUESTION_COLLECTION = re.compile(r"题库|面试题|题目|\b(?:question bank|questions?)\b", re.I)
 _ADDITIONAL_TASK = re.compile(
-    r"(?:^(?:请|帮我|先|请你)*|并(?:且)?|然后|再|顺便|同时)\s*(?:讲解|解释|说明|分析|给出|回答|比较|总结|推荐)"
-    r"|(?:^(?:please\s+|first\s+)*|\b(?:and|then|also)\s+)"
+    r"(?:^|[，。；,;\n]|并(?:且)?|然后|再|顺便|同时)"
+    r"\s*(?:(?:请你|请|帮我|先|也|逐题|简单|详细)\s*)*(?:讲解|解释|说明|分析|给出|回答|比较|总结|推荐)"
+    r"|(?:^|[,;\n]|\b(?:and|then|also)\b)\s*(?:(?:please|first|briefly|also)\s+)*"
     r"(?:explain|describe|answer|compare|recommend|summari[sz]e)\b",
     re.I,
 )
