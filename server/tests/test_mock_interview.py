@@ -1,5 +1,7 @@
 """Real saved chat turns gate mock stages; model responses are controlled fixtures."""
 from uuid import uuid4
+from pathlib import Path
+import re
 
 import pytest
 from fastapi import BackgroundTasks, HTTPException
@@ -11,6 +13,24 @@ from app.i18n import using_language
 from app.models.study_chat import StudyMessage, StudySession
 from app.services import study_chat as worker
 from app.services.interview_workflow import WorkflowChange
+from app.services.mock_interview import COMMAND
+
+
+def test_all_displayed_mock_actions_are_navigation_not_answers():
+    guide = (Path(__file__).resolve().parents[2] /
+             "web/src/interview/chat/MockInterviewGuide.tsx").read_text(encoding="utf-8")
+    keys = ("start", "ask", "submit", "finish", "generateReport", "pause", "resume", "skip", "retry",
+            "reportLink", "viewFeedback")
+    controls = re.findall(r'^\s+(' + "|".join(keys) + r'): "([^"]+)",$', guide, re.MULTILINE)
+    assert all(sum(key == name for key, _ in controls) == 2 for name in keys)
+    next_labels = re.findall(r'nextLabels: \[(.*?)\]', guide, re.DOTALL)
+    assert len(next_labels) == 2
+    labels = [label for _, label in controls]
+    for block in next_labels:
+        stages = re.findall(r'"([^"]+)"', block)
+        assert len(stages) == 6
+        labels.extend(stages)
+    assert [label for label in labels if not COMMAND.fullmatch(label)] == []
 
 
 async def change(db, ws, sid, run, operation, **fields):
