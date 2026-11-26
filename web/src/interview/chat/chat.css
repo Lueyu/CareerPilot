@@ -758,6 +758,46 @@
 .ia-chat-chart-legend span + span::before {
   background: var(--chat-target);
 }
+.ia-mock-layout {
+  display: grid;
+  grid-template-columns: 226px minmax(0, 1fr);
+  gap: 24px;
+  margin-block: 16px;
+}
+.ia-mock-rail {
+  align-self: start;
+  margin: 0;
+  padding-inline-end: 16px;
+  border-inline-end: 1px solid var(--chat-line);
+}
+.ia-mock-rail li[aria-current="step"] {
+  color: var(--chat-accent, #7657b5);
+  font-weight: 600;
+}
+.ia-mock-task {
+  min-width: 0;
+}
+.ia-mock-task > :first-child {
+  margin-top: 0;
+}
+.ia-mock-task textarea {
+  width: 100%;
+  resize: vertical;
+}
+.ia-mock-guide > .ia-chat-card > small {
+  color: var(--chat-muted);
+}
+@media (max-width: 700px) {
+  .ia-mock-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .ia-mock-rail {
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--chat-line);
+    padding: 0 0 12px;
+  }
+}
 @media (max-width: 980px) {
   .ia-chat-action-grid {
     grid-template-columns: minmax(0, 1fr);

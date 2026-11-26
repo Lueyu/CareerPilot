@@ -25,7 +25,7 @@ def test_workflow_transitions_require_current_revision_and_keep_skips():
     skipped = change_workflow(resumed, Change(operation="skip", expected_revision=4))
     assert skipped["current"] == 1 and skipped["skipped"] == [0]
     while skipped["status"] != "completed":
-        skipped = change_workflow(skipped, Change(operation="advance", expected_revision=skipped["revision"]))
+        skipped = change_workflow(skipped, Change(operation="advance", expected_revision=skipped["revision"]), answer_ready=True)
     assert skipped["current"] == len(skipped["steps"]) and skipped["skipped"] == [0]
 
 

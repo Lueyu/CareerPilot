@@ -26,6 +26,9 @@ import { JdCard, MaterialCard, SaveNote } from "./MaterialCards";
 import { MemoryPanel } from "./MemoryPanel";
 import { Flashcards, PracticeCard } from "./PracticeCards";
 import WorkflowCard from "./WorkflowCard";
+import MockInterviewGuide from "./MockInterviewGuide";
+import { mockInterviewProgress } from "./mockInterview";
+import { useLocale } from "../../i18n";
 import { Card, Icon } from "./ui";
 import {
   chatUrl,
@@ -41,6 +44,7 @@ import {
   workflows,
   type Intent,
   type Message,
+  type MockPurpose,
   type Role,
   type Session,
   type Workflow,
@@ -170,6 +174,7 @@ function Conversation({
   const scroll = useRef<HTMLDivElement>(null);
   const stickToEnd = useRef(true);
   const run = session?.context.interview_workflow;
+  const locale = useLocale();
   const latest = [...messages]
     .reverse()
     .find((message) => message.role === "assistant" && message.status === "completed");
@@ -303,15 +308,30 @@ function Conversation({
     id: number,
     content: string,
     role: Role,
-    details: { projectId?: number; questionId?: number } = {},
+    details: {
+      projectId?: number;
+      questionId?: number;
+      mock?: { run: WorkflowRun; purpose: MockPurpose };
+    } = {},
   ) {
     const body = {
       content,
       agent_role: role,
-      action: studyAction(role, content, details.questionId),
+      action:
+        details.mock?.purpose === "mock_answer"
+          ? "critique"
+          : studyAction(role, content, details.questionId),
       mode: "auto",
       project_id: details.projectId,
       agent_question_id: details.questionId,
+      ...(details.mock
+        ? {
+            purpose: details.mock.purpose,
+            workflow_run_id: details.mock.run.run_id,
+            workflow_step: details.mock.run.current,
+            workflow_revision: details.mock.run.revision,
+          }
+        : {}),
     };
     const signature = JSON.stringify(body);
     const requestId =
@@ -330,15 +350,27 @@ function Conversation({
       projectId?: number;
       questionId?: number;
       fromComposer?: boolean;
+      mock?: { run: WorkflowRun; purpose: MockPurpose };
     } = {},
   ) {
     if (!content.trim() || unavailable || generating) return false;
+    if (run?.id === "mock" && run.status !== "completed" && !options.mock) {
+      setError(
+        locale === "en"
+          ? "Use the interview card to answer, retry, pause or continue this stage."
+          : "请在面试卡片中作答、重试、暂停或继续当前环节。",
+      );
+      return false;
+    }
     return perform(async () => {
       const id = await ensureSession(content);
-      await sendTo(id, content, role, options);
-      if (options.fromComposer && active.current) put("");
-      stickToEnd.current = true;
-      await moveTo(id);
+      try {
+        await sendTo(id, content, role, options);
+        if (options.fromComposer && active.current) put("");
+        stickToEnd.current = true;
+      } finally {
+        await moveTo(id);
+      }
     });
   }
 
@@ -358,6 +390,32 @@ function Conversation({
           expected_revision: run?.revision ?? 0,
         });
         if (id === sessionId && active.current) applyWorkflow(workflow);
+        if (
+          workflow.id === "mock" &&
+          workflow.status === "running" &&
+          (operation.operation === "advance" || operation.operation === "skip")
+        ) {
+          try {
+            await sendTo(
+              id,
+              locale === "en"
+                ? "Ask the current stage question."
+                : "请开始当前环节，一次只问一个问题。",
+              "interviewer",
+              {
+                mock: {
+                  run: workflow,
+                  purpose:
+                    workflow.current === workflow.steps.length - 1
+                      ? "mock_report"
+                      : "mock_question",
+                },
+              },
+            );
+          } finally {
+            await moveTo(id);
+          }
+        }
       } catch (err) {
         await refresh().catch(() => {});
         throw err;
@@ -374,8 +432,11 @@ function Conversation({
       return;
     }
     return perform(async () => {
-      const id = await ensureSession(definition.name + (topic ? " · " + topic : ""));
-      await api.patch<WorkflowRun>(sessionPath(id) + "/interview-workflow", {
+      const id = await ensureSession(
+        (workflow === "mock" && locale === "en" ? "Full mock interview" : definition.name) +
+          (topic ? " · " + topic : ""),
+      );
+      const started = await api.patch<WorkflowRun>(sessionPath(id) + "/interview-workflow", {
         operation: "start",
         workflow,
         expected_revision: run?.revision ?? 0,
@@ -383,7 +444,16 @@ function Conversation({
       try {
         if (active.current && fromComposer) put("");
         if (active.current)
-          await sendTo(id, definition.prompt + (topic ? "\n主题：" + topic : ""), definition.role);
+          await sendTo(
+            id,
+            workflow === "mock"
+              ? (locale === "en"
+                  ? "Start with preparation. Ask about my target role and practice goals."
+                  : "请从准备环节开始，先问我的目标岗位和练习方向。") + (topic ? "\n" + topic : "")
+              : definition.prompt + (topic ? "\n主题：" + topic : ""),
+            definition.role,
+            workflow === "mock" ? { mock: { run: started, purpose: "mock_question" } } : {},
+          );
       } finally {
         stickToEnd.current = true;
         await moveTo(id);
@@ -423,6 +493,17 @@ function Conversation({
         }
       }
       if (await updateWorkflow(command)) put("");
+      return;
+    }
+    if (
+      run?.id === "mock" &&
+      run.status === "running" &&
+      mockInterviewProgress(run, messages).phase === "answer"
+    ) {
+      await sendMessage(raw, "interviewer", {
+        fromComposer: true,
+        mock: { run, purpose: "mock_answer" },
+      });
       return;
     }
     const parsed = parsePrompt(raw, selectedRole);
@@ -544,7 +625,27 @@ function Conversation({
     lastAssistantMessage.status !== "generating" &&
     !!lastUserMessage?.agent_role &&
     parsePrompt(lastUserMessage.content, lastUserMessage.agent_role).intent === "benchmark";
-  const workflowContent = run && (
+  const mockGuide = (run?.id === "mock" ||
+    (!run &&
+      (!sessionId || linkedWorkflow?.id === "mock") &&
+      (!linkedWorkflow || linkedWorkflow.id === "mock"))) && (
+    <MockInterviewGuide
+      key={`${run?.run_id ?? "intro"}:${run?.step_revision ?? 0}`}
+      run={run?.id === "mock" ? run : undefined}
+      messages={messages}
+      sessionId={sessionId}
+      busy={busy || unavailable}
+      start={() => void start("mock", externalTopic)}
+      send={(purpose, content) =>
+        run
+          ? sendMessage(content, "interviewer", { mock: { run, purpose } })
+          : Promise.resolve(false)
+      }
+      update={updateWorkflow}
+      retry={(message) => void changeReply(message, "retry")}
+    />
+  );
+  const workflowContent = run && run.id !== "mock" && (
     <>
       <WorkflowCard key={run.id} run={run} busy={busy || unavailable} update={updateWorkflow} />
       {run.status === "running" && (
@@ -662,7 +763,7 @@ function Conversation({
               ))}
             </div>
           )}
-          {linkedWorkflow && !run && (
+          {linkedWorkflow && linkedWorkflow.id !== "mock" && !run && (
             <Card title={t("interview.workflow." + linkedWorkflow.id)}>
               <p>
                 {t("interview.workflow." + linkedWorkflow.id + ".prompt")}
@@ -713,7 +814,10 @@ function Conversation({
               index > 0 && messages[index - 1].request_id === message.request_id
                 ? messages[index - 1]
                 : undefined;
-            const intent = user?.agent_role && parsePrompt(user.content, user.agent_role).intent;
+            const intent =
+              !user?.workflow &&
+              user?.agent_role &&
+              parsePrompt(user.content, user.agent_role).intent;
             const role = roles.find((item) => item.id === message.agent_role);
             const inventory = message.library_inventory;
             const citations = inventory
@@ -814,7 +918,7 @@ function Conversation({
                       )}
                     </div>
                   ))}
-                {text && message.status === "completed" && sessionId && (
+                {text && !message.workflow && message.status === "completed" && sessionId && (
                   <div className="ia-chat-actions ia-chat-reply-actions">
                     <button onClick={() => open("practice", undefined, message.id)}>
                       {t("interview.message.practice")}
@@ -829,6 +933,7 @@ function Conversation({
             );
           })}
           {!workflowBesideBenchmark && workflowContent}
+          {mockGuide}
           {question && (
             <AnswerQuestion
               key={question.id}

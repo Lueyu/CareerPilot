@@ -75,6 +75,20 @@ export interface WorkflowRun {
   status: "running" | "paused" | "completed";
   steps: string[];
   skipped: number[];
+  run_id?: string;
+  step_revision?: number;
+  boundary_message_id?: number;
+  completed_steps?: number[];
+}
+
+export type MockPurpose = "mock_question" | "mock_answer" | "mock_report";
+export interface WorkflowMessageScope {
+  run_id: string;
+  step: number;
+  step_revision: number;
+  revision?: number;
+  boundary_message_id?: number;
+  purpose: MockPurpose;
 }
 
 export interface ChatSource {
@@ -98,6 +112,7 @@ export interface LibraryInventory {
 }
 
 export interface Message {
+  workflow?: WorkflowMessageScope;
   id: number;
   role: "user" | "assistant";
   agent_role?: Role | null;
@@ -214,7 +229,13 @@ export function requestedWorkflow(raw: string): Workflow | undefined {
 export function workflowCommand(
   raw: string,
 ): Exclude<WorkflowOperation, { operation: "start" }> | undefined {
-  const text = raw.trim().replace(/[。！？!?]+$/, "");
+  const text = raw.trim().replace(/[。！？!?.]+$/, "");
+  if (/^pause(?: interview)?$/i.test(text)) return { operation: "pause" };
+  if (/^(?:resume|continue)(?: interview)?$/i.test(text)) return { operation: "resume" };
+  if (/^skip(?: (?:this |current )?(?:step|stage|question))?$/i.test(text))
+    return { operation: "skip" };
+  if (/^(?:next(?: (?:step|stage|question))?|advance|done)$/i.test(text))
+    return { operation: "advance" };
   if (/^(?:暂停|先暂停)(?:技能|流程|训练|一下)?$/.test(text)) return { operation: "pause" };
   if (/^(?:继续|恢复)(?:技能|流程|训练)?$/.test(text)) return { operation: "resume" };
   if (/^跳过(?:这|本|当前)?(?:一步|一题|步骤|题)?$/.test(text)) return { operation: "skip" };

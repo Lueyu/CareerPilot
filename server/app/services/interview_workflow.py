@@ -7,7 +7,7 @@ WorkflowId = Literal["mock", "prep", "digest", "project", "review", "boost"]
 AgentRole = Literal["interviewer", "exam", "coach", "analyst", "resume", "collect"]
 
 STEPS: dict[WorkflowId, tuple[str, ...]] = {
-    "mock": ("生成面试大纲", "自我介绍", "技术问答", "系统设计", "行为问题", "评分复盘"),
+    "mock": ("面试准备", "自我介绍", "技术问答", "系统设计", "行为问题", "复盘报告"),
     "prep": ("解析 JD", "更新能力对标", "生成学习计划", "每日练习", "周复盘"),
     "digest": ("导入面经", "提取考点", "生成试卷", "练习", "错题入库"),
     "project": ("选择项目", "分析岗位关注点", "优化描述", "生成问题", "生成话术"),
@@ -34,7 +34,7 @@ class WorkflowChange(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=120)
 
 
-def change_workflow(current: dict | None, command: WorkflowChange) -> dict:
+def change_workflow(current: dict | None, command: WorkflowChange, *, answer_ready: bool = False) -> dict:
     if command.expected_revision != (current or {}).get("revision", 0):
         raise ValueError("技能进度已在其他窗口更新，请刷新后重试。")
     revision = command.expected_revision + 1
@@ -42,8 +42,13 @@ def change_workflow(current: dict | None, command: WorkflowChange) -> dict:
     if op == "start":
         if command.workflow is None:
             raise ValueError("请选择要启动的技能。")
-        return dict(id=command.workflow, revision=revision, current=0, status="running",
-                    steps=list(STEPS[command.workflow]), skipped=[])
+        result = dict(id=command.workflow, revision=revision, current=0, status="running",
+                      steps=list(STEPS[command.workflow]), skipped=[])
+        if command.workflow == "mock":
+            from app.services.mock_interview import initialize
+            result = initialize(result, 0)
+            result["completed_steps"] = []
+        return result
     if not current or current["status"] == "completed":
         raise ValueError("请先启动一项技能。")
     result = {**current, "revision": revision}
@@ -60,6 +65,15 @@ def change_workflow(current: dict | None, command: WorkflowChange) -> dict:
         return result
     if current["status"] == "paused":
         raise ValueError("请先继续技能，再推进步骤。")
+    if current["id"] == "mock":
+        from app.services.mock_interview import reject
+        if op == "advance" and not answer_ready:
+            reject("请先提交本环节回答并等待点评完成。", "Submit your answer and wait for completed feedback.")
+        if op == "skip" and current["current"] == len(current["steps"]) - 1:
+            reject("请等待复盘报告完成后再结束面试。", "Wait for the final report before finishing.")
+        result["step_revision"] = revision
+        if op == "advance":
+            result["completed_steps"] = [*current.get("completed_steps", []), current["current"]]
     if op == "skip":
         result["skipped"] = [*current["skipped"], current["current"]]
     result["current"] = current["current"] + 1

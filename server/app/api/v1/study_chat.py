@@ -34,6 +34,7 @@ from app.services.study_chat_context import (
     visible_question,
 )
 from app.services.interview_workflow import AgentRole, WorkflowChange, change_workflow
+from app.services import mock_interview
 from app.services.study_interview_questions import InterviewQuestionResult, generate_question, saved_result
 
 router = APIRouter(prefix="/study/sessions", tags=["学习聊天"])
@@ -71,6 +72,10 @@ class InterviewQuestionRequest(Input):
 
 
 class NewMessage(Input):
+    purpose: Literal["mock_question", "mock_answer", "mock_report"] | None = None
+    workflow_run_id: str | None = Field(default=None, min_length=1, max_length=80)
+    workflow_step: int | None = Field(default=None, ge=0)
+    workflow_revision: int | None = Field(default=None, ge=0)
     agent_role: AgentRole | None = None
     agent_question_id: PositiveId | None = None
     mode: Mode | None = None
@@ -93,7 +98,7 @@ def message_item(row):
         "id", "request_id", "role", "content", "status", "action", "sources",
         "created_at", "attempt", "error", "model", "project_id")}
     item.update({k: v for k, v in (row.coach or {}).items() if k in (
-        "blocks", "trace", "revision_of", "parent_message_id", "mode", "agent_role", "library_inventory")})
+        "blocks", "trace", "revision_of", "parent_message_id", "mode", "agent_role", "library_inventory", "workflow")})
     return item
 
 
@@ -153,12 +158,17 @@ async def interview_question_topic(question_id: int, session: Db, ws: Owner):
 
 @router.get("/{session_id}")
 async def detail(session_id: int, session: Db, ws: Owner):
-    row = await owned(session, ws.id, session_id)
+    row = await owned(session, ws.id, session_id, lock=True)
     expired = await expire_generations(session, session_id)
     if expired.rowcount:
         await session.commit()
     messages = (await session.scalars(select(StudyMessage).where(StudyMessage.session_id == row.id)
                             .order_by(StudyMessage.id).execution_options(populate_existing=True))).all()
+    run = row.context.get("interview_workflow")
+    if run and run["id"] == "mock" and not run.get("run_id"):
+        row.context = {**row.context, "interview_workflow": mock_interview.initialize(run, messages[-1].id if messages else 0)}
+        row.updated_at = datetime.now(timezone.utc)
+        await session.commit()
     reports = await session.scalars(
         select(Exam.id)
         .where(
@@ -192,10 +202,34 @@ async def edit(session_id: int, body: EditSession, session: Db, ws: Owner):
 @router.patch("/{session_id}/interview-workflow")
 async def edit_interview_workflow(session_id: int, body: WorkflowChange, session: Db, ws: Owner):
     row = await owned(session, ws.id, session_id, lock=True)
+    await expire_generations(session, row.id)
     if row.status != "active":
         raise HTTPException(409, localized_message("errors.resume_the_study_session_before_continuing"))
     try:
-        run = change_workflow(row.context.get("interview_workflow"), body)
+        current = row.context.get("interview_workflow")
+        messages = (await session.scalars(select(StudyMessage).where(StudyMessage.session_id == row.id)
+                    .order_by(StudyMessage.id).execution_options(populate_existing=True))).all()
+        is_mock = current and current["id"] == "mock"
+        if is_mock:
+            current = mock_interview.initialize(current, messages[-1].id if messages else 0)
+        if (is_mock or body.workflow == "mock") and body.operation not in ("pause", "resume"):
+            if any(m.status == "generating" for m in messages):
+                mock_interview.reject("请等待当前回复结束，或先停止生成。", "Wait for the current reply or stop generation first.")
+        ready = False
+        accepted = None
+        if is_mock and body.operation == "advance":
+            accepted = mock_interview.validate_advance(current, messages)
+            ready = True
+        run = change_workflow(current, body, answer_ready=ready)
+        if accepted and accepted["answer_message_id"] is not None:
+            run["accepted_answers"] = [*current.get("accepted_answers", []), {
+                **mock_interview.binding(current, "mock_answer"),
+                "answer_message_id": accepted["answer_message_id"],
+                "feedback_message_id": accepted["feedback_message_id"],
+            }]
+        if run["id"] == "mock" and (body.operation in ("start", "skip", "advance") or
+                (body.operation == "change" and (body.step is None or body.step == run["current"]))):
+            run = {**run, "step_revision": run["revision"], "boundary_message_id": messages[-1].id if messages else 0}
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     row.context = {**row.context, "interview_workflow": run}
@@ -309,11 +343,17 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
     if await session.scalar(messages.where(StudyMessage.status == "generating").limit(1)):
         raise HTTPException(409, localized_message("errors.a_reply_is_still_being_generated_wait_for_it"))
 
+    try:
+        workflow_binding = mock_interview.validate_turn(row.context.get("interview_workflow"), body,
+            (await session.scalars(messages.order_by(StudyMessage.id).execution_options(populate_existing=True))).all())
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
     skills = row.context["skill_ids"]
     if not row.context["topic"] and not skills:
         skills = await topic_skills(session, body.content)
     sources = [*row.context["sources"], *await current_skill_sources(session, ws.id, skills)]
-    listing = body.agent_role is not None and body.action == "explain" and body.agent_question_id is None
+    listing = workflow_binding is None and body.agent_role is not None and body.action == "explain" and body.agent_question_id is None
     library_started_ms = round((time.monotonic() - submitted_at) * 1000, 2)
     library = await library_sources(
         session, ws.id, body.content, inventory=listing and is_library_inventory(body.content),
@@ -354,7 +394,7 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
     else:
         anchor = parent.id if parent else None
     mode = body.mode or row.context.get("mode", "auto")
-    guide_source = await mark_help(session, ws, row, body.content)
+    guide_source = None if workflow_binding else await mark_help(session, ws, row, body.content)
     if body.agent_question_id is not None:
         question = await visible_question(session, ws.id, body.agent_question_id)
         if question is None:
@@ -375,6 +415,8 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
                         project_id=project_id, request_id=body.request_id, status="completed",
                         coach={"mode": mode, "agent_role": body.agent_role, "revision_of": body.revision_of, "parent_message_id": anchor,
                                "request": body.model_dump(exclude_none=True)})
+    if workflow_binding:
+        user.coach = {**user.coach, "workflow": workflow_binding}
     session.add(user)
     await session.flush()
     language = inventory["language"] if inventory is not None else request_language()
@@ -383,6 +425,8 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
         "parent_message_id": user.id, "revision_of": body.revision_of,
         "trace": {"stage": "queued", "calls": [], "library_retrieval": library_trace},
     }
+    if workflow_binding:
+        coach["workflow"] = workflow_binding
     reply = StudyMessage(session_id=row.id, role="assistant", action=body.action, content="", sources=sources,
                          project_id=project_id, request_id=body.request_id, status="generating", expires_at=lease_deadline())
     if inventory is not None:
@@ -441,12 +485,17 @@ async def retry(session_id: int, message_id: int, tasks: BackgroundTasks, sessio
         return ticket(user_id, reply)
     if row.status != "active":
         raise HTTPException(409, localized_message("errors.resume_the_study_session_before_continuing"))
+    try:
+        mock_interview.validate_retry(row.context.get("interview_workflow"), reply)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if await session.scalar(select(StudyMessage.id).where(
             StudyMessage.session_id == row.id, StudyMessage.id > reply.id).limit(1)):
         raise HTTPException(409, localized_message("errors.the_conversation_has_moved_on_send_a_new_message"))
     # A practice attempt could have started since the interrupted generation.
     question_text = await session.scalar(select(StudyMessage.content).where(StudyMessage.id == user_id))
-    await mark_help(session, ws, row, question_text)
+    if not (reply.coach or {}).get("workflow"):
+        await mark_help(session, ws, row, question_text)
     previous_trace = dict(reply.coach.get("trace", {}))
     calls = list(previous_trace.get("calls", []))
     if calls and calls[-1].get("attempt") == reply.attempt and reply.content:
