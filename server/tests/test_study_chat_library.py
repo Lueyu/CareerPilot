@@ -165,3 +165,66 @@ async def test_inventory_and_explanation_request_still_queues_a_model_reply(db_s
     ticket = await api.send(sid, body, tasks, db, ws)
     assert ticket["status"] == "generating"
     assert len(tasks.tasks) == 1
+
+
+@pytest.mark.asyncio
+async def test_inventory_http_language_switch_overrides_prompt_and_preserves_history(db_session, test_workspace, monkeypatch):
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from app.i18n import LanguageMiddleware
+
+    db, ws = db_session, test_workspace
+    app = FastAPI()
+    app.add_middleware(LanguageMiddleware)
+    app.include_router(api.router, prefix="/api/v1")
+
+    async def session_dependency():
+        yield db
+
+    async def owner_dependency():
+        return ws
+
+    async def no_provider(*args, **kwargs):
+        pytest.fail("A question inventory must not call a provider")
+
+    app.dependency_overrides[api.get_session] = session_dependency
+    app.dependency_overrides[api.get_workspace] = owner_dependency
+    monkeypatch.setattr(api, "generate_reply", no_provider)
+    title = "原始 inventory-language-fixture 题目"
+    db.add(Question(workspace_id=ws.id, short_code="lang-" + uuid4().hex[:8], title=title,
+                    qtype="open", topic="inventory-language-fixture", difficulty=3))
+    await db.commit()
+    sid = (await api.create(api.StartSession(), db, ws))["id"]
+    path = f"/api/v1/study/sessions/{sid}"
+    chinese = "列出题库里 inventory-language-fixture 的题目"
+    english = "List inventory-language-fixture questions from my question bank"
+    saved_contents = []
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
+        for language, prompt in [("en", chinese), ("zh-CN", english), ("en", english), ("zh-CN", chinese)]:
+            body = {"request_id": uuid4().hex, "agent_role": "collect", "content": prompt}
+            response = await http.post(path + "/messages", json=body, headers={"Accept-Language": language})
+            assert response.status_code == 202, response.text
+            assert response.headers["Content-Language"] == language
+            assert "Accept-Language" in response.headers["Vary"]
+            assert response.json()["status"] == "completed"
+            detail = (await http.get(path)).raise_for_status().json()
+            assert detail["messages"][-2]["content"] == prompt
+            replies = [message for message in detail["messages"] if message["role"] == "assistant"]
+            assert [reply["content"] for reply in replies[:-1]] == saved_contents
+            reply = replies[-1]
+            assert reply["library_inventory"]["language"] == language
+            assert [item["title"] for item in reply["library_inventory"]["items"]] == [title]
+            assert ("question" in reply["content"].lower()) == (language == "en")
+            stored = await db.get(StudyMessage, reply["id"])
+            assert stored.coach["response_language"] == language
+            saved_contents.append(reply["content"])
+            replay = await http.post(path + "/messages", json=body,
+                                     headers={"Accept-Language": "zh-CN" if language == "en" else "en"})
+            assert replay.raise_for_status().json() == response.json()
+        for prompt, inferred in [(english, "en"), (chinese, "zh-CN")]:
+            response = await http.post(path + "/messages", json={
+                "request_id": uuid4().hex, "agent_role": "collect", "content": prompt,
+            })
+            assert response.raise_for_status().json()["status"] == "completed"
+            detail = (await http.get(path)).raise_for_status().json()
+            assert detail["messages"][-1]["library_inventory"]["language"] == inferred

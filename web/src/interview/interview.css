@@ -205,6 +205,16 @@
   font-size: 13px;
   color: var(--ia-ink);
 }
+.ia-top-tools {
+  flex-shrink: 0;
+}
+.ia-top-tools .language-selector {
+  width: 68px;
+  border-color: var(--ia-line);
+  border-radius: 8px;
+  background: var(--ia-bg);
+  color: var(--ia-ink);
+}
 .ia-demo {
   color: var(--ia-muted);
   background: var(--ia-bg);
@@ -417,6 +427,14 @@
   .ia-location,
   .ia-top-tools {
     gap: 5px;
+  }
+  .ia-location {
+    min-width: 0;
+  }
+  .ia-location strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .ia-top-avatar,
   .ia-demo {

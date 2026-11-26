@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { api, getWorkspace, type SettingsOverview } from "../api/client";
 import { useAppState } from "../components/AppState";
+import LanguageSelector from "../components/LanguageSelector";
 import { useLocale } from "../i18n";
 import { InterviewIcon } from "./InterviewIcon";
 import { useInterviewAppearance } from "./appearance";
@@ -143,6 +144,7 @@ export default function InterviewShell() {
             )}
           </div>
           <div className="ia-top-tools">
+            <LanguageSelector compact />
             <button type="button" className="ia-memory-indicator" onClick={openMemory}>
               <span className="ia-dot" data-ready={memoryCount > 0} />
               {memoryCount > 0 ? label("查看会话记忆", "View memories") : label("记忆", "Memory")}
