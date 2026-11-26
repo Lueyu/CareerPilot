@@ -292,7 +292,7 @@ async def make_scripts(
 
     adapter = AgentAdapter()
     result = await adapter.chat_with(
-        {**config, "output_limit": 11000 if series else 4500},
+        {**config, "output_limit": 11000 if series else 4500, "report_usage": True},
         _PROMPT + "\n\n" + _LANGUAGE_INSTRUCTIONS[language],
         json.dumps(payload, ensure_ascii=False),
         json_mode=True,

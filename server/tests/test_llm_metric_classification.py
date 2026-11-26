@@ -112,3 +112,61 @@ async def test_controlled_fixture_call_writes_no_metric(monkeypatch):
         ttft_ms=None, usage={}, ok=True, error_kind=None, finish_reason="stop",
         stream=True, session=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_stream_metric_records_first_content_not_headers(monkeypatch):
+    from app.services.llm_stream import ChatCompletionStream
+
+    body = (b'data: {"choices":[{"index":0,"delta":{"content":"ok"}}]}\n\n'
+            b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n'
+            b'data: {"choices":[],"usage":{"prompt_tokens":5,"completion_tokens":7,"total_tokens":12}}\n\n'
+            b'data: [DONE]\n\n')
+
+    def handler(request):
+        return httpx.Response(200, headers={'content-type': 'text/event-stream'}, content=body)
+
+    transport(monkeypatch, handler)
+    # Force a distinct first-content timestamp; response headers arrive near t0.
+    monkeypatch.setattr(ChatCompletionStream, 'elapsed', lambda self: 1234)
+    calls = capture(monkeypatch)
+    adapter = AgentAdapter()
+    result = await adapter.chat_with({**CONFIG, 'report_usage': True}, 's', 'u', stream=True)
+    assert result['content'] == 'ok'
+    assert adapter.last_response_meta['first_content_ms'] == 1234
+    assert calls[-1]['ttft_ms'] == 1234
+    assert calls[-1]['ttft_ms'] != adapter.last_response_meta['response_headers_ms']
+    assert calls[-1]['usage']['total_tokens'] == 12
+
+
+@pytest.mark.asyncio
+async def test_failed_stream_keeps_reported_usage(monkeypatch):
+    body = (b'data: {"choices":[{"index":0,"delta":{"content":"partial"}}]}\n\n'
+            b'data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":4,"total_tokens":7}}\n\n'
+            b'data: {broken json\n\n')
+
+    def handler(request):
+        return httpx.Response(200, headers={'content-type': 'text/event-stream'}, content=body)
+
+    transport(monkeypatch, handler)
+    calls = capture(monkeypatch)
+    adapter = AgentAdapter()
+    assert await adapter.chat_with(CONFIG, 's', 'u', stream=True) is None
+    assert calls[-1]['ok'] is False
+    assert calls[-1]['error_kind'] == 'invalid_response:invalid_json'
+    assert calls[-1]['usage']['total_tokens'] == 7
+
+
+@pytest.mark.asyncio
+async def test_non_stream_metric_keeps_header_as_ttft(monkeypatch):
+    def handler(request):
+        return httpx.Response(200, json={
+            'choices': [{'finish_reason': 'stop', 'message': {'content': 'ok'}}],
+            'usage': {'prompt_tokens': 1, 'completion_tokens': 1, 'total_tokens': 2},
+        })
+
+    transport(monkeypatch, handler)
+    calls = capture(monkeypatch)
+    adapter = AgentAdapter()
+    await adapter.chat_with(CONFIG, 's', 'u')
+    assert calls[-1]['ttft_ms'] == adapter.last_response_meta['response_headers_ms']

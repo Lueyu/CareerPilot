@@ -355,7 +355,7 @@ async function load(){
     document.getElementById('diagerrs').innerHTML = Object.entries(d.agent.errors).map(([k,v])=>`<li><span>${esc(k)}</span><b>${v}</b></li>`).join("") || '<li>—</li>';
     document.getElementById('diagfinish').innerHTML = d.agent.finish_reasons.map(f=>`<li><span>${esc(f.name)}</span><b>${f.count}</b></li>`).join("") || '<li>—</li>';
     document.getElementById('diaglat').innerHTML = `<li><span>首字 P50</span><b>${q(d.agent.ttft_ms.p50)} ms</b></li><li><span>首字 P95</span><b>${q(d.agent.ttft_ms.p95)} ms</b></li><li><span>超 60s</span><b>${d.agent.slow_calls.over_60s}</b></li><li><span>超 120s</span><b>${d.agent.slow_calls.over_120s}</b></li><li><span>流式占比</span><b>${q(d.agent.stream_share)}%</b></li><li><span>token=0 调用</span><b>${d.agent.zero_token_calls}</b></li>`;
-    document.getElementById('diagnote').textContent = d.agent.cost_note + '。错误明细已细分到本地 SSE 码；JS 不打印任何供应商响应体。';
+    document.getElementById('diagnote').textContent = d.agent.cost_note + '。TTFT 取首段可见内容时间，失败且无正文时留空；错误明细已细分到本地 SSE 码；JS 不打印任何供应商响应体。';
     document.getElementById('biz').innerHTML = stat('用户总数',d.business.users.total)+stat('日活',d.business.users.active_1d)+stat('周活',d.business.users.active_7d)+stat('月活',d.business.users.active_30d);
     document.getElementById('eng').innerHTML = stat('调用数',d.agent.calls)+stat('成功率',(d.agent.ok_rate===null?'—':d.agent.ok_rate+'%'))+stat('P95 延迟',d.agent.latency_ms.p95+' ms')+stat('估算成本（¥2/M，未对账）',"¥"+d.agent.cost_estimate_cny);
     document.getElementById('lat').innerHTML = `<li><span>P50</span><b>${d.agent.latency_ms.p50} ms</b></li><li><span>P95</span><b>${d.agent.latency_ms.p95} ms</b></li><li><span>P99</span><b>${d.agent.latency_ms.p99} ms</b></li>`;
