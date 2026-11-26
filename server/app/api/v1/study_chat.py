@@ -25,6 +25,7 @@ from app.services.study_chat_context import (
     current_skill_sources,
     entry_context,
     excerpt,
+    library_sources,
     project_sources,  # noqa: F401 -- 本路由不直接调用，但 tests/test_study_chat.py 通过 api.project_sources 取证；也是模块命名空间契约的一部分
     topic_skills,
     visible_question,
@@ -276,6 +277,7 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
     if not row.context["topic"] and not skills:
         skills = await topic_skills(session, body.content)
     sources = [*row.context["sources"], *await current_skill_sources(session, ws.id, skills)]
+    sources.extend(await library_sources(session, ws.id, body.content))
     project_id = body.project_id if body.project_id is not None else row.context.get("project_id")
     if not project_id and teaching_action(body.action, body.content) in ("project", "improve"):
         available = (await session.execute(select(Project.id, Project.name).where(
