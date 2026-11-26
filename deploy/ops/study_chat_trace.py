@@ -52,7 +52,7 @@ def timestamp(value):
 
 
 def retrieval_projection(saved, sources_json):
-    state = choice(saved.get("state"), {"searched", "not_requested"})
+    state = choice(saved.get("state"), {"searched", "question_inventory", "not_requested"})
     evidence = None
     hits = dict.fromkeys(LIBRARY_FIELDS)
     returned = dict.fromkeys(LIBRARY_FIELDS)
@@ -71,11 +71,17 @@ def retrieval_projection(saved, sources_json):
             totals = object_from((summary or {}).get("text"))
             hits = {key: count(totals.get(label)) for key, (_, label) in LIBRARY_FIELDS.items()}
             returned = {key: kinds[kind] for key, (kind, _) in LIBRARY_FIELDS.items()}
-    if state == "searched":
+            questions_shown = count(totals.get("题库展示"))
+            if questions_shown is not None:
+                state = "question_inventory"
+                returned = dict.fromkeys(LIBRARY_FIELDS)
+                returned["questions"] = questions_shown
+    if state in {"searched", "question_inventory"}:
         numbers = [*hits.values(), *returned.values()]
+        searched_totals = (hits["questions"],) if state == "question_inventory" else hits.values()
         if any(numbers):
             state = "matched"
-        elif all(total == 0 for total in hits.values()):
+        elif all(total == 0 for total in searched_totals):
             state = "empty"
         else:
             state = "unknown"

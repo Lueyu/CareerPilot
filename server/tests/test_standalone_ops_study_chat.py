@@ -249,3 +249,39 @@ async def test_lookup_accepts_a_completed_inventory_without_a_provider(
     assert data["provider"]["state"] == "not_called" and data["provider"]["calls"] == []
     assert data["routing"]["started_ms"] is None
     assert data["persistence"]["status"] == "completed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("capture_timing", [True, False])
+@pytest.mark.parametrize("hits, shown", [(0, 0), (21, 12)])
+async def test_lookup_projects_question_only_inventory_counts(
+    ops, monkeypatch, db_session, test_workspace, capture_timing, hits, shown,
+):
+    async def sources(*_args):
+        return [{"kind": "library_summary", "text": json.dumps({"题库命中": hits, "题库展示": shown})}]
+
+    monkeypatch.setattr(study_chat, "library_sources", sources)
+    _, message_id, _ = await submit(db_session, test_workspace, "Show questions from the question bank")
+    reply = await db_session.get(StudyMessage, message_id)
+    trace = {**reply.coach["trace"], "stage": "completed"}
+    if not capture_timing:
+        del trace["library_retrieval"]
+    reply.status = "completed"
+    reply.coach = {**reply.coach, "library_inventory": {"total": hits, "items": []}, "trace": trace}
+    await db_session.commit()
+
+    async with client(ops) as http:
+        response = await http.get(f"{ROUTE}/{message_id}", headers=AUTH)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["reply_kind"] == "library_inventory"
+    assert data["provider"]["state"] == "not_called"
+    retrieval = data["retrieval"]
+    assert retrieval["state"] == ("matched" if hits else "empty")
+    assert retrieval["evidence"] == ("trace" if capture_timing else "saved_sources")
+    assert retrieval["hits"] == {"questions": hits, "interview_sets": None, "notes": None}
+    assert retrieval["returned"] == {"questions": shown, "interview_sets": None, "notes": None}
+    if capture_timing:
+        assert 0 <= retrieval["started_ms"] <= retrieval["finished_ms"]
+    else:
+        assert retrieval["started_ms"] is retrieval["finished_ms"] is None

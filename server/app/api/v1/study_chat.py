@@ -267,12 +267,19 @@ def library_retrieval_trace(sources, started_ms, finished_ms):
         if not isinstance(summary, dict):
             summary = {}
     hits = {key: summary.get(label) for key, (_, label) in fields.items()}
+    returned = {key: kinds.count(kind) for key, (kind, _) in fields.items()}
+    state = "searched" if sources else "not_requested"
+    questions_shown = summary.get("题库展示")
+    if type(questions_shown) is int and questions_shown >= 0:
+        state = "question_inventory"
+        returned = dict.fromkeys(fields)
+        returned["questions"] = questions_shown
     return {
-        "state": "searched" if sources else "not_requested",
+        "state": state,
         "started_ms": started_ms,
         "finished_ms": finished_ms,
         "hits": {key: count if type(count) is int and count >= 0 else None for key, count in hits.items()},
-        "returned": {key: kinds.count(kind) for key, (kind, _) in fields.items()},
+        "returned": returned,
     }
 
 
