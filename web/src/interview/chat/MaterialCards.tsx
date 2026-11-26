@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, workspaceStorageKey } from "../../api/client";
+import { useT } from "../../i18n";
 import { errorText, positiveId } from "./model";
 import { sessionPath } from "./useConversation";
 import { Card } from "./ui";
@@ -268,6 +269,7 @@ interface NoteJob {
   error?: string;
 }
 export function SaveNote({ sessionId, messageId }: { sessionId: number; messageId: number }) {
+  const t = useT();
   const [job, setJob] = useState<NoteJob>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -322,15 +324,15 @@ export function SaveNote({ sessionId, messageId }: { sessionId: number; messageI
     <span className="ia-chat-note">
       {job?.status === "SUCCEEDED" ? (
         <Link to={"/library/materials" + (job.note_id ? "?note=" + job.note_id : "")}>
-          {job.conflict ? "查看笔记更新草稿" : "查看已保存的学习笔记"}
+          {job.conflict ? t("interview.note.draft") : t("interview.note.view")}
         </Link>
       ) : (
         <button disabled={busy || !!pending} onClick={() => void save()}>
           {pending || busy
-            ? "正在整理笔记…"
+            ? t("interview.note.saving")
             : job?.status === "FAILED"
-              ? "重试整理笔记"
-              : "保存为学习笔记"}
+              ? t("interview.note.retry")
+              : t("interview.note.save")}
         </button>
       )}
       {(error || job?.error) && <span role="alert">{error || job?.error}</span>}

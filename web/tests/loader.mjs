@@ -13,7 +13,9 @@ export async function resolve(specifier, context, nextResolve) {
 }
 
 export async function load(url, context, nextLoad) {
+  if (url.endsWith('.svg')) return { format: 'module', source: `export default ${JSON.stringify(url)}`, shortCircuit: true };
   if (url.endsWith('.css')) return { format: 'module', source: '', shortCircuit: true };
+  if (url.endsWith('.svg')) return { format: 'module', source: `export default ${JSON.stringify(url)};`, shortCircuit: true };
   if (url.endsWith('.json')) return { format: 'json', source: await readFile(new URL(url), 'utf8'), shortCircuit: true };
   if (!/\.tsx?$/.test(url)) return nextLoad(url, context);
   const source = await readFile(new URL(url), 'utf8');

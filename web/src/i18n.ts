@@ -12,14 +12,16 @@ import shellZh from './locales/zh-CN/shell.json' with { type: 'json' };
 import shellEn from './locales/en/shell.json' with { type: 'json' };
 import coreZh from './locales/zh-CN/core.json' with { type: 'json' };
 import coreEn from './locales/en/core.json' with { type: 'json' };
+import interviewZh from './locales/zh-CN/interview.json' with { type: 'json' };
+import interviewEn from './locales/en/interview.json' with { type: 'json' };
 import { useSyncExternalStore } from 'react';
 
 export type Locale = 'zh-CN' | 'en';
 type Catalog = Record<string, Record<string, string>>;
 type Values = Readonly<Record<string, string | number>>;
 const catalogs: Record<Locale, Catalog> = {
-  'zh-CN': { bank: bankZh, study: studyZh, projects: projectsZh, progress: progressZh, registered: registeredZh, shell: shellZh, core: coreZh },
-  en: { bank: bankEn, study: studyEn, projects: projectsEn, progress: progressEn, registered: registeredEn, shell: shellEn, core: coreEn },
+  'zh-CN': { bank: bankZh, study: studyZh, projects: projectsZh, progress: progressZh, registered: registeredZh, shell: shellZh, core: coreZh, interview: interviewZh },
+  en: { bank: bankEn, study: studyEn, projects: projectsEn, progress: progressEn, registered: registeredEn, shell: shellEn, core: coreEn, interview: interviewEn },
 };
 const preferenceKey = 'careerpilot.locale';
 const listeners = new Set<() => void>();

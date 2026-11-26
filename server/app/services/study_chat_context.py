@@ -143,7 +143,8 @@ def _set_hit(entry, terms) -> bool:
     return any(term.casefold() in haystack for term in terms)
 
 
-async def library_sources(session, workspace_id, question, *, inventory: bool = False) -> LibraryRead:
+async def library_sources(session, workspace_id, question, *, inventory: bool = False,
+                          response_language: Locale | None = None) -> LibraryRead:
     """Collect bounded model evidence or a displayable question-bank result."""
     if not LIBRARY_REFERENCE.search(question):
         return {"sources": [], "inventory": None}
@@ -174,7 +175,7 @@ async def library_sources(session, workspace_id, question, *, inventory: bool = 
             "检索词": terms, "题库命中": bank_total, "题库展示": len(items),
         }, "scope")
         return {"sources": [summary], "inventory": {
-            "total": bank_total, "items": items, "language": inventory_language(question),
+            "total": bank_total, "items": items, "language": response_language or inventory_language(question),
         }}
     for row in rows:
         sources.append(excerpt("library_question", row.id, "资料库题目", {

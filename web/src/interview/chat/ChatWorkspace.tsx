@@ -8,6 +8,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { api, getWorkspace, workspaceStorageKey } from "../../api/client";
+import { useT } from "../../i18n";
 import StudyMarkdown from "../../components/StudyMarkdown";
 import StudyArtifact from "../../components/StudyArtifacts";
 import InterviewBrief from "../InterviewBrief";
@@ -25,6 +26,9 @@ import { JdCard, MaterialCard, SaveNote } from "./MaterialCards";
 import { MemoryPanel } from "./MemoryPanel";
 import { Flashcards, PracticeCard } from "./PracticeCards";
 import WorkflowCard from "./WorkflowCard";
+import MockInterviewGuide from "./MockInterviewGuide";
+import { mockInterviewProgress } from "./mockInterview";
+import { useLocale } from "../../i18n";
 import { Card, Icon } from "./ui";
 import {
   chatUrl,
@@ -40,6 +44,7 @@ import {
   workflows,
   type Intent,
   type Message,
+  type MockPurpose,
   type Role,
   type Session,
   type Workflow,
@@ -56,12 +61,7 @@ type Props = { renderExamConfig?: ExamConfig };
 type Panel = { intent: Intent | "project"; topic?: string; focus?: number };
 type Question = { id: number; title: string };
 
-const starters: { label: string; intent: Intent }[] = [
-  { label: "看看我的岗位差距", intent: "benchmark" },
-  { label: "安排今天的学习", intent: "plan" },
-  { label: "准备一场正式考试", intent: "exam" },
-  { label: "从题库找题", intent: "questions" },
-];
+const starters: Intent[] = ["benchmark", "plan", "exam", "questions"];
 
 const roleActions: Record<Role, Panel["intent"]> = {
   interviewer: "practice",
@@ -106,6 +106,7 @@ function AnswerQuestion({
   submit: (answer: string) => Promise<boolean>;
   disabled: boolean;
 }) {
+  const t = useT();
   const [answer, setAnswer] = useState("");
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -114,14 +115,12 @@ function AnswerQuestion({
   }
   return (
     <div className="ia-chat-output">
-      <p>
-        先独立作答，再请面试官按题目要求分析你的原话。这轮反馈用于学习，正式能力证据来自独立考试。
-      </p>
-      <Card title="题库题练习">
+      <p>{t("interview.answer.hint")}</p>
+      <Card title={t("interview.answer.title")}>
         <p className="ia-chat-question">{question.title}</p>
         <form className="ia-chat-form" onSubmit={(event) => void onSubmit(event)}>
           <label>
-            我的作答
+            {t("interview.answer.mine")}
             <textarea
               value={answer}
               rows={4}
@@ -130,7 +129,7 @@ function AnswerQuestion({
             />
           </label>
           <button className="ia-chat-primary" disabled={disabled || !answer.trim()}>
-            提交给面试官
+            {t("interview.answer.submit")}
           </button>
         </form>
       </Card>
@@ -143,6 +142,7 @@ function Conversation({
   invalidId,
   renderExamConfig,
 }: Props & { sessionId?: number; invalidId: boolean }) {
+  const t = useT();
   const navigate = useNavigate();
   const { key: locationKey } = useLocation();
   const navigationType = useNavigationType();
@@ -174,6 +174,7 @@ function Conversation({
   const scroll = useRef<HTMLDivElement>(null);
   const stickToEnd = useRef(true);
   const run = session?.context.interview_workflow;
+  const locale = useLocale();
   const latest = [...messages]
     .reverse()
     .find((message) => message.role === "assistant" && message.status === "completed");
@@ -307,15 +308,30 @@ function Conversation({
     id: number,
     content: string,
     role: Role,
-    details: { projectId?: number; questionId?: number } = {},
+    details: {
+      projectId?: number;
+      questionId?: number;
+      mock?: { run: WorkflowRun; purpose: MockPurpose };
+    } = {},
   ) {
     const body = {
       content,
       agent_role: role,
-      action: studyAction(role, content, details.questionId),
+      action:
+        details.mock?.purpose === "mock_answer"
+          ? "critique"
+          : studyAction(role, content, details.questionId),
       mode: "auto",
       project_id: details.projectId,
       agent_question_id: details.questionId,
+      ...(details.mock
+        ? {
+            purpose: details.mock.purpose,
+            workflow_run_id: details.mock.run.run_id,
+            workflow_step: details.mock.run.current,
+            workflow_revision: details.mock.run.revision,
+          }
+        : {}),
     };
     const signature = JSON.stringify(body);
     const requestId =
@@ -334,15 +350,27 @@ function Conversation({
       projectId?: number;
       questionId?: number;
       fromComposer?: boolean;
+      mock?: { run: WorkflowRun; purpose: MockPurpose };
     } = {},
   ) {
     if (!content.trim() || unavailable || generating) return false;
+    if (run?.id === "mock" && run.status !== "completed" && !options.mock) {
+      setError(
+        locale === "en"
+          ? "Use the interview card to answer, retry, pause or continue this stage."
+          : "请在面试卡片中作答、重试、暂停或继续当前环节。",
+      );
+      return false;
+    }
     return perform(async () => {
       const id = await ensureSession(content);
-      await sendTo(id, content, role, options);
-      if (options.fromComposer && active.current) put("");
-      stickToEnd.current = true;
-      await moveTo(id);
+      try {
+        await sendTo(id, content, role, options);
+        if (options.fromComposer && active.current) put("");
+        stickToEnd.current = true;
+      } finally {
+        await moveTo(id);
+      }
     });
   }
 
@@ -362,6 +390,32 @@ function Conversation({
           expected_revision: run?.revision ?? 0,
         });
         if (id === sessionId && active.current) applyWorkflow(workflow);
+        if (
+          workflow.id === "mock" &&
+          workflow.status === "running" &&
+          (operation.operation === "advance" || operation.operation === "skip")
+        ) {
+          try {
+            await sendTo(
+              id,
+              locale === "en"
+                ? "Ask the current stage question."
+                : "请开始当前环节，一次只问一个问题。",
+              "interviewer",
+              {
+                mock: {
+                  run: workflow,
+                  purpose:
+                    workflow.current === workflow.steps.length - 1
+                      ? "mock_report"
+                      : "mock_question",
+                },
+              },
+            );
+          } finally {
+            await moveTo(id);
+          }
+        }
       } catch (err) {
         await refresh().catch(() => {});
         throw err;
@@ -378,8 +432,11 @@ function Conversation({
       return;
     }
     return perform(async () => {
-      const id = await ensureSession(definition.name + (topic ? " · " + topic : ""));
-      await api.patch<WorkflowRun>(sessionPath(id) + "/interview-workflow", {
+      const id = await ensureSession(
+        (workflow === "mock" && locale === "en" ? "Full mock interview" : definition.name) +
+          (topic ? " · " + topic : ""),
+      );
+      const started = await api.patch<WorkflowRun>(sessionPath(id) + "/interview-workflow", {
         operation: "start",
         workflow,
         expected_revision: run?.revision ?? 0,
@@ -387,7 +444,16 @@ function Conversation({
       try {
         if (active.current && fromComposer) put("");
         if (active.current)
-          await sendTo(id, definition.prompt + (topic ? "\n主题：" + topic : ""), definition.role);
+          await sendTo(
+            id,
+            workflow === "mock"
+              ? (locale === "en"
+                  ? "Start with preparation. Ask about my target role and practice goals."
+                  : "请从准备环节开始，先问我的目标岗位和练习方向。") + (topic ? "\n" + topic : "")
+              : definition.prompt + (topic ? "\n主题：" + topic : ""),
+            definition.role,
+            workflow === "mock" ? { mock: { run: started, purpose: "mock_question" } } : {},
+          );
       } finally {
         stickToEnd.current = true;
         await moveTo(id);
@@ -427,6 +493,17 @@ function Conversation({
         }
       }
       if (await updateWorkflow(command)) put("");
+      return;
+    }
+    if (
+      run?.id === "mock" &&
+      run.status === "running" &&
+      mockInterviewProgress(run, messages).phase === "answer"
+    ) {
+      await sendMessage(raw, "interviewer", {
+        fromComposer: true,
+        mock: { run, purpose: "mock_answer" },
+      });
       return;
     }
     const parsed = parsePrompt(raw, selectedRole);
@@ -474,12 +551,12 @@ function Conversation({
         const subject = examTopic(topic) ?? externalTopic;
         return (
           <div className="ia-chat-output">
-            <p>先确认考试范围、题量和时间。正式提交后，逐题评分会回到对话，方便接着问失分原因。</p>
+            <p>{t("interview.exam.hint")}</p>
             {renderExamConfig ? (
               renderExamConfig({ sessionId, topic: subject })
             ) : (
-              <Card title="正式考试配置">
-                <Link to={examConfigUrl(sessionId, subject)}>配置试卷 →</Link>
+              <Card title={t("interview.exam.config")}>
+                <Link to={examConfigUrl(sessionId, subject)}>{t("interview.exam.configure")}</Link>
               </Card>
             )}
           </div>
@@ -529,8 +606,12 @@ function Conversation({
             disabled={unavailable || !!generating}
           />
         ) : (
-          <Card title={intent === "quiz" ? "随堂测验" : "解释练习"}>
-            <p>先在聊天里讲清想练的知识点。收到讲解后，可以基于那条回复开始练习。</p>
+          <Card
+            title={
+              intent === "quiz" ? t("interview.practice.quiz") : t("interview.practice.explain")
+            }
+          >
+            <p>{t("interview.practice.hint")}</p>
           </Card>
         );
     }
@@ -544,7 +625,27 @@ function Conversation({
     lastAssistantMessage.status !== "generating" &&
     !!lastUserMessage?.agent_role &&
     parsePrompt(lastUserMessage.content, lastUserMessage.agent_role).intent === "benchmark";
-  const workflowContent = run && (
+  const mockGuide = (run?.id === "mock" ||
+    (!run &&
+      (!sessionId || linkedWorkflow?.id === "mock") &&
+      (!linkedWorkflow || linkedWorkflow.id === "mock"))) && (
+    <MockInterviewGuide
+      key={`${run?.run_id ?? "intro"}:${run?.step_revision ?? 0}`}
+      run={run?.id === "mock" ? run : undefined}
+      messages={messages}
+      sessionId={sessionId}
+      busy={busy || unavailable}
+      start={() => void start("mock", externalTopic)}
+      send={(purpose, content) =>
+        run
+          ? sendMessage(content, "interviewer", { mock: { run, purpose } })
+          : Promise.resolve(false)
+      }
+      update={updateWorkflow}
+      retry={(message) => void changeReply(message, "retry")}
+    />
+  );
+  const workflowContent = run && run.id !== "mock" && (
     <>
       <WorkflowCard key={run.id} run={run} busy={busy || unavailable} update={updateWorkflow} />
       {run.status === "running" && (
@@ -564,7 +665,7 @@ function Conversation({
               );
             }}
           >
-            和助手完成当前步骤
+            {t("interview.workflow.assist")}
           </button>
           {run.id === "prep" && (
             <button
@@ -572,17 +673,23 @@ function Conversation({
                 open(run.current === 0 ? "jd" : run.current === 1 ? "benchmark" : "plan")
               }
             >
-              打开本步资料
+              {t("interview.workflow.materials")}
             </button>
           )}
           {run.id === "digest" && (
-            <button onClick={() => open(run.current < 2 ? "import" : "exam")}>打开本步工具</button>
+            <button onClick={() => open(run.current < 2 ? "import" : "exam")}>
+              {t("interview.workflow.tools")}
+            </button>
           )}
-          {run.id === "project" && <button onClick={() => open("project")}>选择项目</button>}
-          {run.id === "review" && <button onClick={() => open("flashcard")}>打开今日闪卡</button>}
+          {run.id === "project" && (
+            <button onClick={() => open("project")}>{t("interview.workflow.project")}</button>
+          )}
+          {run.id === "review" && (
+            <button onClick={() => open("flashcard")}>{t("interview.workflow.flashcards")}</button>
+          )}
           {run.id === "boost" && (
             <button onClick={() => open(run.current < 2 ? "benchmark" : "practice")}>
-              打开专项工具
+              {t("interview.workflow.practice")}
             </button>
           )}
         </div>
@@ -591,7 +698,7 @@ function Conversation({
   );
 
   return (
-    <section className="ia-chat" aria-label="聊天工作台">
+    <section className="ia-chat" aria-label={t("interview.workspace")}>
       <div
         className="ia-chat-scroll"
         ref={scroll}
@@ -603,34 +710,35 @@ function Conversation({
         <div className="ia-chat-content">
           <header className="ia-chat-heading">
             <div>
-              <h1>{session?.title || "今天想准备什么？"}</h1>
-              {session ? (
-                <p>面试 AI 助手</p>
-              ) : (
-                <p>在这里练习面试、分析岗位要求，或整理手上的面试资料。</p>
-              )}
+              <h1>{session?.title || t("interview.heading")}</h1>
+              {session ? <p>{t("interview.assistant")}</p> : <p>{t("interview.intro")}</p>}
             </div>
             <button type="button" onClick={() => setPalette(true)}>
               <Icon name="slash" />
-              打开角色与技能
+              {t("interview.palette.open")}
             </button>
           </header>
           {!sessionId && !invalidId && <InterviewBrief />}
           {invalidId && (
             <p role="alert">
-              此对话链接无效。 <Link to="/chat?new=1">新对话</Link>
+              {t("interview.conversation.invalid")}{" "}
+              <Link to="/chat?new=1">{t("interview.conversation.new")}</Link>
             </p>
           )}
           {readError && (
             <div role="alert">
               <p>{readError}</p>
-              <button onClick={() => void refresh().catch(() => {})}>重新读取对话</button>
+              <button onClick={() => void refresh().catch(() => {})}>
+                {t("interview.conversation.reload")}
+              </button>
             </div>
           )}
-          {sessionId && !session && !readError && <p role="status">正在读取对话…</p>}
+          {sessionId && !session && !readError && (
+            <p role="status">{t("interview.conversation.loading")}</p>
+          )}
           {session?.status === "ended" && (
             <div className="ia-chat-actions">
-              <p>这段对话已结束。</p>
+              <p>{t("interview.conversation.ended")}</p>
               <button
                 disabled={busy}
                 onClick={() =>
@@ -640,39 +748,39 @@ function Conversation({
                   })
                 }
               >
-                继续对话
+                {t("interview.conversation.resume")}
               </button>
             </div>
           )}
           {!sessionId && !invalidId && !report && !visiblePanel && !linkedWorkflow && (
             <div className="ia-chat-starters">
-              {starters.map((item) => (
-                <button key={item.intent} onClick={() => open(item.intent)}>
+              {starters.map((intent) => (
+                <button key={intent} onClick={() => open(intent)}>
                   <Icon name="target" />
-                  {item.label}
+                  {t("interview.starter." + intent)}
                   <Icon name="chevron" />
                 </button>
               ))}
             </div>
           )}
-          {linkedWorkflow && !run && (
-            <Card title={linkedWorkflow.name}>
+          {linkedWorkflow && linkedWorkflow.id !== "mock" && !run && (
+            <Card title={t("interview.workflow." + linkedWorkflow.id)}>
               <p>
-                {linkedWorkflow.prompt}
-                {externalTopic && " 这次的主题是「" + externalTopic + "」。"}
+                {t("interview.workflow." + linkedWorkflow.id + ".prompt")}
+                {externalTopic && " " + t("interview.workflow.topic", { topic: externalTopic })}
               </p>
               <button
                 className="ia-chat-primary"
                 disabled={busy || unavailable}
                 onClick={() => void start(linkedWorkflow.id, externalTopic)}
               >
-                开始技能
+                {t("interview.workflow.start")}
               </button>
             </Card>
           )}
           {replaceWorkflow && (
-            <Card title="切换当前技能">
-              <p>切换后，这段对话会显示新技能的进度。此前的聊天内容仍可回看。</p>
+            <Card title={t("interview.workflow.replace")}>
+              <p>{t("interview.workflow.replaceHint")}</p>
               <div className="ia-chat-actions">
                 <button
                   disabled={busy}
@@ -682,25 +790,34 @@ function Conversation({
                     void start(next, externalTopic, true, requestedWorkflow(input) === next);
                   }}
                 >
-                  切换技能
+                  {t("interview.workflow.switch")}
                 </button>
-                <button onClick={() => setReplaceWorkflow(undefined)}>取消</button>
+                <button onClick={() => setReplaceWorkflow(undefined)}>
+                  {t("interview.cancel")}
+                </button>
               </div>
             </Card>
           )}
           {messages.map((message, index) => {
             if (message.role === "user")
               return (
-                <article className="ia-chat-user" key={message.id} aria-label="我的消息">
+                <article
+                  className="ia-chat-user"
+                  key={message.id}
+                  aria-label={t("interview.message.mine")}
+                >
                   <p>{message.content}</p>
-                  <span aria-hidden="true">我</span>
+                  <span aria-hidden="true">{t("interview.message.me")}</span>
                 </article>
               );
             const user =
               index > 0 && messages[index - 1].request_id === message.request_id
                 ? messages[index - 1]
                 : undefined;
-            const intent = user?.agent_role && parsePrompt(user.content, user.agent_role).intent;
+            const intent =
+              !user?.workflow &&
+              user?.agent_role &&
+              parsePrompt(user.content, user.agent_role).intent;
             const role = roles.find((item) => item.id === message.agent_role);
             const inventory = message.library_inventory;
             const citations = inventory
@@ -712,15 +829,17 @@ function Conversation({
                 id={"study-message-" + message.id}
                 className="ia-chat-assistant"
                 key={message.id}
-                aria-label={role?.name ?? "面试 AI 助手"}
+                aria-label={(role && t("interview.role." + role.id)) ?? t("interview.assistant")}
               >
                 <header>
                   <span className="ia-chat-card-icon">
                     <Icon name="target" />
                   </span>
-                  <strong>{role?.name ?? "面试 AI 助手"}</strong>
+                  <strong>
+                    {(role && t("interview.role." + role.id)) ?? t("interview.assistant")}
+                  </strong>
                   {message.status !== "generating" && (
-                    <small className="ia-chat-message-ref" title="可在观测台按消息编号查询">
+                    <small className="ia-chat-message-ref" title={t("interview.message.reference")}>
                       #{message.id}
                     </small>
                   )}
@@ -741,12 +860,11 @@ function Conversation({
                     disabled={unavailable || busy || !!generating}
                   />
                 )}
-                {message.status === "generating" && !text && <p role="status">正在准备回复…</p>}
+                {message.status === "generating" && !text && (
+                  <p role="status">{t("interview.message.preparing")}</p>
+                )}
                 {message.status === "completed" && !text && (
-                  <p>
-                    {message.blocks?.[0]?.summary ||
-                      "这次回复缺少文字解释。可以在对话里追问依据和下一步。"}
-                  </p>
+                  <p>{message.blocks?.[0]?.summary || t("interview.message.empty")}</p>
                 )}
                 {message.status === "completed" &&
                   message.blocks?.map((block) => (
@@ -756,21 +874,23 @@ function Conversation({
                   <div role="status">
                     <p>
                       {message.error ||
-                        (message.status === "interrupted" ? "已停止生成。" : "这次回复未能完成。")}
+                        (message.status === "interrupted"
+                          ? t("interview.message.stopped")
+                          : t("interview.message.failed"))}
                     </p>
                     {index === messages.length - 1 && (
                       <button
                         disabled={busy || unavailable}
                         onClick={() => void changeReply(message, "retry")}
                       >
-                        重试这条回复
+                        {t("interview.message.retry")}
                       </button>
                     )}
                   </div>
                 )}
                 {!!citations?.length && (
                   <details className="ia-chat-sources">
-                    <summary>引用来源 · {citations.length}</summary>
+                    <summary>{t("interview.message.sources", { count: citations.length })}</summary>
                     <ul>
                       {citations.map((source, sourceIndex) => (
                         <li key={source.kind + ":" + source.id + ":" + sourceIndex}>
@@ -798,12 +918,14 @@ function Conversation({
                       )}
                     </div>
                   ))}
-                {text && message.status === "completed" && sessionId && (
+                {text && !message.workflow && message.status === "completed" && sessionId && (
                   <div className="ia-chat-actions ia-chat-reply-actions">
                     <button onClick={() => open("practice", undefined, message.id)}>
-                      用自己的话练一遍
+                      {t("interview.message.practice")}
                     </button>
-                    <button onClick={() => open("quiz", undefined, message.id)}>试一道题</button>
+                    <button onClick={() => open("quiz", undefined, message.id)}>
+                      {t("interview.message.quiz")}
+                    </button>
                     <SaveNote sessionId={sessionId} messageId={message.id} />
                   </div>
                 )}
@@ -811,6 +933,7 @@ function Conversation({
             );
           })}
           {!workflowBesideBenchmark && workflowContent}
+          {mockGuide}
           {question && (
             <AnswerQuestion
               key={question.id}
@@ -843,7 +966,7 @@ function Conversation({
                   removeQuery("kind");
                 }}
               >
-                收起工具
+                {t("interview.panel.dismiss")}
               </button>
             </div>
           )}
@@ -857,7 +980,7 @@ function Conversation({
               }}
             />
           ))}
-          {params.has("report") && !report && <p role="alert">考试结果链接无效。</p>}
+          {params.has("report") && !report && <p role="alert">{t("interview.report.invalid")}</p>}
           {error && <p role="alert">{error}</p>}
         </div>
       </div>
@@ -875,7 +998,7 @@ function Conversation({
         open={open}
         disabled={busy || unavailable}
         running={!!generating}
-        status={busy ? "正在保存…" : undefined}
+        status={busy ? t("interview.saving") : undefined}
         send={() => void send()}
         interrupt={() => {
           if (generating) void changeReply(generating, "interrupt");

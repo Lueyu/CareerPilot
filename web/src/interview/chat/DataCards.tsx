@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocale, useT } from "../../i18n";
 import { Link } from "react-router-dom";
 import { ReadCard } from "./ui";
 import { chatUrl, questionSearch, type LibraryInventory } from "./model";
@@ -257,8 +258,8 @@ export function LibraryInventoryCard({
   disabled: boolean;
 }) {
   const [page, setPage] = useState(0);
-  const { items, total, language } = inventory;
-  const english = language === "en";
+  const { items, total } = inventory;
+  const english = useLocale() === "en";
   const pageSize = 10;
   const start = page * pageSize;
   const end = Math.min(start + pageSize, items.length);
@@ -326,6 +327,7 @@ export function QuestionSearchCard({
   content: string;
   select: (title: string, id: number) => void;
 }) {
+  const t = useT();
   const [input, setInput] = useState(questionSearch(content));
   const [query, setQuery] = useState(input);
   const limit = Math.min(
@@ -342,24 +344,22 @@ export function QuestionSearchCard({
         }}
       >
         <input
-          aria-label="题库关键词"
+          aria-label={t("interview.search.keywords")}
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="按题目关键词检索"
+          placeholder={t("interview.search.placeholder")}
         />
-        <button>查询</button>
+        <button>{t("interview.search.submit")}</button>
       </form>
       <ReadCard<BankSearch>
-        title="题库检索"
+        title={t("interview.search.title")}
         path={"/bank?" + new URLSearchParams({ q: query, limit: String(limit) })}
         render={(data) => (
           <>
             <p>
               {data.total
-                ? "按题目标题找到 " +
-                  data.total +
-                  " 道匹配题。先选择一题自主作答，再根据反馈决定是否查看参考材料。"
-                : "题库没有匹配的标题。换一个更短的关键词，或者清空关键词浏览已有题目。"}
+                ? t("interview.search.matches", { count: data.total })
+                : t("interview.search.empty")}
             </p>
             <ul className="ia-chat-data-list">
               {data.items.map((row) => (
@@ -371,11 +371,13 @@ export function QuestionSearchCard({
                       {row.skill ? " · " + row.skill : ""}
                     </small>
                   </div>
-                  <button onClick={() => select(row.title, row.id)}>在聊天内作答</button>
+                  <button onClick={() => select(row.title, row.id)}>
+                    {t("interview.search.answer")}
+                  </button>
                 </li>
               ))}
             </ul>
-            <Link to="/library/questions">打开资料库题库</Link>
+            <Link to="/library/questions">{t("interview.search.open")}</Link>
           </>
         )}
       />

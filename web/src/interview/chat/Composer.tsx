@@ -1,16 +1,10 @@
 import { useRef, type KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
 import { roles, workflows, type Intent, type Role, type Workflow } from "./model";
+import { useT } from "../../i18n";
 import { Icon } from "./ui";
 
-const shortcuts: { intent: Intent; label: string }[] = [
-  { intent: "exam", label: "正式考试" },
-  { intent: "plan", label: "每日学习计划" },
-  { intent: "quiz", label: "随堂测验" },
-  { intent: "benchmark", label: "岗位能力快照" },
-  { intent: "questions", label: "检索题库" },
-  { intent: "jd", label: "导入 JD" },
-];
+const shortcuts: Intent[] = ["exam", "plan", "quiz", "benchmark", "questions", "jd"];
 
 export default function Composer({
   input,
@@ -41,6 +35,7 @@ export default function Composer({
   running: boolean;
   interrupt: () => void;
 }) {
+  const t = useT();
   const textarea = useRef<HTMLTextAreaElement>(null);
   const slash = /^\/([a-z]*)$/i.exec(input.trim());
   const query = slash?.[1].toLowerCase() ?? "";
@@ -73,23 +68,23 @@ export default function Composer({
   return (
     <footer className="ia-chat-composer">
       {shown && (
-        <section className="ia-chat-palette" aria-label="角色与技能">
+        <section className="ia-chat-palette" aria-label={t("interview.palette")}>
           <header className="ia-chat-card-head">
-            <h3>角色与技能</h3>
+            <h3>{t("interview.palette")}</h3>
             <button
               type="button"
               onClick={() => {
                 if (slash) put("");
                 togglePalette(false);
               }}
-              aria-label="关闭角色与技能"
+              aria-label={t("interview.palette.close")}
             >
               ×
             </button>
           </header>
           <div className="ia-chat-palette-grid">
             <div>
-              <h4>角色</h4>
+              <h4>{t("interview.roles")}</h4>
               {matching.map((item) => (
                 <button
                   type="button"
@@ -98,16 +93,16 @@ export default function Composer({
                   disabled={disabled || running}
                   onClick={() => pick(item.id)}
                 >
-                  <strong>{item.name}</strong>
+                  <strong>{t("interview.role." + item.id)}</strong>
                   <code>/{item.id}</code>
-                  <small>{item.detail}</small>
+                  <small>{t("interview.role." + item.id + ".detail")}</small>
                 </button>
               ))}
-              {!matching.length && <p>没有匹配的角色。</p>}
+              {!matching.length && <p>{t("interview.roles.empty")}</p>}
             </div>
             {!query && (
               <div>
-                <h4>技能</h4>
+                <h4>{t("interview.skills")}</h4>
                 {workflows.map((item) => (
                   <button
                     type="button"
@@ -120,7 +115,7 @@ export default function Composer({
                       start(item.id);
                     }}
                   >
-                    <strong>{item.name}</strong>
+                    <strong>{t("interview.workflow." + item.id)}</strong>
                     <Icon name="chevron" />
                   </button>
                 ))}
@@ -129,20 +124,20 @@ export default function Composer({
           </div>
           {!query && (
             <div className="ia-chat-actions ia-chat-shortcuts">
-              {shortcuts.map((item) => (
+              {shortcuts.map((intent) => (
                 <button
                   type="button"
-                  key={item.intent}
+                  key={intent}
                   onClick={() => {
                     if (slash) put("");
                     togglePalette(false);
-                    open(item.intent);
+                    open(intent);
                   }}
                 >
-                  {item.label}
+                  {t("interview.shortcut." + intent)}
                 </button>
               ))}
-              <Link to="/library/questions">资料库题库</Link>
+              <Link to="/library/questions">{t("interview.library")}</Link>
             </div>
           )}
         </section>
@@ -156,8 +151,12 @@ export default function Composer({
       >
         {selected && (
           <div className="ia-chat-selected">
-            <span>{selected.name}</span>
-            <button type="button" onClick={() => selectRole(null)} aria-label="恢复自动选择角色">
+            <span>{t("interview.role." + selected.id)}</span>
+            <button
+              type="button"
+              onClick={() => selectRole(null)}
+              aria-label={t("interview.role.reset")}
+            >
               ×
             </button>
           </div>
@@ -165,18 +164,18 @@ export default function Composer({
         <textarea
           ref={textarea}
           rows={2}
-          aria-label="聊天输入"
+          aria-label={t("interview.composer.input")}
           disabled={disabled}
           value={input}
           maxLength={8000}
           onKeyDown={inputKey}
           onChange={(event) => put(event.target.value)}
-          placeholder="说说今天想准备什么，或输入 / 调用角色和技能…"
+          placeholder={t("interview.composer.placeholder")}
         />
         <div className="ia-chat-actions ia-chat-composer-actions">
           <button type="button" onClick={() => open("import")}>
             <Icon name="paperclip" />
-            附件
+            {t("interview.attachment")}
           </button>
           <button
             type="button"
@@ -187,7 +186,7 @@ export default function Composer({
             }}
           >
             <Icon name="slash" />
-            角色与技能
+            {t("interview.palette")}
           </button>
           {status && <span role="status">{status}</span>}
           {running ? (
@@ -197,13 +196,13 @@ export default function Composer({
               onClick={interrupt}
               disabled={disabled}
             >
-              停止
+              {t("interview.stop")}
             </button>
           ) : (
             <button
               className="ia-chat-primary ia-chat-send"
               type="submit"
-              aria-label="发送"
+              aria-label={t("interview.send")}
               disabled={!input.trim() || disabled}
             >
               <Icon name="arrow" />
@@ -211,7 +210,7 @@ export default function Composer({
           )}
         </div>
       </form>
-      <small>Enter 发送 · Shift + Enter 换行</small>
+      <small>{t("interview.composer.help")}</small>
     </footer>
   );
 }
