@@ -180,6 +180,10 @@
   align-items: center;
   gap: 9px;
 }
+.ia-chat-message-ref {
+  color: var(--chat-muted);
+  margin-inline-start: auto;
+}
 .ia-chat-assistant p + p {
   margin-top: 6px;
 }
@@ -191,6 +195,16 @@
 }
 .ia-chat-prose > * + * {
   margin-top: 9px;
+}
+.ia-chat-prose :is(h1, h2, h3, h4) {
+  line-height: 1.35;
+  font-size: 1.05rem;
+}
+.ia-chat-prose :is(ul, ol) {
+  padding-inline-start: 1.5em;
+}
+.ia-chat-prose li + li {
+  margin-top: 0.25em;
 }
 .ia-chat-prose pre,
 .ia-chat-prose .study-table-scroll {

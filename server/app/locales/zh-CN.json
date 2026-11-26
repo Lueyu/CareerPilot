@@ -469,5 +469,8 @@
   "preset.collaboration": "家长和学生对学习目标有不同预期。你会怎样形成可执行的约定？",
   "preset.roleResponsibilities": "如果你以「{role}」入职，如何确认第一个月最重要的一项交付，怎样向负责人证明它达标？",
   "preset.judgmentUnderPressure": "以「{role}」的一项常见工作为例。若时间突然减半，你会如何决定保留、调整或推迟哪些工作？",
-  "preset.resultsReview": "请选一项能体现「{role}」能力的经历，说明你本人的判断、交付结果和下一次要改的地方。"
+  "preset.resultsReview": "请选一项能体现「{role}」能力的经历，说明你本人的判断、交付结果和下一次要改的地方。",
+  "study.library_inventory_full": "**在题库找到 {total} 道相关面试题。**\n\n可以先选一道在聊天里作答。作答后再看讲解，更容易判断自己掌握了哪些考点。",
+  "study.library_inventory_partial": "**在题库找到 {total} 道相关面试题，这里列出 {shown} 道。**\n\n选一道在聊天里作答，或打开资料库继续筛选。",
+  "study.library_inventory_empty": "**题库没有找到匹配的面试题。**\n\n可以缩短关键词，或在资料库查看已有题目。"
 }

@@ -85,6 +85,18 @@ export interface ChatSource {
   provenance?: string;
 }
 
+export interface LibraryInventory {
+  total: number;
+  language: "zh-CN" | "en";
+  items: {
+    id: number;
+    title: string;
+    difficulty: number;
+    topic: string;
+    tags: string[];
+  }[];
+}
+
 export interface Message {
   id: number;
   role: "user" | "assistant";
@@ -97,6 +109,7 @@ export interface Message {
   sources?: ChatSource[];
   action?: string;
   blocks?: Artifact[];
+  library_inventory?: LibraryInventory;
 }
 
 export interface Session {

@@ -26,6 +26,8 @@ from app.services.study_chat_context import (
     current_skill_sources,
     entry_context,
     excerpt,
+    inventory_reply,
+    is_library_inventory,
     library_sources,
     project_sources,  # noqa: F401 -- 本路由不直接调用，但 tests/test_study_chat.py 通过 api.project_sources 取证；也是模块命名空间契约的一部分
     topic_skills,
@@ -91,7 +93,7 @@ def message_item(row):
         "id", "request_id", "role", "content", "status", "action", "sources",
         "created_at", "attempt", "error", "model", "project_id")}
     item.update({k: v for k, v in (row.coach or {}).items() if k in (
-        "blocks", "trace", "revision_of", "parent_message_id", "mode", "agent_role")})
+        "blocks", "trace", "revision_of", "parent_message_id", "mode", "agent_role", "library_inventory")})
     return item
 
 
@@ -310,11 +312,13 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
     if not row.context["topic"] and not skills:
         skills = await topic_skills(session, body.content)
     sources = [*row.context["sources"], *await current_skill_sources(session, ws.id, skills)]
+    listing = body.agent_role is not None and body.action == "explain" and body.agent_question_id is None
     library_started_ms = round((time.monotonic() - submitted_at) * 1000, 2)
-    library_results = await library_sources(session, ws.id, body.content)
+    library = await library_sources(session, ws.id, body.content, inventory=listing and is_library_inventory(body.content))
     library_finished_ms = round((time.monotonic() - submitted_at) * 1000, 2)
-    sources.extend(library_results)
-    library_trace = library_retrieval_trace(library_results, library_started_ms, library_finished_ms)
+    sources.extend(library["sources"])
+    library_trace = library_retrieval_trace(library["sources"], library_started_ms, library_finished_ms)
+    inventory = library["inventory"]
     project_id = body.project_id if body.project_id is not None else row.context.get("project_id")
     if not project_id and teaching_action(body.action, body.content) in ("project", "improve"):
         available = (await session.execute(select(Project.id, Project.name).where(
@@ -369,14 +373,28 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
                                "request": body.model_dump(exclude_none=True)})
     session.add(user)
     await session.flush()
+    language = inventory["language"] if inventory is not None else request_language()
+    coach = {
+        "mode": mode, "agent_role": body.agent_role, "response_language": language,
+        "parent_message_id": user.id, "revision_of": body.revision_of,
+        "trace": {"stage": "queued", "calls": [], "library_retrieval": library_trace},
+    }
     reply = StudyMessage(session_id=row.id, role="assistant", action=body.action, content="", sources=sources,
-                         project_id=project_id, request_id=body.request_id, status="generating", expires_at=lease_deadline(),
-                         coach={"mode": mode, "agent_role": body.agent_role, "response_language": request_language(),
-                                "parent_message_id": user.id, "revision_of": body.revision_of,
-                                "trace": {"stage": "queued", "calls": [], "library_retrieval": library_trace}})
+                         project_id=project_id, request_id=body.request_id, status="generating", expires_at=lease_deadline())
+    if inventory is not None:
+        coach["library_inventory"] = inventory
+        coach["trace"].update(
+            stage="completed",
+            terminal_write_at=datetime.now(timezone.utc).isoformat(),
+            latency={"origin": "message_request", "finalizing_ms": round((time.monotonic() - submitted_at) * 1000, 2)},
+        )
+        reply.content = inventory_reply(inventory, language)
+        reply.status, reply.expires_at = "completed", None
+    reply.coach = coach
     session.add(reply)
     await session.commit()
-    tasks.add_task(generate_reply, reply.id, reply.attempt, submitted_at=submitted_at, accepted_at=time.monotonic())
+    if reply.status == "generating":
+        tasks.add_task(generate_reply, reply.id, reply.attempt, submitted_at=submitted_at, accepted_at=time.monotonic())
     return ticket(user.id, reply)
 
 
