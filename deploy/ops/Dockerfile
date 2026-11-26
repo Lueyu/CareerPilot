@@ -11,10 +11,10 @@
 FROM python:3.12-slim
 
 WORKDIR /srv
-COPY app.py /srv/app.py
+COPY app.py study_chat_trace.py /srv/
 COPY requirements.txt /srv/requirements.txt
 RUN pip install --no-cache-dir -r /srv/requirements.txt
 
 ENV DATABASE_URL="" OPS_TOKEN=""
 EXPOSE 8099
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8099"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8099", "--no-access-log"]

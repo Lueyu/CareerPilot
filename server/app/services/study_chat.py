@@ -6,7 +6,8 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import case, func, select, update
+from sqlalchemy import case, func, literal, select, update
+from sqlalchemy.dialects.postgresql import JSONB, array
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import MAX_STUDY_TIMEOUT_SECONDS, get_settings
@@ -160,9 +161,16 @@ def teaching_action(action, question):
 
 async def publish(message_id, attempt, **values):
     stage = (values.get("coach") or {}).get("trace", {}).get("stage")
-    notify = values.get("status") in {"completed", "failed", "interrupted"} or "model" in values or stage in {
+    terminal = values.get("status") in {"completed", "failed", "interrupted"}
+    notify = terminal or "model" in values or stage in {
         "repairing", "escalating",
     }
+    if terminal and "coach" in values:
+        values["coach"] = func.jsonb_set(
+            literal(values["coach"], type_=JSONB),
+            array(["trace", "terminal_write_at"]),
+            func.to_jsonb(func.statement_timestamp()),
+        )
     statement = update(StudyMessage).where(
         StudyMessage.id == message_id, StudyMessage.attempt == attempt,
         StudyMessage.status == "generating", StudyMessage.expires_at > func.now(),
@@ -208,7 +216,10 @@ async def _load_turn(session, message_id, attempt, coach, trace):
     if reply is None:
         return None
     coach.update(reply.coach or {})
-    trace["calls"] = (coach.get("trace") or {}).get("calls", [])[-20:]
+    previous_trace = coach.get("trace") or {}
+    trace["calls"] = previous_trace.get("calls", [])[-20:]
+    if "library_retrieval" in previous_trace:
+        trace["library_retrieval"] = previous_trace["library_retrieval"]
     coach["trace"] = trace
     row = await session.get(StudySession, reply.session_id)
     history = await branch_history(session, reply)
@@ -331,6 +342,7 @@ def _compose_request(turn, trace, language: Locale):
 async def _generate(turn, settings, deadline, trace, save, fail, language: Locale):
     """Run the selected profile and at most one pre-publication retry."""
     from app.services.study_blocks import TEXT_ONLY, extract_blocks, teaching_diagram_fallback
+    timing = trace["latency"]
     base = await asyncio.wait_for(get_llm_config(), max(0, deadline - time.monotonic()))
     budget = max(0, min(settings.study_output_budget, 32000))
     mode = turn["mode"]
@@ -368,6 +380,7 @@ async def _generate(turn, settings, deadline, trace, save, fail, language: Local
         else:
             skipped[candidate.tier] = "budget"
     if not options:
+        timing["routing_finished_ms"] = round((time.monotonic() - turn["submitted_at"]) * 1000, 2)
         if profiles:
             await fail("budget", localized_message("study.error.budget"))
         elif "capability" in skipped.values():
@@ -459,13 +472,17 @@ async def _generate(turn, settings, deadline, trace, save, fail, language: Local
             adapter.last_error = {"kind": "timeout"}
             result = None
         finally:
+            ended = time.monotonic()
+            call["elapsed_ms"] = int((ended - started) * 1000)
+            call["provider_end_ms"] = round((ended - turn["submitted_at"]) * 1000, 2)
             if not operation.done():
                 operation.cancel()
                 await asyncio.gather(operation, return_exceptions=True)
-        return result, fragments, started
+        return result, fragments
 
     max_calls = 2 if mode == "auto" and (alternate or artifact) else 1
     trace.update(initial_tier=selected.tier, max_calls=max_calls)
+    timing["routing_finished_ms"] = round((time.monotonic() - turn["submitted_at"]) * 1000, 2)
     repair_draft = None
     retry_kind = None
     for index in range(max_calls):
@@ -491,10 +508,10 @@ async def _generate(turn, settings, deadline, trace, save, fail, language: Local
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError
-        result, fragments, started = await stream_attempt(
+        result, fragments = await stream_attempt(
             adapter, cfg, model, instruction, request, allowance, call, remaining,
         )
-        call.update(elapsed_ms=int((time.monotonic()-started)*1000), usage=adapter.last_usage,
+        call.update(usage=adapter.last_usage,
                     reported_model=adapter.last_response_meta.get("reported_model"),
                     first_reasoning_ms=adapter.last_response_meta.get("first_reasoning_ms"),
                     first_token_ms=adapter.last_response_meta.get("first_content_ms"),
@@ -628,6 +645,7 @@ async def generate_reply(message_id: int, attempt: int, *, submitted_at=None, ac
                 await _gather_sources(session, turn, timeout, save)
                 _compose_request(turn, trace, language)
             timing["context_ready_ms"] = since_submit(time.monotonic())
+            timing["routing_started_ms"] = timing["context_ready_ms"]
             await save("routing", sources=turn["sources"])
         with using_language(language):
             await _generate(turn, settings, deadline, trace, save, fail, language)
@@ -643,6 +661,8 @@ async def generate_reply(message_id: int, attempt: int, *, submitted_at=None, ac
     except Exception as exc:
         logging.getLogger(__name__).warning("study generation %s failed during %s (%s)", message_id, trace["stage"], type(exc).__name__)
         trace["error_kind"] = "timeout" if isinstance(exc, TimeoutError) else "tool" if trace["stage"] == "retrieving" else "generation"
+        if trace["stage"] == "routing" and "routing_started_ms" in timing:
+            timing.setdefault("routing_finished_ms", since_submit(time.monotonic()))
         try:
             await save("failed", status="failed", error=localized_message("study.error.failed", coach.get("response_language", "zh-CN")), expires_at=None)
         except InterruptedError:

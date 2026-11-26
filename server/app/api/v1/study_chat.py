@@ -1,6 +1,7 @@
 """Workspace-owned tutoring sessions. A committed turn survives a lost browser connection."""
-from datetime import datetime, timezone
+import json
 import time
+from datetime import datetime, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
@@ -250,6 +251,31 @@ async def mark_help(session, ws, row, question_text):
                 return excerpt("teaching_guide", question.id, "本题的入门例子", example, "teaching_material")
 
 
+def library_retrieval_trace(sources, started_ms, finished_ms):
+    fields = {
+        "questions": ("library_question", "题库命中"),
+        "interview_sets": ("library_interview_set", "面经套题命中"),
+        "notes": ("library_note", "学习资料命中"),
+    }
+    kinds = [source.get("kind") for source in sources]
+    summary = {}
+    if "library_summary" in kinds:
+        try:
+            summary = json.loads(sources[kinds.index("library_summary")]["text"])
+        except (ValueError, TypeError, KeyError):
+            pass
+        if not isinstance(summary, dict):
+            summary = {}
+    hits = {key: summary.get(label) for key, (_, label) in fields.items()}
+    return {
+        "state": "searched" if sources else "not_requested",
+        "started_ms": started_ms,
+        "finished_ms": finished_ms,
+        "hits": {key: count if type(count) is int and count >= 0 else None for key, count in hits.items()},
+        "returned": {key: kinds.count(kind) for key, (kind, _) in fields.items()},
+    }
+
+
 @router.post("/{session_id}/messages", status_code=202)
 async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, session: Db, ws: Owner):
     submitted_at = time.monotonic()
@@ -277,7 +303,11 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
     if not row.context["topic"] and not skills:
         skills = await topic_skills(session, body.content)
     sources = [*row.context["sources"], *await current_skill_sources(session, ws.id, skills)]
-    sources.extend(await library_sources(session, ws.id, body.content))
+    library_started_ms = round((time.monotonic() - submitted_at) * 1000, 2)
+    library_results = await library_sources(session, ws.id, body.content)
+    library_finished_ms = round((time.monotonic() - submitted_at) * 1000, 2)
+    sources.extend(library_results)
+    library_trace = library_retrieval_trace(library_results, library_started_ms, library_finished_ms)
     project_id = body.project_id if body.project_id is not None else row.context.get("project_id")
     if not project_id and teaching_action(body.action, body.content) in ("project", "improve"):
         available = (await session.execute(select(Project.id, Project.name).where(
@@ -336,7 +366,7 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
                          project_id=project_id, request_id=body.request_id, status="generating", expires_at=lease_deadline(),
                          coach={"mode": mode, "agent_role": body.agent_role, "response_language": request_language(),
                                 "parent_message_id": user.id, "revision_of": body.revision_of,
-                                "trace": {"stage": "queued", "calls": []}})
+                                "trace": {"stage": "queued", "calls": [], "library_retrieval": library_trace}})
     session.add(reply)
     await session.commit()
     tasks.add_task(generate_reply, reply.id, reply.attempt, submitted_at=submitted_at, accepted_at=time.monotonic())
@@ -393,6 +423,7 @@ async def retry(session_id: int, message_id: int, tasks: BackgroundTasks, sessio
     if calls and calls[-1].get("attempt") == reply.attempt and reply.content:
         calls[-1] = {**calls[-1], "saved_output": reply.content[:16000]}
     previous_trace.pop("latency", None)
+    previous_trace.pop("terminal_write_at", None)
     reply.coach = {**reply.coach, "trace": {**previous_trace, "calls": calls, "stage": "queued", "error_kind": None}}
     reply.attempt += 1
     reply.status, reply.content, reply.error, reply.model = "generating", "", None, None
