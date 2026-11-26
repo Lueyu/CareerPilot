@@ -469,5 +469,8 @@
   "preset.collaboration": "Parents and students have different expectations for learning goals. How would you help them agree on actions they can follow through on?",
   "preset.roleResponsibilities": "If you joined as {role}, how would you identify your most important deliverable in the first month and show your manager that it meets expectations?",
   "preset.judgmentUnderPressure": "Think of a common task for {role}. If you suddenly had half the time, how would you decide what to keep, change, or postpone?",
-  "preset.resultsReview": "Choose an experience that shows a skill relevant to {role}. Explain the judgment you made, what you delivered, and what you'd change next time."
+  "preset.resultsReview": "Choose an experience that shows a skill relevant to {role}. Explain the judgment you made, what you delivered, and what you'd change next time.",
+  "study.library_inventory_full": "**The question bank found {total} matching interview questions.**\n\nChoose one to answer in chat. Review the explanation afterwards to see what you already knew.",
+  "study.library_inventory_partial": "**The question bank found {total} matching interview questions. This reply shows {shown}.**\n\nChoose one to answer in chat, or open the library to browse further.",
+  "study.library_inventory_empty": "**The question bank found no matching interview questions.**\n\nTry a shorter search term or browse the available questions in the library."
 }

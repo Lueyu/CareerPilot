@@ -309,7 +309,13 @@ def _compose_request(turn, trace, language: Locale):
     agent_role = coach.get("agent_role")
     if agent_role in ROLE_INSTRUCTIONS:
         instruction += "\n" + ROLE_INSTRUCTIONS[agent_role]
-        instruction += "\nProvide a substantive written response. Explain the reason and what to do next before or alongside any structured block."
+        instruction += (
+            "\nProvide a substantive written response before or alongside any structured block. "
+            "Use Markdown paragraphs, headings or lists as needed. "
+            "Put each table row on its own line, with matching columns. "
+            "Keep follow-up suggestions as prose or list items. Reserve code fences for actual code "
+            "and the explicitly requested study-blocks format."
+        )
         trace["agent_role"] = agent_role
         workflow = context.get("interview_workflow")
         if workflow and workflow["status"] != "completed":

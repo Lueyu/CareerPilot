@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ReadCard } from "./ui";
-import { chatUrl, questionSearch } from "./model";
+import { chatUrl, questionSearch, type LibraryInventory } from "./model";
 
 interface BenchmarkRow {
   skill: { key: string; name: string };
@@ -244,6 +244,73 @@ export function PlanCard({ practice }: { practice: (title: string, questionId?: 
         );
       }}
     />
+  );
+}
+
+export function LibraryInventoryCard({
+  inventory,
+  select,
+  disabled,
+}: {
+  inventory: LibraryInventory;
+  select: (title: string, id: number) => void;
+  disabled: boolean;
+}) {
+  const [page, setPage] = useState(0);
+  const { items, total, language } = inventory;
+  const english = language === "en";
+  const pageSize = 10;
+  const start = page * pageSize;
+  const end = Math.min(start + pageSize, items.length);
+  return (
+    <section
+      className="ia-chat-output"
+      aria-label={english ? "Question bank results" : "题库检索结果"}
+    >
+      {items.length > 0 && (
+        <>
+          <ol className="ia-chat-data-list" start={start + 1}>
+            {items.slice(start, end).map((row, index) => (
+              <li key={row.id}>
+                <div>
+                  <strong>
+                    {start + index + 1}. {row.title}
+                  </strong>
+                  <small>
+                    {[row.difficulty + " / 5", row.topic, ...row.tags].filter(Boolean).join(" · ")}
+                  </small>
+                </div>
+                <button
+                  disabled={disabled}
+                  aria-label={(english ? "Answer in chat: " : "在聊天内作答：") + row.title}
+                  onClick={() => select(row.title, row.id)}
+                >
+                  {english ? "Answer in chat" : "在聊天内作答"}
+                </button>
+              </li>
+            ))}
+          </ol>
+          {items.length > pageSize && (
+            <div className="ia-chat-actions" aria-label={english ? "Results pages" : "结果分页"}>
+              <button disabled={start === 0} onClick={() => setPage(page - 1)}>
+                {english ? "Previous" : "上一页"}
+              </button>
+              <span aria-live="polite">
+                {english
+                  ? `${start + 1}–${end} of ${total}`
+                  : `第 ${start + 1}–${end} 道，共 ${total} 道`}
+              </span>
+              <button disabled={end === items.length} onClick={() => setPage(page + 1)}>
+                {english ? "Next" : "下一页"}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+      {(items.length === 0 || items.length < total) && (
+        <Link to="/library/questions">{english ? "Open the question bank" : "打开资料库题库"}</Link>
+      )}
+    </section>
   );
 }
 

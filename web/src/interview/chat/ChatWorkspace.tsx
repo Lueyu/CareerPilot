@@ -15,6 +15,7 @@ import Composer from "./Composer";
 import {
   BenchmarkCard,
   HistoryCard,
+  LibraryInventoryCard,
   PlanCard,
   ProjectCard,
   QuestionSearchCard,
@@ -701,6 +702,10 @@ function Conversation({
                 : undefined;
             const intent = user?.agent_role && parsePrompt(user.content, user.agent_role).intent;
             const role = roles.find((item) => item.id === message.agent_role);
+            const inventory = message.library_inventory;
+            const citations = inventory
+              ? message.sources?.filter(({ kind }) => kind !== "library_summary")
+              : message.sources;
             const text = message.content.split(/(?:^|\n)```study-blocks\s*(?:\n|$)/, 1)[0].trim();
             return (
               <article
@@ -714,6 +719,11 @@ function Conversation({
                     <Icon name="target" />
                   </span>
                   <strong>{role?.name ?? "面试 AI 助手"}</strong>
+                  {message.status !== "generating" && (
+                    <small className="ia-chat-message-ref" title="可在观测台按消息编号查询">
+                      #{message.id}
+                    </small>
+                  )}
                 </header>
                 {text && (
                   <div className="ia-chat-prose">
@@ -723,6 +733,13 @@ function Conversation({
                       <StudyMarkdown text={text} allowLinks={false} />
                     )}
                   </div>
+                )}
+                {inventory && (
+                  <LibraryInventoryCard
+                    inventory={inventory}
+                    select={pickQuestion}
+                    disabled={unavailable || busy || !!generating}
+                  />
                 )}
                 {message.status === "generating" && !text && <p role="status">正在准备回复…</p>}
                 {message.status === "completed" && !text && (
@@ -751,11 +768,11 @@ function Conversation({
                     )}
                   </div>
                 )}
-                {!!message.sources?.length && (
+                {!!citations?.length && (
                   <details className="ia-chat-sources">
-                    <summary>引用来源 · {message.sources.length}</summary>
+                    <summary>引用来源 · {citations.length}</summary>
                     <ul>
-                      {message.sources.map((source, sourceIndex) => (
+                      {citations.map((source, sourceIndex) => (
                         <li key={source.kind + ":" + source.id + ":" + sourceIndex}>
                           <strong>{source.label}</strong>
                           {source.text && <p>{source.text}</p>}
@@ -765,6 +782,7 @@ function Conversation({
                   </details>
                 )}
                 {intent &&
+                  !(inventory && intent === "questions") &&
                   user &&
                   message.status !== "generating" &&
                   (workflowBesideBenchmark && message === lastAssistantMessage ? (
