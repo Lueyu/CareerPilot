@@ -114,7 +114,7 @@ async def test_inventory_returns_the_matching_questions_in_the_users_language(db
                             qtype="open", topic="rag", difficulty=3, skill_id=skill.id))
         db.add(Question(workspace_id=other.id, short_code="secret-" + uuid4().hex[:8], title="不可见的 RAG 题",
                         qtype="open", topic="rag", difficulty=3, skill_id=skill.id))
-        db.add(Question(workspace_id=ws.id, short_code="unrelated-" + uuid4().hex[:8], title="完全无关的并发题",
+        db.add(Question(workspace_id=ws.id, short_code="unrelated-" + uuid4().hex[:8], title="项目里都用了哪些并发方案？",
                         qtype="open", topic="concurrency", difficulty=3))
         await db.commit()
 
@@ -144,3 +144,16 @@ def test_library_browser_has_no_spurious_topic(prompt):
     from app.services.study_chat_context import library_terms
 
     assert library_terms(prompt, [], set()) == []
+
+
+
+@pytest.mark.asyncio
+async def test_inventory_and_explanation_request_still_queues_a_model_reply(db_session, test_workspace):
+    db, ws = db_session, test_workspace
+    sid = (await api.create(api.StartSession(), db, ws))["id"]
+    tasks = BackgroundTasks()
+    body = api.NewMessage(request_id="mixed-library", agent_role="coach",
+                          content="列出题库里的 RAG 面试题，并解释每道题的考点")
+    ticket = await api.send(sid, body, tasks, db, ws)
+    assert ticket["status"] == "generating"
+    assert len(tasks.tasks) == 1

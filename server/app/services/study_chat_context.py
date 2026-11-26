@@ -48,14 +48,17 @@ _CJK_STOP = (
     "面试", "相关", "哪些", "什么", "有没有", "所有", "看看", "看下", "我的", "里面", "库里",
     "知识点", "问题", "帮我", "请教", "一下", "都有", "里的", "相关的",
     "里有什么", "里有哪些", "中有什么", "中有哪些", "都是什么", "有哪些",
-    "列出", "列一下", "列一列", "想看",
+    "列出", "列一下", "列一列", "想看", "里都", "中都", "关于", "围绕",
 )
+
+_EXPLICIT_SUBJECT = re.compile(r"(?:与|和|跟)\s*([^，。；！？,;!?\n]{1,100}?)\s*相关")
 
 
 def library_terms(question: str, skill_rows, skill_ids) -> list[str]:
     """检索词：命中的技能 key，拉丁词元，以及剔除指引词后的中文残片。"""
     terms = [row.key for row in skill_rows if row.id in skill_ids]
-    cleaned = LIBRARY_REFERENCE.sub(" ", question)
+    subject = _EXPLICIT_SUBJECT.search(question)
+    cleaned = subject[1].strip() if subject else LIBRARY_REFERENCE.sub(" ", question)
     latin = [word for token in re.findall(r"[A-Za-z][A-Za-z0-9+#._-]{1,24}", cleaned)
              if len(word := token.lower().rstrip("._-")) >= 2 and word not in _LATIN_STOP]
     for word in sorted(_CJK_STOP, key=len, reverse=True):
@@ -87,12 +90,17 @@ _LIST_QUESTIONS = re.compile(
     r"(?:有哪些|有什么|都是什么|列出|列一下|列一列|\blist\b|\bshow\b|\b(?:what|which) (?:interview )?questions?\b)", re.I)
 _BANK_LIBRARY = re.compile(r"资料库|题库|素材库|材料库|\b(?:question bank|my library|the library)\b", re.I)
 _QUESTION_COLLECTION = re.compile(r"题库|面试题|题目|\b(?:question bank|questions?)\b", re.I)
+_ADDITIONAL_TASK = re.compile(
+    r"(?:并(?:且)?|然后|再|顺便|同时)\s*(?:讲解|解释|说明|分析|给出|回答|比较|总结|推荐)"
+    r"|\b(?:and|then|also)\s+(?:explain|describe|answer|compare|recommend|summari[sz]e)\b",
+    re.I,
+)
 _MAX_INVENTORY_QUESTIONS = 100
 
 
 def is_library_inventory(question: str) -> bool:
     return bool(_BANK_LIBRARY.search(question) and _QUESTION_COLLECTION.search(question)
-                and _LIST_QUESTIONS.search(question))
+                and _LIST_QUESTIONS.search(question) and not _ADDITIONAL_TASK.search(question))
 
 
 def inventory_language(question: str) -> Locale:

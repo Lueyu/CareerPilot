@@ -361,8 +361,12 @@ async def test_lookup_accepts_a_completed_inventory_without_a_provider(
 async def test_lookup_projects_question_only_inventory_counts(
     ops, monkeypatch, db_session, test_workspace, capture_timing, hits, shown,
 ):
-    async def sources(*_args):
-        return [{"kind": "library_summary", "text": json.dumps({"题库命中": hits, "题库展示": shown})}]
+    async def sources(*_args, inventory=False):
+        assert not inventory
+        return {
+            "sources": [{"kind": "library_summary", "text": json.dumps({"题库命中": hits, "题库展示": shown})}],
+            "inventory": None,
+        }
 
     monkeypatch.setattr(study_chat, "library_sources", sources)
     _, message_id, _ = await submit(db_session, test_workspace, "Show questions from the question bank")
