@@ -78,6 +78,9 @@ async def test_draft_uses_workspace_model_and_keeps_visible_source_details(confi
     sent = json.loads(request)
     assert session.get.await_args.args[1] == "llm:27"
     assert config["model"] == "workspace-model"
+    # Podcast script generation is the dominant streaming path; ask the gateway
+    # for the terminal usage event so its tokens are not booked as zero.
+    assert config["report_usage"] is True
     assert adapter.await_args.kwargs["json_mode"] is True
     assert all(phrase in prompt for phrase in ("是假设", "是谁公开", "只靠音频", "第一人称", "从中间开始听"))
     assert "补券需要固定单号。\n\n通过 Stripe 公开文档核对。" == sent["answer"]

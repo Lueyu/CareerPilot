@@ -275,9 +275,18 @@ class AgentAdapter:
             return None
         finally:
             duration_ms = int((time.perf_counter() - t0) * 1000)
-            usage = (result or {}).get("usage") or {}
+            # A stream that failed after the usage event still consumed tokens.
+            # `result` stays None on failure, so fall back to the reader's last
+            # validated usage instead of recording an invented zero.
+            usage = (result or {}).get("usage") or self.last_usage or {}
             total_tokens = usage.get("total_tokens") or 0
             cost = round(total_tokens * 2e-6, 6)
+            # ttft = time to the first visible token. Streamed calls expose
+            # first_content_ms; a failed stream with no content stays NULL
+            # rather than being replaced by the much earlier headers moment.
+            # Non-stream calls only have the headers moment available.
+            ttft_ms = (self.last_response_meta.get("first_content_ms") if stream
+                       else self.last_response_meta.get("response_headers_ms"))
             if trace is not None and session is not None:
                 try:
                     from app.services.tracing import add_span
@@ -316,7 +325,7 @@ class AgentAdapter:
                     provider=cfg.get("provider"),
                     model=cfg.get("model"),
                     duration_ms=duration_ms,
-                    ttft_ms=self.last_response_meta.get("response_headers_ms"),
+                    ttft_ms=ttft_ms,
                     usage=usage,
                     ok=result is not None,
                     error_kind=metric_error,
