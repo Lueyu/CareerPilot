@@ -1,0 +1,35 @@
+/* 工具层 + 上下文管理专用 Tailwind 入口。
+   不引入 preflight，避免重置既有全局样式；仅启用 theme 与 utilities，
+   组件颜色一律引用 tokens.css 的 CSS 变量，深浅主题自动适配。 */
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+
+/* ===== 语音输入：波形与录音脉冲 ===== */
+@keyframes ia-tool-wave {
+  0%, 100% { transform: scaleY(0.4); }
+  50% { transform: scaleY(1); }
+}
+.ia-tool-wave-bar {
+  transform-origin: center;
+  animation: ia-tool-wave 1s ease-in-out infinite;
+}
+@keyframes ia-tool-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(91, 91, 214, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(91, 91, 214, 0.12); }
+}
+.ia-tool-recording {
+  animation: ia-tool-pulse 1.6s ease-in-out infinite;
+}
+@keyframes ia-tool-progress-slide {
+  from { background-position: 0 0; }
+  to { background-position: 28px 0; }
+}
+.ia-tool-parsing-track {
+  background-image: linear-gradient(
+    90deg,
+    var(--primary) 0 14px,
+    transparent 14px 28px
+  );
+  background-size: 28px 100%;
+  animation: ia-tool-progress-slide 0.9s linear infinite;
+}

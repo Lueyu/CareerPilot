@@ -5,6 +5,7 @@ import './styles/tokens.css';
 import './styles/base.css';
 import './styles/components.css';
 import './styles/mobile.css';
+import './styles/tools.css';
 import App from './workspace-entry';
 import { currentTheme } from './components/Topbar';
 import { initializeDocumentLocale } from './i18n';
