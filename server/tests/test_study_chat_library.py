@@ -148,12 +148,16 @@ def test_library_browser_has_no_spurious_topic(prompt):
 
 
 @pytest.mark.asyncio
-async def test_inventory_and_explanation_request_still_queues_a_model_reply(db_session, test_workspace):
+@pytest.mark.parametrize("prompt", [
+    "列出题库里的 RAG 面试题，并解释每道题的考点",
+    "请解释 RAG，并列出题库里的 RAG 面试题",
+    "Explain RAG and list RAG questions from the question bank",
+])
+async def test_inventory_and_explanation_request_still_queues_a_model_reply(db_session, test_workspace, prompt):
     db, ws = db_session, test_workspace
     sid = (await api.create(api.StartSession(), db, ws))["id"]
     tasks = BackgroundTasks()
-    body = api.NewMessage(request_id="mixed-library", agent_role="coach",
-                          content="列出题库里的 RAG 面试题，并解释每道题的考点")
+    body = api.NewMessage(request_id="mixed-library", agent_role="coach", content=prompt)
     ticket = await api.send(sid, body, tasks, db, ws)
     assert ticket["status"] == "generating"
     assert len(tasks.tasks) == 1
