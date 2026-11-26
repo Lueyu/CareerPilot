@@ -128,7 +128,9 @@ async def _agent_block(session: AsyncSession) -> dict:
     try:
         metrics = (
             await session.execute(
-                select(AgentMetric).order_by(AgentMetric.id.desc()).limit(5000)
+                select(AgentMetric)
+                .where(AgentMetric.provider.is_distinct_from("fixture"))
+                .order_by(AgentMetric.id.desc()).limit(5000)
             )
         ).scalars().all()
     except Exception:
@@ -261,7 +263,8 @@ async def _trend_block(session: AsyncSession) -> list[dict]:
                     func.count(AgentMetric.id),
                     func.sum(AgentMetric.cost_cny),
                 )
-                .where(AgentMetric.created_at >= _window_start(14))
+                .where(AgentMetric.created_at >= _window_start(14),
+                       AgentMetric.provider.is_distinct_from("fixture"))
                 .group_by(_DAY)
                 .order_by(_DAY)
             )
@@ -320,7 +323,10 @@ async def ops_recent(
 ):
     """最近调用明细(drill-down)。"""
     rows = (
-        await session.execute(select(AgentMetric).order_by(AgentMetric.id.desc()).limit(limit))
+        await session.execute(
+            select(AgentMetric).where(AgentMetric.provider.is_distinct_from("fixture"))
+            .order_by(AgentMetric.id.desc()).limit(limit)
+        )
     ).scalars().all()
     return {
         "items": [

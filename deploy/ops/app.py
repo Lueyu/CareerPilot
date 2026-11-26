@@ -108,7 +108,7 @@ async def metrics(request: Request, days: int = Query(14, ge=1, le=90)) -> dict:
         rows = await conn.fetch(
             "SELECT model, duration_ms, ttft_ms, prompt_tokens, completion_tokens, total_tokens, "
             "cost_cny, ok, error_kind, finish_reason, stream FROM agent_metrics "
-            "ORDER BY id DESC LIMIT 5000")
+            "WHERE provider IS DISTINCT FROM 'fixture' ORDER BY id DESC LIMIT 5000")
         calls = len(rows)
         ok = sum(1 for r in rows if r["ok"])
         durations = [int(r["duration_ms"] or 0) for r in rows]
@@ -139,7 +139,8 @@ async def metrics(request: Request, days: int = Query(14, ge=1, le=90)) -> dict:
         # ---- 趋势 ----
         trend_rows = await conn.fetch(
             "SELECT date_trunc('day', timezone('Asia/Shanghai', created_at)) AS day, count(*) AS calls, "
-            "sum(cost_cny) AS cost FROM agent_metrics WHERE created_at >= $1 GROUP BY day ORDER BY day", since)
+            "sum(cost_cny) AS cost FROM agent_metrics WHERE created_at >= $1 "
+            "AND provider IS DISTINCT FROM 'fixture' GROUP BY day ORDER BY day", since)
         trend = [{"date": str(r["day"])[:10], "calls": int(r["calls"]),
                   "cost_cny": round(float(r["cost"] or 0), 4), "users": 0} for r in trend_rows]
 
