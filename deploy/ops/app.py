@@ -15,7 +15,6 @@ import re
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from hmac import compare_digest, digest
-from html import escape
 from time import time
 
 import asyncpg
@@ -45,7 +44,7 @@ async def _connect() -> asyncpg.Connection:
     return await asyncpg.connect(_dsn(), timeout=10)
 
 
-def _check(request: Request, *, required: bool = False) -> None:
+def _check(request: Request, *, required: bool = False, dashboard_session: bool = False) -> None:
     if not OPS_TOKEN:
         if required:
             raise HTTPException(503, "OPS_TOKEN is not configured", headers=PRIVATE_HEADERS)
@@ -53,6 +52,8 @@ def _check(request: Request, *, required: bool = False) -> None:
     token = request.headers.get("x-ops-token")
     if not token and not required:
         token = request.query_params.get("token")
+    if not token and dashboard_session and _valid_dashboard_session(request.headers.get("x-ops-session", "")):
+        return
     if not token or not compare_digest(token.encode("utf-8"), OPS_TOKEN.encode("utf-8")):
         raise HTTPException(401, "ops token required", headers=PRIVATE_HEADERS)
 
@@ -77,7 +78,7 @@ async def healthz() -> dict:
 
 @app.get("/api/v1/ops/metrics")
 async def metrics(request: Request, days: int = Query(14, ge=1, le=90)) -> dict:
-    _check(request)
+    _check(request, dashboard_session=True)
     conn = await _connect()
     try:
         now = datetime.now(timezone.utc)
@@ -197,7 +198,7 @@ async def metrics(request: Request, days: int = Query(14, ge=1, le=90)) -> dict:
 
 @app.get("/api/v1/ops/study-chat/messages/{message_id}")
 async def study_chat_detail(request: Request, response: Response, message_id: str) -> dict:
-    _check(request, required=True)
+    _check(request, required=True, dashboard_session=True)
     if not re.fullmatch(r"[0-9]{1,10}", message_id) or not 1 <= int(message_id) <= 2_147_483_647:
         raise HTTPException(422, "positive integer message ID required", headers=PRIVATE_HEADERS)
     try:
@@ -226,23 +227,20 @@ async def study_chat_detail(request: Request, response: Response, message_id: st
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request) -> HTMLResponse:
     session = request.cookies.get(DASHBOARD_COOKIE, "")
-    now = int(time())
-    valid_session = False
-    if OPS_TOKEN and re.fullmatch(r"[0-9]{1,12}\.[0-9a-f]{64}", session):
-        expires, signature = session.split(".")
-        valid_session = now < int(expires) <= now + DASHBOARD_SESSION_SECONDS and compare_digest(
-            signature, _dashboard_signature(expires),
-        )
+    valid_session = _valid_dashboard_session(session)
     explicit_token = "x-ops-token" in request.headers or "token" in request.query_params
     if explicit_token or not valid_session:
         _check(request)
+    issue_session = bool(OPS_TOKEN) and (explicit_token or not valid_session)
+    if issue_session:
+        expires = str(int(time()) + DASHBOARD_SESSION_SECONDS)
+        session = f"{expires}.{_dashboard_signature(expires)}"
     response = HTMLResponse(
-        _DASHBOARD.replace("__TOKEN__", escape(OPS_TOKEN, quote=True)), headers=PRIVATE_HEADERS,
+        _DASHBOARD.replace("__SESSION__", session if OPS_TOKEN else ""), headers=PRIVATE_HEADERS,
     )
-    if OPS_TOKEN and (explicit_token or not valid_session):
-        expires = str(now + DASHBOARD_SESSION_SECONDS)
+    if issue_session:
         response.set_cookie(
-            DASHBOARD_COOKIE, f"{expires}.{_dashboard_signature(expires)}",
+            DASHBOARD_COOKIE, session,
             max_age=DASHBOARD_SESSION_SECONDS, httponly=True, samesite="strict",
             secure=request.url.scheme == "https",
         )
@@ -253,9 +251,19 @@ def _dashboard_signature(expires: str) -> str:
     return digest(OPS_TOKEN.encode("utf-8"), f"ops-dashboard:v1:{expires}".encode("ascii"), "sha256").hex()
 
 
+def _valid_dashboard_session(session: str) -> bool:
+    if not OPS_TOKEN or not re.fullmatch(r"[0-9]{1,12}\.[0-9a-f]{64}", session):
+        return False
+    expires, signature = session.split(".")
+    now = int(time())
+    return now < int(expires) <= now + DASHBOARD_SESSION_SECONDS and compare_digest(
+        signature, _dashboard_signature(expires),
+    )
+
+
 _DASHBOARD = """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="ops-token" content="__TOKEN__">
+<meta name="ops-session" content="__SESSION__">
 <title>CareerPilot · 云服务指标</title>
 <style>
 :root{--bg:#0b1020;--card:#141a2e;--text:#e7ebf5;--dim:#8b93a8;--primary:#6b7cff}
@@ -296,10 +304,10 @@ th{color:var(--dim);font-weight:500}.cols3{display:grid;grid-template-columns:re
 <p id="trace-status" role="status"></p><div id="trace-result"></div></div>
 <div class="card"><h2>近 14 天趋势（调用数）</h2><div id="trend" style="display:flex;gap:4px;align-items:flex-end;height:120px"></div></div>
 <script>
-const tokenMeta = document.querySelector('meta[name="ops-token"]');
-const TOKEN = tokenMeta.content;
-tokenMeta.remove();
-const authHeaders = TOKEN ? {'X-Ops-Token': TOKEN} : {};
+const sessionMeta = document.querySelector('meta[name="ops-session"]');
+const SESSION = sessionMeta.content;
+sessionMeta.remove();
+const authHeaders = SESSION ? {'X-Ops-Session': SESSION} : {};
 const pageUrl = new URL(location.href);
 if (pageUrl.searchParams.has('token')) {
   pageUrl.searchParams.delete('token');
@@ -383,13 +391,13 @@ function renderTrace(d) {
     ]),
   ].join('');
 }
-if (!TOKEN) {
+if (!SESSION) {
   traceButton.disabled = traceId.disabled = true;
   traceStatus.textContent = '配置 OPS_TOKEN 后可查询消息诊断。';
 }
 traceForm.addEventListener('submit', async event => {
   event.preventDefault();
-  if (!TOKEN || traceButton.disabled) return;
+  if (!SESSION || traceButton.disabled) return;
   traceStatus.textContent = '查询中…';
   traceResult.replaceChildren();
   traceButton.disabled = true;

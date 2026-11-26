@@ -1,5 +1,6 @@
 import json
 import re
+from html import unescape
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
@@ -55,7 +56,10 @@ async def test_exact_lookup_requires_configured_header_auth(ops, monkeypatch):
         assert dashboard.headers["referrer-policy"] == "no-referrer"
         assert TOKEN not in dashboard.text
         assert "window.injected=true</script>" not in dashboard.text
-        assert dashboard.text == (await http.get("/", headers=AUTH)).text
+        header_dashboard = await http.get("/", headers=AUTH)
+        assert header_dashboard.status_code == 200
+        assert TOKEN not in unescape(dashboard.text)
+        assert TOKEN not in unescape(header_dashboard.text)
 
         monkeypatch.setattr(ops, "OPS_TOKEN", "")
         assert (await http.get(f"{ROUTE}/1", headers=AUTH)).status_code == 503
@@ -74,6 +78,8 @@ async def test_dashboard_refresh_keeps_auth_without_url_token(ops):
         assert refreshed.status_code == 200
         assert refreshed.url.query == b""
         assert refreshed.text == initial.text
+        assert TOKEN not in unescape(initial.text)
+        assert TOKEN not in unescape(refreshed.text)
         assert "set-cookie" not in refreshed.headers
         assert refreshed.headers["cache-control"] == "no-store"
         assert refreshed.headers["referrer-policy"] == "no-referrer"
@@ -118,6 +124,48 @@ async def test_dashboard_cookie_is_secure_on_https(ops):
         assert response.status_code == 200
         assert "Secure" in response.headers["set-cookie"]
         assert (await http.get("/")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_dashboard_proof_authorizes_only_header_reads_and_keeps_original_expiry(ops, monkeypatch):
+    permanent = "permanent-owner-token-never-render"
+    monkeypatch.setattr(ops, "OPS_TOKEN", permanent)
+    monkeypatch.setattr(ops, "time", lambda: 1_000)
+    async with client(ops) as http:
+        initial = await http.get("/", params={"token": permanent})
+        assert initial.status_code == 200
+        proof = re.search(r'<meta name="ops-session" content="([^"]+)">', initial.text).group(1)
+        assert proof == http.cookies[ops.DASHBOARD_COOKIE]
+        assert permanent not in initial.text
+        headers = {"X-Ops-Session": proof}
+        assert (await http.get("/api/v1/ops/metrics", headers=headers)).status_code == 200
+        assert (await http.get(f"{ROUTE}/2147483647", headers=headers)).status_code == 404
+        assert (await http.get(f"{ROUTE}/2147483647", headers={"X-Ops-Token": permanent})).status_code == 404
+        for params in ({"token": permanent}, {"token": proof}, {"session": proof}, {}):
+            assert (await http.get(f"{ROUTE}/1", params=params)).status_code == 401
+        for invalid in ("wrong", proof[:-1], f"1901.{proof.split('.')[1]}"):
+            for path in ("/api/v1/ops/metrics", f"{ROUTE}/1"):
+                assert (await http.get(path, headers={"X-Ops-Session": invalid})).status_code == 401
+        assert (await http.get(f"{ROUTE}/1", headers={**headers, "X-Ops-Token": "wrong"})).status_code == 401
+        monkeypatch.setattr(ops, "time", lambda: 1_899)
+        refreshed = await http.get("/")
+        assert refreshed.status_code == 200
+        assert refreshed.text == initial.text
+        assert permanent not in refreshed.text
+        assert "set-cookie" not in refreshed.headers
+        assert (await http.get(f"{ROUTE}/2147483647", headers=headers)).status_code == 404
+        http.cookies.clear()
+        assert (await http.get("/", headers=headers)).status_code == 401
+        monkeypatch.setattr(ops, "time", lambda: 1_900)
+        for path in ("/api/v1/ops/metrics", f"{ROUTE}/1"):
+            assert (await http.get(path, headers=headers)).status_code == 401
+        monkeypatch.setattr(ops, "time", lambda: 1_000)
+        monkeypatch.setattr(ops, "OPS_TOKEN", "rotated")
+        assert (await http.get(f"{ROUTE}/1", headers=headers)).status_code == 401
+        monkeypatch.setattr(ops, "OPS_TOKEN", "")
+        assert (await http.get("/")).status_code == 200
+        assert (await http.get("/api/v1/ops/metrics")).status_code == 200
+        assert (await http.get(f"{ROUTE}/1", headers=headers)).status_code == 503
 
 
 @pytest.mark.asyncio
