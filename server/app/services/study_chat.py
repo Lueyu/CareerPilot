@@ -404,6 +404,19 @@ def _compose_request(turn, trace, language: Locale):
                 instruction=instruction, proactive_diagram=proactive_diagram)
 
 
+def attempt_deadline(remaining: float, max_calls: int, settings) -> float:
+    """Bound one attempt so a stalled first call cannot consume the retry budget.
+
+    With two chances, the first attempt is also capped at half of what is left,
+    leaving at least a minimal window for the alternate tier when the overall
+    deadline itself is short.
+    """
+    cap = float(settings.study_attempt_timeout_seconds)
+    if max_calls > 1:
+        cap = min(cap, max(5.0, remaining / 2))
+    return min(remaining, cap)
+
+
 async def _generate(turn, settings, deadline, trace, save, fail, language: Locale):
     """Run the selected profile and at most one pre-publication retry."""
     from app.services.study_blocks import TEXT_ONLY, extract_blocks, teaching_diagram_fallback
@@ -470,7 +483,8 @@ async def _generate(turn, settings, deadline, trace, save, fail, language: Local
         }.get(skipped.get(preferred), "所选档位更符合本轮能力需求")
         trace["reason"] += localized_message("route.separator") + explanation
 
-    async def stream_attempt(adapter, cfg, model, instruction, request, allowance, call, remaining):
+    async def stream_attempt(adapter, cfg, model, instruction, request, allowance, call, remaining,
+                             first_content_timeout):
         fragments = []
         reasoning_parts = []
         started = time.monotonic()
@@ -520,7 +534,8 @@ async def _generate(turn, settings, deadline, trace, save, fail, language: Local
         trace["latency"].setdefault("provider_start_ms", call["provider_start_ms"])
         operation = asyncio.create_task(adapter.chat_with({**cfg, "output_limit":allowance, "report_usage":True},
             instruction, request, stream=True, on_content=partial, on_reasoning=thinking,
-            timeout=remaining, total_timeout=remaining))
+            timeout=remaining, total_timeout=remaining,
+            first_content_timeout=first_content_timeout))
         try:
             async with asyncio.timeout(remaining):
                 while not operation.done():
@@ -570,11 +585,13 @@ async def _generate(turn, settings, deadline, trace, save, fail, language: Local
             trace["reason"] += "；配置中缺少本轮偏好的专长，使用可用档位尝试"
         trace["calls"].append(call)
         await save("generating", model=model, content="")
-        remaining = deadline - time.monotonic()
+        remaining = attempt_deadline(deadline - time.monotonic(), max_calls, settings)
         if remaining <= 0:
             raise TimeoutError
+        first_content_timeout = min(float(settings.study_first_content_timeout_seconds), remaining)
         result, fragments = await stream_attempt(
             adapter, cfg, model, instruction, request, allowance, call, remaining,
+            first_content_timeout,
         )
         call.update(usage=adapter.last_usage,
                     reported_model=adapter.last_response_meta.get("reported_model"),

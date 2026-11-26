@@ -289,3 +289,13 @@ def test_relaxed_timeout_defaults():
     deadline = worker.lease_deadline()
     assert deadline > datetime.now(timezone.utc)
     assert (deadline - datetime.now(timezone.utc)).total_seconds() <= MAX_STUDY_TIMEOUT_SECONDS + 60
+
+
+def test_attempt_deadline_reserves_second_chance():
+    from app.services import study_chat as worker
+
+    settings = get_settings().model_copy(update={"study_attempt_timeout_seconds": 10})
+    assert worker.attempt_deadline(1800, 2, settings) == 10
+    assert worker.attempt_deadline(8, 2, settings) == 5
+    assert worker.attempt_deadline(8, 1, settings) == 8
+    assert worker.attempt_deadline(0, 2, settings) == 0
