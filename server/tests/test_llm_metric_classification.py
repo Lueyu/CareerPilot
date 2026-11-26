@@ -96,3 +96,19 @@ async def test_success_records_no_error(monkeypatch):
     assert result['content'] == 'ok'
     assert calls[-1]['error_kind'] is None
     assert calls[-1]['ok'] is True
+
+@pytest.mark.asyncio
+async def test_controlled_fixture_call_writes_no_metric(monkeypatch):
+    """A fixture adapter must not open a session against the production metrics table."""
+    import app.db as db_module
+
+    def forbidden():
+        raise AssertionError("fixture call must not open a metrics session")
+
+    monkeypatch.setattr(db_module, 'SessionLocal', forbidden)
+    adapter = AgentAdapter()
+    await adapter._record_metric(
+        kind="llm", provider="fixture", model="unchanged-model", duration_ms=10,
+        ttft_ms=None, usage={}, ok=True, error_kind=None, finish_reason="stop",
+        stream=True, session=None,
+    )

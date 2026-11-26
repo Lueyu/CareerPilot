@@ -123,3 +123,32 @@ async def test_ops_summary_handles_empty_metrics(db_session, test_workspace, mon
             assert resp.json()["agent"]["calls"] == 0
     finally:
         app.dependency_overrides.clear()
+
+@pytest.mark.asyncio
+async def test_ops_summary_excludes_controlled_fixture_calls(db_session, test_workspace, monkeypatch):
+    """Fixture adapters must not distort production success rate or the error list."""
+    db, cfg, _ = await _setup(db_session, monkeypatch)
+    try:
+        await db.execute(AgentMetric.__table__.delete())
+        await db.commit()
+        db.add_all([
+            AgentMetric(kind="llm", provider="gateway", model="deepseek-v4-pro",
+                        duration_ms=900, ok=True, total_tokens=10),
+            AgentMetric(kind="llm", provider="fixture", model="unchanged-model",
+                        duration_ms=2100, ok=False, error_kind="network", total_tokens=0),
+            AgentMetric(kind="llm", provider="fixture", model="unchanged-model",
+                        duration_ms=2200, ok=True, total_tokens=0),
+        ])
+        await db.commit()
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture/api/v1") as client:
+            resp = await client.get("/ops/metrics/summary", headers={"X-Api-Token": cfg.api_token})
+            assert resp.status_code == 200, resp.text
+            agent = resp.json()["agent"]
+            assert agent["calls"] == 1
+            assert agent["ok_rate"] == 100.0
+            assert agent["errors"] == {}
+            assert "unchanged-model" not in {m["model"] for m in agent["by_model"]}
+            recent = await client.get("/ops/metrics/recent", headers={"X-Api-Token": cfg.api_token})
+            assert [i["model"] for i in recent.json()["items"]] == ["deepseek-v4-pro"]
+    finally:
+        app.dependency_overrides.clear()

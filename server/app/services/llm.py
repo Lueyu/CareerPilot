@@ -30,6 +30,9 @@ _CACHE: dict[str, Any] | None = None
 _CACHE_AT: float = 0.0
 _TTL = 10.0  # seconds
 
+# Controlled test adapters never write into the production metrics table.
+CONTROLLED_FIXTURE_PROVIDERS = frozenset({"fixture"})
+
 
 async def get_llm_config() -> dict[str, Any]:
     """返回 {provider, api_key, base_url, model, source}; source ∈ db|env|none。"""
@@ -329,6 +332,8 @@ class AgentAdapter:
                              ok: bool, error_kind: str | None, finish_reason: str | None,
                              stream: bool, session: Any | None) -> None:
         """写入 agent_metrics 一行。优先复用调用方会话; 否则开独立会话提交。"""
+        if provider in CONTROLLED_FIXTURE_PROVIDERS:
+            return
         from app.models.metric import AgentMetric
 
         metric = AgentMetric(
