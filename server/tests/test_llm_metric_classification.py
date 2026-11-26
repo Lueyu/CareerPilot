@@ -1,0 +1,98 @@
+"""Every failed model call is persisted with an actionable reason."""
+import asyncio
+
+import httpx
+import pytest
+
+from app.services.llm import AgentAdapter
+
+CONFIG = {'provider': 'fixture', 'model': 'fixture-model',
+          'base_url': 'https://fixture.invalid/v1', 'api_key': 'SECRET_KEY'}
+
+
+def transport(monkeypatch, handler):
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, 'AsyncClient',
+        lambda **kw: original(transport=httpx.MockTransport(handler), **kw),
+    )
+
+
+def capture(monkeypatch):
+    calls = []
+
+    async def fake_record(self, **kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(AgentAdapter, '_record_metric', fake_record)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_stream_failure_persists_concrete_code(monkeypatch):
+    body = (b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n'
+            b'data: [DONE]\n\n')
+
+    def handler(request):
+        return httpx.Response(200, headers={'content-type': 'text/event-stream'}, content=body)
+
+    transport(monkeypatch, handler)
+    calls = capture(monkeypatch)
+    adapter = AgentAdapter()
+    assert await adapter.chat_with(CONFIG, 's', 'u', stream=True) is None
+    # Caller-facing contract stays coarse for failover decisions.
+    assert adapter.last_error == {'kind': 'invalid_response'}
+    assert adapter.last_response_meta['stream_error'] == 'empty_content'
+    assert calls[-1]['ok'] is False
+    assert calls[-1]['error_kind'] == 'invalid_response:empty_content'
+
+
+@pytest.mark.asyncio
+async def test_non_stream_invalid_body_has_no_stream_code(monkeypatch):
+    def handler(request):
+        return httpx.Response(200, headers={'content-type': 'application/json'}, content=b'not json')
+
+    transport(monkeypatch, handler)
+    calls = capture(monkeypatch)
+    adapter = AgentAdapter()
+    assert await adapter.chat_with(CONFIG, 's', 'u') is None
+    assert calls[-1]['error_kind'] == 'invalid_response'
+
+
+@pytest.mark.asyncio
+async def test_cancelled_call_is_classified_and_reraised(monkeypatch):
+    started = asyncio.Event()
+
+    async def handler(request):
+        started.set()
+        await asyncio.Event().wait()
+        return httpx.Response(200, json={})
+
+    transport(monkeypatch, handler)
+    calls = capture(monkeypatch)
+    adapter = AgentAdapter()
+    task = asyncio.create_task(adapter.chat_with(CONFIG, 's', 'u'))
+    await asyncio.wait_for(started.wait(), timeout=2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert adapter.last_error == {'kind': 'cancelled'}
+    assert calls[-1]['ok'] is False
+    assert calls[-1]['error_kind'] == 'cancelled'
+
+
+@pytest.mark.asyncio
+async def test_success_records_no_error(monkeypatch):
+    def handler(request):
+        return httpx.Response(200, json={
+            'choices': [{'finish_reason': 'stop', 'message': {'content': 'ok'}}],
+            'usage': {'prompt_tokens': 1, 'completion_tokens': 1, 'total_tokens': 2},
+        })
+
+    transport(monkeypatch, handler)
+    calls = capture(monkeypatch)
+    adapter = AgentAdapter()
+    result = await adapter.chat_with(CONFIG, 's', 'u')
+    assert result['content'] == 'ok'
+    assert calls[-1]['error_kind'] is None
+    assert calls[-1]['ok'] is True
