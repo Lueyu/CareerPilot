@@ -411,3 +411,23 @@ async def test_synthesis_joins_worker_that_exceeds_output_limit(monkeypatch, voi
     with pytest.raises(PodcastAudioError, match="超过大小限制"):
         await asyncio.wait_for(synthesize_mp3("测试离线普通话语音。"), 3)
     assert started.result().returncode is not None
+
+
+@pytest.mark.asyncio
+async def test_podcast_timeouts_come_from_settings(configured, monkeypatch):
+    session, adapter = configured
+    env = Settings(
+        _env_file=None,
+        llm_provider="existing",
+        llm_base_url="https://existing.test/v1",
+        llm_api_key="environment-secret",
+        llm_model="global-model",
+        podcast_script_timeout_seconds=95,
+        podcast_first_content_timeout_seconds=40,
+    )
+    monkeypatch.setattr(podcast_content, "get_settings", lambda: env)
+    await make_scripts(session, 27, **_QUESTION)
+    kwargs = adapter.await_args.kwargs
+    assert kwargs["total_timeout"] == 95
+    assert kwargs["first_content_timeout"] == 40
+    assert kwargs["timeout"] == 95
