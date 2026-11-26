@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { useT } from "../../i18n";
 import { api } from "../../api/client";
 import { errorText } from "./model";
 import arrow from "./assets/arrow.svg";
@@ -81,14 +82,15 @@ export function ReadCard<T>({
   title: string;
   render: (data: T) => ReactNode;
 }) {
+  const t = useT();
   const { state, refresh } = useResource<T>(path);
   return (
     <Card title={title}>
-      {state.kind === "loading" && <p role="status">正在读取…</p>}
+      {state.kind === "loading" && <p role="status">{t("interview.loading")}</p>}
       {state.kind === "error" && (
         <div role="alert">
           <p>{state.error}</p>
-          <button onClick={refresh}>重新读取</button>
+          <button onClick={refresh}>{t("interview.reload")}</button>
         </div>
       )}
       {state.kind === "ready" && render(state.data)}

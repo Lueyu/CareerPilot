@@ -4,13 +4,13 @@ import time
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.i18n import message as localized_message, request_language
+from app.i18n import message as localized_message, negotiated_language, request_language
 from app.api.deps import get_workspace
 from app.db import get_session
 from app.models import Exam, Workspace
@@ -286,7 +286,8 @@ def library_retrieval_trace(sources, started_ms, finished_ms):
 
 
 @router.post("/{session_id}/messages", status_code=202)
-async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, session: Db, ws: Owner):
+async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, session: Db, ws: Owner,
+               accept_language: Annotated[str | None, Header()] = None):
     submitted_at = time.monotonic()
     await workspace_lock(session, ws)
     row = await owned(session, ws.id, session_id, lock=True)
@@ -314,7 +315,10 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
     sources = [*row.context["sources"], *await current_skill_sources(session, ws.id, skills)]
     listing = body.agent_role is not None and body.action == "explain" and body.agent_question_id is None
     library_started_ms = round((time.monotonic() - submitted_at) * 1000, 2)
-    library = await library_sources(session, ws.id, body.content, inventory=listing and is_library_inventory(body.content))
+    library = await library_sources(
+        session, ws.id, body.content, inventory=listing and is_library_inventory(body.content),
+        response_language=negotiated_language(accept_language) if accept_language else None,
+    )
     library_finished_ms = round((time.monotonic() - submitted_at) * 1000, 2)
     sources.extend(library["sources"])
     library_trace = library_retrieval_trace(library["sources"], library_started_ms, library_finished_ms)
