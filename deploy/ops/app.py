@@ -78,7 +78,7 @@ async def healthz() -> dict:
 
 @app.get("/api/v1/ops/metrics")
 async def metrics(request: Request, days: int = Query(14, ge=1, le=90)) -> dict:
-    _check(request, dashboard_session=True)
+    _check(request, required=True, dashboard_session=True)
     conn = await _connect()
     try:
         now = datetime.now(timezone.utc)
@@ -106,10 +106,22 @@ async def metrics(request: Request, days: int = Query(14, ge=1, le=90)) -> dict:
 
         # ---- 工程 / 质量 / 成本（agent_metrics） ----
         rows = await conn.fetch(
-            "SELECT model, duration_ms, ttft_ms, prompt_tokens, completion_tokens, total_tokens, "
+            "SELECT kind, model, duration_ms, ttft_ms, prompt_tokens, completion_tokens, total_tokens, "
             "cost_cny, ok, error_kind, finish_reason, stream FROM agent_metrics "
-            "WHERE provider IS DISTINCT FROM 'fixture' ORDER BY id DESC LIMIT 5000")
+            "WHERE provider IS DISTINCT FROM 'fixture' AND created_at >= $1 "
+            "ORDER BY id DESC LIMIT 5000", since)
         calls = len(rows)
+        by_kind: dict = defaultdict(lambda: {"calls": 0, "errors": 0, "total_ms": 0, "max_ms": 0})
+        for r in rows:
+            bucket = by_kind[r["kind"] or "unknown"]
+            elapsed = int(r["duration_ms"] or 0)
+            bucket["calls"] += 1
+            bucket["errors"] += 0 if r["ok"] else 1
+            bucket["total_ms"] += elapsed
+            bucket["max_ms"] = max(bucket["max_ms"], elapsed)
+        slow_calls = {"over_60s": sum(1 for r in rows if int(r["duration_ms"] or 0) > 60000),
+                     "over_120s": sum(1 for r in rows if int(r["duration_ms"] or 0) > 120000)}
+        zero_token_calls = sum(1 for r in rows if int(r["total_tokens"] or 0) == 0)
         ok = sum(1 for r in rows if r["ok"])
         durations = [int(r["duration_ms"] or 0) for r in rows]
         ttfts = [int(r["ttft_ms"]) for r in rows if r["ttft_ms"] is not None]
@@ -146,6 +158,8 @@ async def metrics(request: Request, days: int = Query(14, ge=1, le=90)) -> dict:
 
         return {
             "generated_at": now.isoformat(),
+            "window_days": days,
+            "sample_count": calls,
             "business": {
                 "users": {"total": int(users_total), "active_1d": int(users_1d),
                           "active_7d": int(users_7d), "active_30d": int(users_30d)},
@@ -155,6 +169,13 @@ async def metrics(request: Request, days: int = Query(14, ge=1, le=90)) -> dict:
             },
             "agent": {
                 "calls": calls,
+                "denominator": "每次模型调用",
+                "by_kind": [{"kind": k, "calls": v["calls"], "errors": v["errors"],
+                            "avg_ms": int(v["total_ms"] / v["calls"]), "max_ms": v["max_ms"]}
+                           for k, v in sorted(by_kind.items(), key=lambda kv: -kv[1]["calls"])],
+                "slow_calls": slow_calls,
+                "zero_token_calls": zero_token_calls,
+                "cost_note": "估算 ¥2/M tokens，未对账；失败或未上报用量的流式调用记为 0",
                 "ok_rate": round(100.0 * ok / calls, 1) if calls else None,
                 "errors": dict(Counter(r["error_kind"] for r in rows if r["error_kind"]).most_common(12)),
                 "latency_ms": {"p50": _pct(durations, .5), "p95": _pct(durations, .95),
@@ -175,6 +196,8 @@ async def metrics(request: Request, days: int = Query(14, ge=1, le=90)) -> dict:
                 "stream_share": round(100.0 * sum(1 for r in rows if r["stream"]) / calls, 1) if calls else None,
             },
             "quality": {
+                "denominator": "每条助手回复",
+                "answered": int(answered),
                 "sessions": int(sessions),
                 "messages": int(messages),
                 "assistant": {"completed": statuses.get("completed", 0), "failed": statuses.get("failed", 0),
@@ -270,7 +293,7 @@ _DASHBOARD = """<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 :root{--bg:#0b1020;--card:#141a2e;--text:#e7ebf5;--dim:#8b93a8;--primary:#6b7cff}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);
 font:14px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;padding:24px}
-h1{font-size:20px;margin:0 0 4px}p.sub{color:var(--dim);margin:0 0 20px}
+h1{font-size:20px;margin:0 0 4px}p.sub{color:var(--dim);margin:0 0 6px}p.note{color:var(--dim);font-size:12px;margin:0 0 14px}
 .card{background:var(--card);border:1px solid #222b47;border-radius:12px;padding:16px 18px;margin-bottom:16px}
 h2{font-size:15px;margin:0 0 12px;color:#c7cdfa}
 .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
@@ -293,17 +316,19 @@ th{color:var(--dim);font-weight:500}.cols3{display:grid;grid-template-columns:re
 #err{color:#ff8a8a}@media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.cols3{grid-template-columns:1fr}}
 </style></head><body>
 <h1>CareerPilot · 云服务指标汇总</h1><p class="sub">内部观测面板 · 仅所有者可见 · <span id="gen">—</span></p>
+<p class="note" id="win">—</p>
 <div id="err"></div>
 <div class="card"><h2>业务</h2><div class="grid" id="biz"></div></div>
-<div class="card"><h2>工程 / 质量</h2><div class="grid" id="eng"></div><div class="cols3"><div><h3>延迟</h3><ul id="lat"></ul></div><div><h3>错误</h3><ul id="errs"></ul></div><div><h3>Token</h3><ul id="tok"></ul></div></div>
+<div class="card"><h2>工程 / 质量 · 分母：每次模型调用</h2><div class="grid" id="eng"></div><div class="cols3"><div><h3>延迟</h3><ul id="lat"></ul></div><div><h3>错误</h3><ul id="errs"></ul></div><div><h3>Token</h3><ul id="tok"></ul></div></div>
 <div class="table-wrap"><table><thead><tr><th>模型</th><th>调用</th><th>错误</th><th>平均 ms</th><th>Tokens</th><th>成本 ¥</th></tr></thead><tbody id="models"></tbody></table></div></div>
-<div class="card"><h2>回复质量</h2><div class="grid" id="qual"></div></div>
+<div class="card"><h2>诊断 · 先定位再优化（按业务类型 / 错误码 / 首字时间）</h2><div class="cols3"><div><h3>按业务类型 kind</h3><table><thead><tr><th>kind</th><th>调用</th><th>失败</th><th>均 ms</th><th>最长 ms</th></tr></thead><tbody id="kinds"></tbody></table></div><div><h3>错误明细（细分 SSE 码）</h3><ul id="diagerrs"></ul><h3>结束原因</h3><ul id="diagfinish"></ul></div><div><h3>延迟与首字时间</h3><ul id="diaglat"></ul></div></div><p class="note" id="diagnote"></p></div>
+<div class="card"><h2>回复质量 · 分母：每条助手回复（与上方成功率不同）</h2><div class="grid" id="qual"></div><p class="note">用户可见失败少，是靠重试与降级换来的；代价藏在延迟和失败调用里。</p></div>
 <div class="card"><h2>学习聊天消息诊断</h2>
 <form id="trace-form"><label for="trace-id">助手消息 ID</label>
 <input id="trace-id" type="text" inputmode="numeric" pattern="[0-9]{1,10}" required autocomplete="off">
 <button type="submit">查询</button></form>
 <p id="trace-status" role="status"></p><div id="trace-result"></div></div>
-<div class="card"><h2>近 14 天趋势（调用数）</h2><div id="trend" style="display:flex;gap:4px;align-items:flex-end;height:120px"></div></div>
+<div class="card"><h2 id="trendhead">近 14 天趋势（调用数）</h2><div id="trend" style="display:flex;gap:4px;align-items:flex-end;height:120px"></div></div>
 <script>
 const sessionMeta = document.querySelector('meta[name="ops-session"]');
 const SESSION = sessionMeta.content;
@@ -324,8 +349,15 @@ async function load(){
     if(!r.ok) throw new Error(r.status+" "+r.statusText);
     const d = await r.json();
     document.getElementById('gen').textContent = d.generated_at;
+    document.getElementById('win').textContent = `统计窗口 近 ${d.window_days} 天 · 样本 ${d.sample_count} 次真实调用（已排除测试夹具）· 样本较小时 P95 只是倒数第二慢的一次，不可作为稳定基线`;
+    document.getElementById('trendhead').textContent = `近 ${d.window_days} 天趋势（调用数）· 与主聚合使用同一时间窗`;
+    document.getElementById('kinds').innerHTML = d.agent.by_kind.map(k=>`<tr><td>${esc(k.kind)}</td><td>${k.calls}</td><td>${k.errors}</td><td>${k.avg_ms}</td><td>${k.max_ms}</td></tr>`).join("") || '<tr><td colspan="5">—</td></tr>';
+    document.getElementById('diagerrs').innerHTML = Object.entries(d.agent.errors).map(([k,v])=>`<li><span>${esc(k)}</span><b>${v}</b></li>`).join("") || '<li>—</li>';
+    document.getElementById('diagfinish').innerHTML = d.agent.finish_reasons.map(f=>`<li><span>${esc(f.name)}</span><b>${f.count}</b></li>`).join("") || '<li>—</li>';
+    document.getElementById('diaglat').innerHTML = `<li><span>首字 P50</span><b>${q(d.agent.ttft_ms.p50)} ms</b></li><li><span>首字 P95</span><b>${q(d.agent.ttft_ms.p95)} ms</b></li><li><span>超 60s</span><b>${d.agent.slow_calls.over_60s}</b></li><li><span>超 120s</span><b>${d.agent.slow_calls.over_120s}</b></li><li><span>流式占比</span><b>${q(d.agent.stream_share)}%</b></li><li><span>token=0 调用</span><b>${d.agent.zero_token_calls}</b></li>`;
+    document.getElementById('diagnote').textContent = d.agent.cost_note + '。错误明细已细分到本地 SSE 码；JS 不打印任何供应商响应体。';
     document.getElementById('biz').innerHTML = stat('用户总数',d.business.users.total)+stat('日活',d.business.users.active_1d)+stat('周活',d.business.users.active_7d)+stat('月活',d.business.users.active_30d);
-    document.getElementById('eng').innerHTML = stat('调用数',d.agent.calls)+stat('成功率',(d.agent.ok_rate===null?'—':d.agent.ok_rate+'%'))+stat('P95 延迟',d.agent.latency_ms.p95+' ms')+stat('估算成本',"¥"+d.agent.cost_estimate_cny);
+    document.getElementById('eng').innerHTML = stat('调用数',d.agent.calls)+stat('成功率',(d.agent.ok_rate===null?'—':d.agent.ok_rate+'%'))+stat('P95 延迟',d.agent.latency_ms.p95+' ms')+stat('估算成本（¥2/M，未对账）',"¥"+d.agent.cost_estimate_cny);
     document.getElementById('lat').innerHTML = `<li><span>P50</span><b>${d.agent.latency_ms.p50} ms</b></li><li><span>P95</span><b>${d.agent.latency_ms.p95} ms</b></li><li><span>P99</span><b>${d.agent.latency_ms.p99} ms</b></li>`;
     document.getElementById('errs').innerHTML = Object.entries(d.agent.errors).map(([k,v])=>`<li><span>${esc(k)}</span><b>${v}</b></li>`).join("") || '<li>—</li>';
     document.getElementById('tok').innerHTML = `<li><span>输入</span><b>${d.agent.tokens.prompt}</b></li><li><span>输出</span><b>${d.agent.tokens.completion}</b></li><li><span>总计</span><b>${d.agent.tokens.total}</b></li>`;
