@@ -1,7 +1,7 @@
 # CareerPilot 设计模式地图
 
 > 目的：把项目里**已经在用**的设计模式集中说明——在哪、怎么用、为什么这么选。面向学习理解与面试复盘。
-> 引用基于 2026-11-23 lint 门禁提交（ruff import 排序后）的当前代码；行号会随后续提交漂移，以符号检索为准。
+> 引用基于 2026-11-23 lint 门禁提交（ruff import 排序后）的当前代码；行号会随后续提交漂移，以符号检索为准。2026-11-27 依据本地 `agent_metrics` 的只读诊断与已合入修复更新了「已知坑」结论。
 >
 > 项目总原则（一切模式的出发点）：**LLM 只承担语义任务（生成/评分/教学内容），一切业务判定（verdict、能力状态、发布风险、进化阈值）都是确定性代码。**
 
@@ -14,10 +14,10 @@
 
 ## 2. 策略路由（轻/重分级 + 预算分配）
 
-- 位置：`server/app/services/study_routing.py:4` `DEEP_ACTIONS`（哪些动作走 strong 档）、`:9` `decide()`、`:29` `profile()`；`server/app/services/study_chat.py:246` `allowance = min(budget, available, 4500 if selected == "strong" else 2300)`；`:304` 升级下一档的护栏（budget ≥ 256 且剩余时间 ≥ 5s）
-- 用法：按动作复杂度分配模型档位与输出预算，重动作（project/improve/diagram…）走 strong，轻动作走 flash
+- 位置：`server/app/services/study_routing.py` 的 `POLICY_VERSION`、`tutoring_intent()`、`tutoring_profiles()`、`profile()`；`server/app/services/study_chat.py` 的 `_generate()` / `fit()`（额度取 `min(remaining_budget, available, candidate.output_tokens)`）；换档护栏为 `allowance >= 256` 且「正文已发布就不切换」
+- 用法：按动作复杂度分配模型档位与输出预算，重动作（project/improve/diagram…）走 strong，轻动作走 flash；`study_output_budget=16000`，档位上限 `study_flash_output_tokens=6000` / `study_strong_output_tokens=12000`（`server/app/config.py`）
 - 为什么：成本与时延预算按需分配，轻问题不值得烧重模型
-- 已知坑（2026-11-23 诊断）：`interview_question` 不在 `DEEP_ACTIONS` → flash 档 2300 上限被思考型模型的 reasoning 吃满 → `invalid_response`（修复方案 A/B/C 待定）
+- 结论修正（2026-11-27 实测）：旧记录把 `invalid_response` 归因于「`interview_question` 走 flash 档、2300 上限被 reasoning 吃满导致输出截断」。对本地 `agent_metrics` 29 行的只读诊断推翻了这一假设：7 次 `invalid_response` 全部是 `kind=podcast_script`、`model=deepseek-v4-pro`、`finish_reason='stop'`，没有一次是 `length`；2 次约 150 秒的超时同样落在播客讲稿路径。因此没有证据支持「调高输出预算」或「盲切快档」，这两个方向已撤回；`llm_stream.py` 中 `output_truncated` 的判定仍在，但本批样本不构成它的证据。
 
 ## 3. 流式协议 + 严格校验（防腐层）
 
@@ -28,9 +28,9 @@
 
 ## 4. 超时预算与降级（多段调用共享总时限）
 
-- 位置：`server/app/services/study_chat.py:118` `generate_reply(message_id, attempt)`、`:131` `deadline = time.monotonic() + timeout`（只算一次）、`:250` `remaining = deadline - time.monotonic()`、`:293` `budget -= min(allowance, 实际 completion_tokens)`
-- 用法：多次重试/升级共享一个总 deadline 与 token 预算；每段调用按剩余量收缩 allowance
-- 已知坑：deadline 只算一次，升级调用继承剩余窗口（上次 55.3s → 升级只剩 64.5s → timeout 的根因之一；修复 C 待定）
+- 位置：`server/app/services/study_chat.py` 的 `deadline = time.monotonic() + timeout`（外层总时限，仍只算一次）、`attempt_deadline()`（单次尝试子截止）、`_generate()` 内 `remaining = attempt_deadline(...)`；`server/app/config.py` 的 `study_timeout_seconds`（默认/上限 1800s）、`study_attempt_timeout_seconds`（默认 150s）、`study_first_content_timeout_seconds`（默认 60s）
+- 用法：多次重试/升级共享一个总 deadline 与 token 预算；每次尝试另有独立子截止，额度按剩余量收缩
+- 已修（2026-11-27）：旧记录说「deadline 只算一次，升级调用继承剩余窗口，首档卡死后几乎没有余量」。现由 `attempt_deadline()` 给每次尝试独立子截止（两次机会时首次不超过剩余时间的一半），并在流式调用上加了首个可见正文超时。总 deadline、「正文已发布不切换」与 token 预算三条边界保持不变。
 
 ## 5. Worker + 租约 + 心跳（长任务出 API 进程）
 
@@ -94,6 +94,6 @@
 |---|---|---|
 | 巨石路由层 | `server/app/api/v1/bank.py`（1318 行）、`exams.py`（1132 行） | 阶段 3 候选，未动 |
 | 巨石服务 | `server/app/services/project_autopilot_engine.py`（1106 行） | 观察中 |
-| deadline 单次计算 | `study_chat.py:131` | 修复方案 C 待用户选择 |
+| 总 deadline 与子截止并存 | `study_chat.py` `attempt_deadline()` | 已修（2026-11-27），外层仍保留总时限护栏 |
 | 测试全局数据泄漏 | `test_question_workshop.py:238` | 待修（加 cleanup） |
-| flash 档位与思考模型错配 | `study_routing.py:4` + `study_chat.py:246` | 修复方案 A/B 待用户选择 |
+| flash 档位与思考模型错配 | `study_routing.py` `tutoring_profiles()` | 截断假设已被 2026-11-27 实测推翻，不再列为待修；改档须先做配对 A/B |

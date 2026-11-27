@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 from collections import Counter
+import hashlib
 import json
 import math
 import os
@@ -20,6 +21,14 @@ PROMPTS = {
 }
 TERMINAL = {"completed", "failed", "interrupted"}
 BLOCK_FENCE = re.compile(r"(?:^|\n)```study-blocks\s*(?:\n|$)")
+THINKING_CHOICES = ("unspecified", "enabled", "disabled")
+MIN_PAIRED_SAMPLES = 5
+CLAIM_POLICY = {
+    "scope": "paired HTTP trials on fixed prompts and declared configurations only",
+    "rule": "Report latency, errors, tokens and answer quality together; never infer an overall speedup from one metric.",
+    "thinking": "Declare STUDY_FLASH_THINKING for both sides; an HTTP client cannot read server-side settings.",
+    "quality": "Answer quality is not machine-scored; body_chars/body_sha256 are anchors for blinded human review.",
+}
 
 
 class BenchFailure(Exception):
@@ -78,7 +87,9 @@ def elapsed_ms(started):
 
 async def run_turn(client, path, prompt, timeout, mode):
     result = dict(outcome="failed", error=None, ttft_ms=None, duration_ms=None, post_ms=None,
-                  stream_headers_ms=None, terminal=None, model=None, session_id=None, message_id=None)
+                  stream_headers_ms=None, terminal=None, model=None, session_id=None, message_id=None,
+                  total_tokens=None, call_count=None, thinking_modes=None, tiers=None,
+                  body_chars=None, body_sha256=None, trace_status=None)
     base = None
     reply_id = None
     request_id = str(uuid4())
@@ -152,6 +163,52 @@ async def run_turn(client, path, prompt, timeout, mode):
     return result
 
 
+def usage_tokens(usage):
+    if not isinstance(usage, dict):
+        return None
+    total = usage.get("total_tokens")
+    if type(total) is int and total >= 0:
+        return total
+    parts = [usage.get(key) for key in ("prompt_tokens", "completion_tokens")]
+    if all(type(value) is int and value >= 0 for value in parts):
+        return sum(parts)
+    return None
+
+
+def body_fingerprint(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+async def enrich_samples(client, path, samples):
+    """Best-effort durable trace lookup; never rewrites a sample's outcome."""
+    for sample in samples:
+        if not sample.get("session_id") or not sample.get("message_id"):
+            sample["trace_status"] = "no_reply"
+            continue
+        try:
+            async with asyncio.timeout(3):
+                response = await client.get(f'{path}/{sample["session_id"]}')
+                response.raise_for_status()
+                messages = response.json()["messages"]
+            reply = next((item for item in messages if item.get("id") == sample["message_id"]), None)
+            if not isinstance(reply, dict):
+                sample["trace_status"] = "reply_not_found"
+                continue
+            calls = [call for call in ((reply.get("trace") or {}).get("calls") or []) if isinstance(call, dict)]
+            tokens = [value for value in (usage_tokens(call.get("usage")) for call in calls) if value is not None]
+            sample["call_count"] = len(calls)
+            sample["tiers"] = [call.get("tier") for call in calls]
+            sample["thinking_modes"] = [call.get("thinking_mode") for call in calls]
+            sample["total_tokens"] = sum(tokens) if tokens else None
+            body = reply.get("content") or ""
+            sample["body_chars"] = len(body.strip())
+            sample["body_sha256"] = body_fingerprint(body)
+            sample["trace_status"] = reply.get("status")
+        except (TimeoutError, httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError):
+            sample["trace_status"] = "unavailable"
+    return samples
+
+
 def stats(values):
     ordered = sorted(value for value in values if value is not None)
     n = len(ordered)
@@ -168,6 +225,10 @@ def summarize(samples):
         "duration_ms": stats(s["duration_ms"] for s in success),
         "ttft_all_visible_ms": stats(s["ttft_ms"] for s in samples),
         "duration_all_ms": stats(s["duration_ms"] for s in samples),
+        "total_tokens": stats(s.get("total_tokens") for s in samples),
+        "body_chars": stats(s.get("body_chars") for s in samples),
+        "call_count": stats(s.get("call_count") for s in samples),
+        "trace_status": dict(Counter(s.get("trace_status") or "missing" for s in samples)),
     }
 
 
@@ -178,14 +239,62 @@ def paired_summary(samples):
         for sample in samples:
             if sample["prompt"] == prompt:
                 pairs.setdefault(sample["repeat"], {})[sample["side"]] = sample
-        matched = [(pair["baseline"], pair["candidate"]) for pair in pairs.values()
-                   if len(pair) == 2 and all(trial["outcome"] == "ok" for trial in pair.values())]
+        matched, discarded = [], []
+        for pair in pairs.values():
+            if len(pair) != 2:
+                discarded.append("missing_side")
+                continue
+            failures = [trial["outcome"] for trial in pair.values() if trial["outcome"] != "ok"]
+            if failures:
+                discarded.extend(f"outcome_{value}" for value in failures)
+                continue
+            matched.append((pair["baseline"], pair["candidate"]))
         result[prompt] = {
             "pairs_attempted": len(pairs), "pairs_completed": len(matched),
+            "pairs_discarded": len(pairs) - len(matched),
+            "discarded_reasons": dict(Counter(discarded)),
             "candidate_minus_baseline_ttft_ms": stats(round(b["ttft_ms"] - a["ttft_ms"], 2) for a, b in matched),
             "candidate_minus_baseline_duration_ms": stats(round(b["duration_ms"] - a["duration_ms"], 2) for a, b in matched),
+            "candidate_minus_baseline_total_tokens": stats(
+                b["total_tokens"] - a["total_tokens"] for a, b in matched
+                if type(a.get("total_tokens")) is int and type(b.get("total_tokens")) is int),
         }
     return result
+
+
+def claim_assessment(report):
+    """Guard against turning one favourable percentile into an overall speedup claim."""
+    reasons = []
+    thinking = report["thinking_config"]
+    if any(value == "unspecified" for value in thinking.values()):
+        reasons.append("thinking_config_unspecified")
+    if thinking["baseline"] != thinking["candidate"]:
+        reasons.append("thinking_config_mismatch")
+    failed = sum(count for side in report["summary"].values()
+                 for outcome, count in side["all"]["outcomes"].items() if outcome != "ok")
+    if failed:
+        reasons.append("failed_or_timed_out_samples")
+    directions = set()
+    for value in report["pairs"].values():
+        if value["pairs_completed"] < MIN_PAIRED_SAMPLES:
+            reasons.append("too_few_completed_pairs")
+        for key in ("candidate_minus_baseline_ttft_ms", "candidate_minus_baseline_duration_ms"):
+            median = value[key]["p50"]
+            if median is None:
+                reasons.append("missing_paired_median")
+            else:
+                directions.add(1 if median > 0 else -1 if median < 0 else 0)
+    if len(directions) > 1:
+        reasons.append("mixed_metric_direction")
+    return {
+        "status": "insufficient_evidence" if reasons else "paired_direction_only",
+        "reasons": sorted(set(reasons)),
+        "candidate_direction": ({1: "slower", -1: "faster", 0: "unchanged"}.get(next(iter(directions)))
+                                if len(directions) == 1 else "mixed" if directions else "unknown"),
+        "note": ("Only the paired fixed prompts under declared configurations are described. "
+                 "This is not evidence of an overall speedup: report token/cost deltas alongside "
+                 "latency and errors, and have answer quality reviewed blind before any default change."),
+    }
 
 
 async def benchmark(args):
@@ -204,15 +313,22 @@ async def benchmark(args):
                     sample.update(side=side, prompt=prompt_id, repeat=repeat + 1, pair_order=order.index(side) + 1)
                     samples.append(sample)
                     print(f"{side} {prompt_id} #{repeat + 1} {sample['outcome']}", flush=True)
+        for side, client in clients.items():
+            await enrich_samples(client, paths[side], [item for item in samples if item["side"] == side])
     summary = {}
     for side in clients:
         trials = [sample for sample in samples if sample["side"] == side]
         summary[side] = {"all": summarize(trials), "prompts": {
             key: summarize([trial for trial in trials if trial["prompt"] == key]) for key in PROMPTS}}
-    return {"kind": args.kind, "mode": args.mode, "auth": args.auth, "repeats_per_prompt": args.repeats,
-            "timeout_seconds": args.timeout, "percentile_method": "nearest_rank",
-            "labels": {"baseline": args.baseline_label, "candidate": args.candidate_label},
-            "prompts": PROMPTS, "summary": summary, "pairs": paired_summary(samples), "samples": samples}
+    report = {"kind": args.kind, "mode": args.mode, "auth": args.auth, "repeats_per_prompt": args.repeats,
+              "timeout_seconds": args.timeout, "percentile_method": "nearest_rank",
+              "labels": {"baseline": args.baseline_label, "candidate": args.candidate_label},
+              "thinking_config": {"baseline": getattr(args, "baseline_thinking", "unspecified"),
+                                  "candidate": getattr(args, "candidate_thinking", "unspecified")},
+              "claim_policy": CLAIM_POLICY, "prompts": PROMPTS, "summary": summary,
+              "pairs": paired_summary(samples), "samples": samples}
+    report["claim_assessment"] = claim_assessment(report)
+    return report
 
 
 def main():
@@ -224,6 +340,10 @@ def main():
     parser.add_argument("--kind", choices=("fixture", "real"), required=True)
     parser.add_argument("--auth", choices=("native", "registered"), default="native")
     parser.add_argument("--mode", choices=("auto", "flash", "strong"), default="auto")
+    parser.add_argument("--baseline-thinking", choices=THINKING_CHOICES, default="unspecified",
+                        help="STUDY_FLASH_THINKING configured on the baseline instance")
+    parser.add_argument("--candidate-thinking", choices=THINKING_CHOICES, default="unspecified",
+                        help="STUDY_FLASH_THINKING configured on the candidate instance")
     parser.add_argument("--repeats", type=int, default=5)
     parser.add_argument("--timeout", type=float, default=120)
     parser.add_argument("--output", type=Path, required=True)
@@ -241,6 +361,8 @@ def main():
     except (httpx.HTTPError, TimeoutError, ValueError, KeyError, TypeError) as exc:
         parser.exit(2, f"Benchmark setup failed ({type(exc).__name__}).\n")
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    assessment = report["claim_assessment"]
+    print(f'claim: {assessment["status"]} ({", ".join(assessment["reasons"]) or "no blockers"})', flush=True)
     return int(any(sample["outcome"] != "ok" for sample in report["samples"]))
 
 
