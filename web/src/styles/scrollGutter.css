@@ -1,0 +1,18 @@
+/* Shared scrollbar gutter compensation for chat workspaces.
+
+   A space-taking (classic) scrollbar shrinks the scroll container's content box,
+   while the fixed header and composer still lay out against the full outer width.
+   Messages/cards in the scroll area then sit a gutter-width away from the input
+   box. `--cp-scrollbar-gutter` is measured on the actual scroll container by
+   `useScrollbarGutter` and written onto the shell. The shell reserves that space
+   and the scroll area overflows back into it, so both columns share one width.
+
+   The default is 0px: overlay scrollbars take no space and must not be shifted. */
+.cp-scroll-shell {
+  --cp-scrollbar-gutter: 0px;
+  box-sizing: border-box;
+  padding-inline-end: var(--cp-scrollbar-gutter);
+}
+.cp-scroll-shell > .cp-scroll-area {
+  margin-inline-end: calc(-1 * var(--cp-scrollbar-gutter));
+}

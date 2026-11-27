@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chat layout alignment fixture</title>
+    <style>
+      html, body, #root { height: 100%; margin: 0; }
+      *, *::before, *::after { box-sizing: border-box; }
+      body { font-family: system-ui, sans-serif; }
+      .fixture-frame { height: 100%; flex: 0 0 100%; display: flex; flex-direction: column; }
+      .cp-scroll-shell { height: 100%; }
+      /* Headless Chrome uses overlay scrollbars that take no space. A border
+         shrinks clientWidth by exactly the same amount as a classic scrollbar,
+         so the geometry under test is deterministic on every OS. */
+      .cp-scroll-area { border-inline-end: 15px solid #d8d8e4; }
+      /* Toggling this off reproduces the pre-fix layout: the inline variable
+         written by applyScrollbarGutter is overridden by an important rule. */
+      .cp-scroll-shell[data-compensated="false"] { --cp-scrollbar-gutter: 0px !important; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./chat-alignment.fixture.tsx"></script>
+  </body>
+</html>

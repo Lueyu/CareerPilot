@@ -9,6 +9,7 @@ import StudyText from '../components/StudyText';
 import StudyPracticePanel, { type PracticeRequest } from '../components/StudyPracticePanel';
 import StudyInterviewQuestion from '../components/StudyInterviewQuestion';
 import { useSpeechRecognition } from '../lib/speech';
+import { useScrollbarGutter } from '../lib/useScrollbarGutter';
 import './studyChat.css';
 
 type StudyMessage = { key: string; values?: Record<string, string | number> };
@@ -99,7 +100,9 @@ function SessionView({id}:{id:number}) {
   const [more,setMore]=useState(false);
   const [copied,setCopied]=useState(0);
   const [away,setAway]=useState(false);
+  const shell=useRef<HTMLDivElement>(null);
   const scroll=useRef<HTMLDivElement>(null), follow=useRef(!params.has('message')), composer=useRef<HTMLTextAreaElement>(null), locked=useRef(false);
+  useScrollbarGutter(shell,scroll);
   useEffect(()=>{remember(draftKey(id),content)},[content,id]);
   useEffect(()=>{const box=scroll.current;if(!box||!data)return;const resize=new ResizeObserver(()=>{if(follow.current)box.scrollTop=box.scrollHeight});if(box.firstElementChild)resize.observe(box.firstElementChild);if(follow.current)box.scrollTop=box.scrollHeight;return()=>resize.disconnect()},[!!data]);
   useEffect(()=>{if(data)setProject(String(data.project_id||''))},[data?.project_id]);
@@ -326,7 +329,7 @@ function SessionView({id}:{id:number}) {
   const openTools=()=>{setPracticeRequest(undefined);document.getElementById('coach-tools-'+id)?.showPopover?.()};
   const changeSetting=(body:Record<string,unknown>)=>perform('settings',async()=>{await api.patch(path,body)});
   const setContext=(m:Message,edit=false)=>{setAnchor(edit?m.parent_message_id:m.id);setRevision(edit?m.id:undefined);if(edit)setContent(m.content);composer.current?.focus()};
-  return <div className="study-page coach-session">
+  return <div ref={shell} className="study-page coach-session cp-scroll-shell">
     <header className="coach-session-head"><div className="coach-head-inner">
       <div className="coach-title"><small>{t("study.studySessionStatus", { status: ended?t("study.sessionEnded"):'' })}</small><h1>{data.title}</h1><div className="coach-session-meta"><span>{t("study.currentModel", { model: modelLabel ?? t("study.autoModel") })}</span><span>{t("study.currentProject", { project: linkedProject?.name||linkedProject?.title||(data.project_id?`#${data.project_id}`:t("study.noLinkedProject")) })}</span></div></div>
       <div className="coach-header-actions">
@@ -338,7 +341,7 @@ function SessionView({id}:{id:number}) {
         </div></details>
       </div>
     </div></header>
-    <div ref={scroll} className="coach-scroll" onScroll={e=>{const el=e.currentTarget;follow.current=el.scrollHeight-el.scrollTop-el.clientHeight<60;setAway(!follow.current)}}><div className="coach-inner">
+    <div ref={scroll} className="coach-scroll cp-scroll-area" onScroll={e=>{const el=e.currentTarget;follow.current=el.scrollHeight-el.scrollTop-el.clientHeight<60;setAway(!follow.current)}}><div className="coach-inner">
     <MemoSources items={data.context.sources}/>{!data.messages.length&&<p className="coach-empty">{t("study.startSessionPrompt")}</p>}
     {loadError && <p role="alert">{t("study.syncFailed", { reason: loadError })}</p>}
     <section className="study-thread" aria-label={t("study.chatTranscript")}>{data.messages.map(m=>{
