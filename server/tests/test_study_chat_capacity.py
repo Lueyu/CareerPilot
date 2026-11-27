@@ -1,4 +1,3 @@
-"""Admission and execution bounds against an isolated PostgreSQL database."""
 import asyncio
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
@@ -6,7 +5,7 @@ from uuid import uuid4
 import pytest
 from fastapi import BackgroundTasks, HTTPException
 from pydantic import ValidationError
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.v1 import study_chat as api
@@ -175,7 +174,6 @@ async def test_stale_lease_is_reclaimed_and_old_task_never_calls_provider(runtim
         raise AssertionError("Expired generation must never call the provider")
 
     monkeypatch.setattr(worker, "_generate", forbidden)
-    # Admission ignores stale leases even before recovery updates their status.
     await accepted(db, ws)
     await tasks()
     await worker.recover_interrupted()
@@ -217,7 +215,6 @@ async def test_whole_execution_releases_on_completion_provider_exception_or_canc
     else:
         await asyncio.wait_for(running, 10)
     assert cleaned.is_set()
-    # One full global permit can be acquired after the background finalizer.
     slots = worker.execution_slots()
     for _ in range(2):
         await asyncio.wait_for(slots.acquire(), 1)
@@ -253,7 +250,6 @@ async def test_after_wait_rechecks_cancel_expiry_and_attempt(runtime, monkeypatc
 
     monkeypatch.setattr(worker, "_generate", forbidden)
     waiting = asyncio.create_task(tasks())
-    # Observe the actual permit waiter before changing durable state.
     async with asyncio.timeout(5):
         while not slots._waiters:
             await asyncio.sleep(0.01)
@@ -411,3 +407,40 @@ async def test_cancelled_provider_finishes_cleanup_before_next_workspace_execute
 def test_capacity_settings_reject_disabled_bounds(field):
     with pytest.raises(ValidationError):
         Settings(_env_file=None, **{field: 0})
+
+
+@pytest.mark.asyncio
+async def test_terminal_database_timeout_keeps_call_evidence_and_releases_permit(runtime, monkeypatch, db_session, test_workspace):
+    factory, _ = runtime
+    original_publish = worker.publish
+    injected = False
+    evidence = [{"attempt": 1, "outcome": "unknown", "provider_request_id": "synthetic-intent"}]
+
+    async def generate(_turn, _settings, _deadline, trace, save, _fail, _language):
+        trace["calls"] = evidence
+        await save("generating")
+        raise RuntimeError("Synthetic provider failure")
+
+    async def publish(message_id, attempt, **values):
+        nonlocal injected
+        if values.get("status") == "failed" and not injected:
+            injected = True
+            async with factory() as db:
+                async with asyncio.timeout(0.05):
+                    await db.execute(text("SELECT pg_sleep(1)"))
+        return await original_publish(message_id, attempt, **values)
+
+    monkeypatch.setattr(worker, "_generate", generate)
+    monkeypatch.setattr(worker, "publish", publish)
+    _, ticket, tasks = await accepted(db_session, test_workspace)
+    outcomes = await asyncio.gather(tasks(), return_exceptions=True)
+    async with factory() as peer:
+        reply = await peer.get(StudyMessage, ticket["assistant_message_id"])
+        assert reply.coach["trace"]["calls"] == evidence
+        assert reply.coach["trace"]["error_kind"] != "capacity"
+    assert injected and isinstance(outcomes[0], TimeoutError)
+    slots = worker.execution_slots()
+    await asyncio.wait_for(slots.acquire(), 1)
+    await asyncio.wait_for(slots.acquire(), 1)
+    slots.release()
+    slots.release()
