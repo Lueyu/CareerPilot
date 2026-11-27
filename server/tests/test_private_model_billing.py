@@ -3,6 +3,7 @@ import asyncio
 import json
 from datetime import datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -339,7 +340,6 @@ async def test_billing_db_unavailable_denies_without_network(metered, monkeypatc
     "assessment_worker", "teaching", "teaching_help", "notes", "podcast", "project_analysis", "autopilot"])
 async def test_paid_service_paths_reach_real_gate_with_trusted_scope(metered, monkeypatch, path):
     """Stop after transport/schema validation; accounting is real, content is synthetic."""
-    import time
 
     from app.api.v1 import bank, memory
     from app.models import LearningTask
@@ -356,8 +356,8 @@ async def test_paid_service_paths_reach_real_gate_with_trusted_scope(metered, mo
         teaching,
     )
     from app.services.assessment_rubric import compile_rubric
-    monkeypatch.setattr(llm, "_CACHE", dict(CONFIG))
-    monkeypatch.setattr(llm, "_CACHE_AT", time.monotonic())
+    # Configuration resolution is live now; supply this synthetic caller fixture explicitly.
+    monkeypatch.setattr(llm, "get_llm_config", AsyncMock(return_value=dict(CONFIG)))
     async def configured(self): return dict(CONFIG)
     monkeypatch.setattr(AgentAdapter, "_effective", configured)
     for key, value in CONFIG.items():

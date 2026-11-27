@@ -1,6 +1,7 @@
 x-backend-environment: &backend-environment
   DATABASE_URL: postgresql+asyncpg://careerpilot:careerpilot_dev@postgres:5432/careerpilot
   API_TOKEN: ${API_TOKEN:-cp-dev-token}
+  CAREERPILOT_SECRETS_KEY: ${CAREERPILOT_SECRETS_KEY:-}
   DEFAULT_WORKSPACE_SLUG: ${DEFAULT_WORKSPACE_SLUG:-personal}
   LLM_PROVIDER: ${LLM_PROVIDER:-}
   LLM_API_KEY: ${LLM_API_KEY:-}

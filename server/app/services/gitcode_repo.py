@@ -42,8 +42,12 @@ class GitCodeRepoError(Exception):
 
 
 async def get_gitcode_token() -> str:
-    """个人访问令牌: 环境变量 GITCODE_TOKEN(无则匿名, 公共仓库仍可用但有限速)。"""
-    return (get_settings().gitcode_token or "").strip()
+    """Global persisted token first; storage errors never enable an env fallback."""
+    from app.db import SessionLocal
+    from app.services.repository_credentials import _stored_token
+
+    async with SessionLocal() as session:
+        return await _stored_token(session, "gitcode") or (get_settings().gitcode_token or "").strip()
 
 
 async def _get(url: str, token: str | None, *, params: dict | None = None) -> httpx.Response:

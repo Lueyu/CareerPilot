@@ -99,6 +99,14 @@ async def test_workspace(db_session):
 
 
 @pytest.fixture
+def secrets_key(monkeypatch):
+    """Explicit synthetic deployment key for credential-storage consumers only."""
+    from cryptography.fernet import Fernet
+
+    monkeypatch.setenv("CAREERPILOT_SECRETS_KEY", Fernet.generate_key().decode())
+
+
+@pytest.fixture
 def mock_private_billing(monkeypatch):
     """Explicit transport-test boundary. Ledger tests must not use this fixture."""
     from app.services import llm

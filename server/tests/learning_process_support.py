@@ -145,6 +145,7 @@ async def isolated_learning_processes(folder, seed):
             'PATH','SYSTEMROOT','WINDIR','COMSPEC','USERPROFILE','APPDATA','LOCALAPPDATA',
             'PROGRAMFILES','PROGRAMFILES(X86)','SYSTEMDRIVE','TEMP','TMP','PATHEXT'}}
         env.update(DATABASE_URL=isolated.render_as_string(hide_password=False),
+            CAREERPILOT_SECRETS_KEY=os.environ.get('CAREERPILOT_SECRETS_KEY', ''),
             API_TOKEN='learning-process-fixture',DEFAULT_WORKSPACE_SLUG=ids['workspace_slug'],
             LLM_PROVIDER='',LLM_MODEL='',LLM_BASE_URL='',LLM_API_KEY='',GITHUB_TOKEN='',
             GITCODE_TOKEN='',PYTHONIOENCODING='utf-8')

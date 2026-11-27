@@ -24,6 +24,9 @@ from sqlalchemy.pool import NullPool
 from test_learning_feedback import task_with_valid_origin
 
 from app.models import AppSetting, CompetencySnapshot, Evidence, ScoringRun, ScoringStep, SkillState, Workspace
+from app.services.secret_storage import seal_setting
+
+pytestmark = pytest.mark.usefixtures("secrets_key")
 
 
 def seed_factory(monkeypatch, *, second_queued=True):
@@ -34,7 +37,8 @@ def seed_factory(monkeypatch, *, second_queued=True):
         session.add(workspace);await session.flush()
         # Real API submission resolves its configuration from this DB, unlike
         # the parent's explicitly patched fixture preparation function.
-        session.add(AppSetting(key=f'llm:{workspace.id}',value=deepcopy(CONFIG)))
+        key = f'llm:{workspace.id}'
+        session.add(AppSetting(key=key, value=seal_setting(key, deepcopy(CONFIG))))
         await session.flush()
         task=await task_with_valid_origin(session,workspace,monkeypatch)
         # The seed helper stubs the origin exam. Queue practice submissions with

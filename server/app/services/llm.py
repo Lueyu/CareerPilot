@@ -25,19 +25,13 @@ from app.config import MAX_STUDY_TIMEOUT_SECONDS, get_settings
 from app.services.llm_endpoint_config import resolve_llm_config
 from app.services.llm_stream import ChatCompletionStream, StreamFailure
 from app.services.private_model_billing import BillingScope, BudgetPolicyError, reserve, settle
+from app.services.secret_storage import SecretStorageError, open_setting
 
-# 生效配置缓存(TTL 内不再查库; 设置页保存后立即 refresh)
+# Synchronous readiness hint only. Async calls always authenticate current storage.
 _CACHE: dict[str, Any] | None = None
-_CACHE_AT: float = 0.0
-_TTL = 10.0  # seconds
 
 async def get_llm_config() -> dict[str, Any]:
     """返回 {provider, api_key, base_url, model, source}; source ∈ db|env|none。"""
-    global _CACHE, _CACHE_AT
-    now = time.monotonic()
-    if _CACHE is not None and (now - _CACHE_AT) < _TTL:
-        return _CACHE
-
     cfg = get_settings()
     merged = resolve_llm_config(cfg)
     try:
@@ -47,19 +41,23 @@ async def get_llm_config() -> dict[str, Any]:
         async with SessionLocal() as session:
             row = (await session.execute(select(AppSetting).where(AppSetting.key == "llm"))).scalar_one_or_none()
         if row and isinstance(row.value, dict):
-            merged = resolve_llm_config(cfg, row.value)
+            merged = resolve_llm_config(cfg, open_setting("llm", row.value))
+        elif row:
+            raise SecretStorageError()
+    except SecretStorageError:
+        set_llm_config_cache({})
+        raise
     except Exception:
-        pass  # DB 读取失败 → 用 env 兜底
-    _CACHE = merged
-    _CACHE_AT = now
+        set_llm_config_cache({})
+        raise SecretStorageError() from None
+    set_llm_config_cache(merged)
     return merged
 
 
 def set_llm_config_cache(value: dict[str, Any] | None) -> None:
-    """设置页保存/清除配置后立即刷新缓存。"""
-    global _CACHE, _CACHE_AT
-    _CACHE = value
-    _CACHE_AT = time.monotonic()
+    """Keep only boolean synchronous readiness hints, never a credential/config cache."""
+    global _CACHE
+    _CACHE = None if value is None else {"provider": bool(value.get("provider")), "api_key": bool(value.get("api_key"))}
 
 
 class AgentAdapter:

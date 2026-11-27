@@ -19,6 +19,7 @@ from app.i18n import using_language
 from app.models import AppSetting, Project
 from app.services import llm
 from app.services import study_chat as worker
+from app.services.secret_storage import seal_setting
 
 
 def use_relay_transport(monkeypatch, relay):
@@ -40,7 +41,8 @@ async def test_registered_turn_preserves_upstream_retry_class(study, monkeypatch
     ask, _ = study
     token = "synthetic-only-tenant-token-for-this-test"
     base_model = CONFIG["model"]
-    monkeypatch.setattr(llm, "_CACHE", {**CONFIG, "base_url": "http://relay.test/v1", "api_key": token})
+    for field, value in {**CONFIG, "base_url": "http://relay.test/v1", "api_key": token}.items():
+        monkeypatch.setattr(get_settings(), f"llm_{field}", value)
     requested = []
 
     async def upstream(request):
@@ -78,7 +80,8 @@ async def test_registered_retry_uses_distinct_physical_models(study, monkeypatch
                 "MODEL_STRONG_MODEL":strong_model, "MODEL_STRONG_BASE_URL":strong_url, "MODEL_STRONG_API_KEY":"strong-key"}
     networks = {"private":"10.9.0.0/28","egress":"10.9.0.16/28","repo_egress":"10.9.0.32/28"}
     env = _compose("seed-fixture","采购","auth","db",networks,upstream,token,"repo")["services"]["api"]["environment"]
-    monkeypatch.setattr(llm,"_CACHE",{"provider":"openai","api_key":token,"base_url":env["LLM_BASE_URL"],"model":"quick"})
+    for field, value in {"provider":"openai","api_key":token,"base_url":env["LLM_BASE_URL"],"model":"quick"}.items():
+        monkeypatch.setattr(settings, f"llm_{field}", value)
     for field in ("study_strong_model","study_strong_base_url","study_strong_api_key","study_strong_provider"):
         monkeypatch.setattr(settings, field, env[field.upper()])
     monkeypatch.setattr(settings,"study_relay_same_upstream",env["STUDY_RELAY_SAME_UPSTREAM"] == "true")
@@ -131,7 +134,7 @@ async def test_personal_model_launcher_inherits_native_profiles(
 
 
 @pytest.fixture
-def study(monkeypatch, db_session, test_workspace):
+def study(monkeypatch, db_session, test_workspace, secrets_key, mock_private_billing):
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
     monkeypatch.setattr(worker, "SessionLocal", factory)
     monkeypatch.setattr(db, "SessionLocal", factory)
@@ -153,9 +156,8 @@ def study(monkeypatch, db_session, test_workspace):
         "study_timeout_seconds": 60,
     }.items():
         monkeypatch.setattr(settings, name, value)
-    monkeypatch.setattr(llm, "_CACHE", CONFIG)
-    monkeypatch.setattr(llm, "_CACHE_AT", llm.time.monotonic())
-    monkeypatch.setattr(llm, "_TTL", float("inf"))
+    for field, value in CONFIG.items():
+        monkeypatch.setattr(settings, f"llm_{field}", value)
 
     async def ask(question, *, sid=None, project_id=None, **kwargs):
         if sid is None:
@@ -390,7 +392,7 @@ async def test_settings_db_default_and_explicit_models(study, monkeypatch, db_se
     settings.study_strong_model = ""
     monkeypatch.setattr(settings, "llm_model", "different-env-model")
     llm.set_llm_config_cache(None)
-    setting = AppSetting(key="llm", value={**CONFIG, "model": "tenant-default"})
+    setting = AppSetting(key="llm", value=seal_setting("llm", {**CONFIG, "model": "tenant-default"}))
     db_session.add(setting)
     await db_session.commit()
     try:

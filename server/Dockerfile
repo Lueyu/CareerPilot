@@ -25,6 +25,7 @@ RUN (pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 COPY app ./app
 COPY migrations ./migrations
 COPY migrate.py ./migrate.py
+COPY migrate_secrets.py ./migrate_secrets.py
 COPY bootstrap.py ./bootstrap.py
 
 EXPOSE 8000
