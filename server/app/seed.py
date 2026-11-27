@@ -285,6 +285,8 @@ async def seed(*, include_demo: bool = False) -> None:
 
 
 if __name__ == "__main__":
+    from app.config import get_settings
+    get_settings().require_secure_personal_startup()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Initialize shared bank and clean personal workspace")
     parser.add_argument("--demo", action="store_true", help="Explicitly create/update demo sample data")

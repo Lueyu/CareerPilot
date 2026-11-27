@@ -29,8 +29,9 @@ COPY migrate_secrets.py ./migrate_secrets.py
 COPY provision_recovery_control.py ./provision_recovery_control.py
 COPY validate_recovery.py ./validate_recovery.py
 COPY bootstrap.py ./bootstrap.py
+COPY personal_credentials.py ./personal_credentials.py
 
 EXPOSE 8000
 
 # 启动顺序: create_all(新库建全/老库补缺表) → 幂等 SQL 迁移(老库补列) → 种子(幂等) → uvicorn
-CMD ["sh", "-c", "python bootstrap.py && python migrate.py && python -m app.seed && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "python personal_credentials.py check && python bootstrap.py && python migrate.py && python -m app.seed && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"]

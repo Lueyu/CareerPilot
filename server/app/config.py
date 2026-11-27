@@ -2,12 +2,14 @@
 
 所有配置来自环境变量或 .env 文件; 生产环境绝不使用默认密码。
 """
+import os
 import re
 from functools import lru_cache
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 # 单轮学习聊天的硬上限(秒)。配置项、租约和 LLM 适配层的超时守卫共用同一上限,
 # 避免三处各自钳位导致语义漂移。放宽到 30 分钟, 让长文/图解/多轮追问能自然完成。
@@ -36,14 +38,14 @@ class Settings(BaseSettings):
     # 应用
     app_name: str = "CareerPilot API"
     api_v1_prefix: str = "/api/v1"
-    debug: bool = True
+    debug: bool = False
 
-    # 数据库(本地开发默认值; 生产通过 .env / 环境变量覆盖)
-    database_url: str = "postgresql+asyncpg://careerpilot:careerpilot_dev@localhost:5432/careerpilot"
+    # Deployment credentials have no shared fallback.
+    database_url: str = ""
     db_echo: bool = False
 
     # 认证(MVP: API token 简单校验; 生产换 JWT/OAuth)
-    api_token: str = "cp-dev-token"
+    api_token: str = ""
 
     # 可选静态托管: 指向前端构建产物目录(如 web/dist), 非空时 app 挂载 /assets 与 SPA 回退。
     static_dir: str = ""
@@ -140,7 +142,36 @@ class Settings(BaseSettings):
         """Alembic / 同步工具用的 psycopg 风格 URL。"""
         return self.database_url.replace("+asyncpg", "")
 
+    def require_secure_personal_startup(self) -> None:
+        """Pure preflight: no database, filesystem or network side effects."""
+        require_secret(self.api_token, "API_TOKEN", minimum=32)
+        try:
+            url = make_url(self.database_url)
+            valid = url.drivername == "postgresql+asyncpg" and url.username and url.host and url.database
+            password = url.password or ""
+        except Exception:
+            raise RuntimeError("DATABASE_URL must be an explicit PostgreSQL asyncpg URL") from None
+        if not valid:
+            raise RuntimeError("DATABASE_URL must be an explicit PostgreSQL asyncpg URL")
+        require_secret(password, "DATABASE_URL credential", minimum=24)
+
+
+def require_secret(value: str, field: str, *, minimum: int) -> None:
+    # This catches known defaults and placeholders, not a claim to measure entropy.
+    placeholders = ("cp-dev-token", "careerpilot_dev", "postgres", "password", "changeme",
+                    "change-me", "replace", "example", "your-", "your_", "test-token")
+    periodic = any(value == (value[:size] * ((len(value) + size - 1) // size))[:len(value)]
+                   for size in range(1, min(17, len(value) // 2 + 1)))
+    sequences = ("0123456789", "1234567890", "abcdefghijklmnopqrstuvwxyz",
+                 "abcdefghijklmnopqrstuvwxyz0123456789", "qwertyuiopasdfghjklzxcvbnm")
+    sequential = any(value.lower() in repeated for sequence in sequences
+                     for repeated in (sequence * 8, sequence[::-1] * 8))
+    if (len(value) < minimum or not value.isascii() or any(char.isspace() for char in value)
+            or periodic or sequential
+            or len(set(value)) < 8 or any(word in value.lower() for word in placeholders)):
+        raise RuntimeError(f"{field} requires a unique random secret of at least {minimum} characters; run personal_credentials.py init or configure existing credentials")
+
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return Settings(_env_file=os.environ.get("CAREERPILOT_ENV_FILE", ".env"))

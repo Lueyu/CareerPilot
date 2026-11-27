@@ -28,6 +28,10 @@ async function run() {
   const browser = await chromium.launch({ channel: 'msedge' });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    await page.addInitScript(({ token, workspace }) => {
+      sessionStorage.setItem('cp-login-workspace', workspace);
+      sessionStorage.setItem('cp-login-token', token);
+    }, { token: process.env.API_TOKEN, workspace: process.env.DEFAULT_WORKSPACE_SLUG });
     page.setDefaultTimeout(timeout);
     await page.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ?
       route.continue() : route.abort());

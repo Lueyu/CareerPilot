@@ -75,7 +75,8 @@ async def test_actual_encrypted_drill_and_controlled_standby(db_session, test_wo
     from app.services.secret_storage import SecretStorageError, open_setting, seal_setting
     from validate_recovery import validate
 
-    assert os.environ.get('AGE_BIN') and os.environ.get('AGE_KEYGEN_BIN'), 'Explicit verified real age tools required'
+    if not os.environ.get('AGE_BIN') or not os.environ.get('AGE_KEYGEN_BIN'):
+        pytest.fail('Explicit verified real age tools required', pytrace=False)
     key = Fernet.generate_key().decode()
     monkeypatch.setenv('CAREERPILOT_SECRETS_KEY', key)
     secret = 'f6-synthetic-original-secret-9911'

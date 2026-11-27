@@ -1,76 +1,73 @@
 # 在 Windows 分别启动前后端
 
-这条路径适合修改代码或分开调试前后端。只想体验产品，请先看 [Docker 快速开始](getting-started.md)。浏览本地题库无需注册，也无需配置模型或 GitHub Token。
+准备Git、Python3.12、Node.js和Docker Desktop。本路径只创建全新体验数据库；保留已有个人.env、PG角色、密码和数据。[Docker安装指南](getting-started.md)
 
-## 1. 下载代码并启动数据库
+## 1. 安装依赖并生成私有配置
 
-准备 Git、Python 3.12、Node.js 24 和已启动的 Docker Desktop。在 PowerShell 中进入一个用于存放这次体验的目录，再运行：
+在新目录运行。虚拟环境位于仓库旁边，不覆盖原安装：
 
 ```powershell
 git clone https://github.com/Lueyu/CareerPilot.git
 cd CareerPilot
-docker run -d --name careerpilot-local-db -e POSTGRES_USER=careerpilot -e POSTGRES_PASSWORD=careerpilot_dev -e POSTGRES_DB=careerpilot -p 127.0.0.1:15432:5432 postgres:16-alpine
+python -m venv ../careerpilot-venv
+$python = (Resolve-Path ../careerpilot-venv/Scripts/python.exe).Path
+& $python -m pip install -r server/requirements.txt
+& $python server/personal_credentials.py init --output personal/runtime/personal.env --port 15432
+$privateEnv = (Resolve-Path personal/runtime/personal.env).Path
+```
+
+初始化只创建缺失文件，随机生成API令牌、PG密码和G5主密钥；重跑不覆盖、不换令牌。Windows写秘密前设置并回读仅当前SID的受保护DACL；无法确认权限就停止。.env.example仅为变量说明，不能复制后直接启动。旧弱凭据由操作者在维护窗口迁移，不靠debug绕过。
+
+## 2. 创建全新数据库
+
+下面的容器名必须尚不存在。不要把新密码用于旧PG卷。密码从私有文件进入进程环境，不放进命令参数或控制台输出：
+
+```powershell
+$values = @{}
+Get-Content -LiteralPath $privateEnv | ForEach-Object {
+    $pair = $_.Split('=', 2)
+    $values[$pair[0]] = $pair[1]
+}
+$env:POSTGRES_PASSWORD = $values['POSTGRES_PASSWORD']
+docker run -d --name careerpilot-local-db -e POSTGRES_USER=careerpilot -e POSTGRES_PASSWORD -e POSTGRES_DB=careerpilot -p 127.0.0.1:15432:5432 postgres:16-alpine
+$env:POSTGRES_PASSWORD = $null
 docker exec careerpilot-local-db pg_isready -U careerpilot -d careerpilot
 ```
 
-看到 `accepting connections` 后继续。如果数据库正在初始化，等几秒后重试最后一条命令。
+看到accepting connections后继续。该流程不ALTER任何既有本机PG角色。
 
-## 2. 启动后端
+## 3. 初始化并显式登记已知新安装
 
-在仓库根目录安装依赖。虚拟环境位于仓库旁边的 `careerpilot-venv` 目录。
-
-```powershell
-python -m venv ../careerpilot-venv
-& ../careerpilot-venv/Scripts/python.exe -m pip install -r server/requirements.txt
-```
-
-在同一个窗口设置本次启动的环境变量。逐条执行初始化命令，每条成功后再执行下一条。
+先确认当前窗口没有其他安装遗留的DATABASE_URL/API_TOKEN，因为进程环境变量优先于文件。每条成功后继续下一条。本节新库可以登记，恢复数据库禁止登记：
 
 ```powershell
-$env:DATABASE_URL = 'postgresql+asyncpg://careerpilot:careerpilot_dev@127.0.0.1:15432/careerpilot'
-$env:API_TOKEN = 'cp-dev-token'
+$env:CAREERPILOT_ENV_FILE = $privateEnv
 $env:LLM_PROVIDER = ''
 $env:LLM_API_KEY = ''
 $env:GITHUB_TOKEN = ''
-cd server
-& ../../careerpilot-venv/Scripts/python.exe bootstrap.py
-& ../../careerpilot-venv/Scripts/python.exe migrate.py
-& ../../careerpilot-venv/Scripts/python.exe provision_recovery_control.py --confirm 'PROVISION KNOWN INSTALLATION careerpilot'
-& ../../careerpilot-venv/Scripts/python.exe -m app.seed
-& ../../careerpilot-venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 18080
-```
-
-保留这个窗口。打开 [后端健康检查](http://127.0.0.1:18080/healthz)，确认返回 `"ok":true`。
-
-上述登记命令只用于本节刚创建的已知新库。已有正常安装须先在维护窗口确认来源。恢复库不能登记，缺失或未知控制状态的业务API会拒绝，详情见[备份与隔离恢复](../deploy/BACKUP_RECOVERY.md)。
-
-## 3. 启动前端并打开一道题
-
-另开一个 PowerShell 窗口并进入仓库根目录。
-
-```powershell
-$env:VITE_API_BASE = 'http://127.0.0.1:18080/api/v1'
-cd web
+Set-Location server
+& $python personal_credentials.py check
+& $python bootstrap.py
+& $python migrate.py
+& $python -m app.seed
+& $python provision_recovery_control.py --confirm 'PROVISION KNOWN INSTALLATION careerpilot'
+Set-Location ..
+Set-Location web
 npm.cmd ci
-npm.cmd run dev -- --host 127.0.0.1 --port 15173 --strictPort
+Set-Location ..
+.\deploy\start-personal.ps1 -PythonPath $python -EnvFile $privateEnv -DatabaseReady -Port 18080 -WebPort 15173
 ```
 
-打开 [CareerPilot](http://127.0.0.1:15173/)。左侧显示 **个人工作空间**。依次点击 **考试与面经**、**查看题库**，再点击任意题目旁的 **查看参考**，打开参考答案。
+启动器再次检查凭据，只绑定回环地址。普通启动不插入NORMAL、不恢复未知来源库的后台任务。已有正常安装必须在维护窗口核验来源后登记。详见[备份与隔离恢复](../deploy/BACKUP_RECOVERY.md)。
 
-如果端口被占用，换一个空闲端口。改数据库端口时同步修改 `DATABASE_URL`，改后端端口时同步修改 `VITE_API_BASE`。首页数据加载失败时，先打开后端健康检查，再核对前端窗口中的 API 地址并重启前端。
+## 4. 运行时登录
 
-## 4. 可选体验林舟的求职笔记
+打开[CareerPilot](http://127.0.0.1:15173/)，在现有WorkspaceLogin输入personal及私有文件里的API_TOKEN。不要在控制台回显秘密，不设置VITE_API_TOKEN；网页只在运行时读取标签页sessionStorage。个人模型引导和原有离线身份保持可用。
 
-另开一个 PowerShell 窗口，进入仓库根目录。连接同一个本地数据库并写入样例数据。
+进入“考试与面经→查看题库”查看参考。真实AI对话需要主动配置模型；浏览题库和历史答卷不需要。健康检查位于[18080/healthz](http://127.0.0.1:18080/healthz)，健康不代表数据库已解除隔离。
 
-```powershell
-$env:DATABASE_URL = 'postgresql+asyncpg://careerpilot:careerpilot_dev@127.0.0.1:15432/careerpilot'
-cd server
-& ../../careerpilot-venv/Scripts/python.exe -m app.showcase
-```
+## 5. 可选样例与下次继续
 
-回到首页，点击左侧的工作空间卡片，在 **切换工作空间** 中选择 **林舟的求职笔记**。该空间包含虚构的求职记录。要回到自己的空间，用同一菜单选择 **个人学习空间**。
+需要林舟的虚构求职记录时，在仓库根设置同一个CAREERPILOT_ENV_FILE，进入server运行 `& $python -m app.showcase`，刷新后在空间菜单选择林舟。personal记录保持独立。切换菜单在导航后生效，旧页面的请求仍使用原空间；明确退出后可以重新登录。
 
-## 5. 停止或下次继续
-
-在前后端窗口按 `Ctrl+C`。从任一窗口运行 `docker stop careerpilot-local-db`。下次用 `docker start careerpilot-local-db` 启动同一个数据库容器，再启动前后端。保留容器即可保留这次体验的数据。
+统一启动器使用隐藏后台进程，运行身份和日志保存在personal/runtime。不要按猜测的PID停止进程；需核对该目录的processes.json及实际命令/启动时间。独立Worker可用deploy/stop-project-worker.ps1停止。体验数据库用 `docker stop careerpilot-local-db` 停止，下一次用 `docker start careerpilot-local-db` 后以同一个EnvFile启动。保留容器和私有文件，不重新生成密码、不删卷、不影响其他个人进程。

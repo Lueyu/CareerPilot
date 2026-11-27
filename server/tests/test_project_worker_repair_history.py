@@ -8,7 +8,7 @@ from app import project_worker as worker
 
 
 @pytest.mark.asyncio
-async def test_worker_keeps_truncation_repair_after_following_request_timeout(monkeypatch):
+async def test_worker_keeps_truncation_repair_after_following_request_timeout(monkeypatch, db_session):
     step = SimpleNamespace(error_category='REQUEST_TIMEOUT', error='SECRET_PROVIDER_ERROR',
         attempts=[{'outcome': 'OUTPUT_TRUNCATED', 'error': 'SECRET_RESPONSE'}, {'outcome': 'REQUEST_TIMEOUT'}])
     run = SimpleNamespace(model_config_fingerprint='', budget={})
@@ -20,6 +20,9 @@ async def test_worker_keeps_truncation_repair_after_following_request_timeout(mo
     class Session:
         async def __aenter__(self): return self
         async def __aexit__(self, *args): pass
+        async def execute(self, statement):
+            # F6 admission uses the real explicitly provisioned *_test control row.
+            return await db_session.execute(statement)
         async def get(self, model, identity):
             return {worker.ProjectAnalysis: run, worker.Project: project, worker.AnalysisStep: step}[model]
 

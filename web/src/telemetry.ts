@@ -5,9 +5,7 @@
  * - 绝不收集: IP 原文、用户名、消息内容、任何业务数据
  * - 静默失败: sendBeacon 发送, 任何异常都不打扰用户、不抛错、不写控制台
  */
-const env = (import.meta as any).env;
-const localApi = env?.DEV && typeof window !== 'undefined' && env['VITE_DEV_API_' + window.location.port];
-const base = localApi || env?.VITE_API_BASE || 'http://127.0.0.1:8000/api/v1';
+const base = import.meta.env?.VITE_API_BASE || 'http://127.0.0.1:8000/api/v1';
 
 const ID_KEY = 'careerpilot.telemetry.id';
 const FLUSH_MS = 2000;

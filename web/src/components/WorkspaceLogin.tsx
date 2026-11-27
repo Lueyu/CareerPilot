@@ -1,12 +1,13 @@
 import { useT } from '../i18n';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { api, workspaceLogin } from '../api/client';
+import { api, requiresLocalLogin } from '../api/client';
+import { beginLocalSession, clearLocalSession } from '../api/localTransport';
 import LanguageSelector from './LanguageSelector';
 import { invalidatePodcastDeviceSession, podcastDeviceLoginState, recordPodcastDeviceLogin } from '../podcasts/podcastOfflineIdentity';
 
 export default function WorkspaceLogin({ children }: { children: ReactNode }) {
   const t = useT();
-  const [ready, setReady] = useState(() => !workspaceLogin ||
+  const [ready, setReady] = useState(() => !requiresLocalLogin ||
     (!!sessionStorage.getItem('cp-login-token') && (!isSecureContext || podcastDeviceLoginState() === 'active')));
   const [restoring, setRestoring] = useState(() => !ready && !!sessionStorage.getItem('cp-login-token') &&
     podcastDeviceLoginState() === 'uninitialized');
@@ -16,8 +17,7 @@ export default function WorkspaceLogin({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false);
 
   function clear() {
-    sessionStorage.removeItem('cp-login-workspace');
-    sessionStorage.removeItem('cp-login-token');
+    clearLocalSession();
   }
 
   useEffect(() => {
@@ -42,8 +42,7 @@ export default function WorkspaceLogin({ children }: { children: ReactNode }) {
     event.preventDefault();
     setBusy(true);
     setFailure(null);
-    sessionStorage.setItem('cp-login-workspace', slug.trim());
-    sessionStorage.setItem('cp-login-token', token.trim());
+    beginLocalSession(slug.trim(), token.trim());
     try {
       await api.get('/settings/overview');
       await recordPodcastDeviceLogin(token.trim()).catch(() => undefined);
@@ -59,7 +58,7 @@ export default function WorkspaceLogin({ children }: { children: ReactNode }) {
 
   if (restoring) return <p role="status">{t('registered.workspaceOpening')}</p>;
   if (ready) return <>
-    {workspaceLogin && <button className="btn btn-outline" onClick={() => {
+    {requiresLocalLogin && <button className="btn btn-outline" onClick={() => {
       clear();
       try { invalidatePodcastDeviceSession(); } finally { setReady(false); }
     }}>{t('shell.signOutWorkspace')}</button>}

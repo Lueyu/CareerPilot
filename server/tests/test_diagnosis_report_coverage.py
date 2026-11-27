@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from test_core_scoring import db_questions
 
 from app.api.v1 import exams
+from app.config import get_settings
 from app.main import app
 from app.models import Evidence, Exam, ScoringRun
 from app.services import assessment_jobs, assessment_worker
@@ -74,7 +75,7 @@ async def test_deep_coverage_preserves_official_assessment(
         active=True, _effective=AsyncMock(return_value={"model": "fixture"}), chat=chat,
     ))
     path = f"/api/v1/exams/{exam_id}/report"
-    headers = {"X-Api-Token": "cp-dev-token", "X-Workspace": test_workspace.slug}
+    headers = {"X-Api-Token": get_settings().api_token, "X-Workspace": test_workspace.slug}
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False, autoflush=False)
 
     async def test_session():

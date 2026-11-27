@@ -1,5 +1,6 @@
 """All database tests are isolated; never default to a personal database."""
 import os
+import secrets
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
@@ -20,8 +21,14 @@ TEST_DATABASE_URL = os.environ.get(
 if not urlparse(TEST_DATABASE_URL).path.endswith("_test"):
     raise RuntimeError("Tests require an explicitly isolated database ending in _test")
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+os.environ["API_TOKEN"] = secrets.token_urlsafe(32)
 os.environ["LLM_PROVIDER"] = ""
 os.environ["LLM_API_KEY"] = ""
+os.environ["STUDY_STRONG_API_KEY"] = ""
+os.environ["GITCODE_TOKEN"] = ""
+for key in tuple(os.environ):
+    if key.startswith("FEEDBACK_") or key.endswith("_API_KEY"):
+        os.environ[key] = ""
 os.environ["GITHUB_TOKEN"] = ""
 os.environ["PORTAL_AUTO_MERGE"] = "false"
 

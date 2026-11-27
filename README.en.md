@@ -22,16 +22,20 @@ In the included workspace, Lin Zhou proposes a unique request key and describes 
 
 ## Get started
 
-To start a fresh local workspace, install Git and Docker Compose, then run these commands.
+To start a fresh local workspace, install Git, Docker Compose and Python 3.12. In a dedicated Python environment, run:
 
 ```shell
 git clone https://github.com/Lueyu/CareerPilot.git
 cd CareerPilot
-cp .env.example .env
-docker compose up -d --build --wait
+python -m pip install pydantic-settings sqlalchemy cryptography
+python server/personal_credentials.py init --output personal/runtime/personal.env
+docker compose --env-file personal/runtime/personal.env up -d --build postgres
+docker compose --env-file personal/runtime/personal.env run --rm --no-deps server sh -c 'python personal_credentials.py check && python bootstrap.py && python migrate.py && python -m app.seed'
+docker compose --env-file personal/runtime/personal.env run --rm --no-deps server python provision_recovery_control.py --confirm 'PROVISION KNOWN INSTALLATION careerpilot'
+docker compose --env-file personal/runtime/personal.env up -d --build --wait
 ```
 
-Open [your local workspace](http://127.0.0.1:5173/). Choose **English** or **简体中文** in the language selector. New AI replies and interview questions follow your choice. Your notes, answers and quotations keep their original wording. To explore Lin Zhou’s interview history, run `docker compose exec server python -m app.showcase`, refresh, and select **林舟的求职笔记** in the workspace menu. Live AI conversations require a configured model provider. [Local setup guide](docs/getting-started.md)
+These commands are for a new volume only. Preserve existing personal environment files, roles, passwords and data. Register only a verified new/known installation; restored databases remain quarantined. Init creates random credentials once and never overwrites an existing file. Open [your local workspace](http://127.0.0.1:5173/), enter workspace personal and the API_TOKEN from your private environment file in WorkspaceLogin. Credentials are supplied at browser runtime, never through VITE_API_TOKEN. Choose English or 简体中文 in the language selector. Live AI conversations require a configured model provider. [Local setup guide](docs/getting-started.md)
 
 Domain setup for the hosted service is in progress. Its launch address is [interview-buddy.com](https://interview-buddy.com/). In the meantime, you can run CareerPilot locally or ask about availability in [Discussions](https://github.com/Lueyu/CareerPilot/discussions/categories/q-a).
 

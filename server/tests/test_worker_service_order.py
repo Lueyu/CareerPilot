@@ -8,9 +8,10 @@ from app.services import assessment_jobs, assessment_worker, project_scheduler, 
 
 
 @pytest.mark.asyncio
-async def test_continuous_grading_and_notes_leave_a_turn_for_project_work(monkeypatch):
+async def test_continuous_grading_and_notes_leave_a_turn_for_project_work(monkeypatch, db_session):
     session = AsyncMock()
     session.get.return_value = None
+    session.execute.side_effect = db_session.execute
 
     @asynccontextmanager
     async def sessions():

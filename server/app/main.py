@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
+from app import personal_startup as _personal_startup  # noqa: F401 (preflight before runtime imports)
 from app.api.rate_limits import ApiRateLimitMiddleware
 from app.api.recovery_guard import RecoveryGuardMiddleware
 from app.api.v1 import (
@@ -55,6 +56,7 @@ from app.services.study_chat import recover_interrupted as recover_study_chat
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    get_settings().require_secure_personal_startup()
     # 模型定义用于启动建表；部署入口也会执行 migrations/*.sql。
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

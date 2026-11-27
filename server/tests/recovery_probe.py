@@ -30,7 +30,8 @@ async def main():
     assert make_url(os.environ['DATABASE_URL']).database.endswith('_test')
     os.environ['SEED_PUBLIC_ORIGIN'] = 'http://localhost'
     os.environ['SEED_SESSION_SECRET'] = 'F6OnlySyntheticSessionSecret_8f991a0e4c62'
-    await refused(require_auth(authorization='Bearer cp-dev-token', x_api_token=None))
+    from app.config import get_settings
+    await refused(require_auth(authorization='Bearer ' + get_settings().api_token, x_api_token=None))
     await refused(reserve(None, {}, '', '', 1))
     await refused(public_model._claim(1, 'synthetic', 1, 1))
     await refused(llm.get_llm_config())

@@ -7,9 +7,11 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.v1 import exams
+from app.config import get_settings
 from app.main import app
 from app.models import Evidence, Exam, ImportSession, Question, Skill, StudySession, Workspace
-from app.services import assessment_jobs as jobs, assessment_worker as worker
+from app.services import assessment_jobs as jobs
+from app.services import assessment_worker as worker
 from app.services.assessment_rubric import AssessmentJudgeError
 
 
@@ -27,7 +29,7 @@ def factory(db_session, monkeypatch):
 
 def client(workspace):
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test/api/v1/",
-                       headers={"X-Api-Token": "cp-dev-token", "X-Workspace": workspace.slug,
+                       headers={"X-Api-Token": get_settings().api_token, "X-Workspace": workspace.slug,
                                 "Accept-Language": "en"})
 
 

@@ -3,13 +3,13 @@ import argparse
 import asyncio
 import json
 import os
-from pathlib import Path
 import socket
 import subprocess
 import sys
 import tempfile
-import traceback
 import time
+import traceback
+from pathlib import Path
 from uuid import uuid4
 
 # This option confines the Windows platform fallback to acceptance processes.
@@ -241,7 +241,7 @@ def main():
             ([*child_python, "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "18861", "--no-access-log"], SERVER, {}),
             ([*child_python, "app.project_worker"], SERVER, {}),
             (["node", "node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", "18860", "--strictPort"], ROOT / "web",
-             {"VITE_API_BASE": "http://127.0.0.1:18861/api/v1", "VITE_API_TOKEN": token, "VITE_WORKSPACE": WORKSPACE, "VITE_AUTH_MODE": "token"}),
+             {"VITE_API_BASE": "http://127.0.0.1:18861/api/v1", "VITE_WORKSPACE": WORKSPACE}),
         )
         for command, cwd, extra in commands:
             processes.append(subprocess.Popen(command, cwd=cwd, env={**os.environ, **extra},

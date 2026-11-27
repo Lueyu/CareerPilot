@@ -1,6 +1,6 @@
 # Initialize and run from explicit directories; .env is never edited.
 [CmdletBinding()]
-param([int]$Port = 8000, [int]$WebPort = 5173, [switch]$NoWeb, [switch]$NoWorker, [switch]$InitializeOnly, [string]$PythonPath = '', [switch]$WithShowcase, [switch]$BuiltWeb, [switch]$DatabaseReady)
+param([int]$Port = 8000, [int]$WebPort = 5173, [switch]$NoWeb, [switch]$NoWorker, [switch]$InitializeOnly, [string]$PythonPath = '', [switch]$WithShowcase, [switch]$BuiltWeb, [switch]$DatabaseReady, [string]$EnvFile = '')
 $ErrorActionPreference = 'Stop'
 if ($DatabaseReady -and ($InitializeOnly -or $WithShowcase)) {
     throw '-DatabaseReady requires an already initialized instance and cannot initialize or seed a workspace.'
@@ -11,7 +11,7 @@ $serverDir = Join-Path $projectDir 'server'
 $webDir = Join-Path $projectDir 'web'
 $pythonPath = Resolve-CareerPilotPython $serverDir $PythonPath
 $runtimeDir = Join-Path $projectDir 'personal\runtime'
-New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
+$savedEnvFile = $env:CAREERPILOT_ENV_FILE
 $savedWorkspace = $env:DEFAULT_WORKSPACE_SLUG
 $savedEncoding = $env:PYTHONIOENCODING
 $savedApiBase = $env:VITE_API_BASE
@@ -22,11 +22,31 @@ $savedViteWorkspace = $env:VITE_WORKSPACE
 $createdProcesses = @()
 $worker = $null
 try {
+    Push-Location $serverDir
+    try {
+        if ($EnvFile) {
+            $env:CAREERPILOT_ENV_FILE = [IO.Path]::GetFullPath($EnvFile)
+            if (-not (Test-Path -LiteralPath $env:CAREERPILOT_ENV_FILE -PathType Leaf)) { throw 'Explicit EnvFile does not exist; initialize it first with personal_credentials.py init' }
+        } elseif (-not $env:CAREERPILOT_ENV_FILE) {
+            $existingEnv = Join-Path $serverDir '.env'
+            $generatedEnv = Join-Path $runtimeDir 'personal.env'
+            if (Test-Path -LiteralPath $existingEnv) { $env:CAREERPILOT_ENV_FILE = $existingEnv }
+            elseif ((Test-Path -LiteralPath $generatedEnv) -or (-not $env:DATABASE_URL -and -not $env:API_TOKEN)) {
+                & $pythonPath personal_credentials.py init --output $generatedEnv
+                if ($LASTEXITCODE -ne 0) { throw 'Private credential initialization failed; no services started' }
+                $env:CAREERPILOT_ENV_FILE = $generatedEnv
+            }
+        }
+        & $pythonPath personal_credentials.py check
+        if ($LASTEXITCODE -ne 0) { throw 'Insecure personal credentials; no database initialization or services started' }
+    } finally { Pop-Location }
+    New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
     $env:DEFAULT_WORKSPACE_SLUG = 'personal'
     $env:PYTHONIOENCODING = 'utf-8'
     $env:VITE_API_BASE = "http://127.0.0.1:$Port/api/v1"
     [Environment]::SetEnvironmentVariable($webApiKey, $env:VITE_API_BASE, "Process")
     $env:VITE_WORKSPACE = if ($WithShowcase) { 'linzhou' } else { 'personal' }
+    $env:VITE_API_TOKEN = $null
     if (-not $InitializeOnly) {
         $ports = @($Port)
         if (-not $NoWeb) { $ports += $WebPort }
@@ -55,10 +75,6 @@ try {
                 if ($LASTEXITCODE -ne 0) { throw 'Additional workspace initialization failed' }
             }
         }
-        # Capture privately; no credentials are printed or written to launcher logs.
-        $resolvedToken = & $pythonPath -c 'from app.config import get_settings; print(get_settings().api_token)'
-        if ($LASTEXITCODE -ne 0) { throw 'Could not resolve local API authentication' }
-        $env:VITE_API_TOKEN = ($resolvedToken -join '').Trim()
     } finally { Pop-Location }
     if ($InitializeOnly) { Write-Host 'Personal initialization verified'; return }
     if ($BuiltWeb -and -not $NoWeb) {
@@ -106,6 +122,7 @@ try {
     if (-not $NoWeb -and $webProcess.HasExited) { throw 'Frontend exited; inspect personal/runtime/web.err.log' }
     Write-CareerPilotState (Join-Path $runtimeDir 'processes.json') $state
     Write-Host "Personal API ready: $($state.api_url)"
+    Write-Host 'Sign in through WorkspaceLogin with your workspace slug and the API_TOKEN from your private environment file.'
     if (-not $NoWeb) { Write-Host "Personal app: $($state.web_url)" }
     if ($worker) { Write-Host "Worker process alive: $($worker.Identity.pid); task completion is reported separately." }
 } catch {
@@ -118,6 +135,7 @@ try {
     }
     throw $startupError
 } finally {
+    $env:CAREERPILOT_ENV_FILE = $savedEnvFile
     $env:DEFAULT_WORKSPACE_SLUG = $savedWorkspace
     $env:PYTHONIOENCODING = $savedEncoding
     [Environment]::SetEnvironmentVariable($webApiKey, $savedWebApi, "Process")

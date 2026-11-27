@@ -50,7 +50,8 @@ async def test_exam_history_pages_and_legacy_resume(db_session, test_workspace, 
             yield session
 
     monkeypatch.setitem(app.dependency_overrides, exams.get_session, test_session)
-    headers = {"X-Api-Token": "cp-dev-token", "X-Workspace": test_workspace.slug}
+    from app.config import get_settings
+    headers = {"X-Api-Token": get_settings().api_token, "X-Workspace": test_workspace.slug}
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=headers) as client:
         legacy = (await client.get("/api/v1/exams")).raise_for_status().json()
         assert set(legacy) == {"history", "kinds"}
