@@ -30,6 +30,7 @@ web/.env.development.local
 /.env
 server/.venv/
 server/uvicorn.log
+server/logs/
 server/*.db
 server/.env
 server/pip-*/

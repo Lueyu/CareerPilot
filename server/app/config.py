@@ -35,6 +35,13 @@ class Settings(BaseSettings):
     # 正式个人空间; Demo 仅由显式 X-Workspace: demo 访问。
     default_workspace_slug: str = "personal"
 
+    # 结构化日志 (G1): JSON 输出 + 服务端关联 ID + 按大小轮转。
+    # log_file 为空时只输出 stdout(容器日志), 其余项仍保留给显式文件部署。
+    log_level: str = "INFO"
+    log_file: str = "logs/careerpilot.log"
+    log_max_bytes: int = 10 * 1024 * 1024
+    log_backup_count: int = 5
+
     # LLM 适配(空 = 规则引擎降级模式, 不依赖外部 LLM)
     llm_provider: str = ""          # deepseek | glm | ""(rule)
     llm_api_key: str = ""

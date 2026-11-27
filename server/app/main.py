@@ -46,12 +46,14 @@ from app.config import get_settings
 from app.db import engine
 from app.i18n import LanguageMiddleware
 from app.models import Base  # noqa: F401  (注册全部模型)
+from app.observability import RequestContextMiddleware, configure_logging
 from app.services.podcast_jobs import run_worker as run_podcast_worker
 from app.services.study_chat import recover_interrupted as recover_study_chat
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configure_logging()
     # 模型定义用于启动建表；部署入口也会执行 migrations/*.sql。
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -84,6 +86,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# 最外层：为每个请求绑定服务端关联 ID，并统一输出结构化访问日志。
+app.add_middleware(RequestContextMiddleware)
 
 # 认证在 get_workspace 依赖链内(require_auth), /healthz 开放
 for router in (study_chat.router, study_notes.router, study_practice.router, dashboard.router, benchmark.router, profile.router, exams.router, bank.router, learning.router, memory.router, observatory.router, ops.router, public_content.router, settings.router, projects.router, career_assets.router, evolution.router, telemetry.router):
