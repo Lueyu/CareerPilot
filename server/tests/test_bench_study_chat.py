@@ -1,5 +1,6 @@
 import asyncio
 from argparse import Namespace
+from collections import Counter
 from contextlib import AsyncExitStack
 import json
 import socket
@@ -14,7 +15,8 @@ from app.api import deps
 from app.db import get_session
 from app.main import app
 from app.services import study_chat as worker
-from bench_study_chat import PROMPTS, benchmark, run_turn
+from bench_study_chat import (PROMPTS, benchmark, body_fingerprint, claim_assessment, enrich_samples,
+                              paired_summary, run_turn, summarize, usage_tokens)
 
 
 @pytest.mark.asyncio
@@ -132,3 +134,112 @@ async def test_benchmark_keeps_failed_samples_and_ignores_nonbody_frames(termina
     assert trial["outcome"] == outcome and trial["error"] == error
     assert trial["ttft_ms"] is None and trial["duration_ms"] >= 0
     assert paths[-1].endswith("/interrupt") == (terminal != "failed")
+
+
+def sample(side, prompt, repeat, *, outcome="ok", ttft=100.0, duration=200.0,
+           total_tokens=None, body_chars=None):
+    return dict(side=side, prompt=prompt, repeat=repeat, outcome=outcome, error=None,
+                ttft_ms=ttft, duration_ms=duration, total_tokens=total_tokens,
+                body_chars=body_chars, call_count=1, trace_status="completed")
+
+
+def paired_samples(ttft_delta=-10, duration_delta=-20):
+    return [sample(side, prompt, repeat, **({"ttft": 100.0 + ttft_delta, "duration": 200.0 + duration_delta}
+                                            if side == "candidate" else {}))
+            for repeat in range(1, 6) for prompt in PROMPTS for side in ("baseline", "candidate")]
+
+
+def minimal_report(samples, *, baseline_thinking="disabled", candidate_thinking="disabled"):
+    summary = {}
+    for side in ("baseline", "candidate"):
+        trials = [item for item in samples if item["side"] == side]
+        summary[side] = {"all": {"outcomes": dict(Counter(item["outcome"] for item in trials))}}
+    return {"thinking_config": {"baseline": baseline_thinking, "candidate": candidate_thinking},
+            "summary": summary, "pairs": paired_summary(samples)}
+
+
+def test_claim_assessment_allows_only_a_paired_direction():
+    assessment = claim_assessment(minimal_report(paired_samples()))
+    assert assessment["status"] == "paired_direction_only"
+    assert assessment["candidate_direction"] == "faster"
+    assert "not evidence of an overall speedup" in assessment["note"]
+
+
+def test_claim_assessment_blocks_undeclared_thinking_and_failed_samples():
+    samples = paired_samples()
+    blocked = claim_assessment(minimal_report(samples, baseline_thinking="unspecified"))
+    assert blocked["status"] == "insufficient_evidence"
+    assert {"thinking_config_unspecified", "thinking_config_mismatch"} <= set(blocked["reasons"])
+
+    with_timeout = [{**item, "outcome": "timeout"} if item["side"] == "candidate" and item["repeat"] == 1
+                    else item for item in samples]
+    failed = claim_assessment(minimal_report(with_timeout))
+    assert failed["status"] == "insufficient_evidence"
+    assert {"failed_or_timed_out_samples", "too_few_completed_pairs"} <= set(failed["reasons"])
+
+
+def test_claim_assessment_blocks_mixed_metric_directions():
+    assessment = claim_assessment(minimal_report(paired_samples(ttft_delta=-10, duration_delta=20)))
+    assert assessment["status"] == "insufficient_evidence"
+    assert "mixed_metric_direction" in assessment["reasons"]
+    assert assessment["candidate_direction"] == "mixed"
+
+
+def test_paired_summary_reports_discarded_pairs():
+    samples = [sample("baseline", "explain", 1), sample("candidate", "explain", 1, outcome="timeout"),
+               sample("baseline", "tradeoff", 1)]
+    pairs = paired_summary(samples)
+    assert pairs["explain"]["pairs_attempted"] == 1
+    assert pairs["explain"]["pairs_completed"] == 0
+    assert pairs["explain"]["pairs_discarded"] == 1
+    assert pairs["explain"]["discarded_reasons"] == {"outcome_timeout": 1}
+    assert pairs["tradeoff"]["discarded_reasons"] == {"missing_side": 1}
+
+
+def test_summarize_reports_tokens_and_body_anchors():
+    summary = summarize([sample("baseline", "explain", index, total_tokens=100 + index,
+                                body_chars=50 + index) for index in range(3)])
+    assert summary["total_tokens"]["n"] == 3 and summary["total_tokens"]["p50"] == 101
+    assert summary["body_chars"]["p50"] == 51
+    assert summary["trace_status"] == {"completed": 3}
+
+
+def test_usage_tokens_prefers_total_and_falls_back_to_parts():
+    assert usage_tokens({"total_tokens": 120, "prompt_tokens": 999}) == 120
+    assert usage_tokens({"prompt_tokens": 30, "completion_tokens": 20}) == 50
+    assert usage_tokens(None) is None
+    assert usage_tokens({"total_tokens": "120"}) is None
+
+
+@pytest.mark.asyncio
+async def test_enrich_samples_reads_durable_usage_without_changing_outcome():
+    body = "固定夹具正文"
+    calls = [{"tier": "flash", "thinking_mode": "disabled", "usage": {"total_tokens": 120}},
+             {"tier": "strong", "thinking_mode": None, "usage": {"prompt_tokens": 30, "completion_tokens": 20}}]
+
+    def handler(request):
+        return httpx.Response(200, json={"messages": [
+            {"id": 1, "role": "user", "content": "question"},
+            {"id": 2, "role": "assistant", "status": "completed", "content": body, "trace": {"calls": calls}},
+        ]})
+
+    trial = {"session_id": 7, "message_id": 2, "outcome": "ok"}
+    async with httpx.AsyncClient(base_url="http://fixture.invalid", transport=httpx.MockTransport(handler)) as client:
+        await enrich_samples(client, "/sessions", [trial])
+    assert trial["total_tokens"] == 170
+    assert trial["thinking_modes"] == ["disabled", None]
+    assert trial["tiers"] == ["flash", "strong"]
+    assert trial["body_chars"] == len(body.strip())
+    assert trial["body_sha256"] == body_fingerprint(body)
+    assert trial["trace_status"] == "completed"
+    assert trial["outcome"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_enrich_samples_marks_unavailable_on_http_error():
+    trial = {"session_id": 7, "message_id": 2, "outcome": "timeout"}
+    async with httpx.AsyncClient(base_url="http://fixture.invalid",
+                                 transport=httpx.MockTransport(lambda request: httpx.Response(503))) as client:
+        await enrich_samples(client, "/sessions", [trial])
+    assert trial["trace_status"] == "unavailable"
+    assert trial["outcome"] == "timeout"
