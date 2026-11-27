@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     study_strong_output_tokens: int = 12000
     # 用户可调; 默认给足 30 分钟(上限 MAX_STUDY_TIMEOUT_SECONDS)。
     study_timeout_seconds: int = Field(default=MAX_STUDY_TIMEOUT_SECONDS, ge=1, le=MAX_STUDY_TIMEOUT_SECONDS)
+    # Live accepted turns include BackgroundTasks that have not started yet.
+    study_generation_workspace_limit: int = Field(default=2, ge=1, le=100)
+    study_generation_global_limit: int = Field(default=4, ge=1, le=100)
+    study_generation_wait_seconds: float = Field(default=5, gt=0, le=30)
     study_flash_context: int = 24000
     study_strong_context: int = 48000
     # Deployment-declared capabilities. Text and stream are required for chat.

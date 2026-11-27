@@ -10,18 +10,28 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.i18n import message as localized_message, negotiated_language, request_language
 from app.api.deps import get_workspace
 from app.db import get_session
+from app.i18n import message as localized_message
+from app.i18n import negotiated_language, request_language
 from app.models import Exam, Workspace
 from app.models.project import Project
 from app.models.study_chat import StudyMessage, StudySession
+from app.services import mock_interview
 from app.services.answer_guides import example_for
 from app.services.answer_guides import for_question as teaching_guide_for
+from app.services.interview_workflow import AgentRole, WorkflowChange, change_workflow
 from app.services.learning_exposure import record_reference_exposure
 from app.services.study_chat import (
-    expire_generations, generate_reply, interrupt_content, lease_deadline, message_stream, notify_stream, teaching_action,
+    expire_generations,
+    generate_reply,
+    interrupt_content,
+    lease_deadline,
+    message_stream,
+    notify_stream,
+    teaching_action,
 )
+from app.services.study_chat_capacity import admit_generation, generation_event, interrupted_coach
 from app.services.study_chat_context import (
     current_skill_sources,
     entry_context,
@@ -33,8 +43,6 @@ from app.services.study_chat_context import (
     topic_skills,
     visible_question,
 )
-from app.services.interview_workflow import AgentRole, WorkflowChange, change_workflow
-from app.services import mock_interview
 from app.services.study_interview_questions import InterviewQuestionResult, generate_question, saved_result
 
 router = APIRouter(prefix="/study/sessions", tags=["学习聊天"])
@@ -258,7 +266,8 @@ async def archive(session_id: int, session: Db, ws: Owner):
     row.hidden_at = datetime.now(timezone.utc)
     row.status = "ended"
     await session.execute(update(StudyMessage).where(StudyMessage.session_id == row.id,
-        StudyMessage.status == "generating").values(status="interrupted", expires_at=None, error="会话已移除"))
+        StudyMessage.status == "generating").values(status="interrupted", expires_at=None, error="会话已移除",
+                                                   coach=interrupted_coach("cancelled")))
     await session.commit()
     return {"id": row.id}
 
@@ -363,6 +372,7 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
     sources.extend(library["sources"])
     library_trace = library_retrieval_trace(library["sources"], library_started_ms, library_finished_ms)
     inventory = library["inventory"]
+    admission = await admit_generation(session, ws.id) if inventory is None else None
     project_id = body.project_id if body.project_id is not None else row.context.get("project_id")
     if not project_id and teaching_action(body.action, body.content) in ("project", "improve"):
         available = (await session.execute(select(Project.id, Project.name).where(
@@ -423,8 +433,12 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
     coach = {
         "mode": mode, "agent_role": body.agent_role, "response_language": language,
         "parent_message_id": user.id, "revision_of": body.revision_of,
-        "trace": {"stage": "queued", "calls": [], "library_retrieval": library_trace},
+        "trace": {"stage": "queued", "calls": [], "library_retrieval": library_trace,
+                  "request_id": body.request_id, "workspace_id": ws.id},
     }
+    if admission is not None:
+        coach["trace"]["admission"] = admission
+        generation_event(coach["trace"], "accepted", 1)
     if workflow_binding:
         coach["workflow"] = workflow_binding
     reply = StudyMessage(session_id=row.id, role="assistant", action=body.action, content="", sources=sources,
@@ -440,15 +454,17 @@ async def send(session_id: int, body: NewMessage, tasks: BackgroundTasks, sessio
         reply.status, reply.expires_at = "completed", None
     reply.coach = coach
     session.add(reply)
-    await session.commit()
+    await session.flush()
     if reply.status == "generating":
         tasks.add_task(generate_reply, reply.id, reply.attempt, submitted_at=submitted_at, accepted_at=time.monotonic())
+    await session.commit()
     return ticket(user.id, reply)
 
 
 async def owned_reply(session, row, message_id):
     reply = await session.scalar(select(StudyMessage).where(StudyMessage.id == message_id,
-        StudyMessage.session_id == row.id, StudyMessage.role == "assistant").with_for_update())
+        StudyMessage.session_id == row.id, StudyMessage.role == "assistant").with_for_update()
+        .execution_options(populate_existing=True))
     if reply is None:
         raise HTTPException(404, localized_message("errors.reply_not_found"))
     user_id = await session.scalar(select(StudyMessage.id).where(StudyMessage.session_id == row.id,
@@ -467,6 +483,7 @@ async def interrupt(session_id: int, message_id: int, session: Db, ws: Owner,
     if reply.status == "generating":
         reply.content = interrupt_content(reply)
         reply.coach = {**reply.coach, "trace": {**reply.coach.get("trace", {}), "stage": "interrupted", "error_kind": "cancelled"}}
+        generation_event(reply.coach["trace"], "cancelled", reply.attempt)
         reply.status, reply.expires_at, reply.error = "interrupted", None, localized_message("study.paused", (reply.coach or {}).get("response_language", "zh-CN"))
     await session.commit()
     notify_stream(reply)
@@ -492,6 +509,7 @@ async def retry(session_id: int, message_id: int, tasks: BackgroundTasks, sessio
     if await session.scalar(select(StudyMessage.id).where(
             StudyMessage.session_id == row.id, StudyMessage.id > reply.id).limit(1)):
         raise HTTPException(409, localized_message("errors.the_conversation_has_moved_on_send_a_new_message"))
+    admission = await admit_generation(session, ws.id)
     # A practice attempt could have started since the interrupted generation.
     question_text = await session.scalar(select(StudyMessage.content).where(StudyMessage.id == user_id))
     if not (reply.coach or {}).get("workflow"):
@@ -504,12 +522,15 @@ async def retry(session_id: int, message_id: int, tasks: BackgroundTasks, sessio
     previous_trace.pop("terminal_write_at", None)
     reply.coach = {**reply.coach, "trace": {**previous_trace, "calls": calls, "stage": "queued", "error_kind": None}}
     reply.attempt += 1
+    reply.coach["trace"].update(admission=admission, request_id=reply.request_id, workspace_id=ws.id)
+    generation_event(reply.coach["trace"], "retry", reply.attempt)
+    generation_event(reply.coach["trace"], "accepted", reply.attempt)
     reply.status, reply.content, reply.error, reply.model = "generating", "", None, None
     reply.expires_at = lease_deadline()
     row.updated_at = datetime.now(timezone.utc)
+    tasks.add_task(generate_reply, reply.id, reply.attempt, submitted_at=submitted_at, accepted_at=time.monotonic())
     await session.commit()
     notify_stream(reply)
-    tasks.add_task(generate_reply, reply.id, reply.attempt, submitted_at=submitted_at, accepted_at=time.monotonic())
     return ticket(user_id, reply)
 
 

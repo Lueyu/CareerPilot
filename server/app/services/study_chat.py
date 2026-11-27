@@ -13,10 +13,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.config import MAX_STUDY_TIMEOUT_SECONDS, get_settings
 from app.db import SessionLocal
 from app.generation_i18n import generation_message, saved_language
-from app.i18n import Locale, message as localized_message, using_language
+from app.i18n import Locale, using_language
+from app.i18n import message as localized_message
 from app.models.jd import JdSource
 from app.models.study_chat import StudyMessage, StudySession
 from app.services.llm import AgentAdapter, get_llm_config
+from app.services.study_chat_capacity import generation_event, interrupted_coach
 from app.services.study_routing import (
     POLICY_VERSION,
     STREAM_CAPABILITIES,
@@ -48,6 +50,15 @@ class _StreamChannel:
 
 
 _STREAMS: dict[int, _StreamChannel] = {}
+_EXECUTION_SLOTS: asyncio.Semaphore | None = None
+_WAITING_GENERATIONS = 0
+
+
+def execution_slots():
+    global _EXECUTION_SLOTS
+    if _EXECUTION_SLOTS is None:
+        _EXECUTION_SLOTS = asyncio.Semaphore(get_settings().study_generation_global_limit)
+    return _EXECUTION_SLOTS
 
 
 def _release_channel(message_id, channel):
@@ -93,13 +104,15 @@ def expired_reply_error():
                 else_=localized_message("study.error.expired", "zh-CN"))
 
 
-async def expire_generations(session, session_id=None):
+async def expire_generations(session, session_id=None, *, message_id=None):
     query = update(StudyMessage).where(
         StudyMessage.status == "generating", StudyMessage.expires_at <= func.now())
     if session_id is not None:
         query = query.where(StudyMessage.session_id == session_id)
+    if message_id is not None:
+        query = query.where(StudyMessage.id == message_id)
     return await session.execute(query.values(
-        status="interrupted", error=expired_reply_error(), expires_at=None))
+        status="interrupted", error=expired_reply_error(), expires_at=None, coach=interrupted_coach("expired")))
 
 
 async def recover_interrupted():
@@ -212,12 +225,16 @@ async def branch_history(session, reply):
 async def _load_turn(session, message_id, attempt, coach, trace):
     """Load the live reply and its conversation branch. None means no live turn."""
     reply = await session.scalar(select(StudyMessage).where(StudyMessage.id == message_id,
-        StudyMessage.status == "generating", StudyMessage.attempt == attempt))
+        StudyMessage.status == "generating", StudyMessage.attempt == attempt,
+        StudyMessage.expires_at > func.clock_timestamp()))
     if reply is None:
         return None
     coach.update(reply.coach or {})
     previous_trace = coach.get("trace") or {}
     trace["calls"] = previous_trace.get("calls", [])[-20:]
+    for key in ("admission", "lifecycle", "request_id", "workspace_id"):
+        if key in previous_trace:
+            trace[key] = previous_trace[key]
     if "library_retrieval" in previous_trace:
         trace["library_retrieval"] = previous_trace["library_retrieval"]
     coach["trace"] = trace
@@ -681,6 +698,49 @@ async def _keep_generation_lease(message_id: int, attempt: int, stop_at: float):
 
 
 async def generate_reply(message_id: int, attempt: int, *, submitted_at=None, accepted_at=None):
+    """Bound whole executions, including provider teardown after Stop or expiry."""
+    global _WAITING_GENERATIONS
+    async with SessionLocal() as session:
+        reply = await session.scalar(select(StudyMessage).where(
+            StudyMessage.id == message_id, StudyMessage.attempt == attempt,
+            StudyMessage.status == "generating", StudyMessage.expires_at > func.clock_timestamp(),
+        ))
+    if reply is None:
+        return
+    slots = execution_slots()
+    remaining = (reply.expires_at - datetime.now(timezone.utc)).total_seconds()
+    acquired = False
+    try:
+        settings = get_settings()
+        # Cancelled accepted turns can be replaced before their waiter wakes.
+        # Bound these waiters separately so a Stop/retry flood cannot accumulate them.
+        if _WAITING_GENERATIONS >= settings.study_generation_global_limit:
+            raise TimeoutError
+        _WAITING_GENERATIONS += 1
+        try:
+            await asyncio.wait_for(slots.acquire(), min(settings.study_generation_wait_seconds, max(0, remaining)))
+        finally:
+            _WAITING_GENERATIONS -= 1
+        acquired = True
+        # _load_turn rechecks the status, attempt and lease after this wait.
+        await _execute_reply(message_id, attempt, submitted_at=submitted_at, accepted_at=accepted_at)
+    except (TimeoutError, asyncio.CancelledError) as exc:
+        coach = {**reply.coach, "trace": dict((reply.coach or {}).get("trace") or {})}
+        cancelled = isinstance(exc, asyncio.CancelledError)
+        trace = coach["trace"]
+        trace.update(stage="interrupted" if cancelled else "failed", error_kind="cancelled" if cancelled else "capacity")
+        generation_event(trace, "cancelled" if cancelled else "failed", attempt)
+        await publish(message_id, attempt, coach=coach, status="interrupted" if cancelled else "failed",
+                      expires_at=None, error=localized_message("study.error.interrupted" if cancelled else "study.error.failed",
+                                                             coach.get("response_language", "zh-CN")))
+        if cancelled:
+            raise
+    finally:
+        if acquired:
+            slots.release()
+
+
+async def _execute_reply(message_id: int, attempt: int, *, submitted_at=None, accepted_at=None):
     worker_started_at = time.monotonic()
     submitted_at = worker_started_at if submitted_at is None else submitted_at
 
@@ -701,6 +761,7 @@ async def generate_reply(message_id: int, attempt: int, *, submitted_at=None, ac
     async def save(stage, **values):
         trace["stage"] = stage
         if values.get("status") in {"completed", "failed", "interrupted"}:
+            generation_event(trace, "cancelled" if values["status"] == "interrupted" else values["status"], attempt)
             timing["finalizing_ms"] = since_submit(time.monotonic())
             if (values.get("content") or "").strip() and "first_visible_body_ms" not in timing:
                 timing["first_visible_body_ms"] = timing["finalizing_ms"]
@@ -718,6 +779,8 @@ async def generate_reply(message_id: int, attempt: int, *, submitted_at=None, ac
             turn = await _load_turn(session, message_id, attempt, coach, trace)
             if turn is None:
                 return
+            generation_event(trace, "running", attempt)
+            await save("starting")
             channel = _STREAMS.setdefault(message_id, _StreamChannel())
             if channel.worker_attempt is None or attempt >= channel.worker_attempt:
                 channel.worker_attempt = attempt
@@ -782,10 +845,7 @@ def notify_stream(row):
 async def expire_message_if_stale(message_id):
     """Mirror expire_generations for a single message; returns True when it flipped."""
     async with SessionLocal() as session:
-        result = await session.execute(update(StudyMessage).where(
-            StudyMessage.id == message_id, StudyMessage.status == "generating",
-            StudyMessage.expires_at <= func.now(),
-        ).values(status="interrupted", error=expired_reply_error(), expires_at=None))
+        result = await expire_generations(session, message_id=message_id)
         await session.commit()
         return bool(result.rowcount)
 
