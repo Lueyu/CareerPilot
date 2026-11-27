@@ -172,6 +172,40 @@ root.addEventListener('change',update);update();
 """
 
 
+def recovery_demo() -> str:
+    return r"""
+<section id="recovery-demo"><h2>动手判断恢复停在哪一步</h2>
+<p>备份文件能读，并不表示可以让旧账号、后台任务和预算一起恢复。选择一个情况，观察是否创建了新库，以及下一步应该做什么。</p>
+<div class="calc-fields"><label>恢复情况<select id="rc-case">
+<option value="valid">文件与业务验证都通过</option>
+<option value="corrupt">密文损坏或元数据被修改</option>
+<option value="age">备份解密私钥不正确</option>
+<option value="g5">数据库字段的 G5 主密钥不正确</option>
+<option value="exists">指定的目标数据库已经存在</option>
+<option value="ack">数据库可能已提交，但客户端没收到确认</option>
+</select></label></div>
+<div class="flow" style="margin-top:20px"><div class="step"><strong>文件预检</strong><span>摘要、age 验证和归档结构</span></div><div class="step"><strong>创建全新库</strong><span>原实例保持原状，目标不接流量</span></div><div class="step"><strong>导入并隔离</strong><span>同事务写入新的恢复编号</span></div><div class="step"><strong>离线业务验证</strong><span>关联、原始证据与 G5 字段</span></div></div>
+<div class="calc-results" aria-live="polite"><div><span>目标数据库</span><strong id="rc-target"></strong></div><div><span>旧账号与付费</span><strong id="rc-access"></strong></div></div>
+<p id="rc-next" class="check" aria-live="polite"></p>
+<p class="small">这是流程概念演示，不运行恢复、不使用密钥或数据库。真实恢复回执与测试在后文列出。F6 到“验证后的隔离备用库”为止；日期变化、成功解密或检查表数量都不能解除隔离。</p>
+</section><script>
+(() => {
+ const get=name=>document.getElementById('rc-'+name);
+ const cases={
+ valid:['已创建并保留','继续阻止','可以阅读验证回执和离线放行计划。访问、凭据、付费分别核对，本项没有自动切换或解除隔离命令。'],
+ corrupt:['未创建','未启用','停止恢复，重新取得可信且完整的归档。外层摘要通过后，仍须验证加密元数据与归档结构。'],
+ age:['未创建','未启用','停止恢复，核对单独保管的备份私钥。不能用“先创建库再试试看”代替预检。'],
+ g5:['已创建并保留','继续阻止','归档已导入，但数据库字段无法认证。保留隔离目标，核对 G5 主密钥；不能改用另一份环境凭据继续联网。'],
+ exists:['未创建新库','未启用','拒绝向已有目标导入，不覆盖、不删除。先查明该库来源，再制定新的受控操作。'],
+ ack:['新目标保留，完成情况未知','继续阻止','非零退出不能证明事务回滚。使用只读 Inspect 查证；禁止向同名库盲目再次导入。']
+ };
+ function update(){const row=cases[get('case').value];get('target').textContent=row[0];get('access').textContent=row[1];get('next').textContent=row[2];}
+ get('case').addEventListener('change',update);update();
+})();
+</script>
+"""
+
+
 def render(record: dict) -> str:
     issue = record["id"]
     body = '<nav><a href="index.html">第 1 波报告目录</a> · <a href="../../timeline.html">施工时间线</a></nav>'
@@ -185,6 +219,8 @@ def render(record: dict) -> str:
         body += rate_calculator()
     if record.get("calculator") == "secret-context":
         body += secret_context_demo()
+    if record.get("calculator") == "recovery-quarantine":
+        body += recovery_demo()
     body += '<section><h2>读懂这些概念就能读懂代码</h2>' + table(["概念", "人话解释", "在这里的作用"], record["concepts"]) + '</section>'
     body += '<section><h2>为什么选择这个方案</h2>' + paragraphs(record["rationale"]) + table(["方案", "收益", "代价与决定"], record["alternatives"]) + '</section>'
     body += '<section><h2>具体改了哪些代码</h2>'

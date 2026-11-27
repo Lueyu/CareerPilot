@@ -1,0 +1,344 @@
+{
+  "id": "F6",
+  "status": "实现与验证记录",
+  "title": "加密备份、受控复制、保留与新库隔离恢复",
+  "goal": "把数据库副本变成可验证的标准 age 加密归档，用真实 PostgreSQL 演练证明原答与证据能恢复，并让恢复出的旧认证和旧预算默认不能继续运行。交付范围止于已验证、仍隔离的新备用库。",
+  "scenario": [
+    "先看一个假设例子。李同学上午八点备份面试学习数据库，下午又做了三道题，并调用模型花了一笔钱。晚上硬盘损坏，他拿上午的备份恢复。上午的题目可以回来，但下午的答案和费用记录本来就不在快照里。此时如果系统直接按上午的余额继续调用模型，就会重复释放额度。旧快照中的登录 token 也可能是下午已经撤销的 token。这说明恢复数据和恢复运行权限是两件要分别证明的事。这个例子用于解释风险，不是用户的真实事故或真实账单。",
+    "原来的 Windows 备份已做到临时文件落盘、PostgreSQL custom 格式、目录清单验证和 SHA256，但输出仍是可读取的 dump。G5 已经保护了数据库里的供应商秘密，归档本身仍包含题目、原答、经历与各种业务记录。拿到 dump 的人不需要登录网页，就可能读到这些内容。公共版虽然使用 age，却在上传失败时清理唯一暂存密文，恢复也只看表是否存在。",
+    "对于 Agent 工程，真正相关的能力是识别联网和资金副作用、把安全状态放在所有执行者共享的位置、保留评分原始证据，并用故障注入证明失败时的行为。会写一个压缩或加密命令不能单独证明这些能力。报告中的实现和实验由本次代理完成，不能自动等同于用户已经亲手实现或掌握。"
+  ],
+  "before_after": [
+    [
+      "备份文件",
+      "Windows 输出明文 dump 与可选校验旁文件",
+      "标准 age 密文 dump、加密操作元数据、版本化外层清单作为一个目录发布"
+    ],
+    [
+      "异地状态",
+      "公共版失败时删除暂存文件，容易丢唯一副本",
+      "先写 PENDING 再发布；严格 SSH/rsync 分阶段复制；失败/未知保留本地并停止清理"
+    ],
+    [
+      "保留策略",
+      "没有按时间分层保留",
+      "UTC 日、ISO 周、月的7/4/3并集；最新有效、恢复源、安全备份及复制未知项受保护"
+    ],
+    [
+      "恢复成功含义",
+      "新库有表便称验证完成",
+      "离线核对业务表、关联、外键和G5秘密，演练额外比较源/目标行指纹与原答ID"
+    ],
+    [
+      "恢复后的钱和身份",
+      "旧预算/凭据没有恢复专用隔离",
+      "每次恢复产生新 restore_id；API、凭据、付费和独立worker读取同一持久隔离记录"
+    ],
+    [
+      "已有目标",
+      "测试入口拒绝已有库",
+      "继续拒绝所有已有目标；不增加覆盖、删除、改名、切换或通用解锁入口"
+    ]
+  ],
+  "flow": [
+    [
+      "准备外置密钥",
+      "操作员核验工具，分别保存 age identity、公钥文件与 G5 主密钥，通过受保护环境/文件提供凭据。"
+    ],
+    [
+      "生成归档",
+      "持有输出目录锁，创建私有临时目录，执行真实 pg_dump custom，再用 pg_restore --list 检查归档目录。"
+    ],
+    [
+      "封装与发布",
+      "age 加密 dump 与内部元数据，写清单和预先存在的 PENDING/NOT_CONFIGURED 回执，再把完整临时目录改名为正式 bundle。"
+    ],
+    [
+      "复制与清理",
+      "配置远端时使用独立 partial 路径、严格主机指纹及远端摘要校验；确认后发布。任何未知状态阻止清理这份本地归档。"
+    ],
+    [
+      "审阅恢复计划",
+      "计划固定归档摘要、服务器、当前库、新库和安全备份位置，操作员以整个计划的 SHA256 确认。"
+    ],
+    [
+      "安全恢复",
+      "校验和解密完成后，先备份现库，再创建未路由的新目标；导入和新隔离记录在同一事务内提交。"
+    ],
+    [
+      "验证并保留隔离",
+      "离线验证原答、证据与G5；独立进程检查API、付费、凭据、worker拒绝。输出耗时与后续审批条件，不切换个人实例。"
+    ]
+  ],
+  "mechanism": [
+    "归档采用固定的数据形状。每个 cpbackup-随机ID 目录拥有 database.dump.age、metadata.age、manifest.json 和复制状态回执。外层清单记录 owner_id、backup_id、UTC 时间、源库名、密文长度、SHA256、工具版本、服务器版本、应用提交与接收者公钥文件指纹。内部元数据经过 age 加密，重复绑定这些操作字段，并记住原文 dump 摘要和密文摘要。恢复不信任任意文件名或清单里的路径，而只读取固定成员。这样可以在不自创密码算法的前提下，发现文件损坏、元数据替换和不匹配的归档。",
+    "SHA256 可以理解为文件的内容指纹。传输少一个字节，指纹通常就不同。但攻击者若能同时替换文件和外层摘要，单独 SHA256 不能证明来源。age 使用成熟的公开归档格式，并在解密时验证密文完整性。错误 identity、篡改密文或元数据会被拒绝。公钥持有人也能加密新文件，所以本系统仍要求从可信来源获取备份，不把加密误称为发送者签名。PostgreSQL dump 还可能包含 SQL 代码，只能在受控维护环境恢复。",
+    "原文只在受保护的临时目录短暂存在。新建 Windows 目录使用仅当前运行身份可访问的ACL，Unix使用0700。备份和恢复的finally会清理正常结束、异常退出路径里的原文。测试实际遇到了系统Temp目录权限拒绝，因此恢复临时目录放在本次回执目录旁边，没有改个人Temp权限。断电或强制终止无法保证finally运行，操作员需要在确认无活进程后检查遗留目录。文件系统快照、SSD残留和全盘加密不属于脚本能保证的范围。",
+    "保留算法先按UTC时间排序，再从7个日桶、4个ISO周桶、3个月桶各取最新一份，最后取并集。同一个文件可能同时代表本周和本月，所以不一定留下14份。额外保留最新有效归档、pinned安全副本、recovery-source.pin恢复源及复制状态未知的目录。保留程序只在自己的owner_id根目录下删除完整归档集合，不能使用清单字段拼接任意删除路径。根目录、reparse/symlink路径被拒绝；无关文件和不完整集合保留。",
+    "上传和保留有一个容易遗漏的并发关系。第一份备份上传时，第二份备份可能已成为当天最新项。如果第一份没有复制状态，清理程序就可能把它当作旧文件删除。这里在持有输出锁时就把PENDING回执写进待发布目录，整个目录一起发布。清理对缺失、破损、未知版本和未知状态的回执也一律保留。即使进程在复制报错与写失败回执之间崩溃，初始PENDING仍可保护本地密文。测试通过受控暂停上传、创建更新备份、再运行另一进程清理来检查这个窗口。",
+    "远端适配器沿用现有age加严格SSH/rsync方向。它要求明确的目标、专用SSH身份和预先核验的known_hosts，不查找用户真实远端凭据。连接启用BatchMode、StrictHostKeyChecking和IdentitiesOnly；先传唯一partial目录，再通过SSH读取三个文件的SHA256，确认后发布且不覆盖已有目录。超时、失败或读回无法确认时都保留本地，自动保留清理不继续。模拟的ssh/rsync可执行文件只证明控制流，不能证明真实异地网络、权限、磁盘或远端恢复。",
+    "受控恢复把可审阅计划和执行分开。Plan模式写当前库、全新目标、连接身份、源摘要、安全备份位置及操作顺序，不创建数据库。Standby模式要求“RESTORE 加计划SHA256”的精确确认并核对参数。确认后先新备份当前库，给安全备份加pin，失败就停在建目标之前。如果配置了远端但复制未确认，同样停止。目标名称不能等于源或当前库；已有目标即使是空库也拒绝。执行不包含DROP、clean、rename或修改个人连接字符串。",
+    "恢复目标在导入前没有应用消费者和路由。脚本撤销PUBLIC CONNECT作为附加限制，但维护owner和超级用户可以绕过它，因此不把这个ACL写成绝对隔离。pg_restore先产生SQL，psql在单事务里执行导入和新的recovery_control记录，然后提交。新的restore_id替换快照里的旧审批，access为QUARANTINED，paid和credentials为BLOCKED，验证起初PENDING。离线校验通过只改validation_state为VALIDATED，其他状态保持锁定。",
+    "为什么要单独处理“提交确认丢失”？客户端返回非零不代表数据库一定回滚。数据库可能已经COMMIT，而连接在回传成功时断开。盲目重试或清空目标都会让故障更严重。本实现保留目标并标UNKNOWN，下一步用Inspect只读查看控制记录和实际内容，不导入第二遍、不删除目标。故障测试让真实psql完成导入后人为返回非零，再由新连接核对隔离记录，避免用一句“原子失败”掩盖不确定性。",
+    "持久隔离由数据库一条版本化控制记录负责。运行时require_normal(session)检查唯一记录、版本、origin、restore_id格式、当前数据库和服务器身份、验证状态，以及access/paid/credentials三个NORMAL条件。缺表、缺行、损坏或未来版本都拒绝。普通启动/create_all不会插NORMAL。只有离线、明确确认过来源的已知新安装或现有正常安装能登记INSTALLATION；已标为RESTORE的库不能通过该命令重新分类。对没有标记的旧库，系统无法自动区分原安装和旧快照，必须由操作员核验来源。",
+    "HTTP隔离覆盖个人版和注册版业务API，包括登录与恢复入口，避免拿旧密码换一张新会话。require_auth和_session_account直接被调用时也检查。实际LLM和仓库凭据解析在返回DB或环境凭据前检查，因此删掉设置行不能触发环境密钥回退。G5的纯解码函数仍给离线验证器使用，但没有在线通用绕过参数。独立子进程还在无设置行、只有合成环境凭据时验证拒绝，真实模型与仓库从未被调用。",
+    "付费控制不能只放在网页入口，因为后台任务也会调用模型。私有reserve在原有资金准入锁内复查隔离；公共_claim在站点计费锁内检查。保留账本事务原有语义，不把UNKNOWN变为零，不释放未知预留。演练放入一条明确标记为合成的UNKNOWN记录，验证恢复后原状态、预留和未知actual字段一致。它是故障夹具，不是假造某笔真实历史开销，也不是供应商费用测量。",
+    "任务也有不花钱但会改数据的路径，例如发布缓存评分结果、回收租约或更新能力证据。因此独立project_worker的serve在启动、handoff、scheduler和每轮处理之前检查；项目/评分reconcile与execute_claim、独立scheduler.tick、笔记consumer和播客consumer也先检查。隔离时不发布outbox、不领取、不回收旧租约、不启动普通恢复流程。测试使用真实RUNNING且租约已过期的合成笔记任务，比较--once子进程执行前后的整行，证明隔离不是仅靠供应商拒绝来碰巧阻止变化。",
+    "业务验证关注原始事实而不是重算成绩。离线检查必需表、有效外键和答案到答卷、题目、考试、工作空间的关联，输出原答、修订、证据及账本的完整行指纹。真实演练把这些指纹与备份前的源库比较，也检查原答ID和逐字文本。不会重新生成答案、重新评分或从“学习完成”推出能力结论。全部G5设置通过原有pure open_setting检验正确钥读取，缺钥/错钥拒绝；这证明密文能读，不证明旧供应商token今天仍被授权。"
+  ],
+  "concepts": [
+    [
+      "备份与恢复",
+      "备份是保存数据快照，恢复是把快照放回可用的新库并检查内容。",
+      "有文件不等于能恢复，需要真实pg_restore和业务核对。"
+    ],
+    [
+      "公钥与identity",
+      "公钥可以分发给备份机；identity是只能由恢复操作员持有的解密秘密。",
+      "备份机无需持有解密能力，密钥不进归档。"
+    ],
+    [
+      "G5与F6两层加密",
+      "G5保护数据库里的秘密字段，F6保护整份备份。",
+      "G5主密钥与age identity各自独立，丢任何一层都会影响恢复。"
+    ],
+    [
+      "隔离与备用库",
+      "数据库已恢复出来，但应用身份和付费仍锁定。",
+      "允许离线核验，不自动连接个人实例。"
+    ],
+    [
+      "恢复代际",
+      "每次恢复获得全新restore_id。",
+      "后续H1的凭据与审批必须绑定本次代际，旧审批不能继承。"
+    ],
+    [
+      "RTO与RPO",
+      "RTO是到某个明确恢复状态的时间；RPO关注事故中能容忍丢多少近期数据。",
+      "本次只测到验证后隔离库的耗时，没有证明生产服务RTO或调度频率形成的RPO。"
+    ]
+  ],
+  "rationale": [
+    "使用Foundational Thinking原则先固定bundle、plan和恢复控制记录，避免各脚本自己猜“正常”状态。两种候选方案已写入design.md。选择复用PowerShell和PostgreSQL成熟工具的形状A，Astra只读建议与父代理确认后才写恢复执行路径。",
+    "使用Prove It Works原则把真实age、真实pg_dump、真实导入、原始业务行比较和独立进程检查放进自动验证，保留每个失败回执。编译、表数量和作者自述都不能代替这些证据。",
+    "没有引入外部epoch服务、KMS或完整H1认证生命周期。F6以保守隔离结束，未来启用需要专门实现和验证。这样保留明确安全边界，避免为了“看起来可用”制造通用approve捷径。",
+    "公共版旧shell入口退出78并指向同一工作替代流程。停止广告式的“校验有表即恢复成功”，也避免维护第二套加密/保留/隔离框架。没有修改个人未跟踪的ECS_DEPLOY_RUNBOOK.md。"
+  ],
+  "alternatives": [
+    [
+      "继续明文dump",
+      "工具简单、排障方便。",
+      "备份可读出原答与其他业务信息，拒绝。"
+    ],
+    [
+      "自定义AES封装",
+      "可以自定义字段。",
+      "需要自行维护nonce、认证、格式和兼容性，采用成熟age替代。"
+    ],
+    [
+      "独立部署epoch与预算服务",
+      "可在快照之外记录最新撤销和费用高水位。",
+      "新增状态服务和运维迁移，超出F6最小范围，作为更强后续设计而非伪装已完成。"
+    ],
+    [
+      "恢复后直接清token表并放开",
+      "操作少。",
+      "旧密码/恢复码和未知未来表仍可复活，且无法解决丢失费用，不采用。"
+    ],
+    [
+      "F6停在验证后的隔离库",
+      "不恢复不确定的资金和身份权限。",
+      "人工核对与H1集成时间另计，当前交付采用。"
+    ]
+  ],
+  "files": [
+    {
+      "path": "deploy/backup.ps1",
+      "why": "原有custom/TOC基础上加入age封装、原子目录发布、复制预保护与安全备份pin。"
+    },
+    {
+      "path": "deploy/backup-common.ps1",
+      "why": "统一路径边界、私有目录、密文/内外元数据验证与严格SSH适配器。"
+    },
+    {
+      "path": "deploy/backup-retention.ps1",
+      "why": "自有目录与7/4/3并集，复制未知、恢复源和安全pin保护。"
+    },
+    {
+      "path": "deploy/restore.ps1",
+      "why": "计划确认、当前库先备份、新目标单事务导入和隔离、离线验证、UNKNOWN只读复核。"
+    },
+    {
+      "path": "server/app/services/recovery_control.py",
+      "why": "唯一持久控制数据与fail-closed检查，无release API。"
+    },
+    {
+      "path": "server/app/project_worker.py",
+      "why": "实际独立worker启动、调度和处理前停止隔离库任务。"
+    },
+    {
+      "path": "server/validate_recovery.py",
+      "why": "离线FK、原始业务指纹与G5认证读取，不调用外部服务。"
+    },
+    {
+      "path": "server/tests/test_backup_recovery.py",
+      "why": "真实age/PG/受控备用库与损坏、错钥、并发复制、保留、丢确认测试。"
+    },
+    {
+      "path": "deploy/BACKUP_RECOVERY.md",
+      "why": "可执行操作前提、命令、恢复/H1合同及真实边界。"
+    },
+    {
+      "path": "server/Dockerfile",
+      "why": "显式COPY离线登记与验证CLI，父代理实际镜像help证明文件存在。"
+    },
+    {
+      "path": "server/Dockerfile.seed.dockerignore",
+      "why": "仅精确放行两个新增隔离模块。"
+    },
+    {
+      "path": "deploy/public/test_release.py",
+      "why": "旧入口拒绝合同与无变更检查，真实DR改指共同server测试。"
+    }
+  ],
+  "verification": {
+    "explanation": [
+      "所有数据源来自run_isolated_tests.py新建的*_test数据库，目标也使用新的*_test名字。使用父代理提供的官方age1.3.2二进制及原生PG18.6；无全局安装、无个人库查询/迁移、无真实模型、SMTP或真实远端凭据。",
+      "命令、退出码、完整stdout/stderr保存在commands.jsonl及聚焦日志；RTO回执保存实际目标、状态、阶段耗时和业务指纹。源fixture、模拟传输和真实数据库的边界分别标明。",
+      "所有失败日志都保留。曾出现Temp私有目录拒绝、SQL搜索路径、模拟提交确认工具参数转发、演练设置污染后续测试及异步测试工厂跨事件循环问题；均按实际症状修正，没有用已知基线问题或测试超时作整批豁免。",
+      "父代理实际私有镜像build与无网络CLI help已通过。公开镜像只验证新增模块allowlist，既有其他导入缺口明确保留。公共旧harness已停止DR成功声明，仅验证退出78及无变更合同；本次轻量DB adapter为模拟。"
+    ],
+    "checks": [
+      [
+        "聚焦回归",
+        "201 passed in 331.92s，exit0，真实恢复/隔离/计费/G5/认证/E3。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\f6\\focused-final2.log"
+      ],
+      [
+        "真实PG与age",
+        "PG服务器/工具18.6、age1.3.2；277633字节密文，源目标业务及UNKNOWN账本指纹一致，5组G5认证。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\f6\\actual-drill-summary.json"
+      ],
+      [
+        "恢复耗时",
+        "单次本机合成数据到验证后隔离库 4.8907722 秒，不是生产服务RTO。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\f6\\drill-f6_drill_19ea46b3857e_test.json"
+      ],
+      [
+        "实际独立worker",
+        "--once明确RECOVERY_QUARANTINED，RUNNING generation7过期租约原行不变，0新心跳，直接scheduler/reconcile/consumer拒绝。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\f6\\worker-quarantine.json"
+      ],
+      [
+        "错误路径",
+        "错age/损坏/元数据替换/有效摘要无效dump无新目标；已有目标拒绝；wrongG5保留隔离目标。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\f6\\commands.jsonl"
+      ],
+      [
+        "丢失提交确认",
+        "真实SQL成功后注入非零，保留UNKNOWN目标，再用新连接Inspect看见隔离记录。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\f6\\lost-ack-inspect.json"
+      ],
+      [
+        "受控备用库",
+        "计划精确确认；先新备份当前库并pin；错误确认/安全备份失败无新库；成功仍隔离。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\f6\\standby.json"
+      ],
+      [
+        "并发复制与保留",
+        "暂停模拟上传，创建更新备份，另一进程清理后PENDING密文仍在；缺失/损坏/未知回执保护。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\f6\\focused-final2.log"
+      ],
+      [
+        "原始红测",
+        "旧实现接受被标记为RESTORE的旧token，预期拒绝产生DID NOT RAISE。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\f6\\quarantine-red.log"
+      ],
+      [
+        "旧公共入口",
+        "真实Git Bash调用backup/restore两模式均exit78且文件不改；DB adapter为模拟，非legacy DR通过。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\f6\\legacy-public-contract2.log"
+      ],
+      [
+        "静态检查",
+        "后端按server项目配置ruff通过；legacy harness单独用server规则通过；PS解析与COPY/py_compile通过。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\f6\\ruff-delivery.log"
+      ],
+      [
+        "父代理私有镜像",
+        "实际build exit0、image careerpilot-wave1-f6:20261128；两个无网络CLI --help exit0。没有重跑数据库。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\f6\\docker-build.log"
+      ],
+      [
+        "公开包边界",
+        "只精确加入两个新隔离模块；公开完整import既有rate_limits/ops/telemetry缺口不声称已修。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\f6\\legacy-public-contract2.log"
+      ],
+      [
+        "私人镜像内文件摘要",
+        "禁网容器内4个新增工具/模块与源码SHA256一致",
+        " .agent-runs/20261128-wave1/f6/docker-packaging-receipt.json"
+      ]
+    ],
+    "commands": [
+      "cd server; D:/agent-interview/server/.venv/Scripts/python.exe run_isolated_tests.py tests/test_backup_recovery.py tests/test_recovery_quarantine.py tests/test_private_model_billing.py tests/test_secret_storage.py tests/test_public_auth.py tests/test_api_rate_limits.py -q --tb=short",
+      "D:/agent-interview/server/.venv/Scripts/python.exe -m ruff check <本项所有改动Python文件>",
+      "cd server; D:/agent-interview/server/.venv/Scripts/python.exe -m ruff check <作者修改的后端Python文件>",
+      "D:/agent-interview/server/.venv/Scripts/python.exe -m ruff check --config server/pyproject.toml deploy/public/test_release.py"
+    ]
+  },
+  "limits": [
+    "真实异地目标未配置，实际异地复制/下载/灾难恢复均UNKNOWN或NOT_CONFIGURED。模拟SSH/rsync成功或失败不能替代真实远端验收，远端工具与权限需操作员配置。",
+    "本次仅做隔离合成数据库恢复，没有个人生产切换、真实服务恢复、KMS、真实模型或SMTP。小数据单次耗时不能当作生产RTO、容量或长期可靠性承诺。",
+    "F6没有解除隔离命令。H1需要新restore_id下的凭据签发或独立核对，并处理旧会话、密码、恢复码及静态fallback，保持owner/workspace关系；未知未来认证表仍阻止放行。",
+    "权限和付费的审批必须分别绑定恢复ID、目标、归档摘要、审批人、时间及对账证据。付费需外部缺失费用核对，或明确批准下一UTC+8日且先隔离旧消费者。日期翻页不会自动批准，也不能用清账、假零费用或退还UNKNOWN来解锁。",
+    "维护owner/超级用户可能绕过CONNECT限制，必须无目标消费者和路由。普通安装升级须由操作员确认来源后离线登记NORMAL，未知数据库不会自动开放。没有在个人实例执行这些操作。",
+    "断电与强杀可能遗留私有原文临时目录，离线操作员需确认无活进程后清理。未实现存储介质安全擦除、自动远端保留调度或真实告警部署。旧单文件归档须先在隔离环境制定可信转换，缺少业务schema的归档拒绝成功。",
+    "精简公开镜像既有rate_limits与ops/telemetry导入allowlist缺口未全面修复，未声称完整注册镜像import通过。公开离线登记明确使用完整源码维护主机与定向控制表迁移。"
+  ],
+  "interview": [
+    "可以依据本次证据解释为什么恢复旧数据库还会恢复旧权限与旧额度，以及为什么付费闸必须覆盖后台入口。不要把代理实施与用户本人已掌握混为一谈。",
+    "可以说明使用标准age、PostgreSQL custom、版本化元数据和单事务隔离安装的分工；用真实故障回执解释校验失败、已有目标与UNKNOWN提交。",
+    "能够负责任地陈述“做过合成数据到新隔离库的实际恢复与原答核对”，不能说已做真实生产灾备切换、真实异地恢复或已证明任意规模的RTO。"
+  ],
+  "questions": [
+    [
+      "上午备份晚上恢复，今天的预算为什么不能照快照继续用？",
+      "快照之后的花费和未知预留可能丢失，数据库内的总额不再代表当天实际额度。先隔离，保留历史，再独立对账或走明确批准且隔离旧消费者的下一账期路径。"
+    ],
+    [
+      "age identity和G5主密钥能用同一个文件随备份带走吗？",
+      "不能。二者用途不同且都必须在归档与Git之外。能解开备份但没有正确G5钥仍不能读取字段；把钥匙一并打包会失去泄露后的保护。"
+    ],
+    [
+      "pg_restore或psql退出非零，为什么不删除目标重试？",
+      "数据库可能已经提交但确认丢失。应保留目标标UNKNOWN，用新连接只读确认控制记录与业务内容。同名重试仍拒绝，不能假设回滚。"
+    ],
+    [
+      "保留7日4周3月为什么不是固定14份？",
+      "各时间桶重叠，保留的是最新代表项的并集，另外还有最新有效项、安全pin、恢复源和复制未知项。"
+    ],
+    [
+      "已经加了HTTP隔离，为何还要改独立worker？",
+      "后台任务不一定经过HTTP，而且缓存结果发布与租约回收不必花钱。必须在调度、reconcile和claim之前检查同一持久状态。"
+    ],
+    [
+      "上传时新备份出现，旧上传文件怎么避免被清理？",
+      "PENDING状态必须在持锁时和bundle一起发布；缺失或看不懂的回执也保留。只有明确已确认或明确未配置的已知状态进入正常保留评估。"
+    ]
+  ],
+  "delivery": [
+    "目标是完成第 1 波 F6，从最新 dev a2d3eb36b724a85d3f685e4ed579da88621bf285 建独立分支 codex/wave1-f6-encrypted-backup-restore。",
+    "报告代码入口固定在 ae43c49a01e198c2bd92ef50886b60b055468350。这份说明对应受控测试环境；个人实例与个人数据库没有升级。",
+    "本篇 PR 保存独立审核结论和实际合入状态。最终 dev 提交以合入回执为准，报告只将已运行的检查写为通过。",
+    "回退通过对本项 squash 提交建立新的反向 PR 完成；含持久数据的改动先核对其报告边界，保留已有账本和历史证据。"
+  ],
+  "source_ref": "ae43c49a01e198c2bd92ef50886b60b055468350",
+  "links": [
+    {
+      "label": "PR #57 与真实合入状态",
+      "href": "https://github.com/Lueyu/CareerPilot/pull/57"
+    }
+  ],
+  "calculator": "recovery-quarantine"
+}
