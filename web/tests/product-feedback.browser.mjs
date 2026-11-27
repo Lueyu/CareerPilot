@@ -7,7 +7,6 @@ import { createServer } from 'vite';
 const { chromium } = createRequire(import.meta.url)('playwright');
 const root = fileURLToPath(new URL('../', import.meta.url));
 process.env.VITE_API_BASE = 'http://127.0.0.1:18371/api/v1';
-process.env.VITE_API_TOKEN = 'synthetic-feedback-test-token';
 process.env.VITE_AUTH_MODE = 'local';
 process.env.VITE_WORKSPACE = 'personal';
 const browser = await chromium.launch(process.env.FEEDBACK_BROWSER_CHANNEL
@@ -83,6 +82,10 @@ async function check({ base, registered, width }) {
     });
 
     const page = await context.newPage();
+    if (!registered) await page.addInitScript(() => {
+      sessionStorage.setItem('cp-login-workspace', 'personal');
+      sessionStorage.setItem('cp-login-token', 'synthetic-feedback-test-token');
+    });
     await page.goto(base + (registered ? '/settings/account' : '/'), {
       waitUntil: 'domcontentloaded', timeout: 60_000,
     });

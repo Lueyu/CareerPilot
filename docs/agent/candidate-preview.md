@@ -24,7 +24,11 @@ $regression = '["python","server/run_isolated_tests.py","tests/test_assessment_c
 python $cli start --run-dir $run --workspace $tree --base $base --patch-sha $sha --project $project --regression $regression
 ```
 
-The command uses the base's `docker-compose.yml` and candidate Dockerfiles to bring up PostgreSQL, the API, the worker, and the web service. It adds the built-in `app.seed --demo` option and routes `/api/v1` through the preview's Nginx. The browser opens the synthetic Demo workspace on the preview port. The HTTP gate requests the app page, its compiled JavaScript, API readiness, and the seeded Demo dashboard through that address. The existing `server/run_isolated_tests.py` entry point creates an additional test database in the candidate's PostgreSQL container. Point the command at the actual test for the task. For a Python environment with project dependencies, use its absolute interpreter path as the first JSON argument.
+Use the project Python with backend dependencies for this controller. It uses the base Compose and candidate Dockerfiles, with one completed preflight plus four running services (PostgreSQL, API, worker, web). Each owned attempt creates a protected `preview.env` with random synthetic credentials; repeated init preserves its bytes. The adapter adds `app.seed --demo` and explicit known-new-installation registration before serving. Ordinary startup never inserts NORMAL. `/api/v1` uses the preview Nginx.
+
+The page now opens WorkspaceLogin. Enter slug `demo` and API_TOKEN from this attempt's private `preview.env`; never print the token or copy personal .env. Browser regression commands receive `CANDIDATE_API_TOKEN` and supply it at runtime through login or a fresh context's sessionStorage. `VITE_API_TOKEN` is unused. The HTTP gate reads the same private file for the Demo dashboard and checks real HTML, compiled JavaScript and API readiness. `server/run_isolated_tests.py` creates a further owned test database. Use absolute interpreter paths in JSON check arguments.
+
+If Python-launched Docker fails while native PowerShell works, preserve the failed controller receipt. A separately recorded native fallback must bind the exact source/hash, owned container/image/volume/listener identities, served assets and browser journeys. Its success does not change the original controller receipt to PASS. Keep both evidence sets; never change Docker ACLs or personal services to bypass the failure.
 
 ### Squabble
 

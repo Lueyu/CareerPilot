@@ -8,22 +8,22 @@
 - 执行器不做版本表记账(单机简单优先), 重复执行零副作用;
 - 新表由 app.main lifespan 的 create_all 创建; 本执行器负责新列/索引/数据修补。
 """
+import asyncio
 import sys
 from pathlib import Path
 
-import asyncio
 import asyncpg
-from dotenv import load_dotenv
 
-import os
+from app.config import get_settings
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 
 def _sync_dsn() -> str:
     """从 .env / 环境变量取 database_url, 转成 asyncpg 直连 DSN。"""
-    load_dotenv(Path(__file__).parent / ".env")
-    url = os.getenv("DATABASE_URL", "postgresql+asyncpg://careerpilot:careerpilot_dev@localhost:5432/careerpilot")
+    settings = get_settings()
+    settings.require_secure_personal_startup()
+    url = settings.database_url
     # postgresql+asyncpg://user:pass@host:port/db -> postgresql://user:pass@host:port/db
     dsn = url.replace("postgresql+asyncpg://", "postgresql://", 1)
     # asyncpg 不认 sqlalchemy 风格 query 参数(如有)

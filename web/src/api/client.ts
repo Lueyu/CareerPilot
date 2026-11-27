@@ -4,10 +4,10 @@ import { SeedApiError, type createWorkspaceApi } from '../seed/api';
 // CareerPilot API client — 后端 FastAPI (127.0.0.1:8000)
 // 认证: X-Api-Token; 工作空间: X-Workspace (默认 personal)
 
-import { localFetch, localWorkspace, selectLocalWorkspace, workspaceLogin } from './localTransport';
+import { localFetch, localWorkspace, selectLocalWorkspace, requiresLocalLogin, workspaceLogin } from './localTransport';
 import type { SendFeedback } from './feedback';
 
-export { workspaceLogin };
+export { requiresLocalLogin, workspaceLogin };
 const registeredBuild = (import.meta as any).env?.VITE_REGISTERED;
 type RegisteredAccess = {
   workspaceId: number;

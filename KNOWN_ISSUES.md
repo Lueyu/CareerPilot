@@ -315,7 +315,7 @@
 - **为什么是问题**：密钥是最高价值资产；明文落库+明文备份=双重泄露面。生产化必须加密存储，但本地个人版阶段优先级低于 Agent 核心能力。
 - **目标方案**：Fernet/AES-GCM 信封加密（主密钥来自 env/OS keyring，不进 DB）；或接系统凭据管理器；迁移现有明文行；备份加密（F6）兜底。
 
-### G6. 弱默认凭据进 compose 与前端 bundle，个人版无启动断言 `P2` `OPEN`
+### G6. 弱默认凭据进 compose 与前端 bundle，个人版无启动断言 `P2` `DONE`
 - **现状**：config 默认 api_token="cp-dev-token"、debug=True、DATABASE_URL 示例弱口令；compose 内置弱默认；个人版不像公开版那样启动拒绝弱口令；前端 localTransport 内置 dev token。
 - **代码**：`server/app/config.py:23,30`；`docker-compose.yml:2-3`；`web/src/api/localTransport.ts:6,30`；对比 `public_main.py:32-33`（有断言）。
 - **为什么是问题**：个人版一旦端口暴露到局域网/公网（ECS 部署场景真实存在），弱 token 即被扫到。

@@ -9,11 +9,16 @@ from __future__ import annotations
 import asyncio
 import sys
 
+from app import personal_startup as _personal_startup  # noqa: F401 (before database/model imports)
+
+# isort: split
 import app.models  # noqa: F401  确保全部模型注册进 Base.metadata
 from app.db import Base, engine
 
 
 async def main() -> None:
+    from app.config import get_settings
+    get_settings().require_secure_personal_startup()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

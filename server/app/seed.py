@@ -12,6 +12,11 @@
 """
 from __future__ import annotations
 
+if __name__ == "__main__":
+    from app.config import get_settings
+
+    get_settings().require_secure_personal_startup()
+
 import argparse
 import asyncio
 import json

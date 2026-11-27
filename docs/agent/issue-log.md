@@ -36,3 +36,10 @@
 - 验证 SHA：ae43c49a01e198c2bd92ef50886b60b055468350
 - 证据：.agent-runs/20261128-wave1/f6/handoff.json
 - 遗留/后续：真实异地NOT_CONFIGURED；无生产切换与隔离解除，H1需落实新凭据代际；公开镜像既有allowlist缺口未宣称修复。个人实例未变更。
+
+## G6 · 2026-11-28 · DONE
+- 结论：个人启动拒绝默认和明显弱凭据；首次随机私有文件原子发布且重跑稳定，Windows实际DACL回读；前端运行时登录不嵌令牌。作者后端125、备份5、预览11、前端284通过；父代理冻结源码实际应用/浏览器与PG16回归77通过。独立审核见本PR，范围重叠不加总。
+- PR：https://github.com/Lueyu/CareerPilot/pull/58
+- 验证 SHA：5f97694b0d03dd92d8ba907b07700170ba54641d
+- 证据：.agent-runs/20261128-wave1/g6/handoff.json
+- 遗留/后续：H1负责hash/撤销/轮换/租户与恢复代际；已有弱配置由操作者维护迁移。未改个人实例或既有角色密码；Python控制器未被标为PASS，原生Docker证据单列。

@@ -1,6 +1,7 @@
+x-backend-build: &backend-build ./server
 x-backend-environment: &backend-environment
-  DATABASE_URL: postgresql+asyncpg://careerpilot:careerpilot_dev@postgres:5432/careerpilot
-  API_TOKEN: ${API_TOKEN:-cp-dev-token}
+  DATABASE_URL: postgresql+asyncpg://careerpilot:${POSTGRES_PASSWORD:?initialize a private environment file first}@postgres:5432/careerpilot
+  API_TOKEN: ${API_TOKEN:?initialize a private environment file first}
   CAREERPILOT_SECRETS_KEY: ${CAREERPILOT_SECRETS_KEY:-}
   DEFAULT_WORKSPACE_SLUG: ${DEFAULT_WORKSPACE_SLUG:-personal}
   LLM_PROVIDER: ${LLM_PROVIDER:-}
@@ -14,17 +15,25 @@ x-backend-environment: &backend-environment
   PORTAL_AUTO_MERGE: ${PORTAL_AUTO_MERGE:-false}
 
 services:
+  preflight:
+    build: *backend-build
+    environment: *backend-environment
+    command: ["python", "personal_credentials.py", "check"]
+
   postgres:
     image: postgres:16-alpine
     container_name: careerpilot-db
     environment:
       POSTGRES_USER: careerpilot
-      POSTGRES_PASSWORD: careerpilot_dev
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?initialize a private environment file first}
       POSTGRES_DB: careerpilot
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "${PG_HOST_PORT:-5432}:5432"   # 宿主机可见, 便于 pg_dump 备份(冲突时可用 PG_HOST_PORT 改口)
+      - "${PG_HOST_PORT:-127.0.0.1:5432}:5432"   # 默认只允许本机连接
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U careerpilot -d careerpilot"]
       interval: 5s
@@ -32,7 +41,7 @@ services:
       retries: 20
 
   server:
-    build: &backend-build ./server
+    build: *backend-build
     container_name: careerpilot-api
     volumes:
       - ./web/src/data/bank.json:/web/src/data/bank.json:ro
@@ -49,7 +58,7 @@ services:
       FEEDBACK_REVIEW_MODEL: ${FEEDBACK_REVIEW_MODEL:-}
       FEEDBACK_REVIEW_API_KEY: ${FEEDBACK_REVIEW_API_KEY:-}
     ports:
-      - "${API_HOST_PORT:-8000}:8000"  # 本机 8000 被占用时可用 API_HOST_PORT 改口
+      - "${API_HOST_PORT:-127.0.0.1:8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,7 +89,7 @@ services:
     volumes:
       - ./web/nginx.local.conf:/etc/nginx/conf.d/default.conf:ro
     ports:
-      - "${WEB_HOST_PORT:-5173}:80"    # 本机 5173 被占用时可用 WEB_HOST_PORT 改口
+      - "${WEB_HOST_PORT:-127.0.0.1:5173}:80"
     depends_on:
       - server
 

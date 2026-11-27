@@ -1,6 +1,7 @@
 import { t } from '../i18n';
 
 export const workspaceLogin = false;
+export const requiresLocalLogin = false;
 
 function unavailable(): never {
   throw new Error(t('registered.workspaceSessionRequired'));

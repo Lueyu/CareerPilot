@@ -41,7 +41,8 @@ async def test_detail_reports_same_assessment_date_as_profile_without_advancing_
             yield session
 
     monkeypatch.setitem(app.dependency_overrides, get_session, fixture_session)
-    headers = {"X-Api-Token": "cp-dev-token", "X-Workspace": test_workspace.slug}
+    from app.config import get_settings
+    headers = {"X-Api-Token": get_settings().api_token, "X-Workspace": test_workspace.slug}
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test", headers=headers,
     ) as client:

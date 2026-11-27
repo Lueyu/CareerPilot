@@ -6,6 +6,36 @@
 
 ## 启动本地应用
 
+### 安全首次安装与升级
+
+个人 API、Worker、建表和迁移入口在连接数据库及恢复任务之前检查凭据。`API_TOKEN` 至少32字符，数据库密码至少24字符，空值、旧默认值、示例占位符、明显重复/顺序串会拒绝；`DEBUG` 不绕过检查。这只是明显弱值筛查，不能估计人为口令的真实熵。新凭据由 Python `secrets` 随机生成。
+
+全新安装先在 `server/` 使用已安装依赖的 Python 创建运行配置：
+
+```powershell
+python personal_credentials.py init --output ../personal/runtime/personal.env
+```
+
+该命令只生成文件，不连接数据库、不创建或修改PG角色。文件含随机 API_TOKEN、POSTGRES_PASSWORD、DATABASE_URL 和 G5 主密钥；重复运行只校验，已有文件不覆盖、不换令牌。Windows 在写秘密前为新目录/文件设置并回读仅当前SID的受保护DACL，Linux使用0700/0600；权限无法确认则停止。已有文件和父目录权限不会自动修改。文件、主密钥及其私有备份不能提交、分享或放进前端产物。
+
+新Compose卷可从仓库根使用该文件（生成URL供原生默认连接，Compose明确改用postgres主机）：
+
+```powershell
+docker compose --env-file personal/runtime/personal.env up -d --build postgres
+docker compose --env-file personal/runtime/personal.env run --rm --no-deps server sh -c 'python personal_credentials.py check && python bootstrap.py && python migrate.py && python -m app.seed'
+# 仅操作者核验的全新库/已知正常安装可显式登记；恢复库禁止此操作。
+docker compose --env-file personal/runtime/personal.env run --rm --no-deps server python provision_recovery_control.py --confirm 'PROVISION KNOWN INSTALLATION careerpilot'
+docker compose --env-file personal/runtime/personal.env up -d --build
+```
+
+Compose要求显式密码，不再提供通用默认值。上述流程只用于全新卷；已有PG卷的密码不会随环境文件改变，不能对旧卷直接套用新随机密码。需要原生PG时，由操作者先建立专用角色/数据库并在私有文件配置实际强密码，可用init的 `--host --port --user --database` 指定新安装连接目标。本脚本不执行ALTER ROLE，不修复旧密码。
+
+已有安装先由操作者在维护窗口确认数据库及凭据；旧弱凭据会拒绝，需要人工完成安全迁移，不能靠debug或测试标志绕过。`deploy/start-personal.ps1 -EnvFile <绝对私有文件路径>` 可选择配置；未指定时优先使用已有 `server/.env`，其次使用生成文件；两者都不存在且没有外部凭据时才创建生成文件。进程环境变量优先，必须确认其目标。初始化不会改写已有文件。
+
+F6仍要求显式登记已知安装：在 `server/` 配置同一个受保护环境并执行建表/迁移后，运行 `python provision_recovery_control.py --confirm 'PROVISION KNOWN INSTALLATION <实际数据库名>'`。恢复、未知来源或未登记数据库保持隔离；普通启动不插入NORMAL，也不恢复后台任务。只有确认来源的维护命令有登记权。
+
+网页打开现有WorkspaceLogin，输入空间slug（通常personal）和私有文件的API_TOKEN。令牌仅由浏览器运行时保存在当前标签页sessionStorage；退出清除当前登录，重新登录重新绑定空间。切换菜单只影响下一次导航，旧页面请求保持原空间。`VITE_API_TOKEN`不再读取或注入，构建文件不含部署凭据。H1将继续处理token表、哈希、撤销/轮换、租户归属和恢复generation，本项不声称这些能力已实现。
+
 要在播客页保存离线歌单，用 `./deploy/start-personal.ps1 -BuiltWeb` 启动。它把带有本机连接配置的前端构建保存在 `personal/runtime`，供这台电脑的回环地址使用。通过手机收听时，可以导出 MP3 传到手机。如果手机已有自己的受信任 HTTPS 工作区入口，可在手机上打开节目库，先保存歌单，再通过离线播放入口收听。
 
 从题库导入时，可选「中文」「英文」或「中英双语」。双语节目先用中文讲清业务场景，再给一段可跟读的英文面试回答。同一道题可以分别制作三个版本。已有中文草稿在确认合成时使用当前安装的音色。

@@ -11,6 +11,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
+from app import personal_startup as _personal_startup  # noqa: F401 (before database/worker imports)
 from app.db import SessionLocal, engine
 from app.generation_i18n import saved_language
 from app.models import AnalysisStep, AppSetting, MemoryItem, Project, ProjectAnalysis, WorkerHeartbeat
@@ -251,6 +252,8 @@ async def execute_claim(claim,worker_id,factory=SessionLocal,lease_seconds=45,he
         with suppress(asyncio.CancelledError):await keeper
 
 async def serve(poll_seconds=2,lease_seconds=None,heartbeat_seconds=10,once=False,factory=SessionLocal,*,ready_file=None):
+    from app.config import get_settings
+    get_settings().require_secure_personal_startup()
     async def allowed():
         try:
             async with factory() as session:
@@ -327,6 +330,8 @@ async def serve(poll_seconds=2,lease_seconds=None,heartbeat_seconds=10,once=Fals
             with suppress(asyncio.CancelledError):await scheduler
 
 def main():
+    from app.config import get_settings
+    get_settings().require_secure_personal_startup()
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--poll-seconds',type=float,default=2)
     parser.add_argument('--lease-seconds',type=float,help='override the lease for both scoring and project stages')

@@ -1,20 +1,20 @@
 """Build and verify retained loopback previews of trusted candidate worktrees."""
 
 import argparse
-from contextlib import contextmanager
-from datetime import datetime, timezone
 import hashlib
 import http.client
 import io
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
+import sys
 import tarfile
 import time
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
-
 
 PROJECTS = {
     "careerpilot": ("docker-compose.yml", "web", 80, "/healthz", "CareerPilot"),
@@ -45,7 +45,7 @@ def digest(data):
 
 
 def timestamp():
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def save(path, value):
@@ -77,7 +77,7 @@ def environment(private=None):
 
 
 def output(args, *, cwd=None, env=None, input_bytes=None):
-    result = subprocess.run(args, cwd=cwd, env=env, input=input_bytes, capture_output=True, timeout=120)
+    result = subprocess.run(args, check=False, cwd=cwd, env=env, input=input_bytes, capture_output=True, timeout=120)
     if result.returncode:
         raise ValueError(f"{args[0]} {args[1]} failed: {result.stderr.decode('utf-8', 'replace').strip()}")
     return result.stdout
@@ -141,12 +141,37 @@ def configure(run, receipt, trusted_compose):
     source_config.write_bytes(trusted_compose)
     (run / "empty.env").touch()
     env = environment(run / "home")
+    if receipt["project"] == "careerpilot":
+        # Owned attempt only; no personal .env or role is read or changed.
+        output([sys.executable, "personal_credentials.py", "init", "--output", str(run / "preview.env")],
+               cwd=source / "server", env=env)
+        env.update(preview_credentials(run))
     config = json.loads(output(
         compose(run, receipt)[:-1] + [str(source_config), "config", "--format", "json"], env=env,
     ))
     project = receipt["project"]
     _, web_name, port, _, _ = PROJECTS[project]
     database = "postgres" if project == "careerpilot" else "db"
+    if project == "careerpilot":
+        credentials = preview_credentials(run)
+        backend_credentials = {
+            "API_TOKEN": credentials["API_TOKEN"],
+            "CAREERPILOT_SECRETS_KEY": credentials["CAREERPILOT_SECRETS_KEY"],
+            "DATABASE_URL": f"postgresql+asyncpg://careerpilot:{credentials['POSTGRES_PASSWORD']}@postgres:5432/careerpilot",
+        }
+        for name in ("server", "worker"):
+            config["services"][name].setdefault("environment", {}).update(backend_credentials)
+        postgres = config["services"]["postgres"]
+        postgres.setdefault("environment", {})["POSTGRES_PASSWORD"] = credentials["POSTGRES_PASSWORD"]
+        server = config["services"]["server"]
+        config["services"]["preflight"] = {
+            "build": server["build"],
+            "environment": dict(server["environment"]),
+            "command": ["python", "personal_credentials.py", "check"],
+        }
+        postgres.setdefault("depends_on", {})["preflight"] = {
+            "condition": "service_completed_successfully", "required": True,
+        }
     for service in config["services"].values():
         service.pop("container_name", None)
         service.pop("ports", None)
@@ -173,12 +198,28 @@ def configure(run, receipt, trusted_compose):
         commands = [line.removeprefix("CMD ") for line in dockerfile.splitlines() if line.startswith("CMD ")]
         if server.get("command") is not None or len(commands) != 1 or "python -m app.seed &&" not in commands[0]:
             raise ValueError("CareerPilot API startup needs an updated preview adapter.")
-        server["command"] = json.loads(commands[0].replace("python -m app.seed &&", "python -m app.seed --demo &&"))
+        startup_command = json.loads(commands[0])
+        startup_command[-1] = startup_command[-1].replace(
+            "python -m app.seed &&",
+            'python -m app.seed --demo && python provision_recovery_control.py --confirm "PROVISION KNOWN INSTALLATION careerpilot" &&',
+        )
+        server["command"] = startup_command
     else:
         config["services"]["app"]["environment"].update(
             PAPER_TRADING_ENABLED="false", SQUABBLE_UPDATE_MODE="off",
         )
-    save(run / "compose.json", config)
+    if project == "careerpilot":
+        output([sys.executable, "personal_credentials.py", "create-private-file", "--output", str(run / "compose.json")],
+               cwd=source / "server", env=env)
+        (run / "compose.json").write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    else:
+        save(run / "compose.json", config)
+
+
+def preview_credentials(run):
+    """Read the init CLI's fixed generated format; never place secrets in receipts."""
+    values = dict(line.split("=", 1) for line in (run / "preview.env").read_text(encoding="utf-8").splitlines())
+    return {key: values[key] for key in ("API_TOKEN", "POSTGRES_PASSWORD", "CAREERPILOT_SECRETS_KEY")}
 
 
 def containers(run, receipt):
@@ -227,10 +268,11 @@ def application_check(run, receipt):
     _, service, target, health_path, title = PROJECTS[project]
     owned = containers(run, receipt)
     resources = {item["Config"]["Labels"]["com.docker.compose.service"]: item for item in owned}
-    required = {"postgres", "server", "worker", "web"} if project == "careerpilot" else {"db", "app"}
+    required = {"preflight", "postgres", "server", "worker", "web"} if project == "careerpilot" else {"db", "app"}
     if len(owned) != len(required) or resources.keys() != required or not all(
-        item["State"]["Running"] for item in owned
-    ):
+        item["State"]["Running"] for name, item in resources.items() if name != "preflight"
+    ) or (project == "careerpilot" and (resources["preflight"]["State"]["Running"]
+                                      or resources["preflight"]["State"].get("ExitCode") != 0)):
         raise ValueError("The candidate's application containers are not all running.")
     port = mapped_port(resources[service], target)
     content_type, page = request(port, "/")
@@ -246,7 +288,7 @@ def application_check(run, receipt):
     if project == "careerpilot":
         if health.get("ok") is not True or health.get("service") != "careerpilot-api":
             raise ValueError("CareerPilot API readiness failed.")
-        headers = {"X-Workspace": "demo", "X-Api-Token": "cp-dev-token"}
+        headers = {"X-Workspace": "demo", "X-Api-Token": preview_credentials(run)["API_TOKEN"]}
         dashboard = json.loads(request(port, "/api/v1/dashboard", headers)[1])
         workspace = dashboard.get("workspace", {})
         if workspace.get("slug") != "demo" or workspace.get("is_demo") is not True:
@@ -266,7 +308,7 @@ def application_check(run, receipt):
 def run_check(run, name, argv, cwd, env):
     log = run / f"{name}.log"
     with log.open("xb") as stream:
-        result = subprocess.run(argv, cwd=cwd, env=env, stdout=stream, stderr=subprocess.STDOUT, timeout=900)
+        result = subprocess.run(argv, check=False, cwd=cwd, env=env, stdout=stream, stderr=subprocess.STDOUT, timeout=900)
     body = log.read_bytes()
     evidence = {"argv": argv, "exit_code": result.returncode, "log": log.name, "sha256": digest(body)}
     if result.returncode or not body.strip() or re.search(
@@ -324,7 +366,7 @@ def start(run_dir, workspace, base, patch_sha, project, regression, ui=None):
         env = environment(run / "home")
         with (run / "startup.log").open("xb") as stream:
             result = subprocess.run(compose(run, receipt) + ["up", "-d", "--build", "--wait", "--wait-timeout", "240"],
-                                    cwd=source, env=env, stdout=stream, stderr=subprocess.STDOUT, timeout=1800)
+                                    check=False, cwd=source, env=env, stdout=stream, stderr=subprocess.STDOUT, timeout=1800)
         if result.returncode:
             raise ValueError(f"Compose startup failed. See {run / 'startup.log'}.")
         deadline = time.monotonic() + 120
@@ -342,10 +384,13 @@ def start(run_dir, workspace, base, patch_sha, project, regression, ui=None):
         db_name = "postgres" if project == "careerpilot" else "db"
         database = next(item for item in containers(run, receipt) if item["Id"] == app["containers"][db_name]["id"])
         db_port = mapped_port(database, 5432)
-        db_url = (f"postgresql+asyncpg://careerpilot:careerpilot_dev@127.0.0.1:{db_port}/careerpilot"
+        credentials = preview_credentials(run) if project == "careerpilot" else {}
+        db_url = (f"postgresql+asyncpg://careerpilot:{credentials['POSTGRES_PASSWORD']}@127.0.0.1:{db_port}/careerpilot"
                   if project == "careerpilot" else f"postgresql://postgres:postgres@127.0.0.1:{db_port}/portfolio")
         if project == "careerpilot":
             env["PYTHONPATH"] = str(source / "server")
+            env.update(credentials)
+            env["CANDIDATE_API_TOKEN"] = credentials["API_TOKEN"]
         env.update(CANDIDATE_PREVIEW_URL=app["preview_url"], CANDIDATE_DATABASE_URL=db_url, DATABASE_URL=db_url)
         receipt["regression"] = run_check(run, "regression", regression, source, env)
         if ui:
