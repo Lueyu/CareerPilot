@@ -26,6 +26,8 @@ COPY app ./app
 COPY migrations ./migrations
 COPY migrate.py ./migrate.py
 COPY migrate_secrets.py ./migrate_secrets.py
+COPY provision_recovery_control.py ./provision_recovery_control.py
+COPY validate_recovery.py ./validate_recovery.py
 COPY bootstrap.py ./bootstrap.py
 
 EXPOSE 8000

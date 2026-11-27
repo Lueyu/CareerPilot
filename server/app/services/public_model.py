@@ -20,9 +20,10 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.i18n import message as localized_message
 from app.db import SessionLocal
+from app.i18n import message as localized_message
 from app.models.public_model import PublicModelCall, PublicModelMonth
+from app.services.recovery_control import require_normal
 
 logger = logging.getLogger(__name__)
 _CHINA = timezone(timedelta(hours=8))
@@ -186,6 +187,7 @@ async def _claim(
         async with SessionLocal.begin() as db:
             # One transaction lock serializes site admission and settlement across workers.
             await db.execute(_LEDGER_LOCK)
+            await require_normal(db)
             previous = await db.get(PublicModelCall, (workspace_id, digest))
             if previous is not None:
                 if previous.result is None:

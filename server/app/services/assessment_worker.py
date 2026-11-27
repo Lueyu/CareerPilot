@@ -128,6 +128,8 @@ async def evaluate(claim,cfg,repair=None):
 
 async def execute_claim(claim,worker_id,factory,lease_seconds=45,heartbeat_seconds=10):
     async with factory() as session:
+        from app.services.recovery_control import require_normal
+        await require_normal(session)
         if not await jobs.heartbeat(session,claim,lease_seconds):return
         run=await session.get(ScoringRun,claim.run_id)
         cfg,_,_=await runtime_config(session,claim.workspace_id,require_consent=False)
@@ -305,6 +307,8 @@ async def _publish(factory,run_id,token):
 
 async def reconcile(factory):
     async with factory() as session:
+        from app.services.recovery_control import require_normal
+        await require_normal(session)
         ids=(await session.scalars(select(ScoringRun.id).where(ScoringRun.status.in_(jobs.ACTIVE)))).all()
     for run_id in ids:
         publication_token=None

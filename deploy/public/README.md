@@ -84,7 +84,7 @@ docker image load -i "careerpilot-seed-$release.tar"
 | --- | --- |
 | `SEED_RELEASE_TAG` | 构建时使用的完整 Git 提交 |
 | `SEED_HOST`、`SEED_PUBLIC_ORIGIN` | 裸域名及浏览器使用的完整 HTTPS 来源，例如 `app.agent-interview.icu` 和 `https://app.agent-interview.icu` |
-| `SEED_DB_NAME` | 首次使用 `careerpilot_seed`。恢复切换时使用 `restore.sh --keep` 输出的数据库名 |
+| `SEED_DB_NAME` | 首次使用 `careerpilot_seed`。恢复目标与后续切换须按统一隔离恢复计划单独审核；旧 `restore.sh --keep` 已禁用，不自动更新此值 |
 | `SEED_DB_ADMIN_PASSWORD`、`SEED_DB_PASSWORD` | 各用一次 `openssl rand -hex 32` 生成 64 位十六进制密码，分别供 `seed_admin` 和 `seed_app` 使用 |
 | `SEED_SESSION_SECRET` | 单独使用 `openssl rand -hex 32` 生成 |
 | `SEED_MODEL_BASE_URL`、`SEED_MODEL_KEY`、`SEED_MODEL_NAME` | 实际模型的 HTTPS API 基址、专用 key 和模型名。基址与模型模块约定一致 |
@@ -106,35 +106,23 @@ curl --fail https://app.agent-interview.icu/
 
 在大陆固网和蜂窝网用两个合成账号验收首页、注册、上传、模型首段与数据隔离。记录提交、域名、地域、供应商、失败数和计时。用浏览器 Network 或 `curl --no-buffer` 检查流式接口。Caddy 保留 API 路径并立即转发 `text/event-stream`。[公开种子版验收标准](../../docs/superpowers/specs/2026-11-23-public-seed-beta-design.md)
 
-## 设置每日加密备份并演练恢复
+## 加密备份与隔离恢复
 
-在独立备份机准备权限受限的 SSH 账号和目录，并设定保留期。超过一天未收到新归档时应发出报警。使用备份专用 SSH 公钥。核验备份主机指纹并写入运行用户的 `known_hosts`。ECS 安装 age、rsync、OpenSSL 和 SSH 客户端。在恢复环境用 `age-keygen -o /安全路径/seed-backup.key` 生成密钥，只将公钥给 ECS。
+原 `backup.sh`/`restore.sh` 已停用并退出78，不能继续使用旧定时器或 `--keep` 做恢复。原上传失败删除唯一暂存密文、恢复只数表且未隔离认证/预算的路径不再执行。不要启用附带的旧 `careerpilot-seed-backup.timer`。已有调度应由操作员在维护窗口停用并替换，本次没有修改真实调度。
 
-将专用 SSH 私钥设为 `0600`。在 root 的 SSH 配置中为备份主机设置 `IdentityFile` 和 `IdentitiesOnly yes`。在 `/etc/careerpilot-seed/backup.conf` 设置 `SEED_BACKUP_RECIPIENT=age1…` 和 `SEED_BACKUP_TARGET=backup-user@backup-host:/srv/backup/careerpilot-seed/`，权限设为 `0600`。脚本将 PostgreSQL 归档直接送入 age。临时文件和独立备份机上只有加密归档。以 root 安装定时器，检查第一次上传日志。
+使用统一的[加密备份与隔离恢复操作手册](../BACKUP_RECOVERY.md)。在具有 PostgreSQL 维护网络权限的主机安装 PowerShell 7、原生 PG 工具、age 和项目 Python 依赖，再从仓库根目录执行 deploy/backup.ps1、deploy/restore.ps1。通过受保护 PG* 环境连接专用数据库，不公开数据库到互联网。需要 Docker 隔离网络时由操作员准备专用维护容器/端口，不在脚本中修改真实容器或 ACL。
 
-```bash
-cd /opt/careerpilot-seed/current
-install -m 0644 careerpilot-seed-backup.{service,timer} /etc/systemd/system/
-systemctl daemon-reload
-systemctl start careerpilot-seed-backup.service
-journalctl -u careerpilot-seed-backup.service -n 20 --no-pager
-systemctl enable --now careerpilot-seed-backup.timer
-systemctl list-timers careerpilot-seed-backup.timer
+完整 bundle 包含加密 dump、加密元数据和摘要清单。旧单文件 `.pgdump.age` 不满足新契约，需要受信任的离线隔离转换并重新备份，不能直接宣称验证成功。恢复目标始终是全新未路由备用库，不自动更新 SEED_DB_NAME、不启动线上应用、不清理原库。恢复后所有业务 API、登录和付费仍隔离；H1 凭据代际核对和独立费用对账完成前不能切换。
+
+新部署或已知正常安装须在具有完整同版本源码和项目Python依赖的维护主机离线登记，不能假设精简公开镜像内包含维护CLI。先通过受保护PG*环境连接已核验的新库/正常原实例，只执行定向控制表迁移，再在server目录用受保护DATABASE_URL执行登记。恢复库不能登记。
+
+```shell
+psql --no-psqlrc --set ON_ERROR_STOP=1 --file server/migrations/20261128_recovery_control.sql
+cd server
+python provision_recovery_control.py --confirm 'PROVISION KNOWN INSTALLATION careerpilot_seed'
 ```
 
-发布前用至少一个合成账号演练。在隔离恢复环境下载备份机上的可信归档，用同一 PostgreSQL 主版本和新 Compose 项目启动 `db`。恢复脚本生成新数据库，以单事务导入，并校验数据表。`--dry-run` 清理演练数据库。`--keep` 输出库名供继续验收。
-
-```bash
-export COMPOSE_PROJECT_NAME=careerpilot-seed-recovery
-export SEED_ENV_FILE=/恢复路径/recovery.conf
-./compose.sh up --no-build --pull never --wait db
-./restore.sh --dry-run /恢复路径/backup.pgdump.age /安全路径/seed-backup.key
-./restore.sh --keep /恢复路径/backup.pgdump.age /安全路径/seed-backup.key
-```
-
-将隔离配置的 `SEED_DB_NAME` 改成返回的数据库名，再启动隔离 API 和 Web。用合成账号确认原有题目和作答可读。
-
-生产恢复时，在独立的终端进入 `/opt/careerpilot-seed/current`，使用默认生产项目名与配置文件。先执行 `./compose.sh stop api` 停写，再使用已验收归档和 `--keep` 创建恢复库。更新生产 `SEED_DB_NAME`，执行 `./compose.sh up --no-build --pull never --wait` 后验证登录和数据。保留原库，记录新库名和归档时间。此后的备份跟随 Compose 当前选中的数据库。
+命令中的数据库名必须与已审核的专用数据库一致，PG*和DATABASE_URL也须指向同一目标。登记后仅由操作员在已知安装维护窗口重新启动消费者；不用于解除恢复隔离。公开镜像本项只补入新recovery_guard/recovery_control模块的精确allowlist，未声称完整注册版镜像import已通过；既有rate_limits和私有ops/telemetry导入的allowlist缺口另有边界。没有已授权异地目标时状态为 NOT_CONFIGURED。本次只验证本机合成数据库，真实异地副本与生产服务 RTO 未验证。
 
 ## 回滚应用版本
 

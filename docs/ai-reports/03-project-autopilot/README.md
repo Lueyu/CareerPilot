@@ -155,5 +155,5 @@
 - **已知改进项（TIMEOUT_REPAIR 末尾）**：补读计划丢失原补读理由及待核实结论可能重复泛化分析；报告每章遍历所有结论批次可能冗长；跨模块检查以 claim 批次为单位不证明所有跨批模块关系正确。
 - **未验证边界（ACCEPTANCE/TEST_REPORT 明确列出）**：GitCode live、force-push、供应商全类别故障、多主机压力、长时稳定性、prompt v2 新 dump/restore、多仓库并发、20 题最大批次补题压力；考试 #25 根因属工作包 B 未查；历史证据不改标（309 passed 是 prompt v2 之前、restore-verification.json 是 prompt v1）。
 - **能力与校准**：岗位标准/评分项来自种子数据未校准；记忆判断准确性/能力标尺校准/长期学习收益未验证；无真实时间延迟复测不能声称长期记忆保持；同题重练不算新独立覆盖；数字能力矩阵已移除改覆盖信息，文件数不算能力分。
-- **运行与维护注意**：同库只运行一个 API 实例；无 Windows 自动启动服务（关电脑/睡眠后需重启本地服务自动恢复）；关闭浏览器不停止任务；备份 deploy/backup.ps1 -Database <名> -OutDir <私有目录>、恢复 deploy/restore.ps1 只接受不存在 `*_test` 库且单事务；测试隔离 server/run_isolated_tests.py tests -q（每次新建 careerpilot_suite_*_test）。
+- **运行与维护注意**：同库只运行一个 API 实例；无 Windows 自动启动服务（关电脑/睡眠后需重启本地服务自动恢复）；关闭浏览器不停止任务；备份/恢复以 [F6 加密备份与隔离恢复手册](../../../deploy/BACKUP_RECOVERY.md) 为准，需外置age公钥/identity与G5主密钥；恢复只向新演练库或计划确认的新备用库，保持权限和付费隔离；测试隔离 server/run_isolated_tests.py tests -q（每次新建 careerpilot_suite_*_test）。
 - **使用边界（QUICK_START 系列）**：仓库扫描不能证明工作由你完成；项目记忆由使用者确认，只有实际作答及有效评分进入学习证据；未确认个人贡献始终不写成"你实现了"；"开始练这题"提交自己新答案才发生评分；学习闭环 8 步（确认空间模型→诊断作答→阅读报告→打开失分任务→记录学习完成（1/3/7 天复测，不加分）→即时新题验证→核对新结果→到期延迟复测）；已关闭公开发布/远程写入/PR/合并/远程回滚，Evolution 禁止激活策略。

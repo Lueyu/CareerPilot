@@ -20,6 +20,7 @@ from app.api import (
     public_native,
 )
 from app.api.rate_limits import ApiRateLimitMiddleware
+from app.api.recovery_guard import RecoveryGuardMiddleware
 from app.api.v1 import ops, telemetry
 from app.db import Base, engine
 from app.i18n import LanguageMiddleware
@@ -64,6 +65,7 @@ app = FastAPI(title="CareerPilot", lifespan=lifespan, docs_url=None, redoc_url=N
 app.add_middleware(ApiRateLimitMiddleware, registered=True)
 app.middleware("http")(public_auth.public_origin_guard)
 app.add_middleware(LanguageMiddleware)
+app.add_middleware(RecoveryGuardMiddleware)
 for routes in (public_auth.router, public_library.router, public_coach.router, public_memory.router,
                public_dashboard.router, public_learning.router, public_native.router, public_feedback.router,
                telemetry.router, ops.router):

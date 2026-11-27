@@ -1,0 +1,6 @@
+{
+  "adapter": "ssh-rsync",
+  "target": "backup@backup.example.invalid:/srv/careerpilot/backups/",
+  "known_hosts": "/secure/operator/backup_known_hosts",
+  "identity_file": "/secure/operator/backup_ssh_identity"
+}

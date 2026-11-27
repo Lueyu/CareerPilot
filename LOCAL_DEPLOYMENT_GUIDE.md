@@ -4,23 +4,9 @@
 
 ## 数据备份与恢复
 
-个人工作空间的题库、作答、笔记和项目记录保存在 PostgreSQL 中。升级前先备份，再用新的测试库检查能否恢复。以下脚本在 Windows PowerShell 中运行，需要与数据库主版本一致的 `pg_dump`、`pg_restore` 和 `psql`。例如数据库是 PostgreSQL 16，就使用 16 版客户端。如果装了多个版本，两个脚本都可传入 `-PgBin` 指定工具目录。
+数据库备份使用标准 age 加密。需要 PowerShell 7、age、PostgreSQL 工具及外置备份公钥/identity，G5 主密钥另行保管。恢复只创建全新 `_test` 演练库或经计划确认的新 `_standby` 备用库，并保持权限与付费隔离。不会覆盖或切换现库。已知安装首次升级还需离线显式登记 recovery_control，缺失状态不会自动放行。
 
-在仓库根目录运行备份。先设置 `PGHOST`、`PGPORT`、`PGUSER`、`PGDATABASE` 和 `PGPASSWORD`，使它们指向要备份的本机数据库。归档默认写入 `personal/backups/`，脚本会打印完整路径，同时保存 SHA-256 校验文件和清单。
-
-```powershell
-.\deploy\backup.ps1
-```
-
-将备份脚本输出的 `.dump` 路径粘贴到提示中。恢复使用同一个 PostgreSQL 实例，需要当前账号有建库权限。目标名称必须以 `_test` 结尾且尚未使用。恢复完成后脚本会查询新库中的表。
-
-```powershell
-$archive = Read-Host '输入刚生成的 .dump 文件路径'
-$target = 'careerpilot_restore_' + (Get-Date -Format 'yyyyMMddHHmmss') + '_test'
-.\deploy\restore.ps1 -BackupFile $archive -TargetDatabase $target
-```
-
-[备份脚本](deploy/backup.ps1) · [恢复脚本](deploy/restore.ps1)
+按[加密备份与隔离恢复操作手册](deploy/BACKUP_RECOVERY.md)执行公钥配置、备份、7日/4周/3月保留、严格 SSH 复制、隔离演练、计划确认及 UNKNOWN 回执核对。旧明文 dump 和 public/restore.sh 不再是已验证恢复入口。
 
 ## 静态知识门户
 

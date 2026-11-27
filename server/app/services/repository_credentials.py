@@ -10,6 +10,8 @@ from app.services.secret_storage import SecretStorageError, open_setting
 
 
 async def _stored_token(session: AsyncSession, key: str) -> str:
+    from app.services.recovery_control import require_normal
+    await require_normal(session)
     try:
         row = await session.get(AppSetting, key)
     except SQLAlchemyError:

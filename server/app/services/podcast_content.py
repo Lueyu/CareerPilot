@@ -292,6 +292,8 @@ async def make_scripts(
             row = await session.get(AppSetting, key)
     except SQLAlchemyError:
         raise PodcastScriptError("无法读取模型配置，请重试。") from None
+    from app.services.recovery_control import require_normal
+    await require_normal(session)
     settings = get_settings()
     config = resolve_llm_config(settings, open_setting(key, row.value) if row else None)
     if not all(config[field].strip() for field in ("provider", "api_key", "base_url", "model")):

@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
 from app.api.rate_limits import ApiRateLimitMiddleware
+from app.api.recovery_guard import RecoveryGuardMiddleware
 from app.api.v1 import (
     assessment_feedback,
     bank,
@@ -48,6 +49,7 @@ from app.db import engine
 from app.i18n import LanguageMiddleware
 from app.models import Base  # noqa: F401  (注册全部模型)
 from app.services.podcast_jobs import run_worker as run_podcast_worker
+from app.services.recovery_control import RecoveryBlocked, require_normal
 from app.services.study_chat import recover_interrupted as recover_study_chat
 
 
@@ -56,16 +58,23 @@ async def lifespan(app: FastAPI):
     # 模型定义用于启动建表；部署入口也会执行 migrations/*.sql。
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    await question_generation.recover_interrupted()
-    await project_analysis.recover_interrupted()
-    await recover_study_chat()
-    podcast_worker = asyncio.create_task(run_podcast_worker())
+    podcast_worker = None
+    try:
+        await require_normal()
+    except RecoveryBlocked:
+        pass  # Health remains available, but no recovered work is resumed.
+    else:
+        await question_generation.recover_interrupted()
+        await project_analysis.recover_interrupted()
+        await recover_study_chat()
+        podcast_worker = asyncio.create_task(run_podcast_worker())
     try:
         yield
     finally:
-        podcast_worker.cancel()
-        with suppress(asyncio.CancelledError):
-            await podcast_worker
+        if podcast_worker is not None:
+            podcast_worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await podcast_worker
         await engine.dispose()
 
 
@@ -78,6 +87,7 @@ app = FastAPI(
 
 app.add_middleware(LanguageMiddleware)
 app.add_middleware(ApiRateLimitMiddleware)
+app.add_middleware(RecoveryGuardMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

@@ -75,8 +75,10 @@ async def check_project(session,project_id,workspace_id,now=None):
     return {'status':run.status,'run_id':run.id}
 
 async def tick(factory,limit=10):
+    from app.services.recovery_control import require_normal
     now=utcnow()
     async with factory() as session:
+        await require_normal(session)
         # Claim a due check with a persisted short reservation. Multiple workers
         # don't all poll the same repo, and a crashed check becomes due again.
         rows=(await session.scalars(select(Project).where(Project.archived_at.is_(None),

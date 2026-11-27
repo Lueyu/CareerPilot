@@ -14,8 +14,8 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.i18n import message as localized_message
 from app.db import get_session
+from app.i18n import message as localized_message
 from app.models.exam import Exam
 from app.models.learning_feedback import LearningActivity
 from app.models.public_auth import PublicAccount, PublicSession
@@ -130,6 +130,8 @@ def _workspace_expectation(request: Request) -> list[str]:
 
 
 async def _session_account(request: Request, session: Database) -> PublicAccount:
+    from app.services.recovery_control import require_normal
+    await require_normal(session)
     digest = _cookie_digest(request)
     if digest is not None:
         account = await session.scalar(

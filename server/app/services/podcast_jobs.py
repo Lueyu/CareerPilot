@@ -258,6 +258,8 @@ async def _run_claim(claim):
 
 
 async def process_next():
+    from app.services.recovery_control import require_normal
+    await require_normal()
     claim = await _claim_next()
     if claim is None:
         return False
@@ -276,10 +278,14 @@ async def process_next():
 
 
 async def run_worker():
+    from app.services.recovery_control import RecoveryBlocked
     while True:
         try:
             if await process_next():
                 continue
+        except RecoveryBlocked:
+            logger.warning('Podcast worker stopped: RECOVERY_QUARANTINED; leases unchanged')
+            return
         except Exception as exc:
             logger.error("Podcast queue transaction failed (%s)", type(exc).__name__)
         await asyncio.sleep(POLL_SECONDS)

@@ -35,11 +35,14 @@ $env:GITHUB_TOKEN = ''
 cd server
 & ../../careerpilot-venv/Scripts/python.exe bootstrap.py
 & ../../careerpilot-venv/Scripts/python.exe migrate.py
+& ../../careerpilot-venv/Scripts/python.exe provision_recovery_control.py --confirm 'PROVISION KNOWN INSTALLATION careerpilot'
 & ../../careerpilot-venv/Scripts/python.exe -m app.seed
 & ../../careerpilot-venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 18080
 ```
 
 保留这个窗口。打开 [后端健康检查](http://127.0.0.1:18080/healthz)，确认返回 `"ok":true`。
+
+上述登记命令只用于本节刚创建的已知新库。已有正常安装须先在维护窗口确认来源。恢复库不能登记，缺失或未知控制状态的业务API会拒绝，详情见[备份与隔离恢复](../deploy/BACKUP_RECOVERY.md)。
 
 ## 3. 启动前端并打开一道题
 

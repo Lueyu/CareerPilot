@@ -20,6 +20,8 @@ async def settings_for(session,workspace_id):
         'check_interval_hours':6, **stored, 'budget': budget}
 
 async def runtime_config(session,workspace_id,require_consent=True):
+    from app.services.recovery_control import require_normal
+    await require_normal(session)
     consent=await settings_for(session,workspace_id)
     if require_consent and (not consent['enabled'] or consent['consent_version']!=CONSENT_VERSION):
         raise PermissionError('请先确认将此项目的必要源码片段发送给模型服务')
