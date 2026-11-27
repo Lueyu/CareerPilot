@@ -84,7 +84,8 @@
     "认证配置与恢复来源是两层独立状态。真实新库的bootstrap、migrate、seed完成后，recovery_control仍是零行；此时API健康可访问，业务设置接口503，Worker不恢复任务。只有操作者把确认字符串绑定实际库名，显式执行已知安装登记后，正常令牌访问才得到200，旧通用令牌得到401。恢复出来的数据库不能用新安装登记步骤解除隔离，本项没有重写F6控制语义。",
     "前端保留原workspaceLogin的工作空间模式含义，因为模型引导和播客离线身份也依赖它。另一个requiresLocalLogin只控制现有登录界面，避免把个人模型引导误隐藏。beginLocalSession和clearLocalSession分别标识登录与退出；文档持有自己的workspace快照，选择菜单只保存下一次导航的空间。首次登录可以在模块加载后绑定正确空间，退出后即使用同一令牌重新登录，也能明确切换会话。",
     "删除VITE_API_TOKEN的直接读取还不够。若保留整个import.meta.env对象并动态索引，Vite可能把其他VITE变量也放进产物。因此API传输和telemetry改为只读取必要公开属性。实际构建时故意给环境放入合成部署令牌、数据库口令及一个未使用的VITE秘密，再逐个读取个人版八十个与注册版七十九个输出文件检查；没有这些值，也没有旧通用凭据。",
-    "候选预览是另一个真实调用者，不能继续固定旧默认值。configure为每个owned attempt通过真实初始化CLI创建受保护preview.env，以相同文件配置后端、HTTP检查和回归环境。浏览器在运行时用demo与CANDIDATE_API_TOKEN登录。适配器只对它自己创建的新库显式登记，普通Dockerfile没有自动登记。CMD先解析为数组，再替换最后的shell参数，避免引号破坏JSON。"
+    "候选预览是另一个真实调用者，不能继续固定旧默认值。configure为每个owned attempt通过真实初始化CLI创建受保护preview.env，以相同文件配置后端、HTTP检查和回归环境。浏览器在运行时用demo与CANDIDATE_API_TOKEN登录。适配器只对它自己创建的新库显式登记，普通Dockerfile没有自动登记。CMD先解析为数组，再替换最后的shell参数，避免引号破坏JSON。",
+    "隔离预览从受信任的旧dev配置开始。适配器显式统一API、worker、PostgreSQL与preflight的合成凭据，并建立PostgreSQL等待preflight成功的依赖。环境变量插值无法替换旧YAML里的硬编码值，所以必须修改解析后的配置结构。直接seed入口在导入app.db之前运行相同启动校验，避免SQLAlchemy先解释畸形URL。"
   ],
   "concepts": [
     [
@@ -313,7 +314,8 @@
       "后端从server用指定原生Python运行隔离脚本，数据库名均以_test结尾。最终服务器是实际PG18，客户端pg_dump/pg_restore为18.6；真实age与age-keygen路径显式配置。没有真实模型、SMTP、异地服务或个人库访问。",
       "后端125、备份恢复5、预览适配器11、前端284分别报告。纯策略/ACL的24和传输专项与主套件有重叠，不能相加宣传更多覆盖。真实启动子进程的拒绝用TCP哨兵证明零数据库连接，而不是只看函数抛错。",
       "完整产品Docker/browser预览由父代理执行。作者只验证原生子进程、owned PG和实际Compose配置；Python发起Docker的named-pipe失败路线未重试，原生fallback也不能改写旧控制器失败回执。公开注册镜像继承allowlist缺口，未声称整体镜像import通过。",
-      "父代理从5f97694b精确Git归档构建新Compose应用，生成独立合成凭据和新卷，先校验preflight退出0，再核对另外4个运行服务及卷的owner。使用同一冻结适配器配置和真实HTTP检查。Python控制器没有被标成通过；本次是原生PowerShell Docker验收。"
+      "父代理从5f97694b精确Git归档构建新Compose应用，生成独立合成凭据和新卷，先校验preflight退出0，再核对另外4个运行服务及卷的owner。使用同一冻结适配器配置和真实HTTP检查。Python控制器没有被标成通过；本次是原生PowerShell Docker验收。",
+      "首轮独立审核发现旧版本Compose适配和直接seed启动前校验缺口。修复后重新冻结源码，首轮FAIL证据保留，只有新提交通过复核后才合入。先前实际浏览器证据属于5f97694版本；本轮修改为后端启动和预览适配，没有重新宣称浏览器全流程实测。"
     ],
     "checks": [
       [
@@ -375,6 +377,16 @@
         "同预览PG16回归",
         "从实际构建使用的Git归档在该预览PG16创建新的_test库，77项通过；与作者PG18的备份回归范围分开",
         ".agent-runs/20261128-wave1/g6/product-native-20261128-0634/native-regression.json"
+      ],
+      [
+        "独立审核后修复：预览适配",
+        "12项通过，包括旧版四服务和硬编码凭据形状；显式替换为本次随机配置并补充preflight依赖",
+        ".agent-runs/20261128-wave1/g6/review-fix-adapter.log"
+      ],
+      [
+        "独立审核后修复：启动边界",
+        "49项通过，5种实际入口均覆盖畸形端口，在数据库引擎导入前拒绝且不回显配置片段",
+        ".agent-runs/20261128-wave1/g6/review-fix-startup.log"
       ]
     ],
     "commands": [
@@ -431,7 +443,7 @@
     "本篇 PR 保存独立审核结论和实际合入状态。最终 dev 提交以合入回执为准，报告只将已运行的检查写为通过。",
     "回退通过对本项 squash 提交建立新的反向 PR 完成；含持久数据的改动先核对其报告边界，保留已有账本和历史证据。"
   ],
-  "source_ref": "5f97694b0d03dd92d8ba907b07700170ba54641d",
+  "source_ref": "e28d1764cd45686d2b4ec6b0c780163200240e9d",
   "links": [
     {
       "label": "PR #58 与真实合入状态",
