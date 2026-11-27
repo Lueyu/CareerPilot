@@ -7,13 +7,16 @@ from app.services.project_jobs import fingerprint
 from app.services.repository_credentials import repository_credentials
 
 CONSENT_VERSION='source-analysis-v1'
-DEFAULT_BUDGET={}
-SOURCE_NOTICE='启用后，本空间已导入但尚无报告的仓库，以及以后新导入的仓库，会逐个自动分析；必要源码片段将发送给你当前配置的模型服务。不会执行仓库代码；报告自动保存，长期记忆需你确认。默认不限累计调用次数和读取字节；如设置单次分析预算，达到上限时暂停。'
+DEFAULT_BUDGET={'max_model_calls': 40, 'max_source_bytes': 2_000_000}
+SOURCE_NOTICE='启用后，本空间已导入但尚无报告的仓库，以及以后新导入的仓库，会逐个自动分析；必要源码片段将发送给你当前配置的模型服务。不会执行仓库代码；报告自动保存，长期记忆需你确认。单次分析默认最多 40 次模型调用、读取 200 万字节，达到上限时暂停；每次模型请求还受私有模型每日货币预算约束。'
 
 async def settings_for(session,workspace_id):
     row=await session.get(AppSetting,f'project-autopilot:{workspace_id}')
-    return {'enabled':False,'consent_version':None,'consented_at':None,'budget':dict(DEFAULT_BUDGET),
-        'check_interval_hours':6,**(row.value if row else {})}
+    stored = row.value if row and isinstance(row.value, dict) else {}
+    budget = {**DEFAULT_BUDGET, **(stored.get('budget') or {})}
+    budget = {key: value if value is not None else DEFAULT_BUDGET.get(key) for key, value in budget.items()}
+    return {'enabled':False,'consent_version':None,'consented_at':None,
+        'check_interval_hours':6, **stored, 'budget': budget}
 
 async def runtime_config(session,workspace_id,require_consent=True):
     consent=await settings_for(session,workspace_id)

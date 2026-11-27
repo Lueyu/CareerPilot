@@ -37,7 +37,8 @@ async def test_project_transport_is_explicit_and_preserves_model_and_deadline(mo
         return {'content': json.dumps({'observations': [], 'conflicts': [], 'unknowns': []})}
     monkeypatch.setattr(api.AgentAdapter, 'chat_with', chat)
     _, _, meta = await api._ask('verify_cross_module', {'claims': []}, api.CrossResponse, rt)
-    assert calls[0][0] == frozen == rt.llm_config
+    assert calls[0][0] == {**frozen, "output_limit": rt.output_reserve_tokens}
+    assert frozen == rt.llm_config
     assert calls[0][1]['timeout'] == 180
     assert 'reasoning_effort' not in calls[0][1]
     if mode == 'sse-v1':
@@ -157,3 +158,5 @@ async def test_worker_reads_transport_only_from_explicit_run_metadata(monkeypatc
     await worker.execute_claim(claim, 'fixture-worker', factory=Session)
     assert seen == [mode or 'json'] and completed == [True]
     assert run.__dict__ == before
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")

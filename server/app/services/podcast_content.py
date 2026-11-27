@@ -17,6 +17,7 @@ from app.models.podcast import PodcastLanguage
 from app.services.llm import AgentAdapter
 from app.services.llm_endpoint_config import resolve_llm_config
 from app.services.podcast_voice import PodcastAudioError, render_mp3_in_worker
+from app.services.private_model_billing import BillingScope
 
 MAX_EPISODES = 4
 _MAX_SCRIPT = 12000
@@ -303,6 +304,7 @@ async def make_scripts(
         stream=True,
         total_timeout=total_timeout,
         first_content_timeout=first_content_timeout,
+        billing_scope=BillingScope(workspace_id, "podcast:script"),
         span_name="podcast_script",
     )
     if not result:

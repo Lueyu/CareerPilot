@@ -71,7 +71,7 @@ async def test_stream_activity_can_outlast_io_timeout_within_explicit_total(monk
         assert result=={'content':'{"ok":true}'} and adapter.last_error is None
         assert elapsed>.08 and elapsed<.75 and timeouts==[.08]
         assert requests==[{'model':'unchanged-model','messages':[{'role':'system','content':'exact system'},{'role':'user','content':'exact user'}],
-                           'temperature':.2,'response_format':{'type':'json_object'},'stream':True}]
+                           'temperature':.2,'max_tokens':4096,'stream_options':{'include_usage':True},'response_format':{'type':'json_object'},'stream':True}]
 
 
 @pytest.mark.asyncio
@@ -114,7 +114,7 @@ async def test_valid_total_override_never_becomes_a_model_payload_parameter(monk
     requests=install(monkeypatch,Body([frame('ok')+frame(finish='stop')+DONE]));adapter=AgentAdapter()
     assert await adapter.chat_with(CONFIG,'s','u',json_mode=True,timeout=180,stream=True,total_timeout=total,reasoning_effort='low')=={'content':'ok'}
     assert requests==[{'model':'unchanged-model','messages':[{'role':'system','content':'s'},{'role':'user','content':'u'}],
-        'temperature':.2,'response_format':{'type':'json_object'},'reasoning_effort':'low','stream':True}]
+        'temperature':.2,'max_tokens':4096,'stream_options':{'include_usage':True},'response_format':{'type':'json_object'},'reasoning_effort':'low','stream':True}]
 
 
 @pytest.mark.asyncio
@@ -123,7 +123,7 @@ async def test_explicit_none_preserves_nonstream_default_request(monkeypatch):
         return httpx.Response(200,json={'choices':[{'finish_reason':'stop','message':{'content':'ok'}}]})
     requests=install(monkeypatch,Body([]),handler=handler);adapter=AgentAdapter()
     assert await adapter.chat_with(CONFIG,'s','u',timeout=180,total_timeout=None)=={'content':'ok'}
-    assert requests==[{'model':'unchanged-model','messages':[{'role':'system','content':'s'},{'role':'user','content':'u'}],'temperature':.2}]
+    assert requests==[{'model':'unchanged-model','messages':[{'role':'system','content':'s'},{'role':'user','content':'u'}],'temperature':.2,'max_tokens':4096}]
 
 
 @pytest.mark.asyncio
@@ -156,3 +156,5 @@ async def test_first_content_guard_requires_stream(monkeypatch):
     adapter = AgentAdapter()
     assert await adapter.chat_with(CONFIG, 's', 'u', first_content_timeout=1) is None
     assert adapter.last_error == {'kind': 'configuration'}
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")

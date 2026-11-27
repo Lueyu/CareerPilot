@@ -8,13 +8,13 @@ from fastapi import BackgroundTasks, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from test_llm_stream_transport import CONFIG, DONE, Body, frame, install
 
 from app.api.v1 import study_chat as api
 from app.config import MAX_STUDY_TIMEOUT_SECONDS, get_settings
 from app.models import Workspace
 from app.models.study_chat import StudyMessage
 from app.services import study_chat as worker
-from test_llm_stream_transport import Body, CONFIG, DONE, frame, install
 
 
 @pytest.fixture
@@ -299,3 +299,5 @@ def test_attempt_deadline_reserves_second_chance():
     assert worker.attempt_deadline(8, 2, settings) == 5
     assert worker.attempt_deadline(8, 1, settings) == 8
     assert worker.attempt_deadline(0, 2, settings) == 0
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")

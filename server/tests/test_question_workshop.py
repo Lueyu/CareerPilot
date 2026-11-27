@@ -149,7 +149,7 @@ async def test_api_mode_failure_retains_real_status_and_can_retry(db_session, te
     task = await create(db_session, test_workspace, mode="api")
     monkeypatch.setattr(api, "SessionLocal", async_sessionmaker(db_session.bind, expire_on_commit=False))
     calls = []
-    async def fail(prompt):
+    async def fail(prompt, *, billing_scope=None):
         calls.append(prompt)
         raise RuntimeError("upstream failed")
     monkeypatch.setattr(protocol, "generate_response", fail)
@@ -159,7 +159,7 @@ async def test_api_mode_failure_retains_real_status_and_can_retry(db_session, te
     await asyncio.gather(*list(api._running))
     failed = await api.get_task(task["id"], ws=test_workspace, session=db_session)
     assert failed["status"] == "FAILED" and failed["import_session_id"] is None
-    async def succeed(prompt):
+    async def succeed(prompt, *, billing_scope=None):
         calls.append(prompt)
         return {"text": response(task), "model": "test-fixture"}
     monkeypatch.setattr(protocol, "generate_response", succeed)

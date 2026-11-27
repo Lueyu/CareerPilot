@@ -10,11 +10,13 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import or_, select
 
-from app.i18n import Locale, message as localized_message, request_language, using_language
+from app.i18n import Locale, request_language, using_language
+from app.i18n import message as localized_message
 from app.models.study_chat import StudyMessage, StudySession
 from app.models.study_notes import StudyCard, StudyNote, StudyNoteJob, StudyNoteVersion
 from app.services.llm import AgentAdapter, get_llm_config
 from app.services.note_store import create_note, own_note, own_version, utcnow
+from app.services.private_model_billing import BillingScope, BudgetPolicyError
 from app.services.study_teaching import teaching_prompt
 
 log = logging.getLogger(__name__)
@@ -53,13 +55,13 @@ class GenerationError(ValueError):
     pass
 
 
-async def read_json(system, payload, schema, *, config=None):
+async def read_json(system, payload, schema, *, config=None, billing_scope=None):
     cfg = await get_llm_config() if config is None else config
     adapter = AgentAdapter()
     try:
         result = await asyncio.wait_for(adapter.chat_with(
             cfg, system, json.dumps(payload, ensure_ascii=False), json_mode=True,
-            timeout=90, stream=True, total_timeout=95,
+            timeout=90, stream=True, total_timeout=95, billing_scope=billing_scope,
         ), timeout=100)
         if not result:
             raise GenerationError(localized_message("errors.the_model_returned_incomplete_content_try_again"))
@@ -170,13 +172,13 @@ def render_note(output, snapshot):
     return body, sources
 
 
-async def generate_note(snapshot):
+async def generate_note(snapshot, *, billing_scope=None):
     cfg = await get_llm_config()
     cfg = {**cfg, "output_limit": 8000}
     language = note_output_language(snapshot)
     output, model = await read_json(
         teaching_prompt("notes", language) + "\n" + localized_message("note.schema", language),
-        snapshot, NoteOutput, config=cfg
+        snapshot, NoteOutput, config=cfg, billing_scope=billing_scope
     )
     body, sources = render_note(output, snapshot)
     return {"title": output.title, "body": body, "sources": sources, "model": model}
@@ -224,12 +226,15 @@ async def process_next_note_job(factory):
         job.status, job.generation = "RUNNING", job.generation + 1
         job.lease_until = utcnow() + timedelta(seconds=120)
         job_id, generation, snapshot = job.id, job.generation, job.snapshot
+        billing_scope = BillingScope(job.workspace_id, f"note_job:{job.id}")
         await db.commit()
     error, result = None, None
     language = note_output_language(snapshot)
     try:
         with using_language(language):
-            result = await generate_note(snapshot)
+            result = await generate_note(snapshot, billing_scope=billing_scope)
+    except BudgetPolicyError as exc:
+        error = str(exc)
     except GenerationError as exc:
         error = str(exc)
     except Exception:
@@ -240,13 +245,13 @@ async def process_next_note_job(factory):
     return True
 
 
-async def generate_cards(body):
+async def generate_cards(body, *, billing_scope=None):
     prompt = (
         localized_message("note.cards") + "\n" + localized_message("language")
     )
     cfg = await get_llm_config()
     cfg = {**cfg, "output_limit": 4000}
-    result, _model = await read_json(prompt, body, CardBatch, config=cfg)
+    result, _model = await read_json(prompt, body, CardBatch, config=cfg, billing_scope=billing_scope)
     return result.cards
 
 

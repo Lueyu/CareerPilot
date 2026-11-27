@@ -22,10 +22,10 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.i18n import message as localized_message
 from app.api.deps import get_workspace, require_auth, require_local_owner
 from app.config import get_settings
 from app.db import get_session
+from app.i18n import message as localized_message
 from app.models import (
     AppSetting,
     ContentPublication,
@@ -55,6 +55,7 @@ from app.models import (
 from app.services.github_publish import get_github_token, set_github_token_cache
 from app.services.llm import adapter, get_llm_config, set_llm_config_cache
 from app.services.llm_endpoint_config import endpoint, resolve_llm_config
+from app.services.private_model_billing import BillingScope
 from app.services.workspaces import ensure_personal_workspace
 
 router = APIRouter()
@@ -585,7 +586,7 @@ async def reset_llm(session: AsyncSession = Depends(get_session)):
 
 
 @router.post("/settings/llm/test", dependencies=[Depends(require_local_owner)])
-async def test_llm(body: LlmTest):
+async def test_llm(body: LlmTest, ws: Workspace = Depends(get_workspace)):
     """用「生效配置 + 请求覆盖」真实调用一次 chat, 验证连通性。"""
     current = await get_llm_config()
     data = {k: v for k, v in body.model_dump(exclude_none=True).items() if v.strip()}
@@ -598,7 +599,7 @@ async def test_llm(body: LlmTest):
     if error:
         return {"ok": False, "latency_ms": 0, "model": cfgv.get("model"), "error": error}
     t0 = time.monotonic()
-    result = await adapter.chat_with(cfgv, "你是连接测试助手。", "请只回复两个字符: OK", timeout=30.0)
+    result = await adapter.chat_with(cfgv, "你是连接测试助手。", "请只回复两个字符: OK", timeout=30.0, billing_scope=BillingScope(ws.id, "settings:llm_test"))
     latency_ms = int((time.monotonic() - t0) * 1000)
     if result is None:
         return {"ok": False, "latency_ms": latency_ms, "model": cfgv.get("model"), "error": "调用失败(网络/凭证/模型名), 未返回内容"}

@@ -170,3 +170,5 @@ async def test_interrupt_query_fences_a_delayed_stop_and_keeps_legacy_clients(db
         assert later["attempt"] == 3
         legacy = await client.post(path)
         assert legacy.status_code == 200 and legacy.json() == {**later, "status": "interrupted"}
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")

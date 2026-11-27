@@ -9,12 +9,14 @@ from sqlalchemy import select
 
 from app.api.deps import get_workspace
 from app.db import get_session
-from app.i18n import message as localized_message, request_language, using_language
+from app.i18n import message as localized_message
+from app.i18n import request_language, using_language
 from app.models import Workspace
 from app.models.study_notes import StudyCard, StudyCardEvent, StudyNoteJob
 from app.services import note_store as notebook
 from app.services import study_notes as service
 from app.services.note_store import EditIn
+from app.services.private_model_billing import BillingScope
 
 router = APIRouter(prefix="/study", tags=["study-notes"])
 
@@ -153,7 +155,7 @@ async def create_cards(note_id: int, body: CardGenIn, ws=Depends(get_workspace),
     if not version.cards_generated:
         try:
             with using_language(language):
-                generated = await service.generate_cards(version.body)
+                generated = await service.generate_cards(version.body, billing_scope=BillingScope(ws.id, f"note_version:{version.id}:cards"))
         except service.GenerationError as exc:
             raise HTTPException(502, str(exc)) from exc
         for item in generated:

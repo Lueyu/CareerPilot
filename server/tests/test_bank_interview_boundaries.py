@@ -29,7 +29,7 @@ async def test_changed_import_title_regenerates_both_scoring_artifacts(db_sessio
     imp_id, item_id = await make_import(db_session, test_workspace)
     revised = 'How does a retry budget prevent overload?'
 
-    async def fresh_answer(title, *args):
+    async def fresh_answer(title, *args, billing_scope=None):
         assert title == revised
         return '<p>New answer</p>', {'points': [{'title': 'Retry budget'}]}, 'fixture'
 
@@ -55,7 +55,7 @@ async def test_set_save_waits_for_and_observes_concurrent_rejection(db_session, 
     async def no_evidence(*args):
         return []
 
-    async def no_rewrite(*args):
+    async def no_rewrite(*args, billing_scope=None):
         return {}, 'Fixture'
 
     monkeypatch.setattr(study_project_evidence, 'collect_project_evidence', no_evidence)

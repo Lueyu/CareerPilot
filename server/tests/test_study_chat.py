@@ -202,3 +202,5 @@ async def test_two_tabs_submit_once_and_owner_checks_cover_reply_actions(monkeyp
     finally:
         await db_session.execute(delete(Workspace).where(Workspace.id == other.id))
         await db_session.commit()
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")

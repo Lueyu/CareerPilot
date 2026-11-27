@@ -9,13 +9,14 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
+from app.generation_i18n import with_output_language
+from app.i18n import message as localized_message
 from app.models import MemoryItem, Workspace
 from app.services.bank_review_memory import BANK_REVIEW_FEEDBACK_TYPE, review_feedback_eligible
-from app.generation_i18n import with_output_language
 from app.services.llm import AgentAdapter
+from app.services.private_model_billing import BillingScope, BudgetPolicyError
 from app.services.project_candidates import eligible
 from app.services.project_memory import lock_project_memories
 from app.services.task_memory import TASK_COMPLETION_TYPE
@@ -203,7 +204,7 @@ async def import_dialog(
     if not text:
         raise HTTPException(status_code=400, detail="text required")
 
-    candidates = await _extract_memories(text)
+    candidates = await _extract_memories(text, billing_scope=BillingScope(ws.id, "memory:extract"))
     created = []
     for c in candidates:
         if c["mtype"] == BANK_REVIEW_FEEDBACK_TYPE:
@@ -264,7 +265,7 @@ MTYPE_RULES = [
 ]
 
 
-async def _extract_memories(text: str) -> list[dict]:
+async def _extract_memories(text: str, *, billing_scope=None) -> list[dict]:
     adapter = AgentAdapter()
     if adapter.active:
         sys_prompt = (
@@ -273,9 +274,11 @@ async def _extract_memories(text: str) -> list[dict]:
             '"content": str(一句话,第三人称), "confidence": 0-1}。不要解释。'
         )
         try:
-            out = await adapter.chat(with_output_language(sys_prompt), text[:8000], json_mode=True)
+            out = await adapter.chat(with_output_language(sys_prompt), text[:8000], json_mode=True, billing_scope=billing_scope)
             if out and isinstance(out, list):
                 return [x for x in out if isinstance(x, dict) and x.get("content")][:8]
+        except BudgetPolicyError:
+            raise
         except Exception:
             pass
 

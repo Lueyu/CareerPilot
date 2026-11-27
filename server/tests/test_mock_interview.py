@@ -1,7 +1,7 @@
 """Real saved chat turns gate mock stages; model responses are controlled fixtures."""
-from uuid import uuid4
-from pathlib import Path
 import re
+from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from fastapi import BackgroundTasks, HTTPException
@@ -281,3 +281,5 @@ async def test_legacy_mock_rows_resume_at_current_step_without_reusing_old_chat(
         await change(db, ws, sid, resumed, "advance")
     _, question, _ = await send(db, ws, sid, resumed, "mock_question")
     assert question["status"] == "generating"
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")

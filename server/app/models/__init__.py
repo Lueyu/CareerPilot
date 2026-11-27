@@ -13,6 +13,7 @@ from app.models.learning_project import LearningProjectSnapshot  # noqa: F401
 from app.models.memory import MemoryItem  # noqa: F401
 from app.models.metric import AgentMetric  # noqa: F401
 from app.models.podcast import PodcastEpisode, PodcastPlaylist, PodcastPlaylistEpisode, PodcastSource
+from app.models.private_model import PrivateModelCall  # noqa: F401
 from app.models.product_feedback import FeedbackAttempt, FeedbackSubmission  # noqa: F401
 from app.models.project import (  # noqa: F401
     AssetUpdateRun,

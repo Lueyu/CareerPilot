@@ -8,7 +8,7 @@ PRD: 所有 LLM 依赖必须有规则引擎降级。本文件提供:
 1. DB AppSetting(key='llm') —— 设置页保存的运行时配置, 优先;
 2. env(app/config.py Settings) —— 兜底默认。
 
-所有取值失败/网络失败 → 返回 None 降级到规则引擎, 不阻塞主流程(PRD 可靠性要求)。
+未配置/供应商失败返回 None。货币预算或计费配置拒绝抛出策略异常，不进入供应商降级。
 """
 from __future__ import annotations
 
@@ -24,15 +24,12 @@ from sqlalchemy import select
 from app.config import MAX_STUDY_TIMEOUT_SECONDS, get_settings
 from app.services.llm_endpoint_config import resolve_llm_config
 from app.services.llm_stream import ChatCompletionStream, StreamFailure
+from app.services.private_model_billing import BillingScope, BudgetPolicyError, reserve, settle
 
 # 生效配置缓存(TTL 内不再查库; 设置页保存后立即 refresh)
 _CACHE: dict[str, Any] | None = None
 _CACHE_AT: float = 0.0
 _TTL = 10.0  # seconds
-
-# Controlled test adapters never write into the production metrics table.
-CONTROLLED_FIXTURE_PROVIDERS = frozenset({"fixture"})
-
 
 async def get_llm_config() -> dict[str, Any]:
     """返回 {provider, api_key, base_url, model, source}; source ∈ db|env|none。"""
@@ -90,11 +87,11 @@ class AgentAdapter:
                         span_name: str | None = None, reasoning_effort: str | None = None,
                         *, stream: bool = False, total_timeout: float | None = None,
                         first_content_timeout: float | None = None,
-                        on_content=None, on_reasoning=None) -> dict[str, Any] | None:
+                        on_content=None, on_reasoning=None, billing_scope: BillingScope | None = None) -> dict[str, Any] | None:
         """用给定配置调用一次 chat; 失败返回 None(降级信号)。
 
         trace+session 同时提供时, 记录 Agent Run span(provider/model/duration/tokens/cost/retry) 到观测台。
-        cost 按 ¥2/百万 token 估算(网关计价未知, 仅作量级参考, 记录在 detail 里注明 estimate)。
+        私有请求先独立预留，再按冻结的配置价格结算；策略拒绝抛出 BudgetPolicyError。
         """
         self.last_error = None
         self.last_response_meta = {}
@@ -117,11 +114,12 @@ class AgentAdapter:
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": 0.2,
         }
-        if cfg.get("output_limit"):
-            payload["max_tokens"] = cfg["output_limit"]
+        payload["max_tokens"] = cfg.get("output_limit", get_settings().private_llm_max_output_tokens)
+        if billing_scope is None and trace is not None:
+            billing_scope = BillingScope(trace.workspace_id, f"trace:{trace.id}:{span_name or 'llm'}")
         if cfg.get("thinking") in ("enabled", "disabled"):
             payload["thinking"] = {"type": cfg["thinking"]}
-        if stream and cfg.get("report_usage"):
+        if stream:
             payload["stream_options"] = {"include_usage": True}
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
@@ -194,6 +192,17 @@ class AgentAdapter:
                     'application/json', 'application/problem+json', 'text/plain', 'text/html',
                     'text/event-stream', 'application/octet-stream'} else 'other'
 
+        # Policy errors happen outside provider-failure handling. No request exists yet.
+        try:
+            call_id = await reserve(billing_scope, cfg, system, user, payload["max_tokens"])
+        except BudgetPolicyError as exc:
+            self.last_error = {"kind": "budget_policy", "code": exc.code, "retry_after": exc.retry_after}
+            raise
+        self.last_response_meta["billing_call_id"] = call_id
+        # Provider deadlines and transport timings start after billing admission.
+        t0 = time.perf_counter()
+        charge = None
+        billing_usage = None
         try:
             if stream:
                 reader = ChatCompletionStream(self.last_response_meta, t0,
@@ -211,6 +220,7 @@ class AgentAdapter:
                     return result
                 finally:
                     self.last_usage = reader.usage
+                    billing_usage = reader.billing_usage
                     if getattr(reader, "reported_model", None):
                         self.last_response_meta["reported_model"] = reader.reported_model
             async with httpx.AsyncClient(timeout=timeout, event_hooks={'response': [record_response_headers]}) as client:
@@ -230,6 +240,7 @@ class AgentAdapter:
                 if model_identity:
                     self.last_response_meta['reported_model'] = model_identity
                 reported_usage = data.get('usage') or {}
+                billing_usage = {k: reported_usage[k] for k in ('prompt_tokens', 'completion_tokens', 'total_tokens') if k in reported_usage} if isinstance(reported_usage, dict) else None
                 if isinstance(reported_usage, dict):
                     self.last_usage = {k: reported_usage[k] for k in ('prompt_tokens', 'completion_tokens', 'total_tokens')
                         if type(reported_usage.get(k)) is int and reported_usage[k] >= 0} or None
@@ -287,7 +298,23 @@ class AgentAdapter:
             # validated usage instead of recording an invented zero.
             usage = (result or {}).get("usage") or self.last_usage or {}
             total_tokens = usage.get("total_tokens") or 0
-            cost = round(total_tokens * 2e-6, 6)
+            # Shield the durable settlement from caller cancellation. A crash still
+            # leaves the committed reserve in place, never an automatic refund.
+            settlement = asyncio.create_task(settle(call_id, billing_usage, has_output=bool((result or {}).get("content")) or "first_content_ms" in self.last_response_meta or bool(self.last_response_meta.get("output_chars"))))
+            try:
+                charge = await asyncio.shield(settlement)
+            except BudgetPolicyError as exc:
+                self.last_response_meta.update(billing_phase="settlement", billing_call_id=call_id, cost_basis="unknown")
+                self.last_error = {"kind": "billing_settlement", "code": exc.code}
+                exc.usage = {k: v for k, v in (billing_usage or {}).items() if type(v) is int and v >= 0}
+                exc.request_meta = dict(self.last_response_meta)
+                raise
+            except asyncio.CancelledError:
+                charge = await settlement
+                raise
+            cost = charge.actual_nano_cny / 1_000_000_000 if charge.actual_nano_cny is not None else None
+            cost_basis = "configured_price" if cost is not None else "unknown"
+            self.last_response_meta.update(cost_cny=cost, cost_basis=cost_basis, billing_state=charge.state)
             # ttft = time to the first visible token. Streamed calls expose
             # first_content_ms; a failed stream with no content stays NULL
             # rather than being replaced by the much earlier headers moment.
@@ -307,10 +334,11 @@ class AgentAdapter:
                         "completion_tokens": usage.get("completion_tokens"),
                         "retry": retries,
                         "ok": result is not None,
-                        "cost_note": "estimate ¥2/M tokens",
+                        "cost_note": cost_basis,
+                        "billing_call_id": call_id,
                     }
                     add_span(session, trace, span_name or f"llm:{cfg.get('model') or 'unknown'}",
-                             duration_ms=duration_ms, cost_cny=cost, detail=detail,
+                             duration_ms=duration_ms, cost_cny=cost or 0.0, detail=detail,
                              status="OK" if result is not None else "ERROR")
                 except Exception:  # span 记录失败不影响主流程
                     pass
@@ -338,7 +366,8 @@ class AgentAdapter:
                     error_kind=metric_error,
                     finish_reason=self.last_response_meta.get("finish_reason"),
                     stream=bool(stream),
-                    session=session,
+                    session=session, cost_cny=cost, cost_basis=cost_basis,
+                    billing_call_id=call_id, workspace_id=billing_scope.workspace_id if billing_scope else None,
                 )
             except Exception:
                 pass
@@ -346,10 +375,9 @@ class AgentAdapter:
     async def _record_metric(self, *, kind: str, provider: str | None, model: str | None,
                              duration_ms: int, ttft_ms: int | None, usage: dict,
                              ok: bool, error_kind: str | None, finish_reason: str | None,
-                             stream: bool, session: Any | None) -> None:
+                             stream: bool, session: Any | None, cost_cny: float | None,
+                             cost_basis: str, billing_call_id: str, workspace_id: int | None) -> None:
         """写入 agent_metrics 一行。优先复用调用方会话; 否则开独立会话提交。"""
-        if provider in CONTROLLED_FIXTURE_PROVIDERS:
-            return
         from app.models.metric import AgentMetric
 
         metric = AgentMetric(
@@ -361,7 +389,7 @@ class AgentAdapter:
             prompt_tokens=usage.get("prompt_tokens"),
             completion_tokens=usage.get("completion_tokens"),
             total_tokens=usage.get("total_tokens") or 0,
-            cost_cny=round((usage.get("total_tokens") or 0) * 2e-6, 6),
+            cost_cny=cost_cny, cost_basis=cost_basis, billing_call_id=billing_call_id, workspace_id=workspace_id,
             ok=bool(ok),
             error_kind=(error_kind or "")[:48] or None,
             finish_reason=(finish_reason or "")[:32] or None,
@@ -377,14 +405,15 @@ class AgentAdapter:
             await own.commit()
 
     async def chat(self, system: str, user: str, json_mode: bool = False, timeout: float = 60.0,
-                   trace: Any = None, session: Any = None, span_name: str | None = None) -> dict[str, Any] | None:
+                   trace: Any = None, session: Any = None, span_name: str | None = None,
+                   billing_scope: BillingScope | None = None) -> dict[str, Any] | None:
         """返回 {"content": str} 或 None(降级信号)。配置动态解析(设置页在线修改即时生效)。
 
         trace+session 提供时记录 Agent Run span(provider/model/tokens/cost) 到观测台。
         """
         cfg = await self._effective()
         return await self.chat_with(cfg, system, user, json_mode=json_mode, timeout=timeout,
-                                    trace=trace, session=session, span_name=span_name)
+                                    trace=trace, session=session, span_name=span_name, billing_scope=billing_scope)
 
 
 adapter = AgentAdapter()

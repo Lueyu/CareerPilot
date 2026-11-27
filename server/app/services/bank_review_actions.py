@@ -9,7 +9,8 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 
 from app.generation_i18n import with_output_language
-from app.i18n import message as localized_message, request_language
+from app.i18n import message as localized_message
+from app.i18n import request_language
 from app.models import ImportItem, QuestionGeneration, Skill
 from app.services import question_generation as protocol
 from app.services.answer_gen import build_rubric, render_html
@@ -185,7 +186,7 @@ _ANSWER_SHAPE = {
 _REVISION_FIELDS = {"answer", "project_answer", "hypothetical_answer"}
 
 
-async def revise_answer(context, hints, feedback):
+async def revise_answer(context, hints, feedback, *, billing_scope=None):
     language = request_language()
     structured = context.get("structured")
     draft = {key: value for key, value in context.items() if key != "input_snapshot"}
@@ -209,7 +210,7 @@ async def revise_answer(context, hints, feedback):
         {"draft": draft, "current_feedback": feedback, "review_preferences": hints}, ensure_ascii=False,
     )
     async with asyncio.timeout(REWRITE_TIMEOUT):
-        response = await protocol.generate_response(prompt, stream_timeout=REWRITE_TIMEOUT - 5)
+        response = await protocol.generate_response(prompt, stream_timeout=REWRITE_TIMEOUT - 5, billing_scope=billing_scope)
     result = protocol._fields(protocol._decode_response(response["text"]),
                               _REVISION_FIELDS if structured else {"answer"}, "revision")
     if structured:
@@ -245,6 +246,7 @@ async def _revision_context(session, imported, item, skill_key):
 async def review_import_item(session, workspace, import_id, item_id, request):
     from app.api.v1.bank import ApproveItemReq, _approve_locked_import
     from app.services.bank_review_memory import load_review_feedback, record_review_feedback
+    from app.services.private_model_billing import BillingScope, BudgetPolicyError
 
     imported, item = await lock_review_item(session, workspace, import_id, item_id)
     review = _review(item)
@@ -297,9 +299,11 @@ async def review_import_item(session, workspace, import_id, item_id, request):
         return _response(item, receipt)
 
     try:
-        updated, payload = await revise_answer(context, hints, feedback)
+        updated, payload = await revise_answer(context, hints, feedback, billing_scope=BillingScope(workspace.id, f"import:{import_id}:revise:{item_id}"))
     except (ValueError, TypeError, KeyError):
         receipt = {**receipt, "outcome": "failed", "error": "模型返回的答案格式或资料引用不符合要求，已保留原草稿。请重试。"}
+    except BudgetPolicyError:
+        raise
     except Exception:
         receipt = {**receipt, "outcome": "failed", "error": "模型改写失败，已保留原草稿。请检查模型连接后重试。"}
     else:

@@ -80,7 +80,7 @@ async def test_success_keeps_existing_payload_and_only_safe_header_metadata(monk
     result=await adapter.chat_with(CONFIG,'exact system','exact user',json_mode=True,timeout=180)
     assert result=={'content':'{"ok":true}','usage':{'prompt_tokens':4,'completion_tokens':3,'total_tokens':7}}
     assert captured==[{'model':'unchanged-model','messages':[{'role':'system','content':'exact system'},
-        {'role':'user','content':'exact user'}],'temperature':0.2,'response_format':{'type':'json_object'}}]
+        {'role':'user','content':'exact user'}],'temperature':0.2,'max_tokens':4096,'response_format':{'type':'json_object'}}]
     meta=adapter.last_response_meta
     assert meta['response_headers_received'] is True and meta['response_body_complete'] is True
     assert meta['transport_phase']=='response_body_received'
@@ -192,3 +192,5 @@ async def test_real_httpcore_loopback_trace_distinguishes_connect_from_post(monk
     finally:
         server.close()
         await server.wait_closed()
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")

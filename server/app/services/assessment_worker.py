@@ -13,8 +13,8 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
-from app.i18n import message as localized_message
 from app.generation_i18n import generation_message, saved_language
+from app.i18n import message as localized_message
 from app.models import CompetencySnapshot, ScoringRun, ScoringStep, SkillState, Trace, Workspace
 from app.services import assessment_jobs as jobs
 from app.services.assessment_rubric import JUDGE_VERSION, AssessmentJudgeError, Judgement, validate_judgement
@@ -22,6 +22,7 @@ from app.services.assessment_versions import digest
 from app.services.bank_practice import is_bank_practice_snapshot
 from app.services.llm import AgentAdapter
 from app.services.llm_judge import judge_frozen_answer
+from app.services.private_model_billing import BillingScope
 from app.services.project_autopilot_config import model_fingerprint, runtime_config
 
 log=logging.getLogger('careerpilot.assessment_worker')
@@ -120,7 +121,7 @@ async def evaluate(claim,cfg,repair=None):
     result = await judge_frozen_answer(AgentAdapter(),question_id=payload['question_id'],
         answer_revision_id=payload['answer_revision_id'],title=payload['title'],skill_name=payload.get('skill_name'),
         rubric=payload['rubric'],text=submitted.get('text_answer'),llm_config=cfg,timeout=90,
-        repair_diagnostic=repair,
+        repair_diagnostic=repair, billing_scope=BillingScope(claim.workspace_id, f"assessment:{claim.run_id}:step:{claim.step_id}"),
         language=saved_language(payload['generation_language']) if 'generation_language' in payload else None)
     return _validate_project_result(result, payload)
 

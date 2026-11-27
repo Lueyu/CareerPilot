@@ -1,9 +1,9 @@
 import asyncio
+import json
+import socket
 from argparse import Namespace
 from collections import Counter
 from contextlib import AsyncExitStack
-import json
-import socket
 from types import SimpleNamespace
 
 import httpx
@@ -15,8 +15,17 @@ from app.api import deps
 from app.db import get_session
 from app.main import app
 from app.services import study_chat as worker
-from bench_study_chat import (PROMPTS, benchmark, body_fingerprint, claim_assessment, enrich_samples,
-                              paired_summary, run_turn, summarize, usage_tokens)
+from bench_study_chat import (
+    PROMPTS,
+    benchmark,
+    body_fingerprint,
+    claim_assessment,
+    enrich_samples,
+    paired_summary,
+    run_turn,
+    summarize,
+    usage_tokens,
+)
 
 
 @pytest.mark.asyncio
@@ -243,3 +252,5 @@ async def test_enrich_samples_marks_unavailable_on_http_error():
         await enrich_samples(client, "/sessions", [trial])
     assert trial["trace_status"] == "unavailable"
     assert trial["outcome"] == "timeout"
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")

@@ -760,3 +760,5 @@ async def test_project_auto_repair_and_missing_profile(monkeypatch, task, repair
     monkeypatch.setattr(api.AgentAdapter, 'chat_with', answer)
     _, _, meta = await api._ask(task, {}, api.CandidateResponse, rt)
     assert (meta['requested_tier'], meta['tier'], meta['routing_policy']) == (preferred, served, 'project-stage-v2')
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")

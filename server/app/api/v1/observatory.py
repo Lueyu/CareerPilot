@@ -218,7 +218,11 @@ async def agent_runs(
     for s, started_at in spans:
         d = s.detail or {}
         model = d.get("model") or (s.name.split(":", 1)[1] if ":" in s.name else "unknown")
-        g = groups.setdefault(model, {"model": model, "provider": d.get("provider"), "calls": 0, "errors": 0, "total_ms": 0, "total_tokens": 0, "last_used": None})
+        g = groups.setdefault(model, {"model": model, "provider": d.get("provider"), "calls": 0, "errors": 0, "total_ms": 0, "total_tokens": 0, "last_used": None, "configured_cost": 0.0, "unknown_cost_calls": 0})
+        if d.get("cost_note") == "configured_price":
+            g["configured_cost"] += s.cost_cny or 0
+        else:
+            g["unknown_cost_calls"] += 1
         g["calls"] += 1
         if s.status == "ERROR":
             g["errors"] += 1
@@ -230,13 +234,14 @@ async def agent_runs(
     for g in groups.values():
         calls = g.pop("calls")
         total_ms = g.pop("total_ms")
-        tokens = g["total_tokens"]
+        configured_cost = g.pop("configured_cost")
         items.append({
             **g,
             "calls": calls,
             "avg_ms": round(total_ms / calls) if calls else 0,
-            "estimated_cost": round(tokens * 2e-6, 4),
-            "cost_note": "estimate ¥2/M tokens",
+            "estimated_cost": round(configured_cost, 9) if not g["unknown_cost_calls"] else None,
+            "configured_cost_cny": round(configured_cost, 9),
+            "cost_note": "unknown" if g["unknown_cost_calls"] else "configured_price",
         })
     items.sort(key=lambda x: -x["calls"])
-    return {"items": items, "note": "统计口径: TraceSpan(llm:*) · 最近 500 条 · 成本为估算值"}
+    return {"items": items, "note": "统计口径: TraceSpan(llm:*) · 最近 500 条 · 配置价格计费与未知用量分列"}

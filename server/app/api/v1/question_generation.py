@@ -14,10 +14,10 @@ from sqlalchemy import case, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import lazyload
 
-from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
 from app.generation_i18n import generation_message, generation_skill_name, saved_language
+from app.i18n import message as localized_message
 from app.i18n import request_language
 from app.models import (
     ImportItem,
@@ -32,6 +32,7 @@ from app.models import (
 )
 from app.services import question_generation as protocol
 from app.services.bank_review_memory import load_review_feedback
+from app.services.private_model_billing import BillingScope, BudgetPolicyError
 from app.services.project_context import build_project_context
 from app.services.project_memory import issue_targets
 
@@ -259,18 +260,18 @@ async def _run(task_id: int, workspace_id: int):
         async with SessionLocal() as session:
             task = await owned_task(session, workspace_id, task_id)
             prompt = task.prompt_text
-        result = await protocol.generate_response(prompt)
+        result = await protocol.generate_response(prompt, billing_scope=BillingScope(workspace_id, f"generation:{task_id}"))
         async with SessionLocal() as session:
             task = await owned_task(session, workspace_id, task_id, lock=True)
             if task.status == "RUNNING" and not task.import_session_id:
                 await store_response(session, task, result["text"], {key: value for key, value in result.items() if key != "text"})
-    except Exception:
+    except Exception as exc:
         # Provider exceptions may contain credentials or headers: retain safe actionable text only.
         async with SessionLocal() as session:
             task = await owned_task(session, workspace_id, task_id, lock=True)
             if task.status == "RUNNING":
                 task.status = "FAILED"
-                task.error = generation_message("draft.generation_failed", saved_language(task.input_snapshot.get("generation_language")))
+                task.error = str(exc) if isinstance(exc, BudgetPolicyError) else generation_message("draft.generation_failed", saved_language(task.input_snapshot.get("generation_language")))
                 await session.commit()
 
 

@@ -548,3 +548,5 @@ async def test_silent_first_attempt_leaves_time_for_the_alternate_tier(study, mo
     assert len(reply["trace"]["calls"]) == len(requests) == 2
     assert reply["trace"]["calls"][1]["retry_kind"] == "transport_failover"
     assert reply["trace"]["calls"][0]["error"] == "timeout"
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")
