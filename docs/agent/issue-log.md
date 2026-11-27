@@ -8,3 +8,10 @@
 - 验证 SHA：13786ea060a3373bbf3ef93f117eab969b029e17
 - 证据：docs/known-issues/reports/wave1/E1.html
 - 遗留/后续：持久队列/outbox/drain留第5波；本项Semaphore仅进程内；个人实例未部署
+
+## E2 · 2026-11-28 · DONE
+- 结论：独立财务账本在联网前原子预留，按冻结配置价格结算；部署共享日预算，未知用量保留预留，超预留暂停当天后续准入。最终作者和独立69项通过，额外4进程抢最后预算通过，前端283项通过。
+- PR：https://github.com/Lueyu/CareerPilot/pull/54
+- 验证 SHA：4ad8be58b29390a72ff36aec47971f6e65e9f70b
+- 证据：.agent-runs/20261128-wave1/e2/review/review.json
+- 遗留/后续：未知费用需外部证据对账；价格需显式配置。真实供应商、个人实例未测试或部署。原有timeout/cancelled分类缺陷保留。
