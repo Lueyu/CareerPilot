@@ -10,6 +10,7 @@ from test_project_autopilot_engine import runtime
 
 from app import project_worker as worker
 from app.services import project_autopilot_engine as api
+from app.services.private_model_billing import BillingScope
 
 REPLY = {'content': json.dumps({'observations': [], 'conflicts': [], 'unknowns': []})}
 
@@ -29,7 +30,7 @@ async def test_default_adapter_arguments_remain_without_explicit_total(monkeypat
         return REPLY
     monkeypatch.setattr(api.AgentAdapter, 'chat_with', chat)
     _, _, meta = await api._ask('verify_cross_module', {'claims': []}, api.CrossResponse, rt)
-    assert calls == [{'json_mode': True, 'timeout': 180, **({'stream': True} if mode == 'sse-v1' else {})}]
+    assert calls == [{'json_mode': True, 'timeout': 180, 'billing_scope': BillingScope(1, 'project:2:verify_cross_module'), **({'stream': True} if mode == 'sse-v1' else {})}]
     assert meta['io_timeout_seconds'] == meta['stage_timeout_seconds'] == 180
 
 
@@ -47,7 +48,7 @@ async def test_explicit_total_changes_execution_only_not_model_or_prompt(monkeyp
     rt.stage_timeout = total
     _, _, meta = await api._ask('verify_cross_module', {'claims': []}, api.CrossResponse, rt)
     assert calls[0][:3] == calls[1][:3]
-    assert calls[1][3] == {'json_mode': True, 'timeout': 180, 'stream': True, 'total_timeout': total}
+    assert calls[1][3] == {'json_mode': True, 'timeout': 180, 'stream': True, 'total_timeout': total, 'billing_scope': BillingScope(1, 'project:2:verify_cross_module')}
     assert rt.llm_config == original_config and rt.request_timeout == 180 and rt.input_chars == 40000
     assert meta['io_timeout_seconds'] == 180 and meta['stage_timeout_seconds'] == total
     assert meta['prompt_version'] == api.PROMPT_BUNDLE_VERSION
@@ -162,3 +163,5 @@ async def test_worker_total_budget_reads_only_run_metadata(monkeypatch, explicit
     await worker.execute_claim(claim, 'fixture-worker', factory=Session)
     assert seen == [(explicit, 180, 40000, 'sse-v1')] and completed == [True]
     assert run.__dict__ == frozen
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")

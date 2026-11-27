@@ -18,6 +18,7 @@ from app.i18n import message as localized_message
 from app.models.jd import JdSource
 from app.models.study_chat import StudyMessage, StudySession
 from app.services.llm import AgentAdapter, get_llm_config
+from app.services.private_model_billing import BillingScope, BudgetPolicyError
 from app.services.study_chat_capacity import generation_event, interrupted_coach
 from app.services.study_routing import (
     POLICY_VERSION,
@@ -552,7 +553,8 @@ async def _generate(turn, settings, deadline, trace, save, fail, language: Local
         operation = asyncio.create_task(adapter.chat_with({**cfg, "output_limit":allowance, "report_usage":True},
             instruction, request, stream=True, on_content=partial, on_reasoning=thinking,
             timeout=remaining, total_timeout=remaining,
-            first_content_timeout=first_content_timeout))
+            first_content_timeout=first_content_timeout,
+            billing_scope=BillingScope(turn["row"].workspace_id, f"study_message:{message_id}:attempt:{attempt}")))
         try:
             async with asyncio.timeout(remaining):
                 while not operation.done():
@@ -565,6 +567,12 @@ async def _generate(turn, settings, deadline, trace, save, fail, language: Local
                         if not active:
                             raise InterruptedError
                 result = operation.result()
+        except BudgetPolicyError as exc:
+            call.update(error=exc.code, billing_phase=exc.phase,
+                        billing_call_id=exc.billing_call_id or adapter.last_response_meta.get("billing_call_id"),
+                        usage=adapter.last_usage, cost=None, cost_basis="unknown",
+                        outcome="denied" if exc.phase == "admission" else "unknown")
+            raise
         except TimeoutError:
             adapter.last_error = {"kind": "timeout"}
             result = None
@@ -610,7 +618,8 @@ async def _generate(turn, settings, deadline, trace, save, fail, language: Local
             adapter, cfg, model, instruction, request, allowance, call, remaining,
             first_content_timeout,
         )
-        call.update(usage=adapter.last_usage,
+        call.update(cost=adapter.last_response_meta.get("cost_cny"), cost_basis=adapter.last_response_meta.get("cost_basis", "unknown"),
+                    billing_call_id=adapter.last_response_meta.get("billing_call_id"), usage=adapter.last_usage,
                     reported_model=adapter.last_response_meta.get("reported_model"),
                     first_reasoning_ms=adapter.last_response_meta.get("first_reasoning_ms"),
                     first_token_ms=adapter.last_response_meta.get("first_content_ms"),
@@ -798,6 +807,11 @@ async def _execute_reply(message_id: int, attempt: int, *, submitted_at=None, ac
         except InterruptedError:
             pass
         raise
+    except BudgetPolicyError as exc:
+        trace.update(error_kind="budget_policy", policy_code=exc.code, policy_phase=exc.phase, retry_after=exc.retry_after)
+        if trace["calls"]:
+            trace["calls"][-1].update(outcome="denied" if exc.phase == "admission" else "unknown", error=exc.code)
+        await fail("budget_policy", str(exc))
     except Exception as exc:
         logging.getLogger(__name__).warning("study generation %s failed during %s (%s)", message_id, trace["stage"], type(exc).__name__)
         trace["error_kind"] = "timeout" if isinstance(exc, TimeoutError) else "tool" if trace["stage"] == "retrieving" else "generation"

@@ -47,7 +47,7 @@ async def test_endpoint_change_requires_key(isolated, change):
     _, session, _ = isolated
     with pytest.raises(HTTPException, match="API 密钥") as save:
         await settings.update_llm(settings.LlmUpdate(**change), session)
-    probe = await settings.test_llm(settings.LlmTest(**change))
+    probe = await settings.test_llm(settings.LlmTest(**change), ws=SimpleNamespace(id=1))
     assert not probe["ok"] and "API 密钥" in probe["error"]
     assert save.value.status_code == 422
     session.add.assert_not_called()
@@ -63,12 +63,12 @@ async def test_same_endpoint_edits_and_explicit_key_switch(isolated):
         settings.LlmUpdate(base_url=env.llm_base_url + "/", model="updated", api_key=""), session
     )
     assert payload["active"] and payload["model"] == "updated"
-    await settings.test_llm(settings.LlmTest(model="preview"))
+    await settings.test_llm(settings.LlmTest(model="preview"), ws=SimpleNamespace(id=1))
     assert settings.adapter.chat_with.call_args.args[0]["api_key"] == env.llm_api_key
 
     endpoint = "https://new.invalid/v1"
     body = {"base_url": endpoint, "api_key": "synthetic-new"}
-    await settings.test_llm(settings.LlmTest(**body))
+    await settings.test_llm(settings.LlmTest(**body), ws=SimpleNamespace(id=1))
     sent = settings.adapter.chat_with.call_args.args[0]
     assert (sent["base_url"], sent["api_key"]) == (endpoint, body["api_key"])
     payload = await settings.update_llm(settings.LlmUpdate(**body), session)
@@ -98,13 +98,13 @@ async def test_existing_keyless_override_cannot_inherit_env_key(isolated, monkey
     payload = await settings.get_llm()
     assert not payload["active"] and not payload["api_key_set"]
     assert payload["base_url"] == override.value["base_url"]
-    probe = await settings.test_llm(settings.LlmTest())
+    probe = await settings.test_llm(settings.LlmTest(), ws=SimpleNamespace(id=1))
     assert not probe["ok"] and "API 密钥" in probe["error"]
     settings.adapter.chat_with.assert_not_awaited()
 
     monkeypatch.setattr(project_autopilot_config, "repository_credentials", AsyncMock(return_value={}))
     for key in ("llm:1", "llm", None):
-        session.get.side_effect = lambda _, name: override if name == key else None
+        session.get.side_effect = lambda _, name, key=key: override if name == key else None
         config, _, _ = await project_autopilot_config.runtime_config(session, 1, require_consent=False)
         expected = "" if key else env.llm_api_key
         assert config["api_key"] == config["auto_profiles"]["flash"]["api_key"] == expected

@@ -28,7 +28,9 @@ class AgentMetric(Base):
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    cost_cny: Mapped[float] = mapped_column(Float, default=0.0)  # estimate ¥2/M tokens
+    cost_cny: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cost_basis: Mapped[str] = mapped_column(String(32), default="unknown")
+    billing_call_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     ok: Mapped[bool] = mapped_column(Boolean, default=True)
     error_kind: Mapped[str | None] = mapped_column(String(48), nullable=True)
     finish_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)

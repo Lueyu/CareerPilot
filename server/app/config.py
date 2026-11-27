@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     llm_base_url: str = ""
     llm_model: str = ""
 
+    # Operator-declared private billing. Empty prices fail closed, including connection tests.
+    private_llm_prices: list[dict] = []
+    # Deployment-wide UTC+8 daily cap shared by every private workspace.
+    private_llm_daily_budget_cny: str = "10"
+    private_llm_max_output_tokens: int = Field(default=4096, ge=1, le=32000)
+
     # Flash inherits the active connection and model unless explicitly overridden.
     # An empty strong model disables that seat.
     study_flash_model: str = ""

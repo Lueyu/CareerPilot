@@ -120,7 +120,8 @@ async def _agent_block(session: AsyncSession, days: int = 14) -> dict:
         "latency_ms": {"p50": 0, "p95": 0, "p99": 0, "avg": 0},
         "ttft_ms": {"p50": None, "p95": None},
         "tokens": {"prompt": 0, "completion": 0, "total": 0},
-        "cost_estimate_cny": 0.0,
+        "cost_estimate_cny": None,
+        "configured_cost_cny": 0.0, "unknown_cost_calls": 0, "cost_basis": "unknown",
         "by_model": [],
         "finish_reasons": [],
         "stream_share": None,
@@ -129,7 +130,7 @@ async def _agent_block(session: AsyncSession, days: int = 14) -> dict:
         metrics = (
             await session.execute(
                 select(AgentMetric)
-                .where(AgentMetric.provider.is_distinct_from("fixture"),
+                .where(((AgentMetric.provider.is_distinct_from("fixture")) | (AgentMetric.billing_call_id.is_not(None))),
                        AgentMetric.created_at >= _window_start(days))
                 .order_by(AgentMetric.id.desc()).limit(5000)
             )
@@ -160,13 +161,16 @@ async def _agent_block(session: AsyncSession, days: int = 14) -> dict:
         "completion": sum(int(m.completion_tokens or 0) for m in metrics),
         "total": sum(int(m.total_tokens or 0) for m in metrics),
     }
-    out["cost_estimate_cny"] = round(sum(float(m.cost_cny or 0) for m in metrics), 4)
+    out["configured_cost_cny"] = round(sum(float(m.cost_cny or 0) for m in metrics if m.cost_basis == "configured_price"), 9)
+    out["unknown_cost_calls"] = sum(m.cost_basis != "configured_price" for m in metrics)
+    out["cost_basis"] = "unknown" if out["unknown_cost_calls"] else "configured_price"
+    out["cost_estimate_cny"] = None if out["unknown_cost_calls"] else out["configured_cost_cny"]
     out["finish_reasons"] = [
         {"name": name, "count": int(count)}
         for name, count in Counter(m.finish_reason for m in metrics if m.finish_reason).most_common(8)
     ]
     out["stream_share"] = round(100.0 * sum(1 for m in metrics if m.stream) / total, 1)
-    by_model: dict = defaultdict(lambda: {"calls": 0, "errors": 0, "total_ms": 0, "tokens": 0, "cost": 0.0})
+    by_model: dict = defaultdict(lambda: {"calls": 0, "errors": 0, "total_ms": 0, "tokens": 0, "cost": 0.0, "unknown_cost_calls": 0})
     for m in metrics:
         bucket = by_model[m.model or "unknown"]
         bucket["calls"] += 1
@@ -174,7 +178,10 @@ async def _agent_block(session: AsyncSession, days: int = 14) -> dict:
             bucket["errors"] += 1
         bucket["total_ms"] += int(m.duration_ms or 0)
         bucket["tokens"] += int(m.total_tokens or 0)
-        bucket["cost"] += float(m.cost_cny or 0)
+        if m.cost_basis == "configured_price":
+            bucket["cost"] += float(m.cost_cny or 0)
+        else:
+            bucket["unknown_cost_calls"] += 1
     out["by_model"] = [
         {
             "model": name,
@@ -182,7 +189,8 @@ async def _agent_block(session: AsyncSession, days: int = 14) -> dict:
             "errors": b["errors"],
             "avg_ms": int(b["total_ms"] / b["calls"]) if b["calls"] else 0,
             "tokens": b["tokens"],
-            "cost_cny": round(b["cost"], 4),
+            "cost_cny": round(b["cost"], 9) if not b["unknown_cost_calls"] else None,
+            "configured_cost_cny": round(b["cost"], 9), "unknown_cost_calls": b["unknown_cost_calls"],
         }
         for name, b in sorted(by_model.items(), key=lambda kv: -kv[1]["calls"])
     ][:10]
@@ -262,10 +270,11 @@ async def _trend_block(session: AsyncSession, days: int = 14) -> list[dict]:
                 select(
                     _DAY.label("day"),
                     func.count(AgentMetric.id),
-                    func.sum(AgentMetric.cost_cny),
+                    func.sum(AgentMetric.cost_cny).filter(AgentMetric.cost_basis == "configured_price"),
+                    func.count(AgentMetric.id).filter(AgentMetric.cost_basis != "configured_price"),
                 )
                 .where(AgentMetric.created_at >= _window_start(days),
-                       AgentMetric.provider.is_distinct_from("fixture"))
+                       ((AgentMetric.provider.is_distinct_from("fixture")) | (AgentMetric.billing_call_id.is_not(None))))
                 .group_by(_DAY)
                 .order_by(_DAY)
             )
@@ -273,8 +282,9 @@ async def _trend_block(session: AsyncSession, days: int = 14) -> list[dict]:
     except Exception:
         return []
     by_day = {
-        str(day)[:10]: {"date": str(day)[:10], "calls": int(calls), "cost_cny": round(float(cost or 0), 4), "users": 0}
-        for day, calls, cost in rows
+        str(day)[:10]: {"date": str(day)[:10], "calls": int(calls), "cost_cny": round(float(cost or 0), 9) if not unknown else None,
+                        "configured_cost_cny": round(float(cost or 0), 9), "unknown_cost_calls": int(unknown), "users": 0}
+        for day, calls, cost, unknown in rows
     }
     try:
         user_rows = (
@@ -330,7 +340,7 @@ async def ops_recent(
     """最近调用明细(drill-down)。"""
     rows = (
         await session.execute(
-            select(AgentMetric).where(AgentMetric.provider.is_distinct_from("fixture"))
+            select(AgentMetric).where(((AgentMetric.provider.is_distinct_from("fixture")) | (AgentMetric.billing_call_id.is_not(None))))
             .order_by(AgentMetric.id.desc()).limit(limit)
         )
     ).scalars().all()
@@ -344,7 +354,8 @@ async def ops_recent(
                 "duration_ms": m.duration_ms,
                 "ttft_ms": m.ttft_ms,
                 "total_tokens": m.total_tokens,
-                "cost_cny": m.cost_cny,
+                "cost_cny": m.cost_cny, "cost_basis": m.cost_basis,
+                "billing_call_id": m.billing_call_id,
                 "ok": m.ok,
                 "error_kind": m.error_kind,
                 "finish_reason": m.finish_reason,

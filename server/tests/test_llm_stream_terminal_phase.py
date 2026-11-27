@@ -69,3 +69,5 @@ async def test_real_loopback_stream_terminal_phase_distinguishes_cleanup_from_fa
         server.close()
         await server.wait_closed()
         await prepared.aclose()
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")

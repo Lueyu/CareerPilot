@@ -302,7 +302,7 @@ async def fail_step(session,claim,category,message,retry_after=None,request_id=N
         step.status='RETRY_WAIT';run.status='RETRY_WAIT'
         step.next_retry_at=now+timedelta(seconds=max(float(retry_after or 0),min(300,5*2**step.retry_count)))
     else:
-        step.status='BLOCKED';run.status='PAUSED_BUDGET' if category=='BUDGET_EXHAUSTED' else 'BLOCKED'
+        step.status='BLOCKED';run.status='PAUSED_BUDGET' if category in ('BUDGET_EXHAUSTED', 'DAILY_BUDGET_EXHAUSTED') else 'BLOCKED'
     step.lease_owner=None;step.lease_expires_at=None;step.updated_at=now
     run.error=step.error;run.updated_at=now
     await record_span(session,run,step,'ERROR')

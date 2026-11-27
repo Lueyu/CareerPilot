@@ -7,7 +7,7 @@ from app.generation_i18n import with_output_language
 from app.services.llm import AgentAdapter, get_llm_config
 
 
-async def rewrite_interview_questions(project_name: str, items: list[dict], facts: dict[str, dict]) -> tuple[dict[int, dict], str]:
+async def rewrite_interview_questions(project_name: str, items: list[dict], facts: dict[str, dict], *, billing_scope=None) -> tuple[dict[int, dict], str]:
     if not facts:
         return {}, 'no_evidence'
     cfg = await get_llm_config()
@@ -24,7 +24,7 @@ async def rewrite_interview_questions(project_name: str, items: list[dict], fact
     try:
         adapter = AgentAdapter()
         cfg = {**cfg, 'output_limit': min(int(cfg.get('output_limit') or 4096), 4096)}
-        response = await asyncio.wait_for(adapter.chat_with(cfg, with_output_language(system), payload, json_mode=True, timeout=25), 30)
+        response = await asyncio.wait_for(adapter.chat_with(cfg, with_output_language(system), payload, json_mode=True, timeout=25, billing_scope=billing_scope), 30)
         result = json.loads(response.get('content', '') if response else '')
     except (ValueError, TypeError, TimeoutError):
         return {}, 'model_unavailable'

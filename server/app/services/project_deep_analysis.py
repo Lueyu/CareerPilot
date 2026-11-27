@@ -134,7 +134,7 @@ def _numbered(files: list[dict]) -> list[dict]:
             for item in files]
 
 
-async def _ask_model(cfg: dict, stage: str, instruction: str, payload: dict, calls: list[dict]) -> dict:
+async def _ask_model(cfg: dict, stage: str, instruction: str, payload: dict, calls: list[dict], billing_scope=None) -> dict:
     # Each concurrent request owns its diagnostic state. No shared adapter can
     # overwrite another request's last_error while modules are being reviewed.
     adapter = AgentAdapter()
@@ -143,7 +143,7 @@ async def _ask_model(cfg: dict, stage: str, instruction: str, payload: dict, cal
     system = with_output_language(generation_message('project.deep.system') + '\n' + instruction)
     try:
         result = await asyncio.wait_for(adapter.chat_with(cfg, system,
-            json.dumps(payload, ensure_ascii=False), json_mode=True, timeout=timeout, **options), timeout=timeout)
+            json.dumps(payload, ensure_ascii=False), json_mode=True, timeout=timeout, billing_scope=billing_scope, **options), timeout=timeout)
     except TimeoutError:
         raise ProjectAnalysisError(f'LLM 模型响应超时（{stage}，总等待上限 {int(timeout)} 秒）；未生成分析结果') from None
     except (ValueError, httpx.HTTPError):
@@ -250,7 +250,7 @@ def _result_meta(cfg, calls):
 
 async def review_inspected_sources(files: list[dict], context: dict, coverage: dict, *, cfg: dict | None = None,
                                    progress: Callable[[str], Awaitable[None]] | None = None,
-                                   calls: list[dict] | None = None) -> dict:
+                                   calls: list[dict] | None = None, billing_scope=None) -> dict:
     """Review an already captured real source snapshot without refetching it.
 
     Used by analyze_project and by isolated acceptance replay. `files` contain raw
@@ -279,7 +279,7 @@ async def review_inspected_sources(files: list[dict], context: dict, coverage: d
                 raw = await _ask_model(cfg, f'review_modules:{index}',
                     generation_message('project.deep.review_modules'),
                     {**_brief_context(context), 'module_index': index, 'module_count': len(groups),
-                     'inspected_files': _numbered(group), 'coverage': _brief_coverage(coverage), 'json_schema': schema}, calls)
+                     'inspected_files': _numbered(group), 'coverage': _brief_coverage(coverage), 'json_schema': schema}, calls, billing_scope)
                 validated = validate_report(raw, group)
                 # Compact output is a model preference, not a second schema.
                 # Preserve every valid observation and citation; the bounded
@@ -301,7 +301,7 @@ async def review_inspected_sources(files: list[dict], context: dict, coverage: d
     else:
         await phase('final_report')
         payload = candidate
-    raw_report = await _ask_model(cfg, 'final_report', generation_message('project.deep.final_report'), payload, calls)
+    raw_report = await _ask_model(cfg, 'final_report', generation_message('project.deep.final_report'), payload, calls, billing_scope)
     await phase('validate_report')
     final_report = validate_report(raw_report, files)
     language = request_language()
@@ -318,7 +318,7 @@ async def review_inspected_sources(files: list[dict], context: dict, coverage: d
 async def analyze_project(
     project_info: dict, focus: str = "", personal_context: dict | None = None,
     progress: Callable[[str], Awaitable[None]] | None = None,
-    *, open_source: Callable[[dict], Awaitable[SourceRepository]] | None = None,
+    *, open_source: Callable[[dict], Awaitable[SourceRepository]] | None = None, billing_scope=None,
 ) -> dict:
     async def phase(stage: str):
         if progress is not None:
@@ -337,7 +337,7 @@ async def analyze_project(
     calls: list[dict] = []
 
     async def ask(stage: str, instruction: str, payload: dict) -> dict:
-        return await _ask_model(cfg, stage, instruction, payload, calls)
+        return await _ask_model(cfg, stage, instruction, payload, calls, billing_scope)
 
     context = {
         "project_name": redact_source(str(project_info.get("name") or ""))[:255],
@@ -403,7 +403,7 @@ async def analyze_project(
         "chars_read": total_chars, "max_files": MAX_INITIAL_FILES + MAX_FOLLOWUP_FILES,
         "max_chars": MAX_TOTAL_CHARS, "scope": "bounded_source_review",
     }
-    reviewed = await review_inspected_sources(files, context, coverage, cfg=cfg, progress=progress, calls=calls)
+    reviewed = await review_inspected_sources(files, context, coverage, cfg=cfg, progress=progress, calls=calls, billing_scope=billing_scope)
     snapshot = {"schema_version": 1, "kind": repository.kind, "branch": repository.branch,
                 "source_revision": repository.revision, "files": files, "coverage": coverage,
                 "focus": context["focus"], "personal_context": context["personal_context"],

@@ -98,7 +98,7 @@ async def test_success_records_no_error(monkeypatch):
     assert calls[-1]['ok'] is True
 
 @pytest.mark.asyncio
-async def test_controlled_fixture_call_writes_no_metric(monkeypatch):
+async def test_explicit_transport_fixture_writes_no_metric(monkeypatch):
     """A fixture adapter must not open a session against the production metrics table."""
     import app.db as db_module
 
@@ -110,7 +110,7 @@ async def test_controlled_fixture_call_writes_no_metric(monkeypatch):
     await adapter._record_metric(
         kind="llm", provider="fixture", model="unchanged-model", duration_ms=10,
         ttft_ms=None, usage={}, ok=True, error_kind=None, finish_reason="stop",
-        stream=True, session=None,
+        stream=True, session=None, cost_cny=None, cost_basis="unknown", billing_call_id="fixture", workspace_id=None,
     )
 
 
@@ -170,3 +170,5 @@ async def test_non_stream_metric_keeps_header_as_ttft(monkeypatch):
     adapter = AgentAdapter()
     await adapter.chat_with(CONFIG, 's', 'u')
     assert calls[-1]['ttft_ms'] == adapter.last_response_meta['response_headers_ms']
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")

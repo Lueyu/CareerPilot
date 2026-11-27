@@ -40,6 +40,7 @@ class ChatCompletionStream:
         self.first_content_timeout = first_content_timeout
         self.limits = DEFAULT_LIMITS
         self.usage = None
+        self.billing_usage = None
         self.reported_model = None
         self.parts: list[str] = []
         self.content_bytes = 0
@@ -104,6 +105,7 @@ class ChatCompletionStream:
             self.reported_model = value['model'][:200]
         usage = value.get('usage')
         if isinstance(usage, dict):
+            self.billing_usage = {k: usage[k] for k in ('prompt_tokens', 'completion_tokens', 'total_tokens') if k in usage}
             safe_usage = {k: usage[k] for k in ('prompt_tokens', 'completion_tokens', 'total_tokens')
                           if type(usage.get(k)) is int and usage[k] >= 0}
             if safe_usage:

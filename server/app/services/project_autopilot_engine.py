@@ -23,6 +23,7 @@ from app.services import project_autopilot_sources as sources
 from app.services import project_claim_registry as claim_registry
 from app.services import project_stage_splits as stage_splits
 from app.services.llm import AgentAdapter
+from app.services.private_model_billing import BillingScope, BudgetPolicyError
 from app.services.project_prompts import PROMPT_BUNDLE_VERSION, system_prompt
 from app.services.project_report_i18n import report_message
 from app.services.project_sources import redact_value
@@ -526,8 +527,14 @@ async def _ask(task, payload, model, runtime):
         transport_options = {'stream': True} if runtime.transport_mode == 'sse-v1' else {}
         if runtime.stage_timeout is not None:
             transport_options['total_timeout'] = stage_timeout
-        result = await asyncio.wait_for(adapter.chat_with(cfg, system, user, json_mode=True,
+        result = await asyncio.wait_for(adapter.chat_with({**cfg, "output_limit": runtime.output_reserve_tokens}, system, user, json_mode=True,
+            billing_scope=BillingScope(runtime.workspace_id, f"project:{runtime.project_id}:{task}"),
             timeout=runtime.request_timeout, **transport_options), timeout=stage_timeout)
+    except BudgetPolicyError as exc:
+        meta.update(getattr(exc, "request_meta", None) or {})
+        meta.update(request_started=exc.phase == "settlement", billing_phase=exc.phase, policy_code=exc.code)
+        raise StageError(exc.code, str(exc), retry_after=exc.retry_after,
+                         usage=getattr(exc, "usage", None), request_meta=meta) from None
     except TimeoutError:
         meta.update(getattr(adapter, 'last_response_meta', {}) or {})
         raise StageError('REQUEST_TIMEOUT', '单次模型请求超时，已完成阶段仍保留',

@@ -8,7 +8,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.v1 import study_notes as api
-from app.i18n import message as localized_message, using_language
+from app.i18n import message as localized_message
+from app.i18n import using_language
 from app.models import Evidence, Workspace
 from app.models.study_chat import StudyMessage, StudySession
 from app.models.study_notes import StudyCardEvent, StudyNoteVersion
@@ -31,7 +32,7 @@ async def conversation(db, ws):
     return chat, question, answer
 
 
-async def generate(snapshot):
+async def generate(snapshot, *, billing_scope=None):
     m = snapshot[-1]
     return {"title": "探针", "model": "controlled-fixture", "body": m["text"],
             "sources": [{"session_id": m["session_id"], "message_id": m["id"],
@@ -88,7 +89,7 @@ async def test_failed_job_keeps_snapshot_retry_fences_and_edits(db_session, test
     assert not await service.finish_job(db, job.id, 1, await generate(job.snapshot))
     await db.commit()
 
-    async def broken(snapshot):
+    async def broken(snapshot, *, billing_scope=None):
         raise service.GenerationError("模拟超时")
 
     factory = async_sessionmaker(db.bind, expire_on_commit=False)
@@ -158,7 +159,7 @@ async def test_note_retry_fallback_uses_admitted_language(db_session, test_works
     expected = localized_message("note.failed", admitted)
     factory = async_sessionmaker(db.bind, expire_on_commit=False)
 
-    async def unexpected_failure(snapshot):
+    async def unexpected_failure(snapshot, *, billing_scope=None):
         raise RuntimeError("Synthetic worker failure")
 
     monkeypatch.setattr(service, "generate_note", unexpected_failure)
@@ -191,7 +192,7 @@ async def test_cards_use_admitted_language_only_for_composite_action(
     async def config():
         return {}
 
-    async def model(prompt, payload, schema, *, config):
+    async def model(prompt, payload, schema, *, config, billing_scope=None):
         if schema is service.NoteOutput:
             note_prompts.append(prompt)
             assert localized_message("language", admitted) in prompt
@@ -259,7 +260,7 @@ async def test_card_answer_is_recorded_separately_from_self_rating_and_evidence(
     assert await service.process_next_note_job(async_sessionmaker(db.bind, expire_on_commit=False))
     await db.refresh(job)
 
-    async def cards(body):
+    async def cards(body, *, billing_scope=None):
         return [service.CardOutput(question="哪个探针？", answer="readiness", knowledge_point="健康检查")]
 
     monkeypatch.setattr(service, "generate_cards", cards)
@@ -340,7 +341,7 @@ async def test_overlapping_card_requests_generate_once(db_session, test_workspac
     entered, release = asyncio.Event(), asyncio.Event()
     calls = []
 
-    async def overlapping(body):
+    async def overlapping(body, *, billing_scope=None):
         calls.append(body)
         entered.set()
         await release.wait()

@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 import asyncpg
+import pytest
 import pytest_asyncio
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -91,3 +92,23 @@ async def test_workspace(db_session):
     await db_session.execute(delete(ImportSession).where(ImportSession.workspace_id == workspace_id))
     await db_session.execute(delete(Workspace).where(Workspace.id == workspace_id))
     await db_session.commit()
+
+
+@pytest.fixture
+def mock_private_billing(monkeypatch):
+    """Explicit transport-test boundary. Ledger tests must not use this fixture."""
+    from app.services import llm
+    from app.services.private_model_billing import Charge
+
+    async def reserve(*args, **kwargs):
+        return "transport-test-call"
+
+    async def settle(*args, **kwargs):
+        return Charge("transport-test-call", "UNKNOWN", None, 0)
+
+    async def metric(self, **kwargs):
+        pass
+
+    monkeypatch.setattr(llm.AgentAdapter, "_record_metric", metric)
+    monkeypatch.setattr(llm, "reserve", reserve)
+    monkeypatch.setattr(llm, "settle", settle)

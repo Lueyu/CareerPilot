@@ -8,10 +8,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
+from app.i18n import message as localized_message
 from app.models import Exam, ExamQuestion, ImportItem, Project, ProjectAnalysis, QuestionGeneration, Workspace
+from app.services.private_model_billing import BillingScope
 from app.services.project_context import project_kind, project_profile
 from app.services.project_memory import (
     active_project_memories,
@@ -150,7 +151,7 @@ async def execute_analysis(analysis_id, workspace_id, project_id):
             focus = run.focus
             credentials = await repository_credentials(session, workspace_id)
         open_source = partial(open_repository, token=credentials.get(f"{info['kind']}_token", ''))
-        result = await analyze_project(info, focus, profile, progress=progress, open_source=open_source)
+        result = await analyze_project(info, focus, profile, progress=progress, open_source=open_source, billing_scope=BillingScope(workspace_id, f"project_analysis:{analysis_id}"))
         async with SessionLocal() as session:
             await lock_project_memories(session, workspace_id)
             run = await owned_run(session, workspace_id, project_id, analysis_id, lock=True)

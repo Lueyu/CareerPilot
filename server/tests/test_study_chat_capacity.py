@@ -444,3 +444,5 @@ async def test_terminal_database_timeout_keeps_call_evidence_and_releases_permit
     await asyncio.wait_for(slots.acquire(), 1)
     slots.release()
     slots.release()
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")

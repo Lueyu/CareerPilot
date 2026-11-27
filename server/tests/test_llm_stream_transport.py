@@ -51,7 +51,7 @@ async def test_stream_opt_in_reassembles_split_utf8_and_retains_only_content_usa
     result=await adapter.chat_with(CONFIG,'exact system','exact user',json_mode=True,timeout=1,stream=True)
     assert result=={'content':'{"answer":"你好"}','usage':{'prompt_tokens':7,'completion_tokens':12,'total_tokens':19}}
     assert requests==[{'model':'unchanged-model','messages':[{'role':'system','content':'exact system'},{'role':'user','content':'exact user'}],
-        'temperature':0.2,'response_format':{'type':'json_object'},'stream':True}]
+        'temperature':0.2,'max_tokens':4096,'stream_options':{'include_usage':True},'response_format':{'type':'json_object'},'stream':True}]
     assert body.closed and adapter.last_error is None and adapter.last_usage==result['usage']
     meta=adapter.last_response_meta
     assert meta['stream_done'] and meta['response_body_complete'] and meta['finish_reason']=='stop'
@@ -251,11 +251,11 @@ async def test_stream_rejection_does_not_silently_send_nonstream_fallback(monkey
     assert 'SECRET' not in json.dumps(vars(adapter))
 
 @pytest.mark.asyncio
-async def test_explicit_reasoning_effort_is_preserved_without_stream_options(monkeypatch):
+async def test_explicit_reasoning_effort_is_preserved_with_billing_output_limit(monkeypatch):
     requests=install(monkeypatch,Body([frame('ok')+frame(finish='stop')+DONE]));adapter=AgentAdapter()
     assert await adapter.chat_with(CONFIG,'s','u',reasoning_effort='low',stream=True)=={'content':'ok'}
     assert requests[0]['reasoning_effort']=='low' and requests[0]['stream'] is True
-    assert 'stream_options' not in requests[0] and 'max_tokens' not in requests[0]
+    assert requests[0]['stream_options'] == {'include_usage': True} and requests[0]['max_tokens'] == 4096
 
 @pytest.mark.asyncio
 async def test_loopback_http_stream_enforces_idle_timeout_and_one_post(monkeypatch):
@@ -282,3 +282,5 @@ async def test_loopback_http_stream_enforces_idle_timeout_and_one_post(monkeypat
         assert adapter.last_response_meta['response_headers_received'] and not adapter.last_response_meta['response_body_complete']
         assert adapter.last_response_meta['transport_events']
     finally:server.close();await server.wait_closed()
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")

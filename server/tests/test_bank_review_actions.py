@@ -95,7 +95,7 @@ async def test_revise_commits_intent_before_model_and_checks_stale_commands(db_s
     revised = json.loads(response({"id": 1}))["items"][0]["answer"]
     revised["tldr"] = "加入小样本例子。<script>literal</script>"
 
-    async def model(prompt, *, stream_timeout):
+    async def model(prompt, *, stream_timeout, billing_scope=None):
         assert 0 < stream_timeout < review.LEASE_SECONDS
         assert "加一个反例" in prompt and "标注文档" in prompt
         entered.set()
@@ -140,7 +140,7 @@ async def test_generated_revision_only_updates_answer_fields_and_failure_preserv
     original = json.loads(raw)["items"][0]
     revised = {"answer": {**original["answer"], "tldr": "显式写出召回率分母。"}, "project_answer": "", "hypothetical_answer": ""}
 
-    async def model(prompt, *, stream_timeout):
+    async def model(prompt, *, stream_timeout, billing_scope=None):
         return {"text": json.dumps(revised, ensure_ascii=False)}
 
     monkeypatch.setattr(protocol, "generate_response", model)

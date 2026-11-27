@@ -14,7 +14,7 @@ from app.api.deps import get_workspace
 from app.db import get_session
 from app.i18n import LanguageMiddleware
 from app.models import AnalysisStep, AppSetting, MemoryItem, Project, ProjectAnalysis, Workspace
-from app.services.project_autopilot_config import CONSENT_VERSION
+from app.services.project_autopilot_config import CONSENT_VERSION, DEFAULT_BUDGET
 from app.services.project_jobs import utcnow
 
 
@@ -262,7 +262,7 @@ async def test_editing_enabled_budget_only_updates_future_scan_defaults(db_sessi
         one = (await client.post(f'/projects/{started.id}/ai-scan', json={})).json()
         saved = await client.put('/project-autopilot/settings', json={'enabled':True,
             'acknowledge_source_transfer':True, 'budget':{}})
-        assert saved.status_code == 200 and saved.json()['budget'] == {}
+        assert saved.status_code == 200 and saved.json()['budget'] == DEFAULT_BUDGET
         rows = (await db_session.scalars(select(ProjectAnalysis).where(
             ProjectAnalysis.workspace_id == test_workspace.id))).all()
         assert len(rows) == 1 and rows[0].id == one['id']
@@ -389,7 +389,7 @@ async def test_single_scan_consent_has_no_workspace_side_effects(db_session, tes
     await project(db_session, test_workspace)
     async with api(db_session, test_workspace) as client:
         settings = (await client.get('/project-autopilot/settings')).json()
-        assert settings['budget'] == {} and not settings['enabled']
+        assert settings['budget'] == DEFAULT_BUDGET and not settings['enabled']
         path = f'/projects/{p.id}/ai-scan'
         assert (await client.post(path, json={})).status_code == 409
         first = await client.post(path, json={'acknowledge_source_transfer': True})
@@ -398,10 +398,10 @@ async def test_single_scan_consent_has_no_workspace_side_effects(db_session, tes
         assert duplicate.json()['id'] == first.json()['id']
         await client.put('/project-autopilot/settings', json={'enabled':False, 'budget':{'max_model_calls':3}})
         saved = await client.get(f"/analysis-runs/{first.json()['id']}")
-        assert saved.json()['status'] == 'QUEUED' and saved.json()['budget'] == {}
+        assert saved.json()['status'] == 'QUEUED' and saved.json()['budget'] == DEFAULT_BUDGET
         assert not (await client.get('/project-autopilot/settings')).json()['enabled']
     runs = (await db_session.scalars(select(ProjectAnalysis).where(ProjectAnalysis.workspace_id == test_workspace.id))).all()
-    assert len(runs) == 1 and runs[0].budget == {}
+    assert len(runs) == 1 and runs[0].budget == DEFAULT_BUDGET
     assert runs[0].result_meta['source_transfer_consent'] == CONSENT_VERSION
     await db_session.refresh(p)
     assert p.pending_update is None

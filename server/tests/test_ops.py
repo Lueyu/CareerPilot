@@ -48,13 +48,13 @@ async def test_ops_summary_aggregates_agent_metrics(db_session, test_workspace, 
         db.add_all([
             AgentMetric(kind="llm", provider="gateway", model="deepseek-v4-pro", duration_ms=1200,
                         ttft_ms=300, prompt_tokens=100, completion_tokens=200, total_tokens=300,
-                        cost_cny=0.0006, ok=True, finish_reason="stop", stream=False),
+                        cost_basis="configured_price", cost_cny=0.0006, ok=True, finish_reason="stop", stream=False),
             AgentMetric(kind="llm", provider="gateway", model="deepseek-v4-flash", duration_ms=300,
                         ttft_ms=80, prompt_tokens=50, completion_tokens=60, total_tokens=110,
-                        cost_cny=0.00022, ok=False, error_kind="timeout", finish_reason=None, stream=True),
+                        cost_basis="configured_price", cost_cny=0.00022, ok=False, error_kind="timeout", finish_reason=None, stream=True),
             AgentMetric(kind="llm", provider="gateway", model="deepseek-v4-flash", duration_ms=450,
                         ttft_ms=90, prompt_tokens=40, completion_tokens=70, total_tokens=110,
-                        cost_cny=0.00022, ok=True, finish_reason="length", stream=True),
+                        cost_basis="configured_price", cost_cny=0.00022, ok=True, finish_reason="length", stream=True),
         ])
         await db.commit()
 

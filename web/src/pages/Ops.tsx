@@ -21,8 +21,8 @@ type OpsSummary = {
     latency_ms: { p50: number; p95: number; p99: number; avg: number };
     ttft_ms: { p50: number | null; p95: number | null };
     tokens: { prompt: number; completion: number; total: number };
-    cost_estimate_cny: number;
-    by_model: { model: string; calls: number; errors: number; avg_ms: number; tokens: number; cost_cny: number }[];
+    cost_estimate_cny: number | null;
+    by_model: { model: string; calls: number; errors: number; avg_ms: number; tokens: number; cost_cny: number | null }[];
     finish_reasons: { name: string; count: number }[];
     stream_share: number | null;
   };
@@ -34,7 +34,7 @@ type OpsSummary = {
     retry_rate: number | null;
   };
   engine: { traces: number; success_rate: number | null; spans: number; span_error_rate: number | null };
-  trend: { date: string; calls: number; cost_cny: number; users: number }[];
+  trend: { date: string; calls: number; cost_cny: number | null; users: number }[];
 };
 
 type RecentItem = {
@@ -44,7 +44,7 @@ type RecentItem = {
   duration_ms: number;
   ttft_ms: number | null;
   total_tokens: number | null;
-  cost_cny: number;
+  cost_cny: number | null;
   ok: boolean;
   error_kind: string | null;
   finish_reason: string | null;
@@ -99,6 +99,7 @@ export default function Ops() {
   }, []);
 
   const s = summary;
+  const formatCost = (cost: number | null) => cost === null ? t('progress.opsCostUnknown') : `¥${cost}`;
   return (
     <div className="page">
       <PageHead title={t('progress.opsHeading')} sub={t('progress.opsDescription')} />
@@ -130,7 +131,7 @@ export default function Ops() {
               <StatCard label={t('progress.opsCalls')} value={String(s.agent.calls)} />
               <StatCard label={t('progress.opsOkRate')} value={s.agent.ok_rate === null ? '—' : `${s.agent.ok_rate}%`} />
               <StatCard label={t('progress.opsP95Latency')} value={`${s.agent.latency_ms.p95} ms`} />
-              <StatCard label={t('progress.opsCost')} value={`¥${s.agent.cost_estimate_cny}`} />
+              <StatCard label={t('progress.opsCost')} value={formatCost(s.agent.cost_estimate_cny)} />
             </div>
             <div className="grid grid-3">
               <div><h4 className="sub">{t('progress.opsLatency')}</h4>
@@ -153,7 +154,7 @@ export default function Ops() {
             {s.agent.by_model.length > 0 && (
               <div className="table-wrap"><table className="tbl">
                 <thead><tr><th>{t('progress.opsModel')}</th><th>{t('progress.opsCalls')}</th><th>{t('progress.opsErrors')}</th><th>{t('progress.opsAvg')}</th><th>{t('progress.opsTotalTokens')}</th><th>{t('progress.opsCost')}</th></tr></thead>
-                <tbody>{s.agent.by_model.map((m) => <tr key={m.model}><td>{m.model}</td><td>{m.calls}</td><td>{m.errors}</td><td>{m.avg_ms} ms</td><td>{m.tokens}</td><td>¥{m.cost_cny}</td></tr>)}</tbody>
+                <tbody>{s.agent.by_model.map((m) => <tr key={m.model}><td>{m.model}</td><td>{m.calls}</td><td>{m.errors}</td><td>{m.avg_ms} ms</td><td>{m.tokens}</td><td>{formatCost(m.cost_cny)}</td></tr>)}</tbody>
               </table></div>
             )}
           </div></div>
@@ -198,7 +199,7 @@ export default function Ops() {
                 <td>{m.id}</td><td>{m.model || '—'}</td><td>{m.kind}</td><td>{m.duration_ms}</td>
                 <td>{m.total_tokens ?? '—'}</td>
                 <td>{m.ok ? 'ok' : (m.error_kind || 'error')}</td>
-                <td>{m.finish_reason || '—'}</td><td>{m.cost_cny}</td>
+                <td>{m.finish_reason || '—'}</td><td>{formatCost(m.cost_cny)}</td>
               </tr>)}</tbody>
             </table></div>
           </div></div>

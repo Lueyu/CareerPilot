@@ -579,7 +579,7 @@ async def test_adapter_effort_is_explicit_and_does_not_change_default_payload(mo
     before = dict(cfg)
     await adapter.chat_with(cfg, 'system', 'user')
     assert payloads[0] == {'model': 'deepseek-v4-flash', 'messages': [{'role': 'system', 'content': 'system'},
-        {'role': 'user', 'content': 'user'}], 'temperature': 0.2}
+        {'role': 'user', 'content': 'user'}], 'temperature': 0.2, 'max_tokens': 4096}
     await adapter.chat_with(cfg, 'system', 'user', reasoning_effort='low')
     assert payloads[1] == {**payloads[0], 'reasoning_effort': 'low'}
     assert cfg == before
@@ -610,3 +610,5 @@ async def test_only_exact_supported_analysis_models_request_low_effort(monkeypat
         assert all('reasoning_effort' not in item for item in options)
         assert 'requested_reasoning_effort' not in result['result_meta']
     assert 'reasoning_effort' not in cfg
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")

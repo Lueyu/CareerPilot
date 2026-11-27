@@ -113,3 +113,5 @@ async def test_stalled_generation_cannot_renew_past_its_timeout_and_cleanup_wind
     finally:
         release.set()
         await asyncio.wait_for(generation, timeout=5)
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")

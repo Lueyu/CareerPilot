@@ -118,3 +118,5 @@ def test_short_search_terms_are_identifier_words():
     from app.services.study_project_evidence import term_hit
     assert term_hit("rag", "get_rag_context")
     assert not term_hit("rag", "coverage_for_scan")
+
+pytestmark = pytest.mark.usefixtures("mock_private_billing")

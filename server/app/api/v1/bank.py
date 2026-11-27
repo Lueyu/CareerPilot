@@ -43,6 +43,7 @@ from app.services.interview_import_text import extract_structured_questions as _
 from app.services.interview_import_text import read_json
 from app.services.interview_rewrite import rewrite_interview_questions
 from app.services.llm import AgentAdapter
+from app.services.private_model_billing import BillingScope, BudgetPolicyError
 from app.services.project_context import PROFILE_LABELS, project_profile
 from app.services.text_extract import MAX_FILE_BYTES, MAX_TEXT_CHARS, extract_many
 from app.services.tracing import add_span, emit_event, finish_trace, start_trace
@@ -447,7 +448,7 @@ async def _process_import(
             remaining_chars -= len(text) + len(source_separator)
             if not text.strip():
                 continue
-            for candidate in await _extract_questions(text):
+            for candidate in await _extract_questions(text, billing_scope=BillingScope(workspace_id, f"import:{import_id}")):
                 key = re.sub(r"\W+", "", candidate["title"]).casefold()
                 if key in by_title:
                     names = by_title[key]["source_files"]
@@ -601,7 +602,7 @@ async def _fill_answers(session: AsyncSession, candidates: list[dict], sm: dict[
         hints = hints_by_skill.get(skill_key)
         options = {"review_feedback": hints} if hints else {}
         async with sem:
-            html, rubric, source = await generate_answer(c["title"], skill_key, skill_name, "open", **options)
+            html, rubric, source = await generate_answer(c["title"], skill_key, skill_name, "open", billing_scope=BillingScope(workspace_id, "import:answer"), **options)
         c["draft_answer"] = html
         c["rubric"] = {**rubric, "source": source}
         c["answer_source"] = source
@@ -639,7 +640,7 @@ def _parse_llm_questions(content: str) -> list[dict]:
     return out[:20]
 
 
-async def _extract_questions(text: str) -> list[dict]:
+async def _extract_questions(text: str, *, billing_scope=None) -> list[dict]:
     """LLM 优先。长文本或 LLM 无结果时，用规则扫描全文。"""
     prompt_limit = 8000
     model_candidates = []
@@ -654,13 +655,15 @@ async def _extract_questions(text: str) -> list[dict]:
             'title、draft_answer、company 和 level 是原文资料，保留原文措辞和语言，不翻译。'
         )
         try:
-            out = await adapter.chat(with_output_language(sys_prompt), text[:prompt_limit], json_mode=True)
+            out = await adapter.chat(with_output_language(sys_prompt), text[:prompt_limit], json_mode=True, billing_scope=billing_scope)
             if out and out.get("content"):
                 parsed = _parse_llm_questions(out["content"])
                 if parsed:
                     model_candidates = [{**item, "extraction_method": "model"} for item in parsed]
                     if len(text) <= prompt_limit:
                         return model_candidates
+        except BudgetPolicyError:
+            raise
         except Exception:
             pass
 
@@ -845,7 +848,7 @@ async def create_interview_set(
             refs.append(ref)
         model_items.append({'item_id': item.id, 'original_question': original_title[:500], 'allowed_fact_refs': refs})
         prepared.append((item, skill, evidence, original_title))
-    rewrites, fallback_reason = await rewrite_interview_questions(project.name, model_items, facts)
+    rewrites, fallback_reason = await rewrite_interview_questions(project.name, model_items, facts, billing_scope=BillingScope(ws.id, f"project:{project.id}:interview_rewrite"))
     imported = await _owned_import(session, ws, import_id, lock=True)
     entries = (imported.meta or {}).get('interview_sets', [])
     prior = next((entry for entry in entries if entry['request_id'] == req.request_id), None)
@@ -947,7 +950,7 @@ async def regenerate_item_answer(
     title, skill_name = item.title, skill.name if skill else skill_key
     revision = review_actions.review_view(item)["review_revision"]
     await session.commit()
-    answer_html, rubric, source = await generate_answer(title, skill_key, skill_name)
+    answer_html, rubric, source = await generate_answer(title, skill_key, skill_name, billing_scope=BillingScope(ws.id, "bank:answer"))
     _, item = await review_actions.lock_review_item(session, ws, import_id, item_id)
     if item.status != ImportItem.STATUS_DRAFT or review_actions.review_view(item)["review_revision"] != revision:
         raise HTTPException(409, localized_message("errors.the_draft_has_changed_reopen_it_before_editing"))
@@ -1000,7 +1003,7 @@ async def generate_question_answer(
 
     skill_key = question.skill.key if question.skill else _guess_skill(question.title)
     skill_name = question.skill.name if question.skill else skill_key
-    answer_html, rubric, source = await generate_answer(question.title, skill_key, skill_name, question.qtype)
+    answer_html, rubric, source = await generate_answer(question.title, skill_key, skill_name, question.qtype, billing_scope=BillingScope(ws.id, f"question:{question.id}:answer"))
     question.answer_html = answer_html
     if not question.rubric or force:
         question.rubric = {**rubric, "source": source}
@@ -1100,6 +1103,7 @@ async def _approve_locked_import(session, ws, imp, req, *, commit=True, require_
         if not require_review_content and (replace_draft or not str(answer_html or "").strip()):
             answer_html, auto_rubric, source = await generate_answer(
                 title, skill.key if skill else "agent", skill.name if skill else "agent", edits.get("qtype", "open"),
+                billing_scope=BillingScope(ws.id, f"import:{imp.id}:merge"),
             )
             rubric = {**auto_rubric, "source": source} if replace_draft or not rubric else rubric
         question = Question(

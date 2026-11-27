@@ -158,7 +158,7 @@ reasoning_summary说明引用如何符合档位，missing_points列具体缺口�
 
 async def judge_frozen_answer(adapter, *, question_id, answer_revision_id, title, skill_name,
                               rubric, text, llm_config=None, timeout=90.0, repair_diagnostic=None,
-                              trace=None, session=None, span_name=None, language: Locale | None = None):
+                              trace=None, session=None, span_name=None, language: Locale | None = None, billing_scope=None):
     """Strict queue entry point. No retries, fallback, silent truncation or DB writes."""
     import asyncio
     import hashlib
@@ -197,7 +197,7 @@ async def judge_frozen_answer(adapter, *, question_id, answer_revision_id, title
             'input_bytes': len((system + user).encode()), 'request_started': False}
     if meta['input_chars'] > 120000:
         raise AssessmentJudgeError('INPUT_TOO_LARGE', '完整评分输入超出单次上限，未截断原答或标准', request_meta=meta)
-    options = {'json_mode': True, 'timeout': timeout}
+    options = {'json_mode': True, 'timeout': timeout, 'billing_scope': billing_scope}
     if trace is not None and session is not None:
         options.update(trace=trace, session=session, span_name=span_name)
     started = time.perf_counter()

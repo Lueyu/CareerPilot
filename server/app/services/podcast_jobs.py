@@ -13,6 +13,7 @@ from sqlalchemy import func, or_, select, update
 from app.db import SessionLocal
 from app.models.podcast import EpisodeStatus, PodcastEpisode, PodcastSource
 from app.services.podcast_library import extend_series_playlists, lock_workspace
+from app.services.private_model_billing import BudgetPolicyError
 
 logger = logging.getLogger(__name__)
 
@@ -238,6 +239,8 @@ async def _run_claim(claim):
         except (Exception, asyncio.CancelledError) as exc:
             logger.warning("Podcast episode %s failed in %s (%s)", claim.episode_id, claim.status, type(exc).__name__)
             status, error = FAILURES[claim.status]
+            if isinstance(exc, BudgetPolicyError):
+                error = str(exc)
             await _finish(claim, status=status, error=error)
             return
 

@@ -22,8 +22,8 @@ from typing import Any
 
 from app.generation_i18n import generation_message, generation_skill_name, with_output_language
 from app.i18n import Locale, request_language
-
 from app.services.llm import AgentAdapter
+from app.services.private_model_billing import BillingScope
 
 # ---------------------------------------------------------------- 能力域框架
 
@@ -412,7 +412,7 @@ LLM_USER_TMPL = """题目：{title}
 
 async def _llm_answer(
     title: str, skill_key: str, skill_name: str, qtype: str,
-    review_feedback: list[dict] | None = None,
+    review_feedback: list[dict] | None = None, billing_scope: BillingScope | None = None,
 ) -> dict[str, Any] | None:
     adapter = AgentAdapter()
     qtype_hint = "题型为选择题，讲解要覆盖选项间的区别。" if qtype == "mcq" else "题型为开放题，按面试口述标准组织。"
@@ -424,7 +424,7 @@ async def _llm_answer(
             [{"action": example["action"], "feedback": example["feedback"]} for example in review_feedback],
             ensure_ascii=False,
         )
-    out = await adapter.chat(with_output_language(system), prompt, json_mode=True)
+    out = await adapter.chat(with_output_language(system), prompt, json_mode=True, billing_scope=billing_scope)
     if not out:
         return None
     content = (out.get("content") or "").strip()
@@ -683,10 +683,10 @@ def build_rubric(data: dict[str, Any], title: str) -> dict[str, Any]:
 
 async def generate_answer(
     title: str, skill_key: str, skill_name: str, qtype: str = "open", *,
-    review_feedback: list[dict] | None = None,
+    review_feedback: list[dict] | None = None, billing_scope: BillingScope | None = None,
 ) -> tuple[str, dict[str, Any], str]:
     """返回 (answer_html, rubric, source) — source 为 llm/rule, 便于前端标注。"""
-    data = await _llm_answer(title, skill_key, skill_name, qtype, review_feedback)
+    data = await _llm_answer(title, skill_key, skill_name, qtype, review_feedback, billing_scope)
     source = "llm"
     if not data:
         source = "rule"
