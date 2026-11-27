@@ -155,7 +155,7 @@ def cmd_done(issue_id: str, args: argparse.Namespace) -> int:
 
     if BUILDER.exists():
         r = subprocess.run([sys.executable, str(BUILDER)], cwd=ROOT,
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8")
         print(r.stdout.strip() or r.stderr.strip())
     print(f"{issue_id} → {new_status}；日志已记入 {LOG.relative_to(ROOT)}")
     return 0
