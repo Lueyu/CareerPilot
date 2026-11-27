@@ -1,6 +1,6 @@
 {
   "id": "E2",
-  "status": "已独立验证，具备合入条件",
+  "status": "已独立验证并合入 dev",
   "calculator": "private-budget",
   "title": "私有模型按配置单价预留与结算，部署日预算在联网前生效",
   "goal": "让聊天、评分和后台生成共用可追溯的货币预算。每次真实模型请求先留下资金记录，再允许联网；供应商没有可靠用量时明确标为未知，防止备用调用、取消或业务回滚造成漏账。",
@@ -269,6 +269,11 @@
         "非作者独立验证",
         "69 passed；额外四进程最后预算竞争及零用量探测1 passed；PASS+NOTES，无阻塞发现",
         "D:/agent-interview/.agent-runs/20261128-wave1/e2/review/review.json"
+      ],
+      [
+        "已合入版本浏览器补查",
+        "80ff293隔离容器页面/健康检查200；访问/ops实际转到/settings，未将组件测试算作当前费用页旅程通过",
+        "D:/agent-interview/.agent-runs/20261128-wave1/e2/product-preview/ui-reachability.md"
       ]
     ],
     "commands": [
@@ -290,7 +295,8 @@
     "预留能阻止未获准的新请求，但不能撤回已经在途的付费请求。某个请求超预留前已经准入的并发请求仍可能完成并结算。",
     "超预留异常暂停其原始账期后续请求，新 UTC+8 账期可以重新准入，异常历史继续保留。部署全局日预算不等于供应商密钥在其他应用中的总支出。",
     "本项没有实现 G3 成本环比告警、E3 请求限流、后台队列、连接池重构或 URL 出站策略。个人实例未部署，个人库未迁移。",
-    "保留已确认基线缺陷 test_study_routing.py::test_generation_deadline_closes_a_stalled_attempt，表现为 timeout 被清理覆盖成 cancelled。本项新增的资金状态与 usage 取消测试均通过，没有用基线名单豁免新增失败。"
+    "保留已确认基线缺陷 test_study_routing.py::test_generation_deadline_closes_a_stalled_attempt，表现为 timeout 被清理覆盖成 cancelled。本项新增的资金状态与 usage 取消测试均通过，没有用基线名单豁免新增失败。",
+    "实际浏览器补查发现，当前默认工作台访问 /ops 会转到 /settings。Ops 费用组件的283项前端测试通过，但该旧页面只挂在 NativeWorkspace 中，默认 App 使用 InterviewWorkspace。E2 没有交付新的运维导航；统一模型出口与计费 API 的验证照常成立。该既有入口缺口以 E2-UI-BASELINE 记录，后续界面交付需按项目设计流程落实。"
   ],
   "interview": [
     "可以解释为什么外部付费调用需要先预留、为什么财务事务必须独立于业务回滚，以及为什么未知 usage 不能等价为零费用。还可以展示真实隔离 PostgreSQL 的并发测试和 MockTransport 网络计数。",
@@ -324,7 +330,8 @@
     "报告代码入口固定在 4ad8be58b29390a72ff36aec47971f6e65e9f70b。这份说明对应受控测试环境；个人实例与个人数据库没有升级。",
     "非作者独立审核记录和合入回执保存在本次 .agent-runs/20261128-wave1/e2/。审核结论与精确提交以 review/review.json 和最终绑定记录为准。",
     "回退通过对本项 squash 提交建立新的反向 PR 完成；含持久数据的改动先核对其报告边界，保留已有账本和历史证据。",
-    "独立结论PASS+NOTES。原始探测脚本首次因Windows换行断言失败，修正探测脚本后通过；失败日志保留，没有将探测脚本错误算作产品缺陷。"
+    "独立结论PASS+NOTES。原始探测脚本首次因Windows换行断言失败，修正探测脚本后通过；失败日志保留，没有将探测脚本错误算作产品缺陷。",
+    "E2 PR54已按独立审核精确head合入dev，squash提交80ff293e21e51be660d87a55f45515917ddc17f9。隔离浏览器补查的入口边界随后如实补入；个人实例未部署。"
   ],
   "source_ref": "4ad8be58b29390a72ff36aec47971f6e65e9f70b",
   "links": [

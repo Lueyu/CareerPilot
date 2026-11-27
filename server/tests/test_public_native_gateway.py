@@ -18,7 +18,6 @@ from app.db import get_session
 from app.models import Base, Question, Workspace
 from app.services import public_native_runtime as runtime
 
-
 ORIGIN = "https://gateway.test"
 AUTH = "/api/v1/auth"
 NATIVE = "/api/v1/native"
@@ -47,6 +46,9 @@ async def gateway(db_session, tmp_path, monkeypatch):
     app = runpy.run_module("app.public_main")["app"]
     pool = create_async_engine(db_session.bind.url, pool_size=3, max_overflow=0, pool_timeout=2)
     factory = async_sessionmaker(pool, expire_on_commit=False)
+    from app.api import rate_limits
+
+    monkeypatch.setattr(rate_limits, "SessionLocal", factory)
 
     async def database():
         async with factory() as session:

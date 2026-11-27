@@ -19,6 +19,7 @@ from app.api import (
     public_memory,
     public_native,
 )
+from app.api.rate_limits import ApiRateLimitMiddleware
 from app.api.v1 import ops, telemetry
 from app.db import Base, engine
 from app.i18n import LanguageMiddleware
@@ -60,6 +61,7 @@ async def lifespan(application):
 
 
 app = FastAPI(title="CareerPilot", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+app.add_middleware(ApiRateLimitMiddleware, registered=True)
 app.middleware("http")(public_auth.public_origin_guard)
 app.add_middleware(LanguageMiddleware)
 for routes in (public_auth.router, public_library.router, public_coach.router, public_memory.router,

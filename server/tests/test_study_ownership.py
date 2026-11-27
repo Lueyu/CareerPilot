@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.config import get_settings
+from app.config import ApiCategoryQuota, ApiRatePolicy, get_settings
 from app.db import get_session
 from app.main import app
 from app.models import Exam, ExamQuestion, LearningTask, Question, Workspace
@@ -24,6 +24,9 @@ async def test_two_bound_credentials_isolate_study_resources_over_http(db_sessio
     secret = "private-" + uuid4().hex
     a_token, b_token, owner_token = [uuid4().hex for _ in range(3)]
     cfg = get_settings()
+    # This test exercises many forbidden resource accesses, not quota exhaustion.
+    monkeypatch.setattr(cfg, "api_rate_limits", ApiRatePolicy(
+        llm=ApiCategoryQuota(burst=100, per_minute=100, daily=10000)))
     monkeypatch.setattr(cfg, "workspace_token_hashes", {
         alice.slug: hashlib.sha256(a_token.encode()).hexdigest(), bob.slug: hashlib.sha256(b_token.encode()).hexdigest()})
     monkeypatch.setattr(cfg, "api_token", owner_token)
