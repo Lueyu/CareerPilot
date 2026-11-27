@@ -1,8 +1,9 @@
 """Run locally with python .github/workflows/tests/test_ci_gate.py.
 
 Locks the F3 graded CI gate: required checks stay required, advisory checks
-stay non-blocking, and no credentials or fork-unsafe triggers sneak into CI.
-Kept dependency-free (stdlib only) so the gate-contract job needs no install.
+stay non-blocking, the known-red exclusions stay tied to a documented baseline,
+and no credentials or fork-unsafe triggers sneak into CI. Kept dependency-free
+(stdlib only) so the gate-contract job needs no install.
 """
 
 import re
@@ -12,6 +13,16 @@ from pathlib import Path
 WORKFLOWS = Path(__file__).resolve().parents[1]
 CI_TEXT = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
 NIGHTLY_TEXT = (WORKFLOWS / "nightly-crash-probe.yml").read_text(encoding="utf-8")
+BASELINE_TEXT = (WORKFLOWS / "known-red-backend-baseline.md").read_text(encoding="utf-8")
+
+REQUIRED_BACKEND_IGNORES = (
+    "tests/test_bank_review_actions.py",
+    "tests/test_learning_feedback_processes.py",
+    "tests/test_standalone_ops_study_chat.py",
+    "tests/test_study_routing.py",
+    "tests/test_local_safety.py",
+    "tests/test_podcast_content.py",
+)
 
 
 def split_jobs(text):
@@ -35,7 +46,8 @@ class CIGateContract(unittest.TestCase):
 
     def test_all_gate_jobs_present(self):
         self.assertTrue(
-            {"backend", "frontend", "lint-baseline", "gate-contract"} <= set(self.jobs),
+            {"backend", "backend-full-suite", "frontend", "lint-baseline", "gate-contract"}
+            <= set(self.jobs),
             f"missing gate jobs: {set(self.jobs)}",
         )
 
@@ -46,6 +58,21 @@ class CIGateContract(unittest.TestCase):
         self.assertIn("requirements.txt -r requirements-dev.txt", body)
         self.assertIn("python run_isolated_tests.py tests -q --tb=short", body)
         self.assertNotIn("continue-on-error", body)
+
+    def test_required_backend_only_runs_currently_green_tests(self):
+        body = self.jobs["backend"]
+        for path in REQUIRED_BACKEND_IGNORES:
+            self.assertIn("--ignore=" + path, body, f"missing exclusion for {path}")
+            self.assertIn(path, BASELINE_TEXT, f"baseline missing evidence for {path}")
+        self.assertIn("Follow-up cleanup item", BASELINE_TEXT)
+        self.assertNotIn("continue-on-error", body)
+
+    def test_full_suite_is_advisory_only(self):
+        body = self.jobs["backend-full-suite"]
+        self.assertIn("python run_isolated_tests.py tests -q --tb=short", body)
+        self.assertIn("suite_code=$?", body)
+        self.assertIn("exit 0", body)
+        self.assertNotIn("continue-on-error: false", body)
 
     def test_frontend_required_checks(self):
         body = self.jobs["frontend"]
@@ -58,6 +85,10 @@ class CIGateContract(unittest.TestCase):
         self.assertIn('GITHUB_TOKEN: ""', CI_TEXT)
         self.assertIsNone(re.search(r'(?m)^[ \t]+LLM_API_KEY:[ \t]*"[^"]+"', CI_TEXT))
         self.assertIsNone(re.search(r'(?m)^[ \t]+GITHUB_TOKEN:[ \t]*"[^"]+"', CI_TEXT))
+        for job in ("backend", "backend-full-suite"):
+            body = self.jobs[job]
+            self.assertIn('LLM_API_KEY: ""', body)
+            self.assertIn('GITHUB_TOKEN: ""', body)
 
     def test_advisory_job_never_blocks(self):
         body = self.jobs["lint-baseline"]
