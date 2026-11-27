@@ -698,7 +698,6 @@ async def _keep_generation_lease(message_id: int, attempt: int, stop_at: float):
 
 
 async def generate_reply(message_id: int, attempt: int, *, submitted_at=None, accepted_at=None):
-    """Bound whole executions, including provider teardown after Stop or expiry."""
     global _WAITING_GENERATIONS
     async with SessionLocal() as session:
         reply = await session.scalar(select(StudyMessage).where(
@@ -709,11 +708,8 @@ async def generate_reply(message_id: int, attempt: int, *, submitted_at=None, ac
         return
     slots = execution_slots()
     remaining = (reply.expires_at - datetime.now(timezone.utc)).total_seconds()
-    acquired = False
     try:
         settings = get_settings()
-        # Cancelled accepted turns can be replaced before their waiter wakes.
-        # Bound these waiters separately so a Stop/retry flood cannot accumulate them.
         if _WAITING_GENERATIONS >= settings.study_generation_global_limit:
             raise TimeoutError
         _WAITING_GENERATIONS += 1
@@ -721,9 +717,6 @@ async def generate_reply(message_id: int, attempt: int, *, submitted_at=None, ac
             await asyncio.wait_for(slots.acquire(), min(settings.study_generation_wait_seconds, max(0, remaining)))
         finally:
             _WAITING_GENERATIONS -= 1
-        acquired = True
-        # _load_turn rechecks the status, attempt and lease after this wait.
-        await _execute_reply(message_id, attempt, submitted_at=submitted_at, accepted_at=accepted_at)
     except (TimeoutError, asyncio.CancelledError) as exc:
         coach = {**reply.coach, "trace": dict((reply.coach or {}).get("trace") or {})}
         cancelled = isinstance(exc, asyncio.CancelledError)
@@ -735,9 +728,11 @@ async def generate_reply(message_id: int, attempt: int, *, submitted_at=None, ac
                                                              coach.get("response_language", "zh-CN")))
         if cancelled:
             raise
+        return
+    try:
+        await _execute_reply(message_id, attempt, submitted_at=submitted_at, accepted_at=accepted_at)
     finally:
-        if acquired:
-            slots.release()
+        slots.release()
 
 
 async def _execute_reply(message_id: int, attempt: int, *, submitted_at=None, accepted_at=None):

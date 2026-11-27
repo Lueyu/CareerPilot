@@ -1,4 +1,3 @@
-"""Short-transaction chat admission. Execution permits remain process-local."""
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
@@ -13,8 +12,6 @@ from app.models.study_chat import StudyMessage, StudySession
 async def admit_generation(session, workspace_id):
     """Caller holds the Workspace row lock until its turn is committed."""
     settings = get_settings()
-    # Every admission takes this lock after its workspace/session locks. Never
-    # update other workspaces' messages here, which would invert that order.
     await session.execute(select(func.pg_advisory_xact_lock(20261128, 1101)))
     active = select(StudySession.workspace_id).join(
         StudyMessage, StudyMessage.session_id == StudySession.id,
@@ -43,7 +40,6 @@ def generation_event(trace, event, attempt):
 
 
 def interrupted_coach(event):
-    """Append terminal evidence without replacing provider calls or request IDs."""
     trace = func.coalesce(StudyMessage.coach["trace"], literal({}, type_=JSONB))
     events = func.coalesce(StudyMessage.coach["trace"]["lifecycle"], literal([], type_=JSONB))
     terminal = func.jsonb_build_object(
