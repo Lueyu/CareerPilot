@@ -74,6 +74,13 @@ class CIGateContract(unittest.TestCase):
         self.assertIn("exit 0", body)
         self.assertNotIn("continue-on-error: false", body)
 
+    def test_backend_jobs_pin_app_timezone(self):
+        for job in ("backend", "backend-full-suite"):
+            self.assertIn(
+                "TZ: Asia/Shanghai", self.jobs[job],
+                f"{job} must pin TZ so date.today() matches app _today()",
+            )
+
     def test_frontend_required_checks(self):
         body = self.jobs["frontend"]
         for command in ("npm ci", "npm test", "npm run typecheck", "npm run build"):

@@ -12,6 +12,10 @@
 #              Cleanup is a separate item; do not bulk `--fix` or reformat here
 #              (server/pyproject.toml treats style churn as independent work
 #              because it breaks line references across the codebase).
+#   TIMEZONE   both backend jobs pin TZ: Asia/Shanghai. app/api/v1/learning.py
+#              schedules retests on a fixed UTC+8 date while tests and
+#              app/api/v1/exams.py use date.today(); an unpinned UTC runner makes
+#              the required gate depend on the time of day. See the baseline doc.
 #   CONTRACT   .github/workflows/tests/test_ci_gate.py asserts this grading is
 #              preserved, so a future edit cannot silently relax the gate.
 #   NIGHTLY    nightly-crash-probe.yml runs the opt-in study_chat_crash_probe.py
@@ -60,6 +64,7 @@ jobs:
       run:
         working-directory: server
     env:
+      TZ: Asia/Shanghai
       DATABASE_URL: postgresql+asyncpg://careerpilot:careerpilot_dev@localhost:5432/postgres
       PYTHONIOENCODING: utf-8
       PYTHONUTF8: "1"
@@ -113,6 +118,7 @@ jobs:
       run:
         working-directory: server
     env:
+      TZ: Asia/Shanghai
       DATABASE_URL: postgresql+asyncpg://careerpilot:careerpilot_dev@localhost:5432/postgres
       PYTHONIOENCODING: utf-8
       PYTHONUTF8: "1"
