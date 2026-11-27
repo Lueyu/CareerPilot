@@ -1,3 +1,5 @@
+@import "../../styles/scrollGutter.css";
+
 .ia-chat {
   --chat-ink: var(--ia-ink, #25273a);
   --chat-muted: var(--ia-muted, #606374);

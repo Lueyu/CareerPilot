@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useScrollbarGutter } from "../../lib/useScrollbarGutter";
 import {
   Link,
   useLocation,
@@ -171,7 +172,9 @@ function Conversation({
   const inFlight = useRef(false);
   const createdSession = useRef<number>();
   const pendingSend = useRef<{ signature: string; requestId: string }>();
+  const shell = useRef<HTMLElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
+  useScrollbarGutter(shell, scroll);
   const stickToEnd = useRef(true);
   const run = session?.context.interview_workflow;
   const locale = useLocale();
@@ -698,9 +701,9 @@ function Conversation({
   );
 
   return (
-    <section className="ia-chat" aria-label={t("interview.workspace")}>
+    <section ref={shell} className="ia-chat cp-scroll-shell" aria-label={t("interview.workspace")}>
       <div
-        className="ia-chat-scroll"
+        className="ia-chat-scroll cp-scroll-area"
         ref={scroll}
         onScroll={(event) => {
           const element = event.currentTarget;
