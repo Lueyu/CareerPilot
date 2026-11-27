@@ -56,6 +56,7 @@ from app.services.github_publish import get_github_token, set_github_token_cache
 from app.services.llm import adapter, get_llm_config, set_llm_config_cache
 from app.services.llm_endpoint_config import endpoint, resolve_llm_config
 from app.services.private_model_billing import BillingScope
+from app.services.secret_storage import open_setting, seal_setting
 from app.services.workspaces import ensure_personal_workspace
 
 router = APIRouter()
@@ -557,7 +558,7 @@ async def update_llm(
         raise HTTPException(status_code=422, detail=localized_message("errors.there_are_no_fields_to_update"))
     statement = select(AppSetting).where(AppSetting.key == "llm").with_for_update()
     row = (await session.execute(statement)).scalar_one_or_none()
-    existing = row.value if row and isinstance(row.value, dict) else {}
+    existing = open_setting("llm", row.value) if row else {}
     env = get_settings()
     new_key = data.pop("api_key", "").strip()
     updated = {k: v for k, v in {**existing, **data}.items() if v}
@@ -568,9 +569,9 @@ async def update_llm(
     if new_key:
         updated.update(api_key=new_key, provider=proposed["provider"], base_url=proposed["base_url"])
     if row:
-        row.value = updated
+        row.value = seal_setting("llm", updated)
     else:
-        session.add(AppSetting(key="llm", value=updated))
+        session.add(AppSetting(key="llm", value=seal_setting("llm", updated)))
     await session.commit()
     set_llm_config_cache(None)  # 立即重新解析(下次 get_llm_config 查库)
     return await _llm_payload()
@@ -646,12 +647,13 @@ async def update_github(body: GithubUpdate, session: AsyncSession = Depends(get_
         raise HTTPException(status_code=422, detail=localized_message("errors.enter_a_token"))
     row = (await session.execute(select(AppSetting).where(AppSetting.key == "github"))).scalar_one_or_none()
     if not row:
-        row = AppSetting(key="github", value={"token": token})
+        row = AppSetting(key="github", value=seal_setting("github", {"token": token}))
         session.add(row)
     else:
-        row.value = {"token": token}
+        open_setting("github", row.value)
+        row.value = seal_setting("github", {"token": token})
     await session.commit()
-    set_github_token_cache(token)
+    set_github_token_cache(None)
     return await _github_payload()
 
 
@@ -669,7 +671,8 @@ async def get_gitcode_read_settings(
     ws: Workspace = Depends(get_workspace), session: AsyncSession = Depends(get_session),
 ):
     row = await session.get(AppSetting, f"gitcode:{ws.id}")
-    return {"active": bool(row), "writes_enabled": False}
+    value = open_setting(f"gitcode:{ws.id}", row.value) if row else {}
+    return {"active": bool(value.get("token")), "writes_enabled": False}
 
 
 @router.put("/settings/gitcode")
@@ -682,9 +685,10 @@ async def update_gitcode_read_settings(
     key = f"gitcode:{ws.id}"
     row = await session.get(AppSetting, key)
     if row is None:
-        session.add(AppSetting(key=key, value={"token": token}))
+        session.add(AppSetting(key=key, value=seal_setting(key, {"token": token})))
     else:
-        row.value = {"token": token}
+        open_setting(key, row.value)
+        row.value = seal_setting(key, {"token": token})
     await session.commit()
     return {"active": True, "writes_enabled": False}
 

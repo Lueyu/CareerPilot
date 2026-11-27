@@ -14,7 +14,7 @@ class AppSetting(Base):
     已知 key:
     - 'llm'    → {provider, api_key, base_url, model}
     - 'github' → {token}
-    密钥存本地 DB(单用户 local-first 部署); API 永不回显原文, 只给尾 4 位 hint。
+    凭据字段只存绑定 key/字段路径的 Fernet 信封。读写必须通过 secret_storage。
     """
 
     __tablename__ = "app_settings"

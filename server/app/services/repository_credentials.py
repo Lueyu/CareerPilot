@@ -1,15 +1,20 @@
 """Resolve repository credentials for a persisted workspace."""
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models import AppSetting, Workspace
+from app.services.secret_storage import SecretStorageError, open_setting
 
 
 async def _stored_token(session: AsyncSession, key: str) -> str:
-    row = await session.get(AppSetting, key)
-    value = row.value if row else None
+    try:
+        row = await session.get(AppSetting, key)
+    except SQLAlchemyError:
+        raise SecretStorageError() from None
+    value = open_setting(key, row.value) if row else None
     token = value.get('token') if isinstance(value, dict) else None
     return token.strip() if isinstance(token, str) else ''
 

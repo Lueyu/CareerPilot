@@ -18,6 +18,7 @@ from app.services.llm import AgentAdapter
 from app.services.llm_endpoint_config import resolve_llm_config
 from app.services.podcast_voice import PodcastAudioError, render_mp3_in_worker
 from app.services.private_model_billing import BillingScope
+from app.services.secret_storage import open_setting
 
 MAX_EPISODES = 4
 _MAX_SCRIPT = 12000
@@ -284,11 +285,15 @@ async def make_scripts(
     }
 
     try:
-        row = await session.get(AppSetting, f"llm:{workspace_id}") or await session.get(AppSetting, "llm")
+        key = f"llm:{workspace_id}"
+        row = await session.get(AppSetting, key)
+        if row is None:
+            key = "llm"
+            row = await session.get(AppSetting, key)
     except SQLAlchemyError:
         raise PodcastScriptError("无法读取模型配置，请重试。") from None
     settings = get_settings()
-    config = resolve_llm_config(settings, row.value if row else None)
+    config = resolve_llm_config(settings, open_setting(key, row.value) if row else None)
     if not all(config[field].strip() for field in ("provider", "api_key", "base_url", "model")):
         raise PodcastScriptError("请先在 CareerPilot 设置里配置可用的语言模型。")
 

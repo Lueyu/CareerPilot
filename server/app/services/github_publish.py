@@ -7,26 +7,17 @@ dry_run 完全在本地生成预览计划, 不声明已读取远程分支或文�
 from __future__ import annotations
 
 import base64
-import time
 from typing import Any
 
 import httpx
 from sqlalchemy import select
 
 from app.config import get_settings
-
-# GitHub token 运行时解析缓存(AppSetting 'github' 优先于 env; 设置页保存后刷新)
-_GH_CACHE: str | None = None
-_GH_AT: float = 0.0
-_GH_TTL = 10.0
+from app.services.secret_storage import SecretStorageError, open_setting
 
 
 async def get_github_token() -> str:
     """设置页可在线修改 GitHub token: DB AppSetting('github') 优先, env 兜底。"""
-    global _GH_CACHE, _GH_AT
-    now = time.monotonic()
-    if _GH_CACHE is not None and (now - _GH_AT) < _GH_TTL:
-        return _GH_CACHE
     token = get_settings().github_token or ""
     try:
         from app.db import SessionLocal
@@ -34,20 +25,17 @@ async def get_github_token() -> str:
 
         async with SessionLocal() as session:
             row = (await session.execute(select(AppSetting).where(AppSetting.key == "github"))).scalar_one_or_none()
-        if row and isinstance(row.value, dict) and row.value.get("token"):
-            token = row.value["token"]
+        if row:
+            token = open_setting("github", row.value).get("token", "") or token
+    except SecretStorageError:
+        raise
     except Exception:
-        pass
-    _GH_CACHE = token
-    _GH_AT = now
+        raise SecretStorageError() from None
     return token
 
 
 def set_github_token_cache(value: str | None) -> None:
-    """设置页保存/清除 token 后立即刷新缓存。"""
-    global _GH_CACHE, _GH_AT
-    _GH_CACHE = value
-    _GH_AT = time.monotonic()
+    """Compatibility invalidation hook; credentials are no longer cached."""
 
 
 class GitHubError(Exception):
@@ -60,9 +48,9 @@ class GitHubError(Exception):
 
 
 class GitHubPublisher:
-    def __init__(self, token: str | None = None, api_url: str | None = None, dry_run: bool = False):
+    def __init__(self, token: str = "", api_url: str | None = None, dry_run: bool = False):
         s = get_settings()
-        self.token = s.github_token if token is None else token
+        self.token = token
         self.api_url = (api_url or s.github_api_url).rstrip("/")
         self.dry_run = dry_run
 
@@ -177,11 +165,7 @@ class GitHubPublisher:
             raise
 
 
-def make_publisher(dry_run: bool = False) -> GitHubPublisher:
-    return GitHubPublisher(dry_run=dry_run)
-
-
 async def make_publisher_rt(dry_run: bool = False) -> GitHubPublisher:
     """运行时 publisher: token 从 AppSetting/env 动态解析(设置页在线修改即时生效)。"""
     token = await get_github_token()
-    return GitHubPublisher(token=token or None, dry_run=dry_run)
+    return GitHubPublisher(token=token, dry_run=dry_run)

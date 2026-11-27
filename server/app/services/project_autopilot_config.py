@@ -5,6 +5,7 @@ from app.services import study_routing
 from app.services.llm_endpoint_config import resolve_llm_config
 from app.services.project_jobs import fingerprint
 from app.services.repository_credentials import repository_credentials
+from app.services.secret_storage import open_setting
 
 CONSENT_VERSION='source-analysis-v1'
 DEFAULT_BUDGET={'max_model_calls': 40, 'max_source_bytes': 2_000_000}
@@ -24,8 +25,12 @@ async def runtime_config(session,workspace_id,require_consent=True):
         raise PermissionError('请先确认将此项目的必要源码片段发送给模型服务')
     env=get_settings()
     # Source-transfer consent governs model use. Repository access has its own boundary.
-    row=await session.get(AppSetting,f'llm:{workspace_id}') or await session.get(AppSetting,'llm')
-    config = resolve_llm_config(env, row.value if row else None)
+    key = f'llm:{workspace_id}'
+    row = await session.get(AppSetting, key)
+    if row is None:
+        key = 'llm'
+        row = await session.get(AppSetting, key)
+    config = resolve_llm_config(env, open_setting(key, row.value) if row else None)
     config.pop("source")
     config['auto_profiles'] = {tier: study_routing.profile(config, tier) for tier in ('flash', 'strong')}
     credentials=await repository_credentials(session,workspace_id)

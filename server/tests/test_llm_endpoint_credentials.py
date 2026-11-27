@@ -8,10 +8,11 @@ from fastapi import HTTPException
 from app import db
 from app.api.v1 import settings
 from app.services import llm, project_autopilot_config
+from app.services.secret_storage import open_setting
 
 
 @pytest.fixture
-def isolated(monkeypatch):
+def isolated(monkeypatch, secrets_key):
     env = SimpleNamespace(
         llm_provider="compatible", llm_base_url="https://old.invalid/v1",
         llm_api_key="synthetic-env", llm_model="original",
@@ -32,7 +33,6 @@ def isolated(monkeypatch):
     for module in (llm, settings, project_autopilot_config, project_autopilot_config.study_routing):
         monkeypatch.setattr(module, "get_settings", lambda: env)
     monkeypatch.setattr(llm, "_CACHE", None)
-    monkeypatch.setattr(llm, "_CACHE_AT", 0.0)
     monkeypatch.setattr(settings.adapter, "chat_with", AsyncMock(return_value={"content": "OK"}))
     return env, session, selected.scalar_one_or_none
 
@@ -77,7 +77,7 @@ async def test_same_endpoint_edits_and_explicit_key_switch(isolated):
 
     payload = await settings.update_llm(settings.LlmUpdate(model="next", api_key=" "), session)
     assert payload["active"] and payload["model"] == "next"
-    assert selected().value["api_key"] == body["api_key"]
+    assert open_setting("llm", selected().value)["api_key"] == body["api_key"]
 
     with pytest.raises(HTTPException, match="API 密钥"):
         await settings.update_llm(settings.LlmUpdate(base_url=""), session)

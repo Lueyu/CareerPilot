@@ -7,12 +7,13 @@ import pytest
 from app.config import get_settings
 from app.models import AppSetting, Workspace
 from app.services.project_autopilot_config import CONSENT_VERSION, runtime_config
+from app.services.secret_storage import seal_setting
 
 REVISION = 'd' * 40
 
 
 @pytest.fixture
-def repository_settings(monkeypatch):
+def repository_settings(monkeypatch, secrets_key):
     settings = get_settings()
     monkeypatch.setattr(settings, 'default_workspace_slug', 'personal')
     monkeypatch.setattr(settings, 'workspace_token_hashes', {'scoped': 'a' * 64, 'other': 'b' * 64})
@@ -37,7 +38,7 @@ class SettingsSession:
     async def get(self, model, key):
         assert model is AppSetting
         value = self.rows.get(key)
-        return SimpleNamespace(value=value) if value is not None else None
+        return SimpleNamespace(value=seal_setting(key, value)) if value is not None else None
 
     async def __aenter__(self):
         return self

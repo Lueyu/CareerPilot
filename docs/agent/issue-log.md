@@ -22,3 +22,10 @@
 - 验证 SHA：e9006eb8efdf94f1a5cb8fe68f451c84a381fd59
 - 证据：.agent-runs/20261128-wave1/e3/handoff.json
 - 遗留/后续：不同DB不自动汇总；缓存及取消不退款；后续新模型入口需登记分类；个人实例未部署。
+
+## G5 · 2026-11-28 · DONE
+- 结论：Fernet版本化密文绑定设置行与字段路径，运行读取逐次认证并拒绝错误凭据回退；显式原子幂等迁移。作者当前257通过1跳过1既有分类失败，另4进程通过；95个G5用例通过，提示校对后现版迁移CLI单项通过。独立审核见本PR。
+- PR：https://github.com/Lueyu/CareerPilot/pull/56
+- 验证 SHA：958054f48ff9af9c23a380b8b4103dd49e760532
+- 证据：.agent-runs/20261128-wave1/g5/handoff.json
+- 遗留/后续：外置主密钥需单独保管；旧WAL/dump不保证擦除；没有KMS/自动轮换；个人实例未迁移。
