@@ -42,6 +42,10 @@ async def prepare_schema():
             await conn.run_sync(Base.metadata.create_all)
         for path in sorted((Path(__file__).resolve().parents[1] / "migrations").glob("*.sql")):
             await connection.execute(path.read_text(encoding="utf-8"))
+        # Explicitly owned fresh *_test installation; never a runtime auto-NORMAL.
+        from app.services.recovery_control import provision_known_installation
+        async with async_sessionmaker(engine).begin() as session:
+            await provision_known_installation(session)
         _schema_ready = True
     finally:
         await connection.execute("SELECT pg_advisory_unlock(2026111601)")
@@ -55,9 +59,12 @@ async def db_session(monkeypatch):
     engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
     factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
     # Middleware admission owns independent transactions on this test's engine/loop.
+    from app import db
     from app.api import rate_limits
 
     monkeypatch.setattr(rate_limits, "SessionLocal", factory)
+    # Middleware/credential guards own independent transactions on this same loop.
+    monkeypatch.setattr(db, "SessionLocal", factory)
     async with factory() as session:
         yield session
         await session.rollback()

@@ -213,6 +213,8 @@ async def finish_job(db, job_id, generation, result=None, error=None):
 
 async def process_next_note_job(factory):
     async with factory() as db:
+        from app.services.recovery_control import require_normal
+        await require_normal(db)
         job = await db.scalar(select(StudyNoteJob).where(or_(
             StudyNoteJob.status == "QUEUED",
             (StudyNoteJob.status == "RUNNING") & (StudyNoteJob.lease_until < utcnow()),

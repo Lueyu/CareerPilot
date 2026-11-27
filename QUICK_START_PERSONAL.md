@@ -57,30 +57,9 @@ Set-Location -LiteralPath 'D:\agent-interview'
 
 ## 备份与安全恢复
 
-从项目根目录执行备份，明确指定实际数据库名。脚本会生成 `.dump` 归档，以及 `.sha256`、`.manifest.json` 校验文件。
+使用[加密备份与隔离恢复操作手册](deploy/BACKUP_RECOVERY.md)。备份输出为完整 age bundle 目录，公钥、解密 identity 和 G5 主密钥分别在归档以外保存。恢复必须指定新目标、私有回执目录、Python 验证器并确认目标未路由；受控备用库恢复还需绑定计划的确认和当前库新安全备份。所有恢复保留隔离，旧 token 和旧预算不会自动启用。
 
-```powershell
-$archive = .\deploy\backup.ps1 `
-  -Database careerpilot `
-  -OutDir 'D:\agent-interview\personal\backups\manual'
-```
-
-脚本支持 `-HostName`、`-Port`、`-Username` 和 `-PgBin`；连接凭证可通过本机 `PG*` 环境配置提供，不要把真实密码写进共享文档或提交到仓库。它会查找 PATH 或本机 Scoop PostgreSQL 工具；也可以指定：
-
-```powershell
-.\deploy\backup.ps1 -Database careerpilot `
-  -PgBin 'C:\Users\97956\scoop\apps\postgresql\current\bin'
-```
-
-恢复只允许创建**新的测试库**，目标名称必须以 `_test` 结尾。已有库即使为空也会被拒绝，原库不会被覆盖；执行用户需要有创建测试库的权限。
-
-```powershell
-.\deploy\restore.ps1 `
-  -BackupFile $archive `
-  -TargetDatabase careerpilot_restore_20261116_test
-```
-
-再次验证应换一个尚不存在的 `_test` 名称。恢复使用单事务并在错误时停止；失败的新库保留供检查。看到“恢复成功”后仍应核对需要的考试、原答、证据和任务关系。本轮没有提供覆盖原库的一键恢复操作。
+升级前在维护窗口对已知安装执行迁移及 `provision_recovery_control.py` 的显式确认。未知或恢复数据库禁止登记 NORMAL，普通启动不会自动补状态。个人数据、原答和能力证据不做重写。
 
 ## 当前边界
 

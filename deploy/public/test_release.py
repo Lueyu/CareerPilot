@@ -3,15 +3,14 @@ import argparse
 import http.client
 import json
 import os
-from pathlib import Path
 import secrets
 import shutil
 import ssl
 import subprocess
 import tempfile
 import time
+from pathlib import Path
 from uuid import uuid4
-
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -310,51 +309,50 @@ def check_proxy(compose):
 
 
 def check_backup(work, ops, env, run, compose):
-    def sql(statement, database="careerpilot_seed", user="seed_admin"):
-        return compose("exec", "-T", "db", "psql", "-XAt", "-v", "ON_ERROR_STOP=1",
-                       "-U", user, "-d", database, "-c", statement,
-                       capture_output=True).stdout.strip()
+    """Verify retired entrypoints refuse work; real DR lives in common server tests."""
+    import hashlib
 
-    assert sql("SELECT count(*) FROM pg_tables WHERE schemaname = 'public'") == "0"
-    sql("CREATE TABLE seed_fixture (value text); INSERT INTO seed_fixture VALUES ('fake account');",
-        user="seed_app")
-    identity = work / "age.key"
-    run("age-keygen", "-o", str(identity), capture_output=True)
-    staging = work / "backup-copy"
-    staging.mkdir()
-    write(staging / "rsync", '#!/usr/bin/env bash\nset -eu\ncp -- "$4" "$BACKUP_COPY/"\n')
-    (staging / "rsync").chmod(0o755)
-    env.update(
-        BACKUP_COPY=str(staging),
-        PATH=f"{staging}{os.pathsep}{env['PATH']}",
-        SEED_BACKUP_RECIPIENT=run("age-keygen", "-y", str(identity), capture_output=True).stdout.strip(),
-        SEED_BACKUP_TARGET="fixture@backup.invalid:/fixture/",
-    )
-    run("bash", str(ops / "backup.sh"))
-    archive, = staging.glob("*.pgdump.age")
-    with archive.open("rb") as stream:
-        assert stream.readline() == b"age-encryption.org/v1\n"
+    def database_snapshot():
+        def sql(statement, database="careerpilot_seed"):
+            return compose("exec", "-T", "db", "psql", "-XAt", "-v", "ON_ERROR_STOP=1",
+                           "-U", "seed_admin", "-d", database, "-c", statement,
+                           capture_output=True).stdout.strip()
+        inventory = sql("SELECT datname FROM pg_database ORDER BY datname", "postgres")
+        tables = sql("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename")
+        hashes = []
+        for table in tables.splitlines():
+            quoted = table.replace('"', '""')
+            hashes.append(sql("SELECT md5(coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text)::text,'[]')) "
+                              f'FROM public."{quoted}" t'))
+        return inventory, tables, hashes
 
-    def restore(mode, path=archive):
-        return run("bash", str(ops / "restore.sh"), mode, str(path), str(identity),
-                   capture_output=True).stdout.strip()
+    sentinel = work / "legacy-rejection"
+    sentinel.mkdir()
+    archive = sentinel / "unchanged.pgdump.age"
+    identity = sentinel / "synthetic-identity"
+    archive.write_bytes(b"synthetic archive must remain unchanged")
+    identity.write_bytes(b"synthetic external identity must remain unchanged")
 
-    restore("--dry-run")
-    count_restores = "SELECT count(*) FROM pg_database WHERE datname LIKE 'seed_restore_%'"
-    assert sql(count_restores) == "0"
-    broken = staging / "broken.pgdump.age"
-    broken.write_bytes(archive.read_bytes()[:100])
-    try:
-        restore("--keep", broken)
-    except subprocess.CalledProcessError:
-        assert sql(count_restores) == "0"
-    else:
-        raise AssertionError("damaged backup restored successfully")
-    target = restore("--keep")
-    assert target.startswith("seed_restore_")
-    for database in (target, "careerpilot_seed"):
-        assert sql("SELECT value FROM seed_fixture", database, "seed_app") == "fake account"
-    print("Encrypted backup, dry run, damaged archive cleanup and fresh restore passed", flush=True)
+    def files_snapshot():
+        return {str(path.relative_to(work)): hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in work.rglob("*") if path.is_file()}
+
+    before_files = files_snapshot()
+    before_databases = database_snapshot()
+    for script, args in (("backup.sh", ()), ("restore.sh", ("--dry-run", str(archive), str(identity))),
+                         ("restore.sh", ("--keep", str(archive), str(identity)))):
+        try:
+            run("bash", str(ops / script), *args, capture_output=True)
+        except subprocess.CalledProcessError as error:
+            assert error.returncode == 78, (script, error.returncode)
+            assert "disabled" in error.stderr.lower()
+        else:
+            raise AssertionError(f"retired {script} unexpectedly accepted work")
+    assert files_snapshot() == before_files, "retired entrypoint modified fixture files"
+    assert database_snapshot() == before_databases, "retired entrypoint changed database inventory"
+    print("Legacy backup/restore refused with exit78; files and database inventory unchanged. "
+          "No legacy DR pass claimed. Actual recovery: server/tests/test_backup_recovery.py and "
+          "server/tests/test_recovery_quarantine.py via run_isolated_tests.py.", flush=True)
 
 
 if __name__ == "__main__":

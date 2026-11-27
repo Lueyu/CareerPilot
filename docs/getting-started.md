@@ -13,6 +13,13 @@ cp .env.example .env
 docker compose up -d --build --wait
 ```
 
+仅当这是刚创建的已知新库，或你已在维护窗口确认它是现有正常安装时，登记恢复控制状态。恢复出来的数据库不能运行此步骤。先核对实际库名，再执行；普通启动不会把未知库自动登记为正常。登记后重启服务以启动正常任务。更多背景见[备份与隔离恢复](../deploy/BACKUP_RECOVERY.md)。
+
+```shell
+docker compose exec server python provision_recovery_control.py --confirm 'PROVISION KNOWN INSTALLATION careerpilot'
+docker compose restart server worker
+```
+
 打开 [本机工作空间](http://127.0.0.1:5173/)。顶部语言菜单可选 **简体中文** 或 **English**，学习助手的新回复和面试官的新提问会使用所选语言。
 
 从左侧进入 **考试与面经 → 查看题库**，选一道题点 **查看参考**。在自己的工作空间里，也可以点 **导入面经**，粘贴题目，审核后保存在「我的题目」。

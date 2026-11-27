@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.db import get_session
 from app.models import Workspace
+from app.services.recovery_control import require_normal
 
 
 async def require_auth(
@@ -19,6 +20,7 @@ async def require_auth(
     x_api_token: str | None = Header(default=None),
 ) -> str | None:
     """MVP 认证: Bearer <api_token> 或 X-Api-Token 头。生产换 JWT。"""
+    await require_normal()
     token = None
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization[7:].strip()

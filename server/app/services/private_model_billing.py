@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models.private_model import PrivateModelCall
+from app.services.recovery_control import RecoveryBlocked, require_normal
 
 NANO_CNY = 1_000_000_000
 CHINA = timezone(timedelta(hours=8))
@@ -89,6 +90,11 @@ async def _lock(db):
 
 
 async def reserve(scope: BillingScope | None, cfg: dict, system: str, user: str, max_tokens: int) -> str:
+    # Check before config errors too; recheck under the admission lock for workers.
+    try:
+        await require_normal()
+    except RecoveryBlocked:
+        raise BudgetPolicyError("RECOVERY_QUARANTINED", status=503) from None
     if (not isinstance(scope, BillingScope) or type(scope.workspace_id) is not int
             or not 0 < scope.workspace_id < 2**31 or not isinstance(scope.operation, str)
             or not 0 < len(scope.operation) <= 160):
@@ -116,6 +122,10 @@ async def reserve(scope: BillingScope | None, cfg: dict, system: str, user: str,
     try:
         async with SessionLocal.begin() as db:
             await _lock(db)
+            try:
+                await require_normal(db)
+            except RecoveryBlocked:
+                raise BudgetPolicyError("RECOVERY_QUARANTINED", status=503) from None
             reset = datetime.combine(day + timedelta(days=1), datetime.min.time(), CHINA)
             retry_after = max(1, int((reset - clock).total_seconds()) + 1)
             overrun = await db.scalar(select(PrivateModelCall.id).where(

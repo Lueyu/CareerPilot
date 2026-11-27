@@ -96,7 +96,7 @@
    - 改前备份 `personal/backups/core-loop-20261116-155251/careerpilot.dump`（1,512,133 字节；另有 HEAD 源码、本地配置、原审计文件副本）。
    - 验收库备份 `personal/backups/core-acceptance/careerpilot-20261116-162634-845.dump`（1,403,046 字节，SHA256 `8BF9DB2D…26439`）恢复至全新 `careerpilot_core_acceptance_restore_test`。
    - **35 张 public 表全部行数与逐行内容摘要一致，答卷/证据/任务/复测外键链一致**；原备份恢复至 `careerpilot_pre_repair_restore_test` 同样一致。
-   - `deploy/restore.ps1` 只向尚不存在、名称以 `_test` 结尾的测试库恢复，拒绝覆盖（`--single-transaction --exit-on-error`）；`deploy/backup.ps1` 校验退出码、归档目录与 SHA256。
+   - F6 后续行为见 [加密备份与隔离恢复手册](../../../deploy/BACKUP_RECOVERY.md)：标准age bundle校验，向全新演练库或计划确认的新备用库导入并安装持久隔离；非零提交确认按UNKNOWN保留目标。历史的表数量检查不足以证明业务恢复。
 6. **最终启动收尾**
    - 原库完成兼容迁移并启动于 **8000 / 5173**，personal 为 0 答卷、0 证据、0 任务、整体 `UNKNOWN`，原库全部既有行保留。
    - 重启后 profile、两份报告、任务 7、learning 五个接口内容逐项一致（考试/证据/任务/复测 ID 及结果）。

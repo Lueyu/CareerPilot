@@ -39,6 +39,8 @@ async def get_llm_config() -> dict[str, Any]:
         from app.models import AppSetting
 
         async with SessionLocal() as session:
+            from app.services.recovery_control import require_normal
+            await require_normal(session)
             row = (await session.execute(select(AppSetting).where(AppSetting.key == "llm"))).scalar_one_or_none()
         if row and isinstance(row.value, dict):
             merged = resolve_llm_config(cfg, open_setting("llm", row.value))

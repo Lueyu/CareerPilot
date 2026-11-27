@@ -24,6 +24,8 @@ async def get_github_token() -> str:
         from app.models import AppSetting
 
         async with SessionLocal() as session:
+            from app.services.recovery_control import require_normal
+            await require_normal(session)
             row = (await session.execute(select(AppSetting).where(AppSetting.key == "github"))).scalar_one_or_none()
         if row:
             token = open_setting("github", row.value).get("token", "") or token

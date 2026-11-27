@@ -29,3 +29,10 @@
 - 验证 SHA：958054f48ff9af9c23a380b8b4103dd49e760532
 - 证据：.agent-runs/20261128-wave1/g5/handoff.json
 - 遗留/后续：外置主密钥需单独保管；旧WAL/dump不保证擦除；没有KMS/自动轮换；个人实例未迁移。
+
+## F6 · 2026-11-28 · DONE
+- 结论：标准age加密与版本化清单；PENDING复制持久化和7日4周3月并集保护；受控新库导入与全入口隔离，UNKNOWN提交保留。作者201项通过，合成PG恢复到已验证隔离库4.89秒，私人镜像打包实测通过；独立审核见本PR。
+- PR：https://github.com/Lueyu/CareerPilot/pull/57
+- 验证 SHA：ae43c49a01e198c2bd92ef50886b60b055468350
+- 证据：.agent-runs/20261128-wave1/f6/handoff.json
+- 遗留/后续：真实异地NOT_CONFIGURED；无生产切换与隔离解除，H1需落实新凭据代际；公开镜像既有allowlist缺口未宣称修复。个人实例未变更。

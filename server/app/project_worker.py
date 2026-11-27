@@ -22,6 +22,7 @@ from app.services.project_context import project_kind
 from app.services.project_memory import PROJECT_TYPES, active_project_memories
 from app.services.project_report_i18n import report_message
 from app.services.project_run_compatibility import assert_compatible
+from app.services.recovery_control import RecoveryBlocked, require_normal
 from app.services.tracing import emit_event
 
 log=logging.getLogger('careerpilot.project_worker')
@@ -112,6 +113,7 @@ async def context_for(session,run,project):
 
 async def reconcile(factory=SessionLocal):
     async with factory() as session:
+        await require_normal(session)
         ids=(await session.scalars(select(ProjectAnalysis.id).where(ProjectAnalysis.status.in_(jobs.ACTIVE),
             ProjectAnalysis.pipeline_version!='legacy').order_by(ProjectAnalysis.id))).all()
     for run_id in ids:
@@ -190,6 +192,7 @@ async def worker_heartbeat(factory,worker_id,step_id=None):
 
 async def execute_claim(claim,worker_id,factory=SessionLocal,lease_seconds=45,heartbeat_seconds=10):
     async with factory() as session:
+        await require_normal(session)
         if not await jobs.heartbeat(session,claim,lease_seconds):return
         run=await session.get(ProjectAnalysis,claim.run_id);project=await session.get(Project,claim.project_id)
         one_run_consent = (getattr(run, 'result_meta', None) or {}).get('source_transfer_consent') == CONSENT_VERSION
@@ -248,6 +251,16 @@ async def execute_claim(claim,worker_id,factory=SessionLocal,lease_seconds=45,he
         with suppress(asyncio.CancelledError):await keeper
 
 async def serve(poll_seconds=2,lease_seconds=None,heartbeat_seconds=10,once=False,factory=SessionLocal,*,ready_file=None):
+    async def allowed():
+        try:
+            async with factory() as session:
+                await require_normal(session)
+        except RecoveryBlocked:
+            log.warning('Worker stopped: RECOVERY_QUARANTINED; jobs and leases unchanged')
+            return False
+        return True
+    if not await allowed():
+        return
     # Allow longer host scheduling stalls during streamed project analysis.
     # An explicit lease override still applies to both kinds of job.
     scoring_lease = 45 if lease_seconds is None else lease_seconds
@@ -266,6 +279,8 @@ async def serve(poll_seconds=2,lease_seconds=None,heartbeat_seconds=10,once=Fals
     # An upgraded worker may be launched by the ordinary personal startup
     # during the drain. Advertise its version without touching old checkpoints.
     while True:
+        if not await allowed():
+            return
         async with factory() as session:
             handoff = await session.get(AppSetting, jobs.HANDOFF_KEY)
         if not handoff or handoff.value.get('target_prompt') != analysis.PROMPT_BUNDLE_VERSION:
@@ -277,12 +292,16 @@ async def serve(poll_seconds=2,lease_seconds=None,heartbeat_seconds=10,once=Fals
     async def scheduler_loop():
         from app.services.project_scheduler import tick
         while True:
+            if not await allowed():
+                return
             try:await tick(factory)
             except Exception:log.warning('scheduler check failed; persisted due time retained')
             await asyncio.sleep(30)
     scheduler=asyncio.create_task(scheduler_loop()) if not once else None
     try:
         while True:
+            if not await allowed():
+                return
             await announce_worker()
             from app.services import assessment_jobs, assessment_worker
             await assessment_worker.reconcile(factory)
