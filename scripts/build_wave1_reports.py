@@ -8,9 +8,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORTS = ROOT / "docs/known-issues/reports/wave1"
+REPO_URL = "https://github.com/Lueyu/CareerPilot"
 ORDER = ["E1", "E2", "E3", "G5", "F6", "G6", "H1", "H2", "H8", "H3", "H4", "A2", "G4", "F7", "F8", "G3"]
 STYLE = """
 :root{color-scheme:light;--ink:#17243b;--muted:#526178;--line:#dce5ed;--accent:#17664c;--paper:#fff;--bg:#f3f6f8}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.85 system-ui,'Microsoft YaHei',sans-serif}main{max-width:1100px;margin:auto;padding:32px 28px 80px}a{color:#165c98;overflow-wrap:anywhere}nav{font-size:15px;margin-bottom:28px}header{background:#123b37;color:#fff;padding:38px;border-radius:18px}header p{color:#d7ebe4;max-width:850px}h1{font-size:clamp(28px,4vw,42px);line-height:1.35;margin:8px 0 18px}h2{font-size:26px;line-height:1.5;margin:42px 0 16px}h3{font-size:20px}p{margin:12px 0}section,.card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:24px;margin:20px 0}.tag{display:inline-block;background:#dff2e8;color:#174b36;border-radius:6px;padding:2px 10px;font-size:14px}.small{font-size:14px;color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}.grid .card{margin:0}.flow{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch;counter-reset:step}.step{flex:1;min-width:150px;padding:18px;background:#eef5f3;border-top:4px solid var(--accent);border-radius:8px}.step:before{counter-increment:step;content:counter(step);display:block;color:var(--accent);font-weight:bold;font-size:23px}.step span{display:block;font-size:14px;color:var(--muted)}.table-wrap{overflow:auto}table{border-collapse:collapse;width:100%;min-width:560px}td,th{padding:13px 16px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}th{background:#edf3f6}code{font:14px/1.6 Consolas,monospace;background:#edf2f5;padding:2px 5px;overflow-wrap:anywhere}pre{white-space:pre-wrap;background:#142b39;color:#e5eff6;padding:18px;border-radius:8px;overflow-wrap:anywhere;font:14px/1.65 Consolas,monospace}details{border-top:1px solid var(--line);padding:16px 0}summary{cursor:pointer;font-weight:bold}.boundary{border-left:5px solid #b2731d;background:#fff8eb;padding:15px 20px}.check{border-left:5px solid var(--accent);padding-left:18px}footer{margin-top:36px;color:var(--muted);font-size:14px}@media(max-width:600px){main{padding:16px 12px}header{padding:24px}section{padding:18px}body{font-size:16px}}@media print{body{background:white}main{max-width:none;padding:0}header{background:white;color:var(--ink);border:1px solid var(--line)}header p{color:var(--muted)}section{break-inside:avoid}nav{display:none}details{display:block}}
+ p,summary,.step{overflow-wrap:anywhere}section{min-width:0}
 """
 
 
@@ -28,7 +30,7 @@ def table(headers: list[str], rows: list[list[str]]) -> str:
 
 
 def page(title: str, body: str) -> str:
-    return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + e(title) + '</title><style>' + STYLE + '</style><main>' + body + '</main></html>\n'
+    return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,"><title>' + e(title) + '</title><style>' + STYLE + '</style><main>' + body + '</main></html>\n'
 
 
 def render(record: dict) -> str:
@@ -43,7 +45,7 @@ def render(record: dict) -> str:
     body += '<section><h2>具体改了哪些代码</h2>'
     for item in record["files"]:
         path = item["path"]
-        body += f'<p><a href="https://github.com/Lueyu/agent-interview/blob/{e(record.get("source_ref", "dev"))}/{e(path)}"><code>{e(path)}</code></a></p><p>{e(item["why"])}</p>'
+        body += f'<p><a href="{REPO_URL}/blob/{e(record.get("source_ref", "dev"))}/{e(path)}"><code>{e(path)}</code></a></p><p>{e(item["why"])}</p>'
     body += '</section><section><h2>如何证明修改有效</h2>' + paragraphs(record["verification"]["explanation"])
     body += table(["检查", "实际观察", "证据"], record["verification"]["checks"])
     for command in record["verification"]["commands"]:
@@ -54,7 +56,7 @@ def render(record: dict) -> str:
         body += f'<details><summary>{e(item[0])}</summary><p>{e(item[1])}</p></details>'
     body += '</section><section><h2>版本、审核与回退</h2>' + paragraphs(record["delivery"])
     for link in record.get("links", []):
-        if not link["href"].startswith("https://github.com/Lueyu/agent-interview/"):
+        if not link["href"].startswith(REPO_URL + "/"):
             raise ValueError("Report links must point to this repository")
         body += f'<p><a href="{e(link["href"])}">{e(link["label"])}</a></p>'
     body += '</section>'

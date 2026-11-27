@@ -199,7 +199,7 @@
 
 ## E. 成本与性能治理
 
-### E1. 聊天生成走 BackgroundTasks 绕过队列：跨会话无并发上限 `P0` `OPEN`
+### E1. 聊天生成走 BackgroundTasks 绕过队列：跨会话无并发上限 `P0` `DONE`
 - **现状**："全局单并发"只覆盖后台评分/项目 worker；study_chat 用 FastAPI BackgroundTasks 直接生成，单会话单生成有 409 保护，但一个用户开 100 个会话可并发 100 个生成，每个最长 30 分钟。
 - **代码**：`server/app/api/v1/study_chat.py:342`（tasks.add_task）；对比 `project_jobs.py:158-173`（advisory lock 单并发）；`config.py:14`（30 分钟超时）。
 - **为什么是问题**：失控客户端/误操作可产生无上限并发账单与 provider 限流雪崩；"我做了单并发成本控制"的面试叙事在这里被戳穿。BackgroundTasks 还意味着 API 进程重启即丢在飞生成（靠租约恢复兜底，钱白花）。

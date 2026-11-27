@@ -1,6 +1,6 @@
 {
   "id": "E1",
-  "status": "已验证，待独立审核",
+  "status": "验证通过，独立审核 PASS+NOTES",
   "title": "聊天生成增加工作区准入和进程内执行上限",
   "goal": "让跨会话聊天需求先经过有上限的准入判断，避免一个工作区通过大量会话同时启动模型。容量已满时及时返回可重试的拒绝，不留下未被接受的消息，也不破坏原来的流式回复、幂等提交、中断、重试和恢复行为。",
   "scenario": [
@@ -9,22 +9,71 @@
     "Agent 工程的难点包含外部调用前的确定性约束。模型输出质量和并发安全是不同的问题。这里的名额、锁、超时和恢复都由代码与数据库决定，LLM 不参与资源分配。这是可以用并发测试说明的工程能力，但本报告只证明项目变更和测试结果，不代表用户本人已经掌握这些概念。"
   ],
   "before_after": [
-    ["跨会话并发", "同一工作区可以在很多会话里分别启动生成。", "默认每工作区最多两个仍有有效租约的 accepted 生成。"],
-    ["不同工作区总量", "聊天入口没有共同的 accepted 数量上限。", "同数据库默认最多四个活 accepted 生成，事务 advisory lock 保护并发计数。"],
-    ["容量不足", "新增会话通常仍被接受。", "生成请求收到 429 和 Retry-After 2 秒。拒绝不保存新消息，不更新会话标题或上下文。"],
-    ["实际执行", "所有 BackgroundTasks 可直接进入生成。", "同 API 进程的整个生成及清理过程占用 Semaphore，默认最多四个执行。"],
-    ["取消与重试", "已有 attempt 和状态条件阻止旧结果覆盖新结果。", "保留原 fencing，并在取得执行许可后重新检查取消状态、attempt 和租约。"],
-    ["任务注册异常", "先提交消息，再调用 add_task。注册异常可能留下已接受的占位。", "先 flush 获取消息 ID，注册后台任务，再提交。注册异常通过请求事务回滚。"],
-    ["可观察状态", "trace 主要记录生成阶段与 provider calls。", "沿用原 trace，补充 request_id、workspace_id 及 accepted、running、terminal、retry、expired 生命周期。"]
+    [
+      "跨会话并发",
+      "同一工作区可以在很多会话里分别启动生成。",
+      "默认每工作区最多两个仍有有效租约的 accepted 生成。"
+    ],
+    [
+      "不同工作区总量",
+      "聊天入口没有共同的 accepted 数量上限。",
+      "同数据库默认最多四个活 accepted 生成，事务 advisory lock 保护并发计数。"
+    ],
+    [
+      "容量不足",
+      "新增会话通常仍被接受。",
+      "生成请求收到 429 和 Retry-After 2 秒。拒绝不保存新消息，不更新会话标题或上下文。"
+    ],
+    [
+      "实际执行",
+      "所有 BackgroundTasks 可直接进入生成。",
+      "同 API 进程的整个生成及清理过程占用 Semaphore，默认最多四个执行。"
+    ],
+    [
+      "取消与重试",
+      "已有 attempt 和状态条件阻止旧结果覆盖新结果。",
+      "保留原 fencing，并在取得执行许可后重新检查取消状态、attempt 和租约。"
+    ],
+    [
+      "任务注册异常",
+      "先提交消息，再调用 add_task。注册异常可能留下已接受的占位。",
+      "先 flush 获取消息 ID，注册后台任务，再提交。注册异常通过请求事务回滚。"
+    ],
+    [
+      "可观察状态",
+      "trace 主要记录生成阶段与 provider calls。",
+      "沿用原 trace，补充 request_id、workspace_id 及 accepted、running、terminal、retry、expired 生命周期。"
+    ]
   ],
   "flow": [
-    ["检查身份与已有会话", "入口沿用 Workspace 和 StudySession 行锁。先处理同 request_id 的幂等重放，再处理结束会话或当前会话已有生成的 409。"],
-    ["识别确定性清单", "题库清单由已有查询直接完成，不启动 provider，因此继续允许它绕过生成容量。需要模型解释的混合请求仍通过生成准入。"],
-    ["原子检查 accepted 容量", "读取活 assistant 消息数量。消息必须处于 generating 且 expires_at 尚未过期。工作区行锁保护该工作区，事务 advisory lock 保护跨工作区的共享计数。"],
-    ["保存一轮消息", "准入通过后才执行会话变化、帮助暴露记录和用户消息写入。用户消息与 assistant 占位在同一事务提交，accepted 事件和 request_id 一起进入 trace。"],
-    ["等待执行许可", "后台任务先检查当前消息，再等 Semaphore。等待既受秒数限制，也受进程内等待者数量限制。未开始执行的等待任务不续租。"],
-    ["重查并执行", "取得许可后再次读取状态、attempt 和 expires_at。旧任务不符合条件就退出。有效任务记录 running，启动原有检索、路由和模型流程。"],
-    ["终结与释放", "完成、失败或取消会写终态。实际 provider 子任务与 heartbeat 清理完成后才归还 Semaphore。过期租约由现有恢复路径标为 interrupted。"]
+    [
+      "检查身份与已有会话",
+      "入口沿用 Workspace 和 StudySession 行锁。先处理同 request_id 的幂等重放，再处理结束会话或当前会话已有生成的 409。"
+    ],
+    [
+      "识别确定性清单",
+      "题库清单由已有查询直接完成，不启动 provider，因此继续允许它绕过生成容量。需要模型解释的混合请求仍通过生成准入。"
+    ],
+    [
+      "原子检查 accepted 容量",
+      "读取活 assistant 消息数量。消息必须处于 generating 且 expires_at 尚未过期。工作区行锁保护该工作区，事务 advisory lock 保护跨工作区的共享计数。"
+    ],
+    [
+      "保存一轮消息",
+      "准入通过后才执行会话变化、帮助暴露记录和用户消息写入。用户消息与 assistant 占位在同一事务提交，accepted 事件和 request_id 一起进入 trace。"
+    ],
+    [
+      "等待执行许可",
+      "后台任务先检查当前消息，再等 Semaphore。等待既受秒数限制，也受进程内等待者数量限制。未开始执行的等待任务不续租。"
+    ],
+    [
+      "重查并执行",
+      "取得许可后再次读取状态、attempt 和 expires_at。旧任务不符合条件就退出。有效任务记录 running，启动原有检索、路由和模型流程。"
+    ],
+    [
+      "终结与释放",
+      "完成、失败或取消会写终态。实际 provider 子任务与 heartbeat 清理完成后才归还 Semaphore。过期租约由现有恢复路径标为 interrupted。"
+    ]
   ],
   "mechanism": [
     "实际代码没有独立的 StudyGeneration 表。生成状态已经由 StudyMessage 承担。assistant 消息的 status、attempt 和 expires_at 分别表示当前状态、执行代次和租约截止时间。复用这个结构，可以让准入计数与已有恢复逻辑读取同一份事实，避免再维护一套容易不同步的 reservation 状态。",
@@ -35,57 +84,159 @@
     "后台等待也不能无限积累。等待秒数默认五秒，并且不能超过本轮原租约的剩余时间。另一个进程内计数将真实等待者限制到配置的 global limit。这个计数在 await 前同步增加，在成功取得许可、超时和取消时都通过 finally 减少。即使客户端快速停止并重新接受下一代消息，失效等待者也不能无限补入。",
     "等待后必须重查有效性。任务最初排队时属于 attempt 1，等待期间用户可能停止并重试到 attempt 2。取得许可并不意味着 attempt 1 重新有效。_load_turn 会同时检查 generating、相同 attempt 和未过期租约，条件不成立就退出，不进入 provider。真正写入流式片段和终态时，原 publish 的 attempt、status 和租约 fencing 仍然保留。",
     "恢复不是把所有 generating 消息一律重置。其他 API 进程可能仍在正常续租。准入计数只忽略已经过期的租约，原恢复函数再把过期消息收敛为 interrupted，并在 trace 追加 expired 事件。provider calls 不会因为恢复被抹掉，旧代次也不能续租或覆盖新代次。",
-    "任务注册改在提交前完成，但仍沿用 BackgroundTasks。注册函数本身抛异常时，请求事务会回滚。若进程在提交成功之后、任务实际开始之前消失，这一波仍依赖短租约过期恢复，不会自动重新调用模型。这是临时准入闸与持久队列的明确边界。"
+    "任务注册改在提交前完成，但仍沿用 BackgroundTasks。注册函数本身抛异常时，请求事务会回滚。若进程在提交成功之后、任务实际开始之前消失，这一波仍依赖短租约过期恢复，不会自动重新调用模型。这是临时准入闸与持久队列的明确边界。",
+    "独立审核还发现一个容易遗漏的错误。同样叫 TimeoutError，可能发生在等待名额时，也可能发生在模型结束后的数据库写入时。最初外层把两种情况一起捕获，竟用开始执行前的旧 trace 覆盖了已保存的模型调用证据。真实 PostgreSQL 故障注入与新增回归都复现了 calls 被清空。修复把容量超时处理收窄到等待许可的阶段。执行阶段由原有执行函数处理，数据库终态仍写不进去时保留已保存的调用和租约，原样上抛异常，许可仍在 finally 归还。它没有把一次失败冒充成没花过钱。"
   ],
   "concepts": [
-    ["工作区", "同一份业务数据和访问归属的范围。", "限制一个工作区通过多个会话占用多少 accepted 生成。"],
-    ["accepted", "请求已经保存并承诺执行，但后台函数可能尚未开始。", "把尚未运行的后台任务也算进容量，不能只统计已经连上模型的请求。"],
-    ["租约", "需要定期续期的有效执行期限。", "进程消失后，让遗留消息最终不再占着准入名额。"],
-    ["行锁", "同一行在事务期间由一个写请求先处理。", "复用 Workspace 行锁保护同工作区准入。"],
-    ["advisory lock", "应用约定使用同一个数据库锁编号协调操作。", "让不同工作区的共享计数与新增 accepted 消息成为串行事务。"],
-    ["Semaphore", "只有拿到有限许可才能执行，结束后归还许可。", "限制一个 API 进程的实际生成，并覆盖 provider 取消清理。"],
-    ["fencing", "旧执行即使稍后恢复，也必须出示当前有效的代次和租约才能写入。", "防止过期任务或旧 attempt 覆盖重试后的消息。"],
-    ["幂等重放", "同一请求重复到达，仍返回原来的处理结果。", "重连或重试 HTTP 请求时不重复接受、生成或占用名额。"]
+    [
+      "工作区",
+      "同一份业务数据和访问归属的范围。",
+      "限制一个工作区通过多个会话占用多少 accepted 生成。"
+    ],
+    [
+      "accepted",
+      "请求已经保存并承诺执行，但后台函数可能尚未开始。",
+      "把尚未运行的后台任务也算进容量，不能只统计已经连上模型的请求。"
+    ],
+    [
+      "租约",
+      "需要定期续期的有效执行期限。",
+      "进程消失后，让遗留消息最终不再占着准入名额。"
+    ],
+    [
+      "行锁",
+      "同一行在事务期间由一个写请求先处理。",
+      "复用 Workspace 行锁保护同工作区准入。"
+    ],
+    [
+      "advisory lock",
+      "应用约定使用同一个数据库锁编号协调操作。",
+      "让不同工作区的共享计数与新增 accepted 消息成为串行事务。"
+    ],
+    [
+      "Semaphore",
+      "只有拿到有限许可才能执行，结束后归还许可。",
+      "限制一个 API 进程的实际生成，并覆盖 provider 取消清理。"
+    ],
+    [
+      "fencing",
+      "旧执行即使稍后恢复，也必须出示当前有效的代次和租约才能写入。",
+      "防止过期任务或旧 attempt 覆盖重试后的消息。"
+    ],
+    [
+      "幂等重放",
+      "同一请求重复到达，仍返回原来的处理结果。",
+      "重连或重试 HTTP 请求时不重复接受、生成或占用名额。"
+    ]
   ],
   "rationale": [
-    "Foundational Thinking 要求先找共享状态的真实主人。这里选择已有 StudyMessage 租约，而不是新增一个同时描述同一轮生成的表。Make Operations Idempotent 让恢复和容量从当前状态推导，不依赖进程曾经打算做什么。",
+    "状态应该由一处维护。这里选择已有 StudyMessage 租约，而不是新增一个同时描述同一轮生成的表。恢复和容量都从当前持久化状态推导，重复恢复会收敛到同一个结果，不依赖进程曾经打算做什么。",
     "工作区保护复用已有行锁。只有共享 accepted 上限需要额外 advisory lock。锁内不更新其他工作区的消息，避免持有当前工作区行锁时再去等别人的消息行锁，形成倒序等待。",
     "配置使用正数校验，默认每工作区 2、同库 accepted 4、进程实际执行 4。把限制设置成零不会悄悄关闭保护。调整执行许可配置需要重启 API 进程，因为 Semaphore 在首次执行时创建。",
     "没有把所有失败包装成新的通用观测系统。已有请求体 request_id 被复制到 trace，并在 retry 中沿用。provider 自己的请求编号和原调用结果保持原契约。这样独立审核能够聚焦准入和清理，不必同时审核整个 G1。"
   ],
   "alternatives": [
-    ["只放进程内 Semaphore", "改动很少，能限制当前进程的执行。", "不同进程各有自己的许可，而且已经接受的后台任务仍可能不断积累，因此没有单独采用。"],
-    ["复用消息租约、工作区行锁和事务 advisory lock", "保留原状态归属，不新增表，在入口原子限制活 accepted 数量。", "采用。实际执行仍依赖各进程自己的 Semaphore，不能声称跨进程 provider 总量受同一个许可池控制。"],
-    ["独立 generation reservation 表", "能保存每个 attempt 更详细的占位与执行历史。", "本波没有采用。它需要迁移和第二套恢复规则，容易提前扩大成队列化重构。"],
-    ["直接持久队列化", "可以统一排队、认领、重放和优雅停机。", "按已批准排程留在第 5 波，与 outbox 和停机释放一起实施。本波先完成有界准入。"]
+    [
+      "只放进程内 Semaphore",
+      "改动很少，能限制当前进程的执行。",
+      "不同进程各有自己的许可，而且已经接受的后台任务仍可能不断积累，因此没有单独采用。"
+    ],
+    [
+      "复用消息租约、工作区行锁和事务 advisory lock",
+      "保留原状态归属，不新增表，在入口原子限制活 accepted 数量。",
+      "采用。实际执行仍依赖各进程自己的 Semaphore，不能声称跨进程 provider 总量受同一个许可池控制。"
+    ],
+    [
+      "独立 generation reservation 表",
+      "能保存每个 attempt 更详细的占位与执行历史。",
+      "本波没有采用。它需要迁移和第二套恢复规则，容易提前扩大成队列化重构。"
+    ],
+    [
+      "直接持久队列化",
+      "可以统一排队、认领、重放和优雅停机。",
+      "按已批准排程留在第 5 波，与 outbox 和停机释放一起实施。本波先完成有界准入。"
+    ]
   ],
   "files": [
-    {"path":"server/app/config.py","why":"Settings 增加工作区容量、同库 accepted 容量和等待秒数，使用正数与上限校验。"},
-    {"path":"server/app/services/study_chat_capacity.py","why":"admit_generation 负责原子计数与 429，generation_event 和 interrupted_coach 追加生命周期，保留 provider calls。"},
-    {"path":"server/app/api/v1/study_chat.py","why":"send 和 retry 在业务写入之前准入，保持幂等和 409 顺序。后台注册移到提交前，interrupt 和 archive 记录取消。owned_reply 刷新行状态，避免读取过期缓存。"},
-    {"path":"server/app/services/study_chat.py","why":"generate_reply 包住整个实际执行及清理，限制执行许可和等待数量。_load_turn 增加租约重查，原恢复路径补充 expired 事件。"},
-    {"path":"server/tests/test_study_chat_capacity.py","why":"用隔离 PostgreSQL 和可控后台执行验证工作区竞争、共享上限、无副作用拒绝、中断重试、异常释放、等待界限和旧任务 fencing。"},
-    {"path":"docs/agent/adr-e1-chat-admission.md","why":"记录 BackgroundTasks 的历史作用、两种状态形状、当前决定、配置以及未来队列迁移边界。"}
+    {
+      "path": "server/app/config.py",
+      "why": "Settings 增加工作区容量、同库 accepted 容量和等待秒数，使用正数与上限校验。"
+    },
+    {
+      "path": "server/app/services/study_chat_capacity.py",
+      "why": "admit_generation 负责原子计数与 429，generation_event 和 interrupted_coach 追加生命周期，保留 provider calls。"
+    },
+    {
+      "path": "server/app/api/v1/study_chat.py",
+      "why": "send 和 retry 在业务写入之前准入，保持幂等和 409 顺序。后台注册移到提交前，interrupt 和 archive 记录取消。owned_reply 刷新行状态，避免读取过期缓存。"
+    },
+    {
+      "path": "server/app/services/study_chat.py",
+      "why": "generate_reply 包住整个实际执行及清理，限制执行许可和等待数量。_load_turn 增加租约重查，原恢复路径补充 expired 事件。"
+    },
+    {
+      "path": "server/tests/test_study_chat_capacity.py",
+      "why": "用隔离 PostgreSQL 和可控后台执行验证工作区竞争、共享上限、无副作用拒绝、中断重试、异常释放、等待界限和旧任务 fencing。"
+    },
+    {
+      "path": "docs/agent/adr-e1-chat-admission.md",
+      "why": "记录 BackgroundTasks 的历史作用、两种状态形状、当前决定、配置以及未来队列迁移边界。"
+    }
   ],
   "verification": {
     "explanation": [
-      "红测试在基线实现上运行，两项都因没有抛出容量异常而失败，记录在 red.log。组合回归实际获得 54 passed、退出码 0。组合运行之后增加了真实等待者的数量上限，再对当前完整容量文件运行 20 项。最终数量与退出结果以 handoff.json 和 final-capacity.log 为准。",
-      "所有数据库测试从指定工作树 server 目录调用 D:/agent-interview/server/.venv/Scripts/python.exe 和 run_isolated_tests.py，每次生成新的 *_test 数据库。数据库是实际本机 PostgreSQL，provider 是合成函数或已有 httpx SSE 夹具，没有真实模型或邮件调用。",
-      "早期 localhost 连接很慢，旧日志完整保留，部分运行由本 worker 主动停止，不能算通过。后续只给测试子进程覆盖 DATABASE_URL 的 hostname 为 127.0.0.1，保持同一本机 PostgreSQL，没有修改 .env、门禁或个人库。",
-      "54 项组合运行在追加等待者数量护栏前已导入模块，最终 20 项容量补验覆盖当前文件和新增 Stop/retry 等待数量场景。两次结果分别列出，不把它们拼成一次 74 项测试。"
+      "最初的工作区与共享容量两项测试在旧实现中都因没有拒绝而失败。初版组合回归 54 项通过，随后独立审核在当时版本跑过 55 项组合和三项独立探测。但额外的真实 PostgreSQL 终态写入超时探测仍失败，发现调用证据被清空。首次 FAIL 完整保留。",
+      "修复后，作者和另一位非作者审核者分别运行当前完整容量文件，均为 21 项通过。审核者还证明三项真实 ASGI/清理/启动行为，并分别证明模型崩溃与取消后发生数据库终态写入超时的两个场景。对应运行各自保留退出码与日志，不把不同版本、不同运行的数量相加。",
+      "数据库是真实的本机 PostgreSQL，每个测试进程创建新的 *_test 库。HTTP 探测通过实际 ASGI 鉴权、工作区和聊天路由，没有使用 TCP 或真实模型服务。provider 与无关启动 worker 是受控夹具，未发送邮件、调用真实模型或操作个人数据。",
+      "数据库故障是在终态 UPDATE 之前取消真实 pg_sleep 语句，不是切断 COMMIT 连接。探测验证原 TimeoutError 上抛、完整 trace 保留、执行许可准确归还，以及强制租约过期后的幂等恢复、旧 attempt 拒绝和新 attempt 成功。未把这些结果扩大为真实供应商或生产故障保证。",
+      "较早的 55 项组合结果用于未变化的其他聊天行为。最终修复只收窄等待阶段的异常边界，当前 21 项容量及五个独立行为已重新验证；没有声称在最终版本重新跑过全部 56 项组合。早期慢测与审核者探测参数错误的失败记录均保留，未算作通过。"
     ],
     "checks": [
-      ["基线缺口", "工作区与共享上限两项测试均 DID NOT RAISE HTTPException。", "D:/agent-interview/.agent-runs/20261128-wave1/e1/red.log"],
-      ["组合回归", "54 passed，覆盖容量、流式、恢复、call 记录和题库行为。", "D:/agent-interview/.agent-runs/20261128-wave1/e1/verification-ipv4.log"],
-      ["最终容量补验", "当前文件完整容量用例，并包含 Stop/retry 的等待者数量界限。", "D:/agent-interview/.agent-runs/20261128-wave1/e1/final-capacity.log"],
-      ["静态检查", "五个改动 Python 文件 ruff 通过。", "D:/agent-interview/.agent-runs/20261128-wave1/e1/ruff.log"],
-      ["旧测试进程", "按记录的旧 E1 PID 和命令行审计，旧 localhost E1 测试进程均已退出。", "D:/agent-interview/.agent-runs/20261128-wave1/e1/process-audit.log"]
+      [
+        "旧版没有容量拒绝",
+        "两项 DID NOT RAISE HTTPException。",
+        ".agent-runs/20261128-wave1/e1/red.log"
+      ],
+      [
+        "初次独立审核发现 E1-R1",
+        "终态写入超时后 calls=[]、error_kind=capacity，审核 FAIL。",
+        ".agent-runs/20261128-wave1/e1/review/review.md"
+      ],
+      [
+        "永久回归先红后绿",
+        "新回归先复现证据清空；修复后当前容量文件 21 passed，exit 0。",
+        ".agent-runs/20261128-wave1/e1/r1-red.log / r1-green.log"
+      ],
+      [
+        "非作者独立复验",
+        "当前 21 项容量测试通过，没有跳过。",
+        ".agent-runs/20261128-wave1/e1/review-r1/capacity.log"
+      ],
+      [
+        "真实 ASGI、清理、启动",
+        "八个工作区争两个名额，两个202和六个429；取消清理后才准许下一执行；启动只恢复过期项。",
+        ".agent-runs/20261128-wave1/e1/review-r1/independent.log"
+      ],
+      [
+        "两种终态写库故障",
+        "崩溃及取消均保留未知调用、身份与 attempt，准确归还许可，恢复和新重试成功。2 passed，exit 0。",
+        ".agent-runs/20261128-wave1/e1/review-r1/pg-fault-corrected.log"
+      ],
+      [
+        "独立结论",
+        "PASS+NOTES，E1-R1 已解决，无剩余正确性阻塞。",
+        ".agent-runs/20261128-wave1/e1/review-r1/review.json"
+      ],
+      [
+        "报告阅读体验",
+        "桌面1440与手机390实际预览；390宽页面没有整体横向溢出；自测答案可展开。",
+        "output/playwright/wave1-e1-desktop.png / wave1-e1-mobile.png"
+      ]
     ],
     "commands": [
-      "从指定工作树 server 执行 D:/agent-interview/server/.venv/Scripts/python.exe run_isolated_tests.py tests/test_study_chat_capacity.py -vv --tb=short。当前文件应收集 20 项。",
-      "组合回归使用同一命令，依次加入 tests/test_study_chat.py tests/test_study_chat_recovery.py tests/test_study_chat_attempts.py tests/test_study_chat_stream.py tests/test_study_chat_library.py。当前版本应收集 55 项，父代理可独立重跑。",
-      "D:/agent-interview/server/.venv/Scripts/python.exe -m ruff check app/config.py app/api/v1/study_chat.py app/services/study_chat.py app/services/study_chat_capacity.py tests/test_study_chat_capacity.py",
-      "精确的环境清空、进程级 IPv4 覆盖及真实退出码记录见 handoff.json，数据库连接值不进入报告。"
+      "Set-Location 'D:/agent-interview/.agent-runs/20261128-wave1/worktrees/e1/server'",
+      "& 'D:/agent-interview/server/.venv/Scripts/python.exe' run_isolated_tests.py tests/test_study_chat_capacity.py -vv --tb=short",
+      "& 'D:/agent-interview/server/.venv/Scripts/python.exe' -m ruff check app/config.py app/api/v1/study_chat.py app/services/study_chat.py app/services/study_chat_capacity.py tests/test_study_chat_capacity.py"
     ]
   },
   "limits": [
@@ -93,7 +244,8 @@
     "没有新增持久队列、outbox、自动重放、公平调度或优雅停机。进程在提交后丢失仍由消息租约到期恢复，用户需要按现有方式重试。",
     "没有修改模型调用预算或成本账本。原有单轮调用次数和备用行为保留。此项不能证明总费用有上限，也没有测量真实供应商在连接取消后的远端计算或收费行为。",
     "所有 API 进程应使用一致的容量配置，改 Semaphore 上限需要重启。没有进行多进程真实 provider 压测、生产部署或个人数据验收。",
-    "本 worker 不做提交、推送、PR、合并、跟踪文档或 HTML 生成。独立审核和后续 Git 由父代理负责。原工作区已有的复制清单、技能和生成器没有被本 worker 改写。"
+    "验收使用合成数据和隔离数据库。交付进入 dev，个人实例、个人数据库和 master 发布分支由负责人后续验收与管理。",
+    "终态数据库写入失败时，后台任务会暴露原始异常，消息可暂时保持 generating，直到短租约过期恢复。已经持久化的未知调用保留；本项没有承诺数据库不可写时仍能立即保存终态。"
   ],
   "interview": [
     "可以说明单会话互斥不等于工作区并发限制，并解释为什么 accepted 任务也必须计数。证据是基线两项红测试和新并发准入测试。",
@@ -102,16 +254,50 @@
     "可以解释租约解决执行者消失后的有效期，attempt fencing 解决旧执行覆盖新执行。二者不能替代跨进程实际 provider 许可。应把已经验证的项目行为与本人独立讲清、实现和调试的能力分开。"
   ],
   "questions": [
-    ["为什么同会话 409 已经存在，还需要工作区容量？", "409 只管一个 session。用户新建多个 session 后，每个都能独立启动后台任务，必须再按 workspace 聚合限制。"],
-    ["为什么先检查容量再保存消息？", "拒绝表示系统没有接受这轮工作。提前保存会留下幽灵用户消息、改变会话或记录帮助暴露，与返回结果矛盾。"],
-    ["为什么幂等重放要放在容量前？", "重放要取回已接受的旧 ticket，不产生新工作。若先查容量，会把同一个请求的网络重试误报为满额。"],
-    ["停止后消息已经 interrupted，为什么不立刻归还 Semaphore？", "实际 provider 操作可能仍在退出和清理。提前放开许可会让新执行与旧执行重叠，所以许可要在整个 finally 完成后释放。"],
-    ["租约还没过期，旧 attempt 就一定能继续吗？", "不一定。重试会改变 attempt。取得许可和写入结果时都要同时检查状态、代次和有效租约。"],
-    ["有进程内 Semaphore 后，为什么仍要限制等待者数量？", "停止可以先释放 DB accepted 名额，但旧 waiter 可能还没醒来。反复 Stop/retry 会不断替换活消息，因此等待秒数和真实等待者数量都需要明确上限。"],
-    ["能否把 global limit 说成整个部署最多四个 provider 调用？", "不能。当前 DB 限制的是活 accepted 数量，实际执行许可属于各 API 进程。多进程旧调用的清理可能重叠，这一边界必须明确。"]
+    [
+      "为什么同会话 409 已经存在，还需要工作区容量？",
+      "409 只管一个 session。用户新建多个 session 后，每个都能独立启动后台任务，必须再按 workspace 聚合限制。"
+    ],
+    [
+      "为什么先检查容量再保存消息？",
+      "拒绝表示系统没有接受这轮工作。提前保存会留下幽灵用户消息、改变会话或记录帮助暴露，与返回结果矛盾。"
+    ],
+    [
+      "为什么幂等重放要放在容量前？",
+      "重放要取回已接受的旧 ticket，不产生新工作。若先查容量，会把同一个请求的网络重试误报为满额。"
+    ],
+    [
+      "停止后消息已经 interrupted，为什么不立刻归还 Semaphore？",
+      "实际 provider 操作可能仍在退出和清理。提前放开许可会让新执行与旧执行重叠，所以许可要在整个 finally 完成后释放。"
+    ],
+    [
+      "租约还没过期，旧 attempt 就一定能继续吗？",
+      "不一定。重试会改变 attempt。取得许可和写入结果时都要同时检查状态、代次和有效租约。"
+    ],
+    [
+      "有进程内 Semaphore 后，为什么仍要限制等待者数量？",
+      "停止可以先释放 DB accepted 名额，但旧 waiter 可能还没醒来。反复 Stop/retry 会不断替换活消息，因此等待秒数和真实等待者数量都需要明确上限。"
+    ],
+    [
+      "能否把 global limit 说成整个部署最多四个 provider 调用？",
+      "不能。当前 DB 限制的是活 accepted 数量，实际执行许可属于各 API 进程。多进程旧调用的清理可能重叠，这一边界必须明确。"
+    ],
+    [
+      "为什么不能用一个 TimeoutError 处理包住整个生成任务？",
+      "异常名字相同不代表处理方式相同。等名额超时说明任务还没执行；终态写库超时说明模型可能已经花钱。用等待前的旧状态覆盖后者，会丢掉调用证据。"
+    ]
+  ],
+  "source_ref": "13786ea060a3373bbf3ef93f117eab969b029e17",
+  "links": [
+    {
+      "label": "查看 E1 的 PR #51",
+      "href": "https://github.com/Lueyu/CareerPilot/pull/51"
+    }
   ],
   "delivery": [
-    "父代理补入独立审核、PR、合入 dev 的 SHA 和回退信息。当前基线 a59a33f8569a067714c275295b3f90c4e3c2b9ab，改动未提交。",
-    "本报告是待父代理校对的中文教学草稿。没有编辑生成器、清单、issue skill 或其他条目的报告。"
+    "基线为 a59a33f8569a067714c275295b3f90c4e3c2b9ab。代码验证提交为 13786ea060a3373bbf3ef93f117eab969b029e17，独立分支 codex/wave1-e1-concurrency。",
+    "PR #51 的目标分支是 dev。非作者审核由原生 ChatGPT gpt-6.1-sol 执行，结论 PASS+NOTES。首次 FAIL 与返修后的 PASS+NOTES 分别保留。实际合入状态及合入提交可从下方 PR 链接核对，晨间总览另登记集成 dev 的 SHA。",
+    "回退时应从最新 dev 建新分支，撤销 PR #51 对应的合入提交，再完成验证和审核。后续预算与限流依赖本项时需要一起评估。本次没有执行回退，也没有升级个人实例或发布 master。",
+    "本次一并收录用户已经提供的清单、issue-solver 和看板生成器。主工作区的既有未提交修改保留在原处。"
   ]
 }
