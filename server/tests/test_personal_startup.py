@@ -137,7 +137,7 @@ ConvertTo-Json -InputObject $result -Depth 5
 
 @pytest.mark.parametrize("entry", [["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "0"],
     ["-m", "app.project_worker", "--once"], ["bootstrap.py"], ["migrate.py"], ["-m", "app.seed"]])
-@pytest.mark.parametrize("fault", ["missing", "weak-token", "weak-password", "periodic-password"])
+@pytest.mark.parametrize("fault", ["missing", "weak-token", "weak-password", "periodic-password", "malformed-port"])
 def test_real_startup_refuses_before_database_connection(tmp_path, entry, fault):
     import os
     import socket
@@ -160,13 +160,16 @@ def test_real_startup_refuses_before_database_connection(tmp_path, entry, fault)
     if fault != "missing":
         env["API_TOKEN"] = "cp-dev-token" if fault == "weak-token" else api
         bad = "careerpilot_dev" if fault == "weak-password" else "0123456789" * 4 if fault == "periodic-password" else password
-        env["DATABASE_URL"] = f"postgresql+asyncpg://owned:{bad}@127.0.0.1:{port}/owned_test"
+        configured_port = "PRIVATE_PORT_INPUT_MUST_NOT_ECHO" if fault == "malformed-port" else str(port)
+        env["DATABASE_URL"] = f"postgresql+asyncpg://owned:{bad}@127.0.0.1:{configured_port}/owned_test"
     try:
         result = subprocess.run([sys.executable, *entry], cwd=Path(__file__).resolve().parents[1],
                                 env=env, capture_output=True, text=True, timeout=30)
         assert result.returncode != 0
         assert api not in result.stdout + result.stderr
         assert password not in result.stdout + result.stderr
+        if "PRIVATE_PORT_INPUT_MUST_NOT_ECHO" in result.stdout + result.stderr:
+            pytest.fail("Startup echoed malformed connection input before preflight")
         assert not list(tmp_path.iterdir())
         with pytest.raises(socket.timeout):
             listener.accept()

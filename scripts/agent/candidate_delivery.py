@@ -152,6 +152,26 @@ def configure(run, receipt, trusted_compose):
     project = receipt["project"]
     _, web_name, port, _, _ = PROJECTS[project]
     database = "postgres" if project == "careerpilot" else "db"
+    if project == "careerpilot":
+        credentials = preview_credentials(run)
+        backend_credentials = {
+            "API_TOKEN": credentials["API_TOKEN"],
+            "CAREERPILOT_SECRETS_KEY": credentials["CAREERPILOT_SECRETS_KEY"],
+            "DATABASE_URL": f"postgresql+asyncpg://careerpilot:{credentials['POSTGRES_PASSWORD']}@postgres:5432/careerpilot",
+        }
+        for name in ("server", "worker"):
+            config["services"][name].setdefault("environment", {}).update(backend_credentials)
+        postgres = config["services"]["postgres"]
+        postgres.setdefault("environment", {})["POSTGRES_PASSWORD"] = credentials["POSTGRES_PASSWORD"]
+        server = config["services"]["server"]
+        config["services"]["preflight"] = {
+            "build": server["build"],
+            "environment": dict(server["environment"]),
+            "command": ["python", "personal_credentials.py", "check"],
+        }
+        postgres.setdefault("depends_on", {})["preflight"] = {
+            "condition": "service_completed_successfully", "required": True,
+        }
     for service in config["services"].values():
         service.pop("container_name", None)
         service.pop("ports", None)
