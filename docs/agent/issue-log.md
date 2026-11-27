@@ -15,3 +15,10 @@
 - 验证 SHA：4ad8be58b29390a72ff36aec47971f6e65e9f70b
 - 证据：.agent-runs/20261128-wave1/e2/review/review.json
 - 遗留/后续：未知费用需外部证据对账；价格需显式配置。真实供应商、个人实例未测试或部署。原有timeout/cancelled分类缺陷保留。
+
+## E3 · 2026-11-28 · DONE
+- 结论：可信身份准入；读取/写入/模型触发分类，短时令牌桶加UTC+8自然日硬配额，同库多进程原子扣除，429+Retry-After。当前28项通过，既有相关29项carried通过，独立审核结果见本PR。
+- PR：https://github.com/Lueyu/CareerPilot/pull/55
+- 验证 SHA：e9006eb8efdf94f1a5cb8fe68f451c84a381fd59
+- 证据：.agent-runs/20261128-wave1/e3/handoff.json
+- 遗留/后续：不同DB不自动汇总；缓存及取消不退款；后续新模型入口需登记分类；个人实例未部署。

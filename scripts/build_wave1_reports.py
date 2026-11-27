@@ -14,6 +14,7 @@ STYLE = """
 :root{color-scheme:light;--ink:#17243b;--muted:#526178;--line:#dce5ed;--accent:#17664c;--paper:#fff;--bg:#f3f6f8}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.85 system-ui,'Microsoft YaHei',sans-serif}main{max-width:1100px;margin:auto;padding:32px 28px 80px}a{color:#165c98;overflow-wrap:anywhere}nav{font-size:15px;margin-bottom:28px}header{background:#123b37;color:#fff;padding:38px;border-radius:18px}header p{color:#d7ebe4;max-width:850px}h1{font-size:clamp(28px,4vw,42px);line-height:1.35;margin:8px 0 18px}h2{font-size:26px;line-height:1.5;margin:42px 0 16px}h3{font-size:20px}p{margin:12px 0}section,.card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:24px;margin:20px 0}.tag{display:inline-block;background:#dff2e8;color:#174b36;border-radius:6px;padding:2px 10px;font-size:14px}.small{font-size:14px;color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}.grid .card{margin:0}.flow{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch;counter-reset:step}.step{flex:1;min-width:150px;padding:18px;background:#eef5f3;border-top:4px solid var(--accent);border-radius:8px}.step:before{counter-increment:step;content:counter(step);display:block;color:var(--accent);font-weight:bold;font-size:23px}.step span{display:block;font-size:14px;color:var(--muted)}.table-wrap{overflow:auto}table{border-collapse:collapse;width:100%;min-width:560px}td,th{padding:13px 16px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}th{background:#edf3f6}code{font:14px/1.6 Consolas,monospace;background:#edf2f5;padding:2px 5px;overflow-wrap:anywhere}pre{white-space:pre-wrap;background:#142b39;color:#e5eff6;padding:18px;border-radius:8px;overflow-wrap:anywhere;font:14px/1.65 Consolas,monospace}details{border-top:1px solid var(--line);padding:16px 0}summary{cursor:pointer;font-weight:bold}.boundary{border-left:5px solid #b2731d;background:#fff8eb;padding:15px 20px}.check{border-left:5px solid var(--accent);padding-left:18px}footer{margin-top:36px;color:var(--muted);font-size:14px}@media(max-width:600px){main{padding:16px 12px}header{padding:24px}section{padding:18px}body{font-size:16px}}@media print{body{background:white}main{max-width:none;padding:0}header{background:white;color:var(--ink);border:1px solid var(--line)}header p{color:var(--muted)}section{break-inside:avoid}nav{display:none}details{display:block}}
  p,summary,.step{overflow-wrap:anywhere}section{min-width:0}
 .calc-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}.calc-fields label{display:block}.calc-fields input,.calc-fields select{display:block;width:100%;min-width:0;font:inherit;padding:8px;border:1px solid #aebdca;border-radius:6px;background:white;color:var(--ink)}.calc-results{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:22px}.calc-results div{padding:16px;background:#eef5f3;border-radius:8px}.calc-results strong{display:block;font-size:22px}.calc-results span{display:block;font-size:14px;color:var(--muted)}
+#rate-demo button{font:inherit;min-height:44px;padding:8px 12px;border:1px solid #91aa9f;border-radius:6px;background:#edf5f1;color:var(--ink);cursor:pointer}
 """
 
 
@@ -89,6 +90,52 @@ root.addEventListener('input',update);root.addEventListener('change',update);upd
 """
 
 
+def rate_calculator() -> str:
+    return r"""
+<section id="rate-demo"><h2>动手看一次请求会消耗哪些额度</h2>
+<p>这是浏览器里的教学演示，不会请求模型或修改产品配置。读取消耗读取额度，保存消耗写入额度，生成同时消耗写入和生成额度。任何一个额度不足，这次请求都不扣额度。</p>
+<p class="small">数值刻意设得很小，便于观察。每类各有短时令牌桶和当天剩余次数。短时额度会逐渐补充，日额度到北京时间次日零点才恢复。演示从中午十二点开始。</p>
+<div id="rd-buckets" class="grid"></div>
+<p>模拟时间：<strong id="rd-clock">0</strong> 秒</p>
+<div style="display:flex;gap:12px;flex-wrap:wrap">
+<button type="button" data-rd="read">读取一次</button><button type="button" data-rd="write">保存一次</button>
+<button type="button" data-rd="llm">生成一次</button><button type="button" data-rd="wait">等待 30 秒</button>
+<button type="button" data-rd="midnight">推进到次日零点</button>
+<button type="button" data-rd="reset">重置演示</button></div>
+<p id="rd-result" aria-live="polite">先连续点击两次生成，再点第三次，观察写入额度是否被误扣。</p>
+<p class="small">合成配额：读取短时容量 5、每分钟补 60、每天 20 次；写入短时容量 3、每分钟补 6、每天 10 次；生成短时容量 2、每分钟补 2、每天 3 次。真实配额由部署设置决定，数据库在短事务中原子判断；本例只帮助理解。</p>
+</section>
+<script>
+(() => {
+const root=document.getElementById('rate-demo');
+const policy={read:{name:'读取',burst:5,minute:60,daily:20},write:{name:'写入',burst:3,minute:6,daily:10},llm:{name:'生成',burst:2,minute:2,daily:3}};
+let clock=0,state;
+const get=(id)=>document.getElementById('rd-'+id);
+function reset(){clock=0;state=Object.fromEntries(Object.entries(policy).map(([key,p])=>[key,{short:p.burst,daily:p.daily}]));}
+function draw(){
+ get('clock').textContent=String(clock);
+ get('buckets').innerHTML=Object.entries(policy).map(([key,p])=>'<article class="card"><h3>'+p.name+'</h3><p><label>短时可用 '+state[key].short.toFixed(2)+' / '+p.burst+'<br><meter min="0" max="'+p.burst+'" value="'+state[key].short+'" style="width:100%"></meter></label></p><p><label>当天可用 '+state[key].daily+' / '+p.daily+'<br><meter min="0" max="'+p.daily+'" value="'+state[key].daily+'" style="width:100%"></meter></label></p></article>').join('');
+}
+root.addEventListener('click',event=>{
+ const action=event.target.dataset.rd;if(!action)return;
+ if(action==='reset'){reset();get('result').textContent='演示已重置。';draw();return;}
+ if(action==='wait'||action==='midnight'){
+  const seconds=action==='wait'?30:86400-(43200+clock)%86400;
+  const before=Math.floor((43200+clock)/86400);clock+=seconds;
+  for(const [key,p] of Object.entries(policy)){state[key].short=Math.min(p.burst,state[key].short+seconds*p.minute/60);if(Math.floor((43200+clock)/86400)>before)state[key].daily=p.daily;}
+  get('result').textContent=action==='wait'?'教学时钟推进 30 秒，短时桶补充；没有跨日就不恢复日额度。':'已到北京时间次日零点，进入新的一天，日额度恢复。';draw();return;
+ }
+ const keys=action==='llm'?['write','llm']:[action];
+ const wait=Math.max(0,...keys.flatMap(key=>{const p=policy[key],s=state[key];return [(1-s.short)*60/p.minute,s.daily<1?86400-(43200+clock)%86400:0];}));
+ if(wait>0){get('result').textContent='拒绝，模拟 Retry-After 为 '+Math.ceil(wait)+' 秒。本次没有扣任何桶，包括仍有余额的写入桶。';}
+ else {for(const key of keys){state[key].short-=1;state[key].daily-=1;}get('result').textContent='允许，已同时扣除 '+keys.map(key=>policy[key].name).join('、')+' 的短时和日额度。';}
+ draw();
+});reset();draw();
+})();
+</script>
+"""
+
+
 def render(record: dict) -> str:
     issue = record["id"]
     body = '<nav><a href="index.html">第 1 波报告目录</a> · <a href="../../timeline.html">施工时间线</a></nav>'
@@ -98,6 +145,8 @@ def render(record: dict) -> str:
     body += '<section><h2>系统现在如何处理</h2><div class="flow">' + ''.join(f'<div class="step"><strong>{e(x[0])}</strong><span>{e(x[1])}</span></div>' for x in record["flow"]) + '</div>' + paragraphs(record["mechanism"]) + '</section>'
     if record.get("calculator") == "private-budget":
         body += budget_calculator()
+    if record.get("calculator") == "api-rate-limit":
+        body += rate_calculator()
     body += '<section><h2>读懂这些概念就能读懂代码</h2>' + table(["概念", "人话解释", "在这里的作用"], record["concepts"]) + '</section>'
     body += '<section><h2>为什么选择这个方案</h2>' + paragraphs(record["rationale"]) + table(["方案", "收益", "代价与决定"], record["alternatives"]) + '</section>'
     body += '<section><h2>具体改了哪些代码</h2>'
