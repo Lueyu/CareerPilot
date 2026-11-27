@@ -1,0 +1,364 @@
+{
+  "id": "G5",
+  "status": "实现与验证记录",
+  "title": "让后台模型密钥与仓库令牌以绑定上下文的密文落库",
+  "goal": "完成 Wave1 G5，让全局及工作区的后台 LLM、GitHub、GitCode 凭据不再以明文存入数据库，并让缺钥、损坏或被搬运的密文在联网前明确拒绝。交付还包含可重试的显式迁移和面向初学者的机制说明。",
+  "calculator": "secret-context",
+  "scenario": [
+    "下面是假设事故，不是用户亲历。你在本地应用里填了一个模型 API key，设置页面显示的只有‘已配置’，GitHub token 也只显示末四位。某天你把数据库备份交给别人排查问题，对方直接打开 app_settings 的 JSONB，就能读到完整 token。页面遮罩只改变浏览器收到什么，并没有改变数据库里保存什么。任何能读数据库或旧备份的人，都可能拿这个凭据访问供应商。G5 的出发点就是修正这两个边界之间的落差。",
+    "再假设有人不能破解密文，却可以改数据库。他把工作区 11 的合法密文复制到工作区 22，或把强模型的 key 复制成普通模型 key。只验证‘这段密文确实由我们生成’还不够，因为合法数据也可能被放在错误的位置。本项把原来的设置行和字段路径一起放进认证密文，读取时必须同时对上身份。",
+    "这与 Agent 工程的联系是凭据、真实付费调用和仓库读取之间的确定性边界。模型负责生成内容，秘密能否读取、是否允许联网、迁移是否提交都由代码决定。工程产出证明了这些行为在合成夹具中的表现，不代表用户已经亲手实现或掌握，也不代表真实供应商、真实生产部署已经验收。"
+  ],
+  "before_after": [
+    [
+      "观察点",
+      "原行为",
+      "新行为"
+    ],
+    [
+      "数据库原始值",
+      "AppSetting.value 的 api_key/token 是明文，API 遮罩不能保护 dump",
+      "目标秘密字段保存版本化 Fernet 密文容器，raw SQL 检查合成秘密不在当前行逻辑值中"
+    ],
+    [
+      "工作区与字段归属",
+      "同样的字符串可以直接放到另一个工作区或字段",
+      "认证载荷含表名、设置 key、完整字段路径，跨行、跨字段和列表位置搬运均拒绝"
+    ],
+    [
+      "读取失败",
+      "全局 LLM/GitHub 读取异常被吞掉，然后回到环境变量",
+      "存储不可读、明文未迁移或密文校验失败抛安全的 503，不借其他环境 key 继续"
+    ],
+    [
+      "缓存",
+      "TTL 缓存保存解密后的有效配置或 token",
+      "异步读取每次查库认证，LLM 同步提示只保留布尔值，GitHub 兼容 hook 不保留 token"
+    ],
+    [
+      "设置交互",
+      "LLM 空 key 保留，DELETE 清除覆盖，GitHub/GitCode 空 token 拒绝",
+      "保留上述语义，明确 DELETE 后仍可恢复既有部署默认值；损坏记录不会被普通 PUT 悄悄覆盖"
+    ],
+    [
+      "存量转换",
+      "没有专门的秘密转换流程",
+      "显式离线命令，一笔 PostgreSQL 事务转换所有目标行，失败整笔回滚，重试与重复执行可验证"
+    ]
+  ],
+  "flow": [
+    [
+      "接收显式设置",
+      "请求模型沿用现有字段契约，LLM 先读取并验证旧值，再处理省略、空白保留或新凭据。改变 provider/base_url 时仍要提供对应的新 key。"
+    ],
+    [
+      "打包字段与身份",
+      "把 secret 和 context 一起序列化。context 是 [app_settings, 设置 key, 字段路径各部分]，llm:11 已把工作区身份包含在行 key 里。"
+    ],
+    [
+      "Fernet 认证加密",
+      "从部署进程环境取 CAREERPILOT_SECRETS_KEY，用 cryptography 的 Fernet 生成随机化密文；数据库外层只保存 $secret 版本与 ciphertext。"
+    ],
+    [
+      "落库与 API 响应",
+      "SQL 参数中的目标秘密已经是密文，API 只返回 api_key_set、active 或原有 token_hint，工作空间导出不包含 AppSetting。"
+    ],
+    [
+      "准备外部调用",
+      "全局解析器、项目 runtime、播客和仓库读取先 open_setting。只有版本、Fernet 认证及内部 context 都通过，才构造临时的供应商调用配置。"
+    ],
+    [
+      "拒绝路径",
+      "缺钥、错钥、篡改、未迁移明文、未知版本或错误 context 均终止本次读取。安全错误不带原 token 或底层异常，旧缓存不能授权继续联网。"
+    ]
+  ],
+  "mechanism": [
+    "先区分三个对象。明文秘密是供应商真正接受的 API key/token。主密钥是部署方保管的随机 Fernet 密钥。密文容器是数据库里的带版本 JSON。本项使用一个部署主密钥直接加密秘密，没有为每条记录生成数据加密密钥 DEK，也没有用密钥加密密钥 KEK 包装 DEK。因此这里的‘信封’仅指版本化密文容器，不应把它说成传统 DEK/KEK envelope encryption，更没有实现 KMS 或远程密钥包装。",
+    "secret_storage.py 是统一边界。seal_setting 识别 llm、github、gitcode 三个设置 family，以及它们的工作区后缀。它递归处理 api_key、以 _api_key 结尾的 strong/reasoning 变体、token/password/secret 等秘密字段，也覆盖嵌套 profile 与列表。非秘密字段保留原来的 JSON 形状。空字段不需要加密，非空明文只被显式写入或离线迁移接受。在线 open_setting 看到非空明文会拒绝，不会把旧格式当作永久兼容路径。",
+    "Fernet 的底层加密和认证使用成熟 cryptography 实现，本项没有自己拼接 AES、填充或 MAC。Fernet 不提供外置 AAD 接口，所以 context 放在其认证明文内部，和 secret 一起被加密及完整性保护。解密以后，代码比较 payload.context 与本次期望的行和字段。攻击者只改数据库外壳的字段名，不能让认证载荷中的原身份一起改变。外壳的未知版本也会拒绝，而不是猜测该用哪种解码方式。",
+    "密钥只从 os.environ 的 CAREERPILOT_SECRETS_KEY 读取，不进入 Settings 模型，不落 DB、版本库、API 或本次证据文件。每次密文操作重新取得环境值，因此不会因为旧 Fernet 对象仍在缓存中而绕过缺钥或错钥。部署必须把同一个密钥注入 API、scheduler 和 worker，独立保管恢复副本。更换环境值不能自动迁移旧密文；本项没有自动轮换工具。",
+    "实际调用方的改造和加密函数同样重要。get_llm_config 服务全局 AgentAdapter 调用，项目 runtime 与播客有各自的 workspace/global 设置选择，repository_credentials 服务项目分析、学习项目、职业资产和公开内容的仓库读取。GitHub 发布器与旧仓库 snapshot 又有独立入口，GitCode snapshot 原来只读环境 token。本次逐一接入验证边界，并去掉未使用的同步 publisher 环境回退工厂。显式传入的临时调用配置仍只在内存中使用，不伪称进程内存已经加密。",
+    "异步配置读取取消了 TTL 明文缓存作为来源。否则，即使数据库已被篡改或部署密钥丢失，缓存仍可能继续支撑十秒钟的付费请求。保留的 LLM 同步 active 提示仅包含 provider/api_key 是否存在两个布尔值，不能取代调用前的认证读取。GitHub 的旧缓存刷新函数保留兼容接口，但不存 token。一次已经取到凭据的在途请求不会因此被远程撤销，这与 H1 认证令牌撤销是不同问题。",
+    "旧数据迁移通过 migrate_secrets.py 显式执行。操作员提供目标 DSN 所在的环境变量名和 --apply，工具不会隐式选个人默认数据库。它先验证主密钥，再在一个事务中取得 app_settings 表 EXCLUSIVE 锁，按 key 顺序转换目标记录。前面行即使已经 flush，只要后面行存在坏版本或错钥，整笔事务都不提交。成功加密的字段再次执行时只验证并保留原字节，所以 changed_rows 可以为零。并行执行的两个迁移通过表锁串行收敛。",
+    "报告中的 secret-context 计算器由父代理提供和浏览器验收。它展示身份、密钥可用性和篡改为何导致拒绝，是清楚标注的概念 UI，不执行真实密码学、网络请求或环境读取，不能替代本项 PostgreSQL 与 Fernet 测试。",
+    "迁移命令的非零退出不能单独证明数据库没有提交。缺钥、错钥和损坏行在提交前被发现时，整笔事务回滚；如果提交已完成而响应或清理失败，需要查证数据库状态。幂等设计让操作者可以用同一密钥重跑：已转换内容会验证并原样保留，不再重复加密。"
+  ],
+  "concepts": [
+    [
+      "术语",
+      "通俗解释",
+      "本项作用"
+    ],
+    [
+      "静态加密",
+      "数据保存下来时仍是密文",
+      "保护当前数据库逻辑记录和以后获取的逻辑 dump；不等于清除所有历史页"
+    ],
+    [
+      "认证加密",
+      "既保护内容，也能发现内容被改动",
+      "Fernet 校验失败就拒绝使用，不继续猜凭据"
+    ],
+    [
+      "上下文绑定",
+      "同一份密文只能出现在约定的位置",
+      "内部 context 约束表、行、工作区和字段路径"
+    ],
+    [
+      "版本化密文容器",
+      "一个记录算法版本与密文字节的存储结构",
+      "明确格式演进与未知版本拒绝，未实现 DEK/KEK 包装"
+    ],
+    [
+      "fail closed",
+      "条件不能确认时，先拒绝继续",
+      "不把解密失败吞成环境凭据回退，也不先发网络再发现错误"
+    ],
+    [
+      "事务原子性与幂等",
+      "一次转换要么全成，要么不成；重复执行不会再次改变结果",
+      "让存量迁移在异常、重试和并行运行后仍能收敛"
+    ]
+  ],
+  "rationale": [
+    "复用现有 AppSetting JSONB 与接口契约，只增加一个明确的秘密读写模块和一个离线命令。没有为 G5 引入新的凭据表、外部密钥服务、F6 备份系统或 H1 鉴权框架。",
+    "采用显式调用边界，而不是让 ORM 自动解密所有 value。原始数据库值保持可检查，迁移不会误把已经解密的 ORM 属性当作原始存储；代价是每个现有读取入口都必须盘点并迁移。inventory.md 记录了当前发现的实际入口和环境来源。",
+    "Make Operations Idempotent 原则改变了迁移方式。没有把‘迁移到第几行’存在另一个进度文件，而是根据当前行是否已有合法容器决定变化，并用一个事务保证失败回到原状态。",
+    "Migrate Callers Then Delete Legacy APIs 原则改变了兼容策略。所有当前秘密读取方一起接入，新代码不保留在线明文读取后门，旧的同步 publisher 环境工厂被删除。Test Behavior, Not Implementation 和 Prove It Works 促使验证落在真实 SQL、实际 API、外部调用零次数和隔离 PostgreSQL 事务结果上。"
+  ],
+  "alternatives": [
+    [
+      "方案",
+      "好处",
+      "代价及采用/拒绝原因"
+    ],
+    [
+      "Fernet 字段容器，context 放认证载荷",
+      "成熟实现，原 JSON 非秘密字段保留，所有调用有一个边界",
+      "本次采用。必须认真维护调用清单，主密钥仍需要操作员可靠注入与保管"
+    ],
+    [
+      "整行 AES-GCM，row key 放 AAD",
+      "整个设置一次认证，标准 AEAD 接口可带外部附加认证数据",
+      "本次未采用。要改变现有 JSONB 协议和非秘密查询形状，改动更大；不能把本次 Fernet 实现称为该方案"
+    ],
+    [
+      "操作系统 keyring 或托管 KMS 配合每记录 DEK",
+      "可提供更细的密钥权限、审计或包装层",
+      "本次未实现。多平台和容器部署契约会增加，当前优先把已有实际路径的明文和错误 fallback 修正完整"
+    ]
+  ],
+  "files": [
+    {
+      "path": "server/app/services/secret_storage.py",
+      "why": "版本化字段容器、秘密识别、Fernet 调用、内部 context 校验及固定安全错误。"
+    },
+    {
+      "path": "server/app/api/v1/settings.py",
+      "why": "三种凭据设置写入走 seal，旧值和 GitCode status 走 open；保留 mask、keep、clear 与端点归属。"
+    },
+    {
+      "path": "server/app/services/llm.py",
+      "why": "全局配置每次验证，不吞异常回退；同步提示只保存布尔值。"
+    },
+    {
+      "path": "server/app/services/github_publish.py",
+      "why": "GitHub 全局读取验证当前密文，不保留 TTL token，删除未使用的同步环境工厂。"
+    },
+    {
+      "path": "server/app/services/repository_credentials.py",
+      "why": "github/gitcode 的 workspace/global token 均认证后使用，保留 owner 来源边界。"
+    },
+    {
+      "path": "server/app/services/project_autopilot_config.py",
+      "why": "显式识别工作区或全局 LLM 行，解密失败不能重新选环境凭据。"
+    },
+    {
+      "path": "server/app/services/podcast_content.py",
+      "why": "播客专用读取也进入同一认证边界。"
+    },
+    {
+      "path": "server/app/services/gitcode_repo.py",
+      "why": "旧 snapshot 的全局 token 读取也检查持久化设置。"
+    },
+    {
+      "path": "server/migrate_secrets.py",
+      "why": "显式目标、主密钥验证、表锁、整笔转换回滚与仅数量回执。"
+    },
+    {
+      "path": "server/requirements.txt",
+      "why": "声明 cryptography>=46.0.7,<47，Docker 安装同一运行依赖，不只依赖宿主已装包。"
+    },
+    {
+      "path": "server/Dockerfile",
+      "why": "把离线迁移命令装入镜像，未启动 Docker，也未把迁移塞进自动启动。"
+    },
+    {
+      "path": "server/tests/test_secret_storage.py",
+      "why": "合成凭据的实际调用、raw SQL、上下文攻击、迁移原子性与真实鉴权 ASGI。"
+    },
+    {
+      "path": "server/tests/conftest.py",
+      "why": "只为显式请求它的测试提供随机合成主密钥，不关闭安全闸。"
+    },
+    {
+      "path": "server/tests/learning_process_support.py",
+      "why": "仅把合成测试主密钥传给自己创建的隔离子进程。"
+    },
+    {
+      "path": "docs/agent/encrypted-credentials.md",
+      "why": "操作员设置、离线转换、重试和丢钥/历史备份限制。"
+    },
+    {
+      "path": "docker-compose.yml",
+      "why": "只转发部署主密钥环境变量名给 server/worker，不向 postgres/web 注入；静态解析验证，未启动 Docker。"
+    },
+    {
+      "path": "server/app/models/app_setting.py",
+      "why": "明确 value 的秘密字段是密文，读写通过统一边界。"
+    },
+    {
+      "path": "server/tests/test_llm_endpoint_credentials.py",
+      "why": "保留端点凭据归属与空 key 保留测试，读取实际密文时用 open_setting 验证。"
+    },
+    {
+      "path": "server/tests/test_repository_credentials.py",
+      "why": "仓库实际调用测试夹具模拟真实密文存储，继续验证 workspace/owner 取凭据和网络 header。"
+    },
+    {
+      "path": "server/tests/test_study_routing.py",
+      "why": "由缓存注入改为显式合成环境/加密 DB，传输用途显式使用 mock billing boundary。"
+    },
+    {
+      "path": "server/tests/test_private_model_billing.py",
+      "why": "调用方测试显式提供配置，实际费用账本测试仍真实预留结算。"
+    },
+    {
+      "path": "server/tests/test_learning_feedback_processes.py",
+      "why": "进程测试 seed 的 workspace LLM 改为密文，显式声明合成主密钥夹具。"
+    }
+  ],
+  "verification": {
+    "explanation": [
+      "本项测试使用新建 *_test PostgreSQL，直接执行真实 SQL 与事务；Fernet 来自宿主已安装的 cryptography 46.0.7。未运行个人数据库迁移，未调用真实模型、真实 SMTP 或 Docker。",
+      "settings/export 与 503 检查使用真实鉴权和 E3 中间件的 ASGI 应用，SessionLocal 与请求 session 绑定同一测试循环的独立 factory，没有跳过限流或改写 pool。",
+      "连接与播客成功路径截在显式 adapter mock 边界，路由/传输测试显式 mock billing boundary。真实 billing 套件单独验证原账本行为，未全局关闭费用保护。",
+      "红测试、夹具失败、Ruff 失败和超时分类失败全部保留。最终当前源码检查与使用原基线解析器的诊断探针分开标注，不把诊断探针称作完整基线套件。",
+      "最终相关套件没有过滤失败用例，进程套件另为 4 passed。报告记录 261 个通过结果，不能把合计写成全绿。1 个 SAPI 语音测试按既有 opt-in 条件跳过，不是 G5 安全用例跳过。",
+      "作者冻结后仅校对了迁移失败提示、说明文档和一条以退出码推断回滚的测试断言，改为确认失败不输出成功JSON。现版真实PG迁移/CLI用例1通过；密码学实现与运行凭据消费者均未改变。未把这次重跑重复计入新增用例。"
+    ],
+    "checks": [
+      [
+        "旧行为红测试",
+        "原 API 保存的合成 GitHub token 直接出现在 SELECT value::text，1 failed，符合预测。",
+        "D:/agent-interview/.agent-runs/20261128-wave1/g5/red.log"
+      ],
+      [
+        "第一次安全矩阵",
+        "63 passed、8 failed；8 个失败来自作者新播客夹具漏传 series/source，随后修正。",
+        "D:/agent-interview/.agent-runs/20261128-wave1/g5/security-first.log"
+      ],
+      [
+        "第一次受影响套件",
+        "207 passed、1 skipped、1 failed；失败是既有学习聊天 timeout 被底层 cancellation 覆盖。",
+        "D:/agent-interview/.agent-runs/20261128-wave1/g5/affected-first.log"
+      ],
+      [
+        "原基线解析器受控探针",
+        "仅恢复给定 base 的 get_llm_config/set_llm_config_cache，仍复现 timeout/cancelled 失败；worker 源码本项未改。",
+        "D:/agent-interview/.agent-runs/20261128-wave1/g5/deadline-base-probe.log"
+      ],
+      [
+        "最终当前源码相关检查",
+        "257 passed、1 skipped、1 failed。G5 新增 95 个用例全部通过；唯一失败仍为学习聊天 timeout/cancelled 分类。该日志反映最终当前 Python 源码。",
+        "D:/agent-interview/.agent-runs/20261128-wave1/g5/affected-final.log"
+      ],
+      [
+        "隔离进程夹具",
+        "4 passed，真实隔离 OS/API/worker/PostgreSQL 夹具，无真实模型调用。",
+        "D:/agent-interview/.agent-runs/20261128-wave1/g5/process-fixtures.log"
+      ],
+      [
+        "changed-file Ruff",
+        "目标仅 server 下作者改动的 Python 文件，All checks passed。父代理生成器不属于作者输入。",
+        "D:/agent-interview/.agent-runs/20261128-wave1/g5/ruff-final.log"
+      ],
+      [
+        "Compose 注入静态检查",
+        "YAML 解析确认只有 server/worker 得到变量占位符，未运行 Docker。",
+        "D:/agent-interview/.agent-runs/20261128-wave1/g5/compose-static.log"
+      ],
+      [
+        "迁移CLI状态说明",
+        "现版真实PG迁移、重试、幂等及CLI用例1passed；失败不输出成功JSON",
+        "D:/agent-interview/.agent-runs/20261128-wave1/g5/parent-cli-diagnostic-fix.log"
+      ],
+      [
+        "概念演示浏览器检查",
+        "原位置可读，跨空间/字段、缺钥/错钥和篡改显示拒绝；390px无横向溢出。演示不执行密码学或访问数据库",
+        "D:/agent-interview/.agent-runs/20261128-wave1/g5/report-component-verification.json"
+      ]
+    ],
+    "commands": [
+      "D:/agent-interview/server/.venv/Scripts/python.exe run_isolated_tests.py tests/test_secret_storage.py tests/test_llm_endpoint_credentials.py tests/test_repository_credentials.py tests/test_podcast_content.py tests/test_study_routing.py tests/test_private_model_billing.py tests/test_local_safety.py -q --tb=short",
+      "D:/agent-interview/server/.venv/Scripts/python.exe run_isolated_tests.py tests/test_learning_feedback_processes.py -q --tb=short",
+      "D:/agent-interview/server/.venv/Scripts/python.exe migrate_secrets.py --database-url-env G5_MIGRATION_TEST_URL --apply",
+      "D:/agent-interview/server/.venv/Scripts/python.exe -m ruff check server/app/api/v1/settings.py server/app/models/app_setting.py server/app/services/gitcode_repo.py server/app/services/github_publish.py server/app/services/llm.py server/app/services/podcast_content.py server/app/services/project_autopilot_config.py server/app/services/repository_credentials.py server/app/services/secret_storage.py server/migrate_secrets.py server/tests/conftest.py server/tests/learning_process_support.py server/tests/test_learning_feedback_processes.py server/tests/test_llm_endpoint_credentials.py server/tests/test_private_model_billing.py server/tests/test_repository_credentials.py server/tests/test_secret_storage.py server/tests/test_study_routing.py",
+      "从 g5 工作树根目录执行 git diff --check -- server docker-compose.yml docs/agent/encrypted-credentials.md"
+    ]
+  },
+  "limits": [
+    "隔离库证明的是当前逻辑行值不含合成明文。迁移不能保证擦除 PostgreSQL 旧页、WAL、旧 dump 或历史快照中的秘密；操作员需要凭据轮换及介质策略，F6 另管备份归档加密。",
+    "主密钥只用部署进程环境，没有实现 OS keyring 接入、KMS、DEK/KEK 包装、自动轮换或自动恢复。丢钥后不能解密，需要显式清除覆盖再重新录入。",
+    "应用内存和已取得调用配置的在途请求不属于静态加密保证。同步 active 只作提示；调用仍重新认证。",
+    "strong/reasoning 的 JSON 凭据字段已纳入加密与校验，当前实际强模型路由仍来自原有部署 Settings。本项没有新增强模型 UI 或把既有未使用字段变成已支持的路由。",
+    "保留学习聊天既有 timeout/cancelled 分类失败，不改相邻 worker 超时行为。相关套件未声称全绿，后续观测改进单独验证。",
+    "未运行前端 typecheck/build，因为没有前端源码改动。概念演示另有浏览器检查，未计入密码学验证。",
+    "定制租户容器若使用 DB 凭据设置，需要操作员配置其主密钥注入。原生启动继承进程环境，根 Compose 已静态验证 API/worker 映射；未声称所有自定义编排都已部署。",
+    "字段加密不替代数据库权限，也不证明整行删除、数据库旧快照回滚或非秘密配置没有被改动。这里验证的是密文内容完整性与位置绑定，恢复和出站访问还需要各自的保护。"
+  ],
+  "interview": [
+    "可以解释一个可复现的工程案例：API 遮罩保护响应，不保护数据库；把成熟认证加密和凭据读取边界结合，才能让备份中的当前秘密成为密文。讲清保护范围比直接说‘系统安全了’更准确。",
+    "可以说明复制合法密文为何仍危险，以及为何内部认证 context 能约束工作区和字段。要明确本项是 Fernet 的认证载荷，不冒充 AES-GCM 的外置 AAD 或托管 KMS。",
+    "可以展示迁移的原子回滚、重复执行零变化、两个并行迁移收敛和读取失败零联网的测试证据。以上是代理完成的项目产出，不能代替用户本人作答、独立解释或真实生产演练。"
+  ],
+  "questions": [
+    [
+      "为什么 API 只显示末四位仍然需要静态加密？",
+      "遮罩发生在返回响应时，数据库中的原值并没有自动改变。读库或拿到 dump 的人绕过了 API，必须检查实际落库值。"
+    ],
+    [
+      "为什么把 workspace_id 放在数据库旁边还不够？",
+      "攻击者可一起修改未认证的旁边字段。归属必须在受认证的载荷内部，并和本次期望的位置比较。"
+    ],
+    [
+      "这里是否实现传统 envelope encryption？",
+      "没有。这里是版本化密文容器，一个部署 Fernet 主密钥直接保护秘密，没有每记录 DEK，也没有 KEK 包装。"
+    ],
+    [
+      "迁移前几行已 flush，后面发现错钥怎么办？",
+      "flush 不是 commit。所有目标行在同一事务中，异常让前面的写入也回滚；修正前置后可用相同命令重试。"
+    ],
+    [
+      "密钥缺失时为什么不能回到另一个环境 key？",
+      "无法确认保存的凭据是否可用不等于操作员授权换账号。自动回退可能换供应商身份、费用归属或仓库权限，所以必须先拒绝。"
+    ],
+    [
+      "删除覆盖后恢复环境默认值，与解密失败回退有什么区别？",
+      "DELETE 是显式用户操作；解密失败没有表达授权改变凭据来源。两条路径必须分开。"
+    ]
+  ],
+  "delivery": [
+    "目标是完成第 1 波 G5，从最新 dev 9cfb2cd9efe31d43ca5b6ab695e77b965a80d829 建独立分支 codex/wave1-g5-encrypted-secrets。",
+    "报告代码入口固定在 958054f48ff9af9c23a380b8b4103dd49e760532。这份说明对应受控测试环境；个人实例与个人数据库没有升级。",
+    "本篇 PR 保存独立审核结论和实际合入状态。最终 dev 提交以合入回执为准，报告只将已运行的检查写为通过。",
+    "回退通过对本项 squash 提交建立新的反向 PR 完成；含持久数据的改动先核对其报告边界，保留已有账本和历史证据。"
+  ],
+  "source_ref": "958054f48ff9af9c23a380b8b4103dd49e760532",
+  "links": [
+    {
+      "label": "PR #56 与真实合入状态",
+      "href": "https://github.com/Lueyu/CareerPilot/pull/56"
+    }
+  ]
+}

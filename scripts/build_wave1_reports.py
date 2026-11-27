@@ -136,6 +136,42 @@ root.addEventListener('click',event=>{
 """
 
 
+def secret_context_demo() -> str:
+    return r"""
+<section id="secret-demo"><h2>动手理解：为什么能解密还不够</h2>
+<p>假设一份密文原本属于工作空间 11 的 <code>llm:11 → api_key</code>。攻击者把它复制到别处时，密文字节仍可能完整，系统还必须核对它原来的身份。</p>
+<div class="grid"><div class="card"><h3>加密前一起打包</h3><pre>表：app_settings
+行：llm:11
+字段路径：["api_key"]
+值：演示用的假密钥</pre><p>内容和身份一起受密码学完整性保护。秘密以密文保存，行键等非秘密元数据仍可读，主密钥在库外保管。</p></div>
+<div class="card"><h3>现在尝试在哪里读取</h3><div class="calc-fields">
+<label>目标工作空间<select id="sd-workspace"><option value="11">工作空间 11</option><option value="12">工作空间 12</option></select></label>
+<label>目标字段<select id="sd-field"><option value="api_key">api_key</option><option value="strong.api_key">strong.api_key</option></select></label>
+<label>主密钥<select id="sd-key"><option value="correct">正确且可用</option><option value="missing">缺失</option><option value="wrong">另一把主密钥</option></select></label>
+<label>密文字节<select id="sd-cipher"><option value="intact">原样完整</option><option value="changed">被修改</option></select></label>
+</div></div></div>
+<div class="check" aria-live="polite"><strong id="sd-verdict"></strong><p id="sd-reason"></p></div>
+<p class="small">这是身份绑定的概念演示，只使用假数据，不执行加密、不读取环境变量、不访问数据库或模型。真实实现使用 Fernet 验证密文，再校验密文内部携带的表、行和字段身份；具体拒绝行为由后面的实际测试证明。</p>
+<p class="small">这种保护针对数据库副本泄露和密文搬运。持有主密钥的受信任进程仍能解密，因此主密钥要在数据库与备份之外单独保管。</p>
+</section>
+<script>
+(() => {
+const get=name=>document.getElementById('sd-'+name),root=document.getElementById('secret-demo');
+function update(){
+ let reason,allowed=false;
+ if(get('key').value==='missing')reason='缺少主密钥，拒绝读取；不能把已有设置忽略后改用环境中的另一份凭据。';
+ else if(get('key').value==='wrong')reason='另一把主密钥无法通过密文验证，拒绝读取。';
+ else if(get('cipher').value==='changed')reason='密文完整性验证失败，拒绝读取，不交付内部字段或秘密。';
+ else if(get('workspace').value!=='11'||get('field').value!=='api_key')reason='密文验证通过，但原身份 llm:11 → api_key 与目标 llm:'+get('workspace').value+' → '+get('field').value+' 不同，拒绝搬运。';
+ else {allowed=true;reason='主密钥正确、密文完整、身份也相符，才交给已获授权的内部调用方；API 对外仍使用遮罩。';}
+ get('verdict').textContent=allowed?'允许内部读取':'安全拒绝';get('reason').textContent=reason;
+}
+root.addEventListener('change',update);update();
+})();
+</script>
+"""
+
+
 def render(record: dict) -> str:
     issue = record["id"]
     body = '<nav><a href="index.html">第 1 波报告目录</a> · <a href="../../timeline.html">施工时间线</a></nav>'
@@ -147,6 +183,8 @@ def render(record: dict) -> str:
         body += budget_calculator()
     if record.get("calculator") == "api-rate-limit":
         body += rate_calculator()
+    if record.get("calculator") == "secret-context":
+        body += secret_context_demo()
     body += '<section><h2>读懂这些概念就能读懂代码</h2>' + table(["概念", "人话解释", "在这里的作用"], record["concepts"]) + '</section>'
     body += '<section><h2>为什么选择这个方案</h2>' + paragraphs(record["rationale"]) + table(["方案", "收益", "代价与决定"], record["alternatives"]) + '</section>'
     body += '<section><h2>具体改了哪些代码</h2>'

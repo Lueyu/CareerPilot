@@ -309,7 +309,7 @@
 - **为什么是问题**：健康检查撒谎比没有更糟——编排层在 DB 故障时认为一切正常，不重启不摘流。
 - **目标方案**：拆 liveness（进程活着）与 readiness（DB SELECT 1 + 关键依赖）；compose/负载均衡打 readiness；深度诊断保留在鉴权后的 /ops/health。
 
-### G5. LLM key / GitHub token 明文存 DB，随备份扩散 `P1` `OPEN`
+### G5. LLM key / GitHub token 明文存 DB，随备份扩散 `P1` `DONE`
 - **现状**：AppSetting.value JSONB 明文存 api_key/github token/仓库凭据；"API 永不回显只给尾 4 位"只是应用层遮罩，拖库/备份文件即泄露；backup dump 恰好包含这些表且无加密（F6）。仓库里的 AES-GCM vault 只用于公开门户 payload，与后端无关。
 - **代码**：`server/app/models/app_setting.py:14-17`；`api/v1/settings.py:561-596,648-651`；`services/repository_credentials.py:10-14`；全 app 无 encrypt/Fernet。
 - **为什么是问题**：密钥是最高价值资产；明文落库+明文备份=双重泄露面。生产化必须加密存储，但本地个人版阶段优先级低于 Agent 核心能力。
