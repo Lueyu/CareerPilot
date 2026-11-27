@@ -22,6 +22,7 @@ from app.api import (
 from app.api.v1 import ops, telemetry
 from app.db import Base, engine
 from app.i18n import LanguageMiddleware
+from app.observability import RequestContextMiddleware, configure_logging
 from app.services.public_native_runtime import close_native_runtime, invalidate_transfer, validate_native_config
 
 
@@ -49,6 +50,7 @@ async def initialize_public_database():
 
 @asynccontextmanager
 async def lifespan(application):
+    configure_logging()
     public_auth.validate_auth_config()
     validate_native_config()
     await initialize_public_database()
@@ -81,6 +83,10 @@ async def private_responses(request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     return response
+
+
+# 最外层：为每个请求绑定服务端关联 ID，并统一输出结构化访问日志。
+app.add_middleware(RequestContextMiddleware)
 
 
 @app.get("/healthz")
