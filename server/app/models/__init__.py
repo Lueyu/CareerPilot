@@ -1,5 +1,6 @@
 """模型汇总导入: 保证 Base.metadata 收集所有表。"""
 from app.db import Base  # noqa: F401
+from app.models.api_rate_limit import ApiRateBucket  # noqa: F401
 from app.models.app_setting import AppSetting  # noqa: F401
 from app.models.assessment import AnswerRevision, ScoringRun, ScoringStep  # noqa: F401
 from app.models.competency import CompetencySnapshot  # noqa: F401

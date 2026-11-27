@@ -50,10 +50,14 @@ async def prepare_schema():
 
 
 @pytest_asyncio.fixture
-async def db_session():
+async def db_session(monkeypatch):
     await prepare_schema()
     engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
     factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+    # Middleware admission owns independent transactions on this test's engine/loop.
+    from app.api import rate_limits
+
+    monkeypatch.setattr(rate_limits, "SessionLocal", factory)
     async with factory() as session:
         yield session
         await session.rollback()

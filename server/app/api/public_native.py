@@ -5,14 +5,14 @@ from pathlib import Path
 from typing import Annotated
 
 import httpx
+from anyio import CancelScope
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from anyio import CancelScope
 
-from app.i18n import message as localized_message
 from app.api.public_auth import current_workspace
 from app.db import get_session
+from app.i18n import message as localized_message
 from app.models import Workspace
 from app.services.public_native_runtime import NativeTarget, is_bound_owner, native_target, target_client
 
@@ -87,7 +87,7 @@ async def forward(request: Request, path: str, target: NativeTarget):
         finally:
             await close()
     response_headers = {name: upstream.headers[name] for name in (
-        "Content-Type", "Content-Disposition", "Content-Encoding", "Content-Length"
+        "Content-Type", "Content-Disposition", "Content-Encoding", "Content-Length", "Retry-After"
     ) if name in upstream.headers}
     return NativeStream(upstream, response_headers, close)
 

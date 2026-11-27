@@ -6,12 +6,28 @@ import re
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 单轮学习聊天的硬上限(秒)。配置项、租约和 LLM 适配层的超时守卫共用同一上限,
 # 避免三处各自钳位导致语义漂移。放宽到 30 分钟, 让长文/图解/多轮追问能自然完成。
 MAX_STUDY_TIMEOUT_SECONDS = 1800
+
+
+class ApiCategoryQuota(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    burst: int = Field(strict=True, ge=1, le=100000)
+    per_minute: int = Field(strict=True, ge=1, le=100000)
+    daily: int = Field(strict=True, ge=1, le=10000000)
+
+
+class ApiRatePolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    read: ApiCategoryQuota = ApiCategoryQuota(burst=120, per_minute=600, daily=20000)
+    write: ApiCategoryQuota = ApiCategoryQuota(burst=30, per_minute=120, daily=3000)
+    llm: ApiCategoryQuota = ApiCategoryQuota(burst=5, per_minute=10, daily=300)
 
 
 class Settings(BaseSettings):
@@ -34,6 +50,8 @@ class Settings(BaseSettings):
     workspace_token_hashes: dict[str, str] = {}
     # 正式个人空间; Demo 仅由显式 X-Workspace: demo 访问。
     default_workspace_slug: str = "personal"
+    # Deployment-only JSON settings. Daily is a strict UTC+8 calendar-day request cap.
+    api_rate_limits: ApiRatePolicy = ApiRatePolicy()
 
     # LLM 适配(空 = 规则引擎降级模式, 不依赖外部 LLM)
     llm_provider: str = ""          # deepseek | glm | ""(rule)

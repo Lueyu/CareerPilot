@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
+from app.api.rate_limits import ApiRateLimitMiddleware
 from app.api.v1 import (
     assessment_feedback,
     bank,
@@ -76,6 +77,7 @@ app = FastAPI(
 )
 
 app.add_middleware(LanguageMiddleware)
+app.add_middleware(ApiRateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
