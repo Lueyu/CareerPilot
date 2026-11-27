@@ -1,15 +1,27 @@
 import { useState } from "react";
-import { ListChecks, Minus, Pause, Pencil, SkipForward, Plus } from "lucide-react";
-import { skillSteps } from "./model";
-import { ToolCard, chipClass, ghostBtnClass, hintClass, primaryBtnClass, sectionLabelClass } from "./ui";
+import { useLocale } from "../../../i18n";
+import { useToolCopy } from "./copy";
+import { demoSample } from "./model";
+import {
+  ToolIcon,
+  DemoDisabledButton,
+  ToolCard,
+  chipClass,
+  ghostBtnClass,
+  hintClass,
+  primaryBtnClass,
+  sectionLabelClass,
+} from "./ui";
 
-// 技能进度卡 · 工作记忆可视化（mock）
-// 进度百分比、步骤时间线、可实时修改的临时参数、暂停 / 跳过 / 修改参数。
-
+// 用索引保存演示参数，语言切换时不会出现中文枚举值。
 export interface SkillParams {
   questionCount: number;
-  level: "基础" | "进阶" | "挑战";
-  focus: string;
+  levelIndex: number;
+  focusIndex: number;
+}
+
+export function defaultSkillParams(): SkillParams {
+  return { questionCount: 5, levelIndex: 1, focusIndex: 0 };
 }
 
 export function SkillProgressCard({
@@ -23,14 +35,18 @@ export function SkillProgressCard({
   status: "running" | "paused";
   onStatusChange: (next: "running" | "paused") => void;
 }) {
+  const t = useToolCopy();
+  const sample = demoSample(useLocale());
   const [editingParams, setEditingParams] = useState(false);
-  const doneCount = skillSteps.filter((step) => step.status === "done").length;
-  const percent = Math.round((doneCount / skillSteps.length) * 100);
+  const doneCount = sample.skillSteps.filter((step) => step.status === "done").length;
+  const percent = Math.round((doneCount / sample.skillSteps.length) * 100);
+  const level = sample.levels[params.levelIndex] ?? sample.levels[0];
+  const focus = sample.focusOptions[params.focusIndex] ?? sample.focusOptions[0];
 
   return (
     <ToolCard
-      icon={<ListChecks size={15} />}
-      title="技能进度 · 岗位备战计划"
+      icon={<ToolIcon name="listChecks" size={15} />}
+      title={t("card.skill")}
       detail={
         <span
           className={
@@ -40,14 +56,14 @@ export function SkillProgressCard({
               : " bg-[var(--ia-sand)] text-[var(--ia-amber)]")
           }
         >
-          {status === "running" ? "进行中" : "已暂停"}
+          {status === "running" ? t("skill.running") : t("skill.paused")}
         </span>
       }
     >
       <div className="flex items-center gap-2">
-        <span className="text-xs font-medium text-[var(--ia-muted)]">整体进度</span>
+        <span className="text-xs font-medium text-[var(--ia-muted)]">{t("skill.progress")}</span>
         <span className="ml-auto text-xs font-semibold text-[var(--ia-accent)]">
-          {percent}% · {doneCount} / {skillSteps.length} 步
+          {t("skill.percent", { percent, done: doneCount, total: sample.skillSteps.length })}
         </span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-[var(--ia-line)]">
@@ -58,12 +74,12 @@ export function SkillProgressCard({
       </div>
 
       <div className="flex flex-col">
-        {skillSteps.map((step, index) => (
+        {sample.skillSteps.map((step, index) => (
           <div key={step.label} className="flex gap-2.5">
             <div className="relative flex w-5 shrink-0 flex-col items-center">
               <span
                 className={
-                  "mt-0.5 flex h-[18px] w-[18px] items-center justify-center rounded-full text-[9px] font-semibold " +
+                  "mt-0.5 flex h-[18px] w-[18px] items-center justify-center rounded-full text-[10px] font-semibold " +
                   (step.status === "done"
                     ? "bg-[var(--ia-green)] text-white"
                     : step.status === "current"
@@ -73,7 +89,7 @@ export function SkillProgressCard({
               >
                 {step.status === "done" ? "✓" : ""}
               </span>
-              {index < skillSteps.length - 1 && (
+              {index < sample.skillSteps.length - 1 && (
                 <span className="my-0.5 block w-px flex-1 bg-[var(--ia-line)]" />
               )}
             </div>
@@ -83,16 +99,14 @@ export function SkillProgressCard({
                   "text-[12.5px] " +
                   (step.status === "current"
                     ? "font-semibold text-[var(--ia-ink)]"
-                    : step.status === "done"
-                      ? "text-[var(--ia-muted)]"
-                      : "text-[var(--ia-muted)]")
+                    : "text-[var(--ia-muted)]")
                 }
               >
                 {step.label}
               </p>
               <p
                 className={
-                  "text-[11px] " +
+                  "text-xs " +
                   (step.status === "current" ? "text-[var(--ia-accent)]" : "text-[var(--ia-muted)]")
                 }
               >
@@ -104,108 +118,112 @@ export function SkillProgressCard({
       </div>
 
       <div className="flex flex-col gap-2.5 rounded-lg bg-[var(--ia-bg)] p-3">
-        <p className={sectionLabelClass}>临时参数</p>
+        <p className={sectionLabelClass}>{t("skill.params")}</p>
         <div className="flex items-center gap-3">
-          <span className="w-16 shrink-0 text-xs text-[var(--ia-muted)]">题目数量</span>
+          <span className="w-16 shrink-0 text-xs text-[var(--ia-muted)]">{t("skill.count")}</span>
           <div className="flex items-center gap-2.5 rounded-lg border border-[var(--ia-line)] bg-[var(--ia-surface)] px-2.5 py-1">
             <button
               type="button"
-              aria-label="减少题目数量"
+              aria-label={t("skill.decrease")}
               className="text-[13px] text-[var(--ia-muted)] hover:text-[var(--ia-accent)]"
               onClick={() =>
                 onParamsChange({ ...params, questionCount: Math.max(1, params.questionCount - 1) })
               }
             >
-              <Minus size={12} />
+              <ToolIcon name="minus" size={12} />
             </button>
             <span className="min-w-4 text-center text-[13px] font-semibold text-[var(--ia-ink)]">
               {params.questionCount}
             </span>
             <button
               type="button"
-              aria-label="增加题目数量"
+              aria-label={t("skill.increase")}
               className="text-[13px] text-[var(--ia-accent)] hover:opacity-70"
               onClick={() =>
                 onParamsChange({ ...params, questionCount: Math.min(20, params.questionCount + 1) })
               }
             >
-              <Plus size={12} />
+              <ToolIcon name="plus" size={12} />
             </button>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="w-16 shrink-0 text-xs text-[var(--ia-muted)]">难度级别</span>
-          <div className="flex overflow-hidden rounded-lg bg-[var(--ia-bg)]">
-            {(["基础", "进阶", "挑战"] as const).map((level) => (
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="w-16 shrink-0 text-xs text-[var(--ia-muted)]">{t("skill.level")}</span>
+          <div className="flex flex-wrap overflow-hidden rounded-lg bg-[var(--ia-bg)]">
+            {sample.levels.map((item, index) => (
               <button
-                key={level}
+                key={item}
                 type="button"
-                onClick={() => onParamsChange({ ...params, level })}
+                onClick={() => onParamsChange({ ...params, levelIndex: index })}
                 className={
                   "px-3 py-1 text-xs " +
-                  (params.level === level
+                  (params.levelIndex === index
                     ? "rounded-lg bg-[var(--ia-surface)] font-medium text-[var(--ia-ink)] shadow-[var(--shadow)]"
                     : "text-[var(--ia-muted)]")
                 }
-                aria-pressed={params.level === level}
+                aria-pressed={params.levelIndex === index}
               >
-                {level}
+                {item}
               </button>
             ))}
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="w-16 shrink-0 text-xs text-[var(--ia-muted)]">侧重方向</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="w-16 shrink-0 text-xs text-[var(--ia-muted)]">{t("skill.focus")}</span>
           {editingParams ? (
             <select
-              aria-label="侧重方向"
-              value={params.focus}
+              aria-label={t("skill.focus")}
+              value={params.focusIndex}
               onChange={(event) => {
-                onParamsChange({ ...params, focus: event.target.value });
+                onParamsChange({ ...params, focusIndex: Number(event.target.value) });
                 setEditingParams(false);
               }}
               className="rounded-lg border border-[var(--ia-line)] bg-[var(--ia-surface)] px-2 py-1 text-xs text-[var(--ia-ink)]"
             >
-              {["消息不丢失", "一致性优先", "吞吐优先"].map((item) => (
-                <option key={item} value={item}>
+              {sample.focusOptions.map((item, index) => (
+                <option key={item} value={index}>
                   {item}
                 </option>
               ))}
             </select>
           ) : (
             <span className="rounded-lg border border-[var(--ia-line)] bg-[var(--ia-surface)] px-2.5 py-1 text-xs text-[var(--ia-ink)]">
-              {params.focus}
+              {focus}
             </span>
           )}
         </div>
-        <p className={hintClass}>参数修改后从下一步开始生效，不影响已完成的练习。</p>
+        <p className={hintClass}>
+          {t("skill.paramHint")} {level}
+        </p>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           className={ghostBtnClass}
           onClick={() => onStatusChange(status === "running" ? "paused" : "running")}
         >
-          <Pause size={13} />
-          {status === "running" ? "暂停" : "继续"}
+          <ToolIcon name="pause" size={13} />
+          {status === "running" ? t("skill.pause") : t("skill.resume")}
         </button>
-        <button type="button" className={ghostBtnClass}>
-          <SkipForward size={13} />
-          跳过本步
-        </button>
-        <button type="button" className={primaryBtnClass} onClick={() => setEditingParams((v) => !v)}>
-          <Pencil size={13} />
-          {editingParams ? "完成修改" : "修改参数"}
+        <DemoDisabledButton>
+          <ToolIcon name="skipForward" size={13} />
+          {t("skill.skip")}
+        </DemoDisabledButton>
+        <button
+          type="button"
+          className={primaryBtnClass}
+          onClick={() => setEditingParams((value) => !value)}
+        >
+          <ToolIcon name="pencil" size={13} />
+          {editingParams ? t("skill.finishEdit") : t("skill.editParams")}
         </button>
       </div>
       {status === "paused" && (
         <p
-          className={
-            hintClass + " rounded-lg bg-[var(--ia-sand)] px-3 py-2 text-[var(--ia-amber)]"
-          }
+          className={hintClass + " rounded-lg bg-[var(--ia-sand)] px-3 py-2 text-[var(--ia-amber)]"}
         >
-          技能已暂停，参数会保留；点击「继续」恢复执行。
+          {t("skill.pausedHint")}
         </p>
       )}
     </ToolCard>

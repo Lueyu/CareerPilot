@@ -52,6 +52,9 @@ import {
   type WorkflowRun,
 } from "./model";
 import { notifyHistory, sessionPath, sessionsPath, useConversation } from "./useConversation";
+import { ContextControls } from "./tools/Context";
+import { DemoToolLayer } from "./tools/ToolCardView";
+import { VoiceInputControl, VoicePlayControl } from "./tools/Voice";
 import "./chat.css";
 
 export { MemoryPanel } from "./MemoryPanel";
@@ -175,6 +178,7 @@ function Conversation({
   const stickToEnd = useRef(true);
   const run = session?.context.interview_workflow;
   const locale = useLocale();
+  const isDemo = getWorkspace() === "demo";
   const latest = [...messages]
     .reverse()
     .find((message) => message.role === "assistant" && message.status === "completed");
@@ -718,6 +722,7 @@ function Conversation({
               {t("interview.palette.open")}
             </button>
           </header>
+          {isDemo && <DemoToolLayer />}
           {!sessionId && !invalidId && <InterviewBrief />}
           {invalidId && (
             <p role="alert">
@@ -984,6 +989,15 @@ function Conversation({
           {error && <p role="alert">{error}</p>}
         </div>
       </div>
+      {isDemo && (
+        <div className="ia-chat-precomposer">
+          <div className="ia-tools-demo-controls">
+            <VoiceInputControl />
+            <VoicePlayControl />
+            <ContextControls onNewChat={() => navigate("/chat?new=1")} />
+          </div>
+        </div>
+      )}
       <Composer
         input={input}
         put={put}

@@ -1,51 +1,75 @@
-import { useState } from "react";
-import { ArrowRightLeft, Copy, Check, GitCompare, RotateCcw } from "lucide-react";
-import { diffVersions, translatePair } from "./model";
+import { useEffect, useRef, useState } from "react";
+import { useLocale } from "../../../i18n";
+import { useToolCopy } from "./copy";
+import { demoSample, type DiffLine } from "./model";
 import {
+  ToolIcon,
+  DemoDisabledButton,
   ToolCard,
   chipClass,
   ghostBtnClass,
   hintClass,
-  primaryBtnClass,
   sectionLabelClass,
 } from "./ui";
 
-// ===== 翻译润色 =====
-
 function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
+  const t = useToolCopy();
+  const [state, setState] = useState<"idle" | "copied" | "unavailable">("idle");
+  const timer = useRef<number>();
+
+  useEffect(() => {
+    return () => {
+      if (timer.current) window.clearTimeout(timer.current);
+    };
+  }, []);
+
+  async function copy() {
+    if (!navigator.clipboard?.writeText) {
+      setState("unavailable");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setState("copied");
+    } catch {
+      setState("unavailable");
+      return;
+    }
+    if (timer.current) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setState("idle"), 1500);
+  }
+
+  const label =
+    state === "copied"
+      ? t("translate.copied")
+      : state === "unavailable"
+        ? t("translate.copyUnavailable")
+        : t("translate.copy");
   return (
-    <button
-      type="button"
-      className={ghostBtnClass + " text-[11px]"}
-      onClick={() => {
-        void navigator.clipboard?.writeText(text).catch(() => {});
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      }}
-    >
-      {copied ? <Check size={11} /> : <Copy size={11} />}
-      {copied ? "已复制" : "复制"}
+    <button type="button" className={ghostBtnClass + " text-xs"} onClick={() => void copy()}>
+      {state === "copied" ? (
+        <ToolIcon name="check" size={11} />
+      ) : (
+        <ToolIcon name="copy" size={11} />
+      )}
+      {label}
     </button>
   );
 }
 
 export function TranslateCard() {
+  const t = useToolCopy();
+  const sample = demoSample(useLocale());
   const [direction, setDirection] = useState<"zh2en" | "en2zh">("zh2en");
-  const original = direction === "zh2en" ? translatePair.zh : translatePair.en;
-  const translated = direction === "zh2en" ? translatePair.en : translatePair.zh;
+  const original = direction === "zh2en" ? sample.translateZh : sample.translateEn;
+  const translated = direction === "zh2en" ? sample.translateEn : sample.translateZh;
   return (
     <ToolCard
-      icon={<ArrowRightLeft size={15} />}
-      title="翻译润色"
+      icon={<ToolIcon name="arrowRightLeft" size={15} />}
+      title={t("card.translate")}
       detail={
         <span className="inline-flex overflow-hidden rounded-lg bg-[var(--ia-bg)]">
-          {(
-            [
-              ["zh2en", "中 → 英"],
-              ["en2zh", "英 → 中"],
-            ] as const
-          ).map(([value, label]) => (
+          {(["zh2en", "en2zh"] as const).map((value) => (
             <button
               key={value}
               type="button"
@@ -58,25 +82,25 @@ export function TranslateCard() {
               }
               aria-pressed={direction === value}
             >
-              {label}
+              {value === "zh2en" ? t("translate.zh2en") : t("translate.en2zh")}
             </button>
           ))}
         </span>
       }
     >
-      <div className="flex gap-3">
-        <div className="min-w-0 flex-1 rounded-lg border border-[var(--ia-line)] bg-[var(--ia-surface)] p-2.5">
+      <div className="flex flex-wrap gap-3">
+        <div className="min-w-[220px] flex-1 rounded-lg border border-[var(--ia-line)] bg-[var(--ia-surface)] p-2.5">
           <div className="mb-1.5 flex items-center gap-2">
-            <span className={hintClass}>原文 · {direction === "zh2en" ? "中文" : "英文"}</span>
+            <span className={hintClass}>{t("translate.original")}</span>
             <span className="ml-auto">
               <CopyButton text={original} />
             </span>
           </div>
           <p className="text-xs leading-relaxed text-[var(--ia-muted)]">{original}</p>
         </div>
-        <div className="min-w-0 flex-1 rounded-lg border border-[var(--ia-line)] bg-[var(--ia-bg)] p-2.5">
+        <div className="min-w-[220px] flex-1 rounded-lg border border-[var(--ia-line)] bg-[var(--ia-bg)] p-2.5">
           <div className="mb-1.5 flex items-center gap-2">
-            <span className={hintClass}>译文 · {direction === "zh2en" ? "英文" : "中文"}</span>
+            <span className={hintClass}>{t("translate.translated")}</span>
             <span className="ml-auto">
               <CopyButton text={translated} />
             </span>
@@ -85,10 +109,12 @@ export function TranslateCard() {
         </div>
       </div>
       <div className="flex flex-col gap-1.5">
-        <p className={sectionLabelClass}>润色对比</p>
+        <p className={sectionLabelClass}>{t("translate.polish")}</p>
         <p className="rounded-lg bg-[var(--ia-bg)] px-3 py-2 text-xs text-[var(--ia-muted)]">
-          <span className="mr-2 text-[11px] text-[var(--ia-muted)]">原句</span>
-          {translatePair.polish.before.map((part, index) =>
+          <span className="mr-2 text-xs text-[var(--ia-muted)]">
+            {t("translate.originalLabel")}
+          </span>
+          {sample.polishBefore.map((part, index) =>
             part.kind === "del" ? (
               <span key={index} className="font-medium text-[var(--red)] line-through">
                 {part.text}
@@ -99,8 +125,8 @@ export function TranslateCard() {
           )}
         </p>
         <p className="rounded-lg bg-[var(--ia-bg)] px-3 py-2 text-xs text-[var(--ia-muted)]">
-          <span className="mr-2 text-[11px] text-[var(--ia-muted)]">润色</span>
-          {translatePair.polish.after.map((part, index) =>
+          <span className="mr-2 text-xs text-[var(--ia-muted)]">{t("translate.polishLabel")}</span>
+          {sample.polishAfter.map((part, index) =>
             part.kind === "ins" ? (
               <span
                 key={index}
@@ -118,82 +144,63 @@ export function TranslateCard() {
   );
 }
 
-// ===== Git 式版本对比 =====
-
-const lineClass: Record<string, string> = {
+const lineClass: Record<DiffLine["kind"], string> = {
   ins: "bg-[var(--ia-mint)] text-[var(--ia-green)]",
   del: "bg-[var(--red-bg)] text-[var(--red)]",
   norm: "text-[var(--ia-muted)]",
 };
 
+function DiffColumn({ heading, lines }: { heading: string; lines: DiffLine[] }) {
+  return (
+    <div className="min-w-[220px] flex-1 overflow-hidden rounded-lg bg-[var(--ia-bg)]">
+      <p className="border-b border-[var(--ia-line)] px-2.5 py-1.5 text-xs font-medium text-[var(--ia-muted)]">
+        {heading}
+      </p>
+      <div className="p-1.5">
+        {lines.map((line, index) => (
+          <p
+            key={index}
+            className={
+              "flex gap-1.5 rounded px-1.5 py-0.5 font-mono text-xs " + lineClass[line.kind]
+            }
+          >
+            <span aria-hidden="true">
+              {line.kind === "ins" ? "+" : line.kind === "del" ? "-" : " "}
+            </span>
+            <span className="min-w-0 break-words">{line.text}</span>
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function DiffCard() {
-  const [restored, setRestored] = useState(false);
-  const oldLines = restored
-    ? diffVersions.old.map((line) => ({ ...line, kind: "norm" as const }))
-    : diffVersions.old;
+  const t = useToolCopy();
+  const sample = demoSample(useLocale());
   return (
     <ToolCard
-      icon={<GitCompare size={15} />}
-      title="版本对比"
+      icon={<ToolIcon name="gitCompare" size={15} />}
+      title={t("card.diff")}
       detail={
         <span className={chipClass + " bg-[var(--ia-bg)] text-[var(--ia-muted)]"}>
-          {diffVersions.scope}
+          {sample.diffScope}
         </span>
       }
     >
-      <div className="flex gap-3">
-        <div className="min-w-0 flex-1 overflow-hidden rounded-lg bg-[var(--ia-bg)]">
-          <p className="border-b border-[var(--ia-line)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--ia-muted)]">
-            {restored ? "当前生效 · v2" : "旧版本 · v2"}
-          </p>
-          <div className="p-1.5">
-            {oldLines.map((line, index) => (
-              <p
-                key={index}
-                className={
-                  "flex gap-1.5 rounded px-1.5 py-0.5 font-mono text-[11px] " + lineClass[line.kind]
-                }
-              >
-                <span aria-hidden="true">
-                  {line.kind === "ins" ? "+" : line.kind === "del" ? "-" : " "}
-                </span>
-                <span className="min-w-0">{line.text}</span>
-              </p>
-            ))}
-          </div>
-        </div>
-        <div className="min-w-0 flex-1 overflow-hidden rounded-lg bg-[var(--ia-bg)]">
-          <p className="border-b border-[var(--ia-line)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--ia-muted)]">
-            新版本 · v3
-          </p>
-          <div className="p-1.5">
-            {diffVersions.new.map((line, index) => (
-              <p
-                key={index}
-                className={
-                  "flex gap-1.5 rounded px-1.5 py-0.5 font-mono text-[11px] " + lineClass[line.kind]
-                }
-              >
-                <span aria-hidden="true">
-                  {line.kind === "ins" ? "+" : line.kind === "del" ? "-" : " "}
-                </span>
-                <span className="min-w-0">{line.text}</span>
-              </p>
-            ))}
-          </div>
-        </div>
+      <div className="flex flex-wrap gap-3">
+        <DiffColumn heading={t("diff.old")} lines={sample.diffOld} />
+        <DiffColumn heading={t("diff.new")} lines={sample.diffNew} />
       </div>
-      <div className="flex items-center gap-2.5">
-        <button
-          type="button"
-          className={restored ? ghostBtnClass : primaryBtnClass}
-          disabled={restored}
-          onClick={() => setRestored(true)}
-        >
-          {restored ? <Check size={13} /> : <RotateCcw size={13} />}
-          {restored ? "已恢复到 v2，可继续编辑" : "恢复到此版本"}
-        </button>
-        <span className={hintClass}>绿色为新增行，红色为删除行 · 共 4 处变更</span>
+      <div className="flex flex-wrap items-center gap-2.5">
+        <DemoDisabledButton>{t("diff.restore")}</DemoDisabledButton>
+        <span className={hintClass}>
+          {t("diff.hint", {
+            count:
+              sample.diffOld.filter((line) => line.kind !== "norm").length +
+              sample.diffNew.filter((line) => line.kind !== "norm").length,
+          })}
+        </span>
       </div>
     </ToolCard>
   );

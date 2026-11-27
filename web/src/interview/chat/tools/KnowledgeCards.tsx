@@ -1,17 +1,16 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useLocale } from "../../../i18n";
+import { useToolCopy } from "./copy";
+import { demoSample, type MindMapNode, type Reminder } from "./model";
 import {
-  CalendarDays,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Download,
-  Network,
-  Plus,
-} from "lucide-react";
-import { initialReminders, mindMap, type MindMapNode, type Reminder } from "./model";
-import { ToolCard, chipClass, ghostBtnClass, hintClass, outlineBtnClass } from "./ui";
-
-// ===== 思维导图 =====
+  ToolIcon,
+  DemoDisabledButton,
+  ToolCard,
+  chipClass,
+  ghostBtnClass,
+  hintClass,
+  outlineBtnClass,
+} from "./ui";
 
 function MindMapBranch({
   node,
@@ -52,7 +51,7 @@ function MindMapBranch({
           {node.hint && !open && (
             <span
               className={
-                chipClass + " bg-[var(--ia-tint)] px-1.5 py-0 text-[10px] text-[var(--ia-accent)]"
+                chipClass + " bg-[var(--ia-tint)] px-1.5 py-0 text-[11px] text-[var(--ia-accent)]"
               }
             >
               {node.hint}
@@ -60,9 +59,9 @@ function MindMapBranch({
           )}
           {hasChildren &&
             (open ? (
-              <ChevronDown size={12} className="opacity-60" />
+              <ToolIcon name="chevronDown" size={12} />
             ) : (
-              <ChevronRight size={12} className="opacity-60" />
+              <ToolIcon name="chevronRight" size={12} />
             ))}
         </button>
       </div>
@@ -83,11 +82,28 @@ function MindMapBranch({
   );
 }
 
+function escapeXml(value: string) {
+  return value.replace(/[<>&"']/g, (ch) => {
+    switch (ch) {
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case "&":
+        return "&amp;";
+      case '"':
+        return "&quot;";
+      default:
+        return "&apos;";
+    }
+  });
+}
+
 function mindMapSvg(node: MindMapNode): string {
   const lines: string[] = [];
   const walk = (current: MindMapNode, depth: number) => {
     lines.push(
-      `<text x="${12 + depth * 24}" y="${18 * lines.length + 20}" font-size="12">${current.label}</text>`,
+      `<text x="${12 + depth * 24}" y="${18 * lines.length + 20}" font-size="12">${escapeXml(current.label)}</text>`,
     );
     current.children?.forEach((child) => walk(child, depth + 1));
   };
@@ -96,128 +112,155 @@ function mindMapSvg(node: MindMapNode): string {
 }
 
 export function MindMapCard() {
+  const t = useToolCopy();
+  const locale = useLocale();
+  const sample = demoSample(locale);
   const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
   const [exported, setExported] = useState(false);
+  const timers = useRef<number[]>([]);
+
+  useEffect(() => {
+    const pending = timers.current;
+    return () => pending.forEach((id) => window.clearTimeout(id));
+  }, []);
+
   const toggle = (label: string) =>
     setOpenMap((current) => ({ ...current, [label]: !(current[label] ?? false) }));
+
+  function exportSvg() {
+    const url = URL.createObjectURL(
+      new Blob([mindMapSvg(sample.mindMap)], { type: "image/svg+xml" }),
+    );
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "demo-mindmap.svg";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    timers.current.push(window.setTimeout(() => URL.revokeObjectURL(url), 1000));
+    setExported(true);
+    timers.current.push(window.setTimeout(() => setExported(false), 2000));
+  }
+
   return (
     <ToolCard
-      icon={<Network size={15} />}
-      title="思维导图"
+      icon={<ToolIcon name="network" size={15} />}
+      title={t("card.mindmap")}
       detail={
-        <button
-          type="button"
-          className={ghostBtnClass + " text-xs"}
-          onClick={() => {
-            const blob = new Blob([mindMapSvg(mindMap)], { type: "image/svg+xml" });
-            const url = URL.createObjectURL(blob);
-            const anchor = document.createElement("a");
-            anchor.href = url;
-            anchor.download = "redis-mindmap.svg";
-            anchor.click();
-            URL.revokeObjectURL(url);
-            setExported(true);
-            setTimeout(() => setExported(false), 2500);
-          }}
-        >
-          <Download size={12} />
-          {exported ? "已导出" : "导出图片"}
+        <button type="button" className={ghostBtnClass + " text-xs"} onClick={exportSvg}>
+          <ToolIcon name="download" size={12} />
+          {exported ? t("mindmap.exported") : t("mindmap.export")}
         </button>
       }
     >
-      <p className="text-sm font-medium text-[var(--ia-ink)]">Redis 高频考点</p>
-      <MindMapBranch node={mindMap} depth={0} openMap={openMap} toggle={toggle} />
+      <p className="text-sm font-medium text-[var(--ia-ink)]">{sample.mindMapTopic}</p>
+      <MindMapBranch node={sample.mindMap} depth={0} openMap={openMap} toggle={toggle} />
       <p className={hintClass}>
-        点击节点可展开 / 折叠 · 当前展开 {Object.values(openMap).filter(Boolean).length + 1} 层
+        {t("mindmap.hint")} ·{" "}
+        {t("mindmap.layers", { count: Object.values(openMap).filter(Boolean).length })}
       </p>
     </ToolCard>
   );
 }
 
-// ===== 日历提醒 =====
-
-const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
-const NOVEMBER_WEEKS = [
-  [26, 27, 28, 29, 30, 31, 1],
-  [2, 3, 4, 5, 6, 7, 8],
-  [9, 10, 11, 12, 13, 14, 15],
-  [16, 17, 18, 19, 20, 21, 22],
-  [23, 24, 25, 26, 27, 28, 29],
-];
-const REMINDER_DAYS = new Set([26, 28, 3, 10, 17]);
-const TODAY = 26;
-const typeStyles: Record<Reminder["type"], string> = {
-  学习: "bg-[var(--ia-mint)] text-[var(--ia-green)]",
-  复习: "bg-[var(--ia-sand)] text-[var(--ia-amber)]",
-  面试: "bg-[var(--ia-tint)] text-[var(--ia-accent)]",
-};
+function buildMonthWeeks(now: Date): number[][] {
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const offset = (new Date(year, month, 1).getDay() + 6) % 7;
+  const days = new Date(year, month + 1, 0).getDate();
+  const cells: (number | null)[] = Array.from({ length: offset }, () => null);
+  for (let day = 1; day <= days; day += 1) cells.push(day);
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks: number[][] = [];
+  for (let index = 0; index < cells.length; index += 7) {
+    weeks.push(cells.slice(index, index + 7).map((cell) => cell ?? 0));
+  }
+  return weeks;
+}
 
 export function CalendarCard() {
-  const [reminders, setReminders] = useState<Reminder[]>(initialReminders);
+  const t = useToolCopy();
+  const locale = useLocale();
+  const sample = demoSample(locale);
+  const [reminders, setReminders] = useState<Reminder[]>(sample.reminders);
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
-  const [type, setType] = useState<Reminder["type"]>("学习");
-  const nextId = reminders.reduce((max, item) => Math.max(max, item.id), 0) + 1;
+  const [type, setType] = useState<Reminder["type"]>("study");
 
-  function toggleDone(id: number) {
-    setReminders((current) =>
-      current.map((item) => (item.id === id ? { ...item, done: !item.done } : item)),
-    );
-  }
+  const now = new Date();
+  const weeks = buildMonthWeeks(now);
+  const today = now.getDate();
+  const monthLabel = new Intl.DateTimeFormat(locale === "en" ? "en-US" : "zh-CN", {
+    year: "numeric",
+    month: "long",
+  }).format(now);
+  const sampleDays = new Set([today, Math.min(today + 2, 31), Math.min(today + 7, 31)]);
+  const typeStyles: Record<Reminder["type"], string> = {
+    study: "bg-[var(--ia-mint)] text-[var(--ia-green)]",
+    review: "bg-[var(--ia-sand)] text-[var(--ia-amber)]",
+    interview: "bg-[var(--ia-tint)] text-[var(--ia-accent)]",
+  };
+
   function add() {
     if (!title.trim()) return;
     setReminders((current) => [
       ...current,
-      { id: nextId, title: title.trim(), time: "今天 21:00", type, done: false },
+      {
+        id: current.reduce((max, item) => Math.max(max, item.id), 0) + 1,
+        title: title.trim(),
+        time: sample.reminders[0].time,
+        type,
+        done: false,
+      },
     ]);
     setTitle("");
     setAdding(false);
   }
 
   return (
-    <ToolCard icon={<CalendarDays size={15} />} title="学习计划与提醒" detail="11 月">
+    <ToolCard
+      icon={<ToolIcon name="calendarDays" size={15} />}
+      title={t("calendar.title")}
+      detail={monthLabel}
+    >
       <div className="rounded-lg bg-[var(--ia-bg)] p-1.5">
         <div className="flex">
-          {WEEKDAYS.map((day) => (
+          {sample.weekdays.map((day, index) => (
             <span
-              key={day}
-              className="flex h-6 w-[38px] items-center justify-center text-[10.5px] font-medium text-[var(--ia-muted)]"
+              key={`${day}-${index}`}
+              className="flex h-6 flex-1 items-center justify-center text-xs font-medium text-[var(--ia-muted)]"
             >
               {day}
             </span>
           ))}
         </div>
-        {NOVEMBER_WEEKS.map((week, weekIndex) => (
+        {weeks.map((week, weekIndex) => (
           <div key={weekIndex} className="flex">
-            {week.map((day) => {
-              const inMonth = !(weekIndex === 0 && day > 7);
-              const isToday = day === TODAY && inMonth;
-              return (
+            {week.map((day, dayIndex) => (
+              <span
+                key={`${weekIndex}-${dayIndex}`}
+                className={
+                  "flex h-[30px] flex-1 flex-col items-center justify-center gap-0.5 rounded-md " +
+                  (day === today ? "border-[1.2px] border-[var(--ia-accent)]" : "")
+                }
+              >
                 <span
-                  key={`${weekIndex}-${day}`}
                   className={
-                    "flex h-[30px] w-[38px] flex-col items-center justify-center gap-0.5 rounded-md " +
-                    (isToday ? "border-[1.2px] border-[var(--ia-accent)]" : "")
+                    "text-xs " +
+                    (day === today
+                      ? "font-semibold text-[var(--ia-accent)]"
+                      : day
+                        ? "text-[var(--ia-muted)]"
+                        : "text-[var(--ia-line)]")
                   }
                 >
-                  <span
-                    className={
-                      "text-[11px] " +
-                      (isToday
-                        ? "font-semibold text-[var(--ia-accent)]"
-                        : inMonth
-                          ? "text-[var(--ia-muted)]"
-                          : "text-[var(--ia-line)]")
-                    }
-                  >
-                    {day}
-                  </span>
-                  {REMINDER_DAYS.has(day) && inMonth && (
-                    <span className="block h-1 w-1 rounded-full bg-[var(--ia-accent)]" />
-                  )}
+                  {day || ""}
                 </span>
-              );
-            })}
+                {day > 0 && sampleDays.has(day) && (
+                  <span className="block h-1 w-1 rounded-full bg-[var(--ia-accent)]" />
+                )}
+              </span>
+            ))}
           </div>
         ))}
       </div>
@@ -230,8 +273,14 @@ export function CalendarCard() {
           >
             <button
               type="button"
-              aria-label={item.done ? "标记为未完成" : "标记为已完成"}
-              onClick={() => toggleDone(item.id)}
+              aria-label={item.done ? t("calendar.markUndone") : t("calendar.markDone")}
+              onClick={() =>
+                setReminders((current) =>
+                  current.map((entry) =>
+                    entry.id === item.id ? { ...entry, done: !entry.done } : entry,
+                  ),
+                )
+              }
               className={
                 "flex h-4 w-4 items-center justify-center rounded border " +
                 (item.done
@@ -239,20 +288,26 @@ export function CalendarCard() {
                   : "border-[var(--ia-line)] bg-[var(--ia-surface)]")
               }
             >
-              {item.done && <Check size={11} />}
+              {item.done && <ToolIcon name="check" size={11} />}
             </button>
             <span className="min-w-0 flex-1">
               <span
                 className={
-                  "block truncate text-[12.5px] " +
+                  "block truncate text-xs " +
                   (item.done ? "text-[var(--ia-muted)]" : "font-medium text-[var(--ia-ink)]")
                 }
               >
                 {item.title}
               </span>
-              <span className="block text-[11px] text-[var(--ia-muted)]">{item.time}</span>
+              <span className="block text-xs text-[var(--ia-muted)]">{item.time}</span>
             </span>
-            <span className={chipClass + " " + typeStyles[item.type]}>{item.type}</span>
+            <span className={chipClass + " " + typeStyles[item.type]}>
+              {item.type === "study"
+                ? t("calendar.study")
+                : item.type === "review"
+                  ? t("calendar.review")
+                  : t("calendar.interview")}
+            </span>
           </li>
         ))}
       </ul>
@@ -263,7 +318,7 @@ export function CalendarCard() {
             autoFocus
             value={title}
             maxLength={60}
-            placeholder="提醒内容，如：复习 TCP 三次握手"
+            placeholder={t("calendar.placeholder")}
             onChange={(event) => setTitle(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") add();
@@ -271,27 +326,31 @@ export function CalendarCard() {
             className="min-w-0 flex-1 bg-transparent text-xs text-[var(--ia-ink)] outline-none placeholder:text-[var(--ia-muted)]"
           />
           <select
-            aria-label="提醒类型"
+            aria-label={t("calendar.type")}
             value={type}
             onChange={(event) => setType(event.target.value as Reminder["type"])}
             className="rounded border border-[var(--ia-line)] bg-[var(--ia-surface)] px-1.5 py-1 text-xs text-[var(--ia-muted)]"
           >
-            <option value="学习">学习</option>
-            <option value="复习">复习</option>
-            <option value="面试">面试</option>
+            <option value="study">{t("calendar.study")}</option>
+            <option value="review">{t("calendar.review")}</option>
+            <option value="interview">{t("calendar.interview")}</option>
           </select>
           <button type="button" className={outlineBtnClass} disabled={!title.trim()} onClick={add}>
-            <Plus size={12} />
-            添加
+            <ToolIcon name="plus" size={12} />
+            {t("calendar.addTitle")}
           </button>
         </div>
       ) : (
-        <div className="flex items-center gap-2">
-          <button type="button" className={ghostBtnClass + " text-xs"} onClick={() => setAdding(true)}>
-            <Plus size={12} />
-            添加提醒
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className={ghostBtnClass + " text-xs"}
+            onClick={() => setAdding(true)}
+          >
+            <ToolIcon name="plus" size={12} />
+            {t("calendar.add")}
           </button>
-          <span className={hintClass}>提醒会同步到你的学习计划</span>
+          <DemoDisabledButton>{t("calendar.syncHint")}</DemoDisabledButton>
         </div>
       )}
     </ToolCard>

@@ -1,39 +1,61 @@
-import { useSyncExternalStore } from "react";
-import { DEFAULT_MEMORY, type AgentMemory } from "./model";
+import { useMemo, useSyncExternalStore } from "react";
+import { useLocale } from "../../../i18n";
+import { demoSample, emptyDemoMemory, type AgentMemory } from "./model";
 
-// 面试 AI 助手 · 会话内临时上下文（mock）
-// 清除上下文仅重置工作记忆展示，长期记忆 / 笔记 / 题库不受影响。
+// 演示工作区的示例记忆开关。这里只保存一个布尔值，不接触真实会话、笔记、
+// 题库或能力画像；重置语义是「清空本页演示内容」，不是「清除真实上下文」。
 
-export const CONTEXT_CLEARED_EVENT = "interview-agent-context-cleared";
+export const DEMO_CONTEXT_RESET_EVENT = "interview-demo-context-reset";
 
-let memory: AgentMemory = DEFAULT_MEMORY;
+let reset = false;
 const listeners = new Set<() => void>();
 
 function emit() {
   listeners.forEach((listener) => listener());
 }
 
-export function subscribeMemory(listener: () => void) {
+function subscribe(listener: () => void) {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
   };
 }
 
-export function getMemorySnapshot(): AgentMemory {
-  return memory;
+function getResetSnapshot(): boolean {
+  return reset;
 }
 
-export function clearAgentContext() {
-  memory = { targetRole: null, weakPoints: [], currentSkill: null, examCount: 0 };
-  emit();
+function dispatchResetEvent() {
   try {
-    window.dispatchEvent(new Event(CONTEXT_CLEARED_EVENT));
+    window.dispatchEvent(new Event(DEMO_CONTEXT_RESET_EVENT));
   } catch {
     /* 非浏览器环境忽略 */
   }
 }
 
-export function useAgentMemory(): AgentMemory {
-  return useSyncExternalStore(subscribeMemory, getMemorySnapshot);
+export function resetDemoContext() {
+  reset = true;
+  emit();
+  dispatchResetEvent();
+}
+
+export function restoreDemoMemory() {
+  reset = false;
+  emit();
+}
+
+export function isDemoContextReset(): boolean {
+  return reset;
+}
+
+export function useDemoMemory(): AgentMemory {
+  const locale = useLocale();
+  const cleared = useSyncExternalStore(subscribe, getResetSnapshot, getResetSnapshot);
+  return useMemo(
+    () =>
+      cleared
+        ? emptyDemoMemory()
+        : { ...demoSample(locale).memory, weakPoints: [...demoSample(locale).memory.weakPoints] },
+    [cleared, locale],
+  );
 }

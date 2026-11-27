@@ -1,128 +1,110 @@
 import { useEffect, useRef, useState } from "react";
+import { useLocale } from "../../../i18n";
+import { useToolCopy } from "./copy";
+import { demoSample } from "./model";
 import {
-  Check,
-  FileText,
-  Loader2,
-  RotateCcw,
-  Search,
-  SquareTerminal,
-  TriangleAlert,
-} from "lucide-react";
-import { parsedResume, sandboxCase, searchResults } from "./model";
-import {
+  ToolIcon,
+  DemoDisabledButton,
   ToolCard,
   chipClass,
-  ghostBtnClass,
   hintClass,
-  outlineBtnClass,
   primaryBtnClass,
   sectionLabelClass,
 } from "./ui";
 
-// ===== 联网搜索 =====
+// 搜索 / 文件解析 / 代码沙箱。全部为固定示例，不发起网络请求、不读取文件、
+// 不执行代码；任何声称会写入数据的按钮都是禁用态。
 
 export function WebSearchCard({ keyword }: { keyword: string }) {
-  const { total, items } = searchResults(keyword);
-  const [saved, setSaved] = useState<number[]>([]);
+  const t = useToolCopy();
+  const sample = demoSample(useLocale());
   const [visible, setVisible] = useState(3);
-  const shown = items.slice(0, visible);
+  const shown = sample.searchResults.slice(0, visible);
+  const shownKeyword = keyword.trim() || sample.searchKeyword;
   return (
-    <ToolCard icon={<Search size={15} />} title="联网搜索" detail={`${total} 条结果`}>
-      <p className={hintClass}>关键词：{keyword || "字节跳动 后端 面经"} · 已用时 1.8s</p>
-      <ul className="flex flex-col gap-2">
-        {shown.map((item, index) => {
-          const isSaved = saved.includes(index);
-          return (
-            <li
-              key={item.title}
-              className="flex items-start gap-3 rounded-lg bg-[var(--ia-bg)] px-3 py-2.5"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-medium text-[var(--blue)]">{item.title}</p>
-                <p className="mt-1 text-xs leading-relaxed text-[var(--ia-muted)]">{item.summary}</p>
-                <p className="mt-1 text-[11px] text-[var(--ia-muted)]">
-                  {item.site} · {item.time}
-                </p>
-              </div>
-              <button
-                type="button"
-                className={
-                  isSaved
-                    ? chipClass + " bg-[var(--ia-mint)] text-[var(--ia-green)]"
-                    : outlineBtnClass
-                }
-                disabled={isSaved}
-                onClick={() => setSaved((current) => [...current, index])}
-              >
-                {isSaved && <Check size={12} />}
-                {isSaved ? "已保存" : "保存到面经库"}
-              </button>
-            </li>
-          );
-        })}
+    <ToolCard
+      icon={<ToolIcon name="search" size={15} />}
+      title={t("card.search")}
+      detail={t("search.count", { count: sample.searchResults.length })}
+    >
+      <p className={hintClass}>{t("search.keyword", { keyword: shownKeyword })}</p>
+      <ul className="mt-3 flex flex-col gap-2">
+        {shown.map((item) => (
+          <li key={item.title} className="rounded-lg bg-[var(--ia-bg)] px-3 py-2.5">
+            <p className="text-[13px] font-medium text-[var(--blue)]">{item.title}</p>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--ia-muted)]">{item.summary}</p>
+          </li>
+        ))}
       </ul>
-      <div className="flex items-center justify-center gap-2">
+      <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
         <span className={hintClass}>
-          已显示 {shown.length} / {total} 条
+          {t("search.shown", { shown: shown.length, total: sample.searchResults.length })}
         </span>
         <button
           type="button"
-          className={ghostBtnClass + " text-xs"}
-          disabled={visible >= total}
-          onClick={() => setVisible((current) => Math.min(current + 2, total))}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--ia-line)] bg-[var(--ia-surface)] px-3 py-1.5 text-[13px] font-medium text-[var(--ia-muted)] disabled:opacity-50"
+          disabled={visible >= sample.searchResults.length}
+          onClick={() =>
+            setVisible((current) => Math.min(current + 2, sample.searchResults.length))
+          }
         >
-          {visible >= total ? "已全部加载" : "加载更多"}
+          {visible >= sample.searchResults.length ? t("search.done") : t("search.more")}
         </button>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--ia-line)] pt-3">
+        <DemoDisabledButton>{t("search.save")}</DemoDisabledButton>
+        <DemoDisabledButton>{t("parse.edit")}</DemoDisabledButton>
+        <span className={hintClass}>{t("demo.allWritesDisabled")}</span>
       </div>
     </ToolCard>
   );
 }
 
-// ===== 文件解析 =====
-
 type ParseState = "parsing" | "done" | "failed";
 
 export function FileParseCard() {
+  const t = useToolCopy();
+  const sample = demoSample(useLocale());
   const [state, setState] = useState<ParseState>("parsing");
   const [progress, setProgress] = useState(8);
-  const [saved, setSaved] = useState(false);
-  const timer = useRef<ReturnType<typeof setInterval>>();
 
   useEffect(() => {
     if (state !== "parsing") return;
-    timer.current = setInterval(() => {
-      setProgress((current) => {
-        if (current >= 100) {
-          clearInterval(timer.current);
-          setState("done");
-          return 100;
-        }
-        return Math.min(current + 6 + Math.round(Math.random() * 8), 100);
-      });
+    const id = window.setInterval(() => {
+      setProgress((current) => Math.min(current + 12, 100));
     }, 220);
-    return () => clearInterval(timer.current);
+    return () => window.clearInterval(id);
   }, [state]);
 
-  const badge =
-    state === "parsing"
-      ? chipClass + " bg-[var(--ia-sand)] text-[var(--ia-amber)]"
-      : state === "done"
-        ? chipClass + " bg-[var(--ia-mint)] text-[var(--ia-green)]"
-        : chipClass + " bg-[var(--red-bg)] text-[var(--red)]";
+  useEffect(() => {
+    if (state === "parsing" && progress >= 100) setState("done");
+  }, [state, progress]);
+
   const badgeText =
-    state === "parsing" ? `解析中 ${progress}%` : state === "done" ? "解析完成" : "解析失败";
+    state === "parsing"
+      ? t("parse.parsing", { percent: progress })
+      : state === "done"
+        ? t("parse.done")
+        : t("parse.failed");
+  const badgeColor =
+    state === "parsing"
+      ? "bg-[var(--ia-sand)] text-[var(--ia-amber)]"
+      : state === "done"
+        ? "bg-[var(--ia-mint)] text-[var(--ia-green)]"
+        : "bg-[var(--red-bg)] text-[var(--red)]";
 
   return (
     <ToolCard
-      icon={<FileText size={15} />}
-      title={parsedResume.fileName}
+      icon={<ToolIcon name="fileText" size={15} />}
+      title={t("card.parse")}
       detail={
-        <span className={`inline-flex items-center gap-1 ${badge}`}>
-          {state === "parsing" && <Loader2 size={11} className="animate-spin" />}
+        <span className={`inline-flex items-center gap-1 ${chipClass} ${badgeColor}`}>
+          {state === "parsing" && <ToolIcon name="loader" size={11} className="animate-spin" />}
           {badgeText}
         </span>
       }
     >
+      <p className={hintClass}>{sample.parsedFileName}</p>
       {state === "parsing" && (
         <div className="flex flex-col gap-1.5">
           <div className="h-1.5 overflow-hidden rounded-full bg-[var(--ia-line)]">
@@ -132,86 +114,73 @@ export function FileParseCard() {
             />
           </div>
           <p className={hintClass}>
-            正在解析第 {Math.max(1, Math.ceil(progress / 20))} / 5 页 · 已识别 2 个项目经历
+            {t("parse.progress", { page: Math.max(1, Math.ceil(progress / 20)) })}
           </p>
         </div>
       )}
       {state === "done" && (
         <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-2">
-            <p className={sectionLabelClass}>提取的项目</p>
-            {parsedResume.projects.map((project) => (
-              <div key={project.name} className="rounded-lg bg-[var(--ia-bg)] px-3 py-2.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-[13px] font-medium text-[var(--ia-ink)]">{project.name}</p>
-                  {project.stack.map((item) => (
-                    <span
-                      key={item}
-                      className={chipClass + " bg-[var(--ia-tint)] text-[var(--ia-accent)]"}
-                    >
-                      {item}
-                    </span>
-                  ))}
-                </div>
-                <p className="mt-1.5 text-xs leading-relaxed text-[var(--ia-muted)]">
-                  {project.description}
-                </p>
+          <p className={sectionLabelClass}>{t("parse.projects")}</p>
+          {sample.parsedProjects.map((project) => (
+            <div key={project.name} className="rounded-lg bg-[var(--ia-bg)] px-3 py-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-[13px] font-medium text-[var(--ia-ink)]">{project.name}</p>
+                {project.stack.map((item) => (
+                  <span
+                    key={item}
+                    className={chipClass + " bg-[var(--ia-tint)] text-[var(--ia-accent)]"}
+                  >
+                    {item}
+                  </span>
+                ))}
               </div>
+              <p className="mt-1.5 text-xs leading-relaxed text-[var(--ia-muted)]">
+                {project.description}
+              </p>
+            </div>
+          ))}
+          <p className={sectionLabelClass}>{t("parse.skills")}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {sample.parsedSkills.map((skill) => (
+              <span key={skill} className={chipClass + " bg-[var(--ia-bg)] text-[var(--ia-muted)]"}>
+                {skill}
+              </span>
             ))}
           </div>
-          <div className="flex flex-col gap-1.5">
-            <p className={sectionLabelClass}>技能标签</p>
-            <div className="flex flex-wrap gap-1.5">
-              {parsedResume.skills.map((skill) => (
-                <span key={skill} className={chipClass + " bg-[var(--ia-bg)] text-[var(--ia-muted)]"}>
-                  {skill}
-                </span>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className={saved ? ghostBtnClass : primaryBtnClass}
-              disabled={saved}
-              onClick={() => setSaved(true)}
-            >
-              {saved ? "已保存到项目背景库" : "确认保存到项目背景库"}
-            </button>
-            <button type="button" className={ghostBtnClass}>
-              编辑
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <DemoDisabledButton>{t("parse.save")}</DemoDisabledButton>
+            <DemoDisabledButton>{t("parse.edit")}</DemoDisabledButton>
           </div>
         </div>
       )}
       {state === "failed" && (
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <p className="flex items-center gap-1.5 text-xs text-[var(--red)]">
-            <TriangleAlert size={13} />
-            文件内容无法识别：可能是加密 PDF 或扫描件。
+            <ToolIcon name="triangleAlert" size={13} />
+            {t("parse.failReason")}
           </p>
           <button
             type="button"
-            className={ghostBtnClass + " text-xs"}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--ia-line)] bg-[var(--ia-surface)] px-3 py-1.5 text-[13px] font-medium text-[var(--ia-muted)]"
             onClick={() => {
               setProgress(8);
               setState("parsing");
             }}
           >
-            <RotateCcw size={12} />
-            重试
+            <ToolIcon name="rotateCcw" size={12} />
+            {t("parse.retry")}
           </button>
         </div>
       )}
-      <p className={hintClass + " flex items-center justify-between"}>
-        <span>mock 演示：可触发一次失败状态来验证重试</span>
+      <p className={hintClass + " flex flex-wrap items-center justify-between gap-2"}>
+        <span>{t("parse.demoHint")}</span>
         {state === "done" && (
           <button
             type="button"
             className="text-[var(--ia-muted)] underline decoration-dotted"
             onClick={() => setState("failed")}
           >
-            模拟失败
+            {t("parse.simulateFail")}
           </button>
         )}
       </p>
@@ -219,81 +188,90 @@ export function FileParseCard() {
   );
 }
 
-// ===== 代码执行沙箱 =====
-
 export function CodeSandboxCard() {
-  const [code, setCode] = useState(sandboxCase.starterCode);
+  const t = useToolCopy();
+  const sample = demoSample(useLocale());
+  const [code, setCode] = useState(sample.sandboxCode);
   const [running, setRunning] = useState(false);
-  const [ranAt, setRanAt] = useState<number | null>(null);
+  const [ran, setRan] = useState(false);
+  const timer = useRef<number>();
+
+  useEffect(() => {
+    return () => {
+      if (timer.current) window.clearTimeout(timer.current);
+    };
+  }, []);
+
   return (
     <ToolCard
-      icon={<SquareTerminal size={15} />}
-      title="代码执行沙箱"
+      icon={<ToolIcon name="squareTerminal" size={15} />}
+      title={t("card.sandbox")}
       detail={
         <span className={chipClass + " bg-[var(--ia-bg)] text-[var(--ia-muted)]"}>
-          {sandboxCase.language}
+          {sample.sandboxLanguage}
         </span>
       }
     >
+      <label className={"mb-1 block " + hintClass} htmlFor="ia-demo-code">
+        {t("sandbox.codeLabel")}
+      </label>
       <textarea
-        aria-label="代码输入"
+        id="ia-demo-code"
         spellCheck={false}
         value={code}
-        rows={10}
+        rows={8}
         onChange={(event) => setCode(event.target.value)}
-        className="w-full resize-y rounded-lg bg-[var(--navy)] p-3 font-mono text-[11.5px] leading-relaxed text-[#e7eaf0] outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ia-accent)]"
+        className="w-full resize-y rounded-lg bg-[var(--navy)] p-3 font-mono text-xs leading-relaxed text-[#e7eaf0] outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ia-accent)]"
       />
-      <div className="flex items-center gap-2.5">
+      <div className="flex flex-wrap items-center gap-2.5">
         <button
           type="button"
           className={primaryBtnClass}
           disabled={running}
           onClick={() => {
             setRunning(true);
-            setRanAt(null);
-            setTimeout(() => {
+            setRan(false);
+            if (timer.current) window.clearTimeout(timer.current);
+            timer.current = window.setTimeout(() => {
               setRunning(false);
-              setRanAt(Date.now());
-            }, 900);
+              setRan(true);
+            }, 600);
           }}
         >
-          {running ? <Loader2 size={13} className="animate-spin" /> : null}
-          {running ? "运行中…" : "运行"}
+          {running ? <ToolIcon name="loader" size={13} className="animate-spin" /> : null}
+          {running ? t("sandbox.running") : t("sandbox.run")}
         </button>
         <span className={chipClass + " bg-[var(--ia-bg)] text-[var(--ia-muted)]"}>
-          {sandboxCase.tests.length} 个测试用例 · 12ms
+          {t("sandbox.cases", { count: sample.sandboxCases.length })}
         </span>
-        {ranAt && <span className={hintClass}>运行 #{(ranAt % 90) + 10} · 刚刚</span>}
+        {ran && <span className={hintClass}>{t("sandbox.runNumber", { number: 1 })}</span>}
       </div>
-      {ranAt && (
+      {ran && (
         <ul className="flex flex-col gap-1.5">
-          {sandboxCase.tests.map((testCase, index) => (
-            <li key={testCase.input} className="rounded-lg bg-[var(--ia-bg)] px-3 py-2">
+          {sample.sandboxCases.map((item, index) => (
+            <li key={item.input} className="rounded-lg bg-[var(--ia-bg)] px-3 py-2">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-[var(--ia-muted)]">
-                  用例 {index + 1}
+                  {t("sandbox.case", { number: index + 1 })}
                 </span>
-                <span
-                  className={
-                    chipClass +
-                    (testCase.pass
-                      ? " ml-auto bg-[var(--ia-mint)] text-[var(--ia-green)]"
-                      : " ml-auto bg-[var(--red-bg)] text-[var(--red)]")
-                  }
-                >
-                  {testCase.pass ? "✓ 通过" : "✗ 失败"}
+                <span className={chipClass + " ml-auto bg-[var(--ia-mint)] text-[var(--ia-green)]"}>
+                  {item.pass ? t("sandbox.pass") : t("sandbox.fail")}
                 </span>
               </div>
-              <p className="mt-1 font-mono text-[11px] text-[var(--ia-muted)]">
-                输入: {testCase.input}　期望: {testCase.expect}　实际: {testCase.actual}
+              <p className="mt-1 font-mono text-xs text-[var(--ia-muted)]">
+                {t("sandbox.input")}: {item.input} · {t("sandbox.expect")}: {item.expect} ·{" "}
+                {t("sandbox.actual")}: {item.actual}
               </p>
             </li>
           ))}
+          <li className={hintClass}>{t("sandbox.resultHint")}</li>
         </ul>
       )}
       <div className="rounded-lg bg-[var(--ia-tint)] px-3 py-2.5">
-        <p className="text-xs font-semibold text-[var(--ia-accent)]">AI 解析</p>
-        <p className="mt-1 text-xs leading-relaxed text-[var(--ia-muted)]">{sandboxCase.analysis}</p>
+        <p className="text-xs font-semibold text-[var(--ia-accent)]">{t("sandbox.analysis")}</p>
+        <p className="mt-1 text-xs leading-relaxed text-[var(--ia-muted)]">
+          {sample.sandboxAnalysis}
+        </p>
       </div>
     </ToolCard>
   );
