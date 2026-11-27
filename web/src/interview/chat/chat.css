@@ -803,3 +803,16 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ===== 工具层 + 上下文管理（输入区上方） ===== */
+.ia-chat-precomposer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 6px;
+  min-width: 0;
+}
+.ia-chat-precomposer > .ia-chat-tools,
+.ia-chat-precomposer > div {
+  max-width: 100%;
+}

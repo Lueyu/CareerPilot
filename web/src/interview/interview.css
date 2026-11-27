@@ -202,11 +202,15 @@
   gap: 10px;
 }
 .ia-location {
+  min-width: 0;
   font-size: 13px;
   color: var(--ia-ink);
+  white-space: nowrap;
 }
 .ia-top-tools {
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .ia-top-tools .language-selector {
   width: 68px;

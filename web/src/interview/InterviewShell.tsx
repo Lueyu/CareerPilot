@@ -25,6 +25,7 @@ export default function InterviewShell() {
   const english = useLocale() === "en";
   const label = (zh: string, en: string) => (english ? en : zh);
   const workspace = getWorkspace();
+  const isDemo = workspace === "demo";
   const page = destinations.find(
     (item) => location.pathname === item.to || location.pathname.startsWith(item.to + "/"),
   );
@@ -125,7 +126,7 @@ export default function InterviewShell() {
             <span>
               <strong>{displayName}</strong>
               <small>
-                {overview?.workspace?.is_demo
+                {isDemo || overview?.workspace?.is_demo
                   ? label("演示工作区", "Demo workspace")
                   : label("个人工作区", "Personal workspace")}
               </small>
@@ -139,7 +140,7 @@ export default function InterviewShell() {
           <div className="ia-location">
             <InterviewIcon name="panel" size={17} />
             <strong>{currentTitle}</strong>
-            {overview?.workspace?.is_demo && (
+            {(isDemo || overview?.workspace?.is_demo) && (
               <span className="ia-demo">{label("演示数据", "Demo")}</span>
             )}
           </div>
