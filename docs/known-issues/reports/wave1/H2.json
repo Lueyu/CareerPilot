@@ -1,0 +1,406 @@
+{
+  "id": "H2",
+  "status": "实现与验证记录",
+  "title": "让模型URL校验约束真正的TCP连接",
+  "calculator": "outbound-policy",
+  "goal": "完成获批Wave1 H2。让保存、连接测试与实际模型请求共享出站安全策略，保护服务器内网和模型凭据，同时保留原有端点定价与密文归属。",
+  "scenario": [
+    "设置页中的base_url决定服务器向哪里发送模型请求。如果只检查它像不像网址，攻击者可以填入云元数据地址、内网数据库旁的管理接口，或一个后来改为内网地址的域名。服务器拥有的网络位置和API密钥会被错误地用于这个请求。H2的风险发生在服务器真正连出去时，界面上提示已保存不能证明连接安全。",
+    "DNS负责把域名翻译成地址。保存配置时得到公网地址，实际调用时再次解析却得到回环或私网地址，就是这里需要防的时间差。只在保存时查DNS，随后让普通HTTP客户端自行再次解析，无法把安全判断和真正的连接绑定。测试中用可控答案先返回公网再返回回环，证明实际出口重新拒绝。",
+    "Agent工程能力包含工具网络权限、凭据身份和费用边界。让模型调用稳定返回只是产品的一部分；还需要知道它向谁发请求、何时预留费用、失败是否伪造成功。这里的产出是作者实现和测试证据，不代表用户已亲手实现或已掌握这些能力。"
+  ],
+  "before_after": [
+    [
+      "不安全存量地址",
+      "旧适配器对metadata和loopback配置进入受控transport，红测试两例均未抛策略拒绝",
+      "无网络的URL/字面IP检查先拒绝；域名在实际TCP前检查全部答案"
+    ],
+    [
+      "DNS到TCP的关系",
+      "普通HTTPX客户端可以自行解析配置中的域名",
+      "已核验的规范字面IP交给AnyIOBackend，域名不会被第二次交给拨号器"
+    ],
+    [
+      "端点身份",
+      "URL同时影响请求、价格和凭据选择",
+      "逻辑URL仍供HTTP Host、SNI、价格、账本和凭据使用，IP只用于TCP"
+    ],
+    [
+      "本地模型",
+      "回环HTTP在注册出口曾有隐式允许，个人出口无共同策略",
+      "部署侧精确origin授权，API请求及免计费开关不能扩大网络权限"
+    ],
+    [
+      "策略失败",
+      "宽泛provider失败可能进入规则或备用结果",
+      "固定MODEL_OUTBOUND_POLICY终态错误，既有未知用量预留继续保留"
+    ]
+  ],
+  "flow": [
+    [
+      "解析逻辑地址",
+      "ModelEndpoint保留原始URL，ModelOrigin只存规范协议、主机和有效端口。拒绝userinfo、查询、片段、控制字符和歧义数字写法。"
+    ],
+    [
+      "读取部署策略",
+      "MODEL_LOCAL_ORIGINS解析成不可变集合，每次只匹配完整origin。设置数据中不存在能扩大集合的有效字段。"
+    ],
+    [
+      "保存配置",
+      "update_llm组合最终配置，先执行URL及全部DNS校验，通过后才密封API密钥并提交；存量数据不因此永久可信。"
+    ],
+    [
+      "持久预留",
+      "实际私有请求先执行纯地址检查，再reserve。预算拒绝时不提交DNS查询也不创建TCP；注册请求保持自己的_claim准入。"
+    ],
+    [
+      "核验与拨号",
+      "PinnedNetworkBackend在真实connect_tcp边界解析全部答案，只要一个地址不安全就整体拒绝，通过后只拨第一个规范字面IP。"
+    ],
+    [
+      "HTTP和TLS",
+      "复用HTTPX/httpcore的连接池、HTTP流和TLS。请求URL、Host和TLS server_hostname仍是原域名，证书校验保持启用。"
+    ],
+    [
+      "异常与结算",
+      "出站策略异常传播到调用者的失败状态，不进入成功备用。已经预留但无可信usage的请求继续按UNKNOWN保留费用。"
+    ]
+  ],
+  "mechanism": [
+    "共享模块没有实现新的HTTP协议栈。PinnedModelTransport继承HTTPX AsyncHTTPTransport，沿用成熟的响应流、httpcore异常映射和连接清理，只在_pool中安装带network_backend的AsyncConnectionPool。backend接收逻辑主机时先做规范比较，得到VettedDialTarget后委托AnyIO连接字面IP。这样避免重写URL后再分别维护Host、SNI、连接池键和价格身份的错配。",
+    "地址分类先拒绝链路本地、组播、未指定、映射IPv6和保留地址。默认非global地址也拒绝。精确部署例外允许该origin使用私网及回环，但不会允许相邻端口、不同协议、另一台本机地址。Python把::1同时分类为loopback和reserved，因此有专门的精确回环例外，不把所有reserved IPv6放开。IPv6展开形式只在比较和拨号目标上规范化，原URL与TLS主机写法保留。",
+    "有界DNS线程池有八个名额。提交前非阻塞领取名额，没名额就返回固定拒绝。三秒等待上限和连接剩余时间一起限制调用方。名额由实际future完成回调归还，不由超时或取消的协程归还，所以重复取消不会无限积压DNS工作。shield后的异步future安装异常消费者，迟到的DNS异常不会形成带内部详情的未处理future日志。",
+    "设置保存和实际连接是两条不同边界。保存检查让用户尽早看到不可用的配置；实际检查保护环境变量、历史全局设置，以及podcast_content和project_autopilot_config读取的llm:workspace记录。实际路径不能复用保存检查的旧答案。测试明确让保存得到公网地址，而拨号前得到内网地址，观察到底层connect_tcp没有调用。",
+    "HTTPX的trust_env和follow_redirects都显式关闭。客户端不接收环境代理和环境CA文件，传输层也拒绝不同origin、不同Host及sni_hostname覆盖。307响应进入已有失败分支，目标地址没有第二次TCP，也没有收到原密钥。可信模型网关可能在远端继续代理，这是网关本身的部署职责，不能把本策略描述为看穿所有代理链。",
+    "E2仍用原provider、base_url和model匹配价格。G5仍从原设置行和字段打开密文，网络规范化不写回配置。真实隔离账本测试把完整逻辑billing.invalid地址写入账本，TCP观察只看到公网字面IP，TLS观察仍看到billing.invalid。预算耗尽时DNS和TCP计数都是零；DNS拒绝和取消都不新增零费用退款规则。",
+    "OutboundPolicyError与BudgetPolicyError是独立类别。仅重新抛出的catch使用两类异常元组；需要投影字段的学习worker和autopilot分别处理，避免读取不存在的phase或retry_after。个人适配器在早期URL拒绝和后期DNS拒绝都设置同一安全last_error。注册模型把拒绝翻译成固定PublicModelError，公开教练终态renderer只接受已知code对应的作者文案，不把任意dict或provider异常转成文字。"
+  ],
+  "concepts": [
+    [
+      "origin",
+      "协议、主机和有效端口组合，路径不属于origin",
+      "精确部署例外和请求路由边界"
+    ],
+    [
+      "DNS rebinding",
+      "同一域名在不同时间回答不同地址",
+      "证明保存校验必须由实际TCP前校验补足"
+    ],
+    [
+      "TCP pinning",
+      "拨号时使用已经审过的字面IP",
+      "消除审过公网却重新解析到内网的时间差"
+    ],
+    [
+      "Host与SNI",
+      "HTTP声明服务域名及TLS握手的服务名",
+      "在只替换TCP目标时保留原站点身份和证书验证"
+    ],
+    [
+      "未知用量",
+      "请求已准入但没有可信token明细",
+      "继续保留既有费用预留，不把缺证据写成零成本"
+    ],
+    [
+      "受控测试seam",
+      "仅测试里替换DNS或transport的位置",
+      "隔离响应解析测试和真实网络策略测试，生产无旁路开关"
+    ]
+  ],
+  "rationale": [
+    "把三类数据分开，代码更容易检查。配置URL回答‘你选择了哪家服务’，origin回答‘部署允许访问哪里’，实际IP回答‘这次TCP连接去了哪里’。前两者决定凭据和价格，最后一个只供连接层使用。在设置入口和实际网络入口集中检查，业务模块继续处理自己的学习、题目或费用规则。",
+    "复用成熟httpcore网络后端能保留流式读取、超时、TLS和清理行为。代价是版本敏感适配点，因此限制依赖范围，并用真实回环HTTP与TLS证明行为。没有为了H2新增网络库、DNS服务进程或账本状态机。",
+    "原有MockTransport测试要验证响应、费用和业务语义，改为显式替换模型transport构造器，不给生产添加fixture模式或默认放行.invalid域名。真正的安全测试保留model_client、PinnedModelTransport和httpcore池，仅控制解析器、委托stream或回环socket。",
+    "IPv6地址可以有展开和压缩写法，比较授权时要认出它们是同一个地址，但发请求时仍保留原来的主机身份。Python也把::1归为保留地址，因此精确授权的本地回环需要单独处理。DNS等待结束后，底层线程可能稍后才失败；消费迟到异常能避免把内部解析信息写成未处理错误。这些处理分别对应实际兼容与异常路径，不能用一条宽松的‘允许内网’开关代替。"
+  ],
+  "alternatives": [
+    [
+      "成熟httpcore network backend，采用",
+      "不改请求URL，保留HTTP/TLS/价格/凭据身份，HTTP实现由成熟库维护",
+      "需要维护小型版本敏感_pool适配，并接受先拨一个已核验地址的可用性取舍"
+    ],
+    [
+      "URL改写成IP再补Host/SNI，拒绝",
+      "可在请求层直接看到IP",
+      "身份分散在URL、Host、SNI和pool key，容易把IP写进配置或价格匹配，重复维护路由逻辑"
+    ],
+    [
+      "只做保存或DNS预检，拒绝",
+      "改动较少",
+      "真实HTTP客户端还能再次解析，无法证明连接目标是检查通过的IP"
+    ]
+  ],
+  "files": [
+    {
+      "path": ".env.example",
+      "why": "提供或转发部署侧MODEL_LOCAL_ORIGINS，默认空数组，不修改个人.env。"
+    },
+    {
+      "path": "deploy/public/compose.yaml",
+      "why": "提供或转发部署侧MODEL_LOCAL_ORIGINS，默认空数组，不修改个人.env。"
+    },
+    {
+      "path": "deploy/public/seed.env.example",
+      "why": "提供或转发部署侧MODEL_LOCAL_ORIGINS，默认空数组，不修改个人.env。"
+    },
+    {
+      "path": "deploy/tenant/model_relay.py",
+      "why": "注册租户侧车默认走同一backend，保留原有显式测试transport注入；关闭客户端时仍释放准入名额。"
+    },
+    {
+      "path": "deploy/tenant/runtime.py",
+      "why": "_compose给API/worker声明生成的精确内部relay origin，_model_upstream转发部署侧上游例外。"
+    },
+    {
+      "path": "deploy/tenant/start_local.py",
+      "why": "environment转发操作员origin列表，个人模型启动选择继承对应部署列表，不读取或改写个人环境。"
+    },
+    {
+      "path": "docs/adr/h2-model-outbound-policy.md",
+      "why": "记录两种方案、精确授权迁移、DNS容量、账本契约和真实测试边界。"
+    },
+    {
+      "path": "server/app/api/v1/bank.py",
+      "why": "在既有预算拒绝边界旁显式传播出站策略拒绝，避免宽泛异常处理生成成功备用或规则结果。"
+    },
+    {
+      "path": "server/app/api/v1/memory.py",
+      "why": "在既有预算拒绝边界旁显式传播出站策略拒绝，避免宽泛异常处理生成成功备用或规则结果。"
+    },
+    {
+      "path": "server/app/api/v1/settings.py",
+      "why": "update_llm在写入密文前校验最终配置URL与全部DNS；连接测试使用原适配器的实际策略出口。"
+    },
+    {
+      "path": "server/app/config.py",
+      "why": "model_local_origins只从部署Settings加载，设置请求不能增加origin例外。"
+    },
+    {
+      "path": "server/app/services/bank_review_actions.py",
+      "why": "在既有预算拒绝边界旁显式传播出站策略拒绝，避免宽泛异常处理生成成功备用或规则结果。"
+    },
+    {
+      "path": "server/app/services/feedback_delivery.py",
+      "why": "审核模型_review使用共同网络出口，策略拒绝仍失败关闭，不发送外部邮件。"
+    },
+    {
+      "path": "server/app/services/llm.py",
+      "why": "chat_with流式与非流式复用model_client，无网络前检与实际DNS拒绝统一last_error，预留和结算时序不变。"
+    },
+    {
+      "path": "server/app/services/model_outbound.py",
+      "why": "ModelOrigin、ModelEndpoint、VettedDialTarget及有界DNS和PinnedNetworkBackend保留逻辑域名而固定实际TCP地址。"
+    },
+    {
+      "path": "server/app/services/project_autopilot_engine.py",
+      "why": "_ask把出站拒绝转换为独立安全StageError，不冒充预算错误。"
+    },
+    {
+      "path": "server/app/services/public_coach.py",
+      "why": "_public_error只识别固定MODEL_OUTBOUND_POLICY，终态文案不回显任意异常详情。"
+    },
+    {
+      "path": "server/app/services/public_model.py",
+      "why": "注册complete_text/stream_text的_response接入固定TCP出口；_claim仍在DNS/TCP前，异常转为安全PublicModelError。"
+    },
+    {
+      "path": "server/app/services/question_generation.py",
+      "why": "在既有预算拒绝边界旁显式传播出站策略拒绝，避免宽泛异常处理生成成功备用或规则结果。"
+    },
+    {
+      "path": "server/app/services/study_chat.py",
+      "why": "自动学习请求的outbound拒绝保存固定失败终态，不触发备用或修复。"
+    },
+    {
+      "path": "server/app/services/study_notes.py",
+      "why": "在既有预算拒绝边界旁显式传播出站策略拒绝，避免宽泛异常处理生成成功备用或规则结果。"
+    },
+    {
+      "path": "server/requirements.txt",
+      "why": "限制HTTPX 0.28.x和httpcore 1.0.x，明确成熟transport私有适配点的兼容区间。"
+    },
+    {
+      "path": "server/tests/conftest.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "server/tests/model_transport_fixtures.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "server/tests/test_feedback_delivery.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "server/tests/test_llm_endpoint_credentials.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "server/tests/test_llm_metric_classification.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "server/tests/test_llm_stream_deadlines.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "server/tests/test_llm_stream_terminal_phase.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "server/tests/test_llm_stream_transport.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "server/tests/test_llm_transport_diagnostics.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "server/tests/test_model_outbound_policy.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "server/tests/test_private_model_billing.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "server/tests/test_project_autopilot_engine.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "server/tests/test_project_deep_analysis.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "server/tests/test_public_coach.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "server/tests/test_public_seed_model.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "server/tests/test_secret_storage.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "server/tests/test_study_interview_question.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "server/tests/test_study_routing.py",
+      "why": "覆盖对应实际调用或把响应夹具改为显式测试transport/DNS seam；网络保护证据由真实backend及回环服务提供。"
+    },
+    {
+      "path": "scripts/build_wave1_reports.py",
+      "why": "outbound_policy_demo把域名、DNS结果、实际拨号和TLS身份画成可切换的流程。数据固定，不发请求；它解释原理，不代替产品安全测试。"
+    }
+  ],
+  "verification": {
+    "explanation": [
+      "测试从指定工作树server使用项目Python运行run_isolated_tests.py，每次创建新的*_test PostgreSQL数据库。日志首行保留实际库名。没有复用个人库。合成模型密钥和价格只在夹具内存在，真实provider环境在运行前清空。",
+      "低层测试检查connect_tcp只收到规范字面IP，HTTP Host和TLS/SNI仍为逻辑域名。真实TLS回环使用临时自签证书，只在测试中显式信任，正确主机成功、错误主机失败。响应MockTransport的通过只用于其声明的业务范围。",
+      "最终组合原始结果为10 failed, 580 passed, 1 warning in 499.07s (0:08:19)。其中8个注册路由节点是作者测试seam错接，已修复并8例复查通过。80ms节点原本仅观察到1个事件，改为先确定性发送两个有效事件，再持续跨越原deadline；全部deadline及相关终态路径最后34例通过。剩余test_generation_deadline_closes_a_stalled_attempt的cancelled/timeout差异已由父代理分配F8，本项不改。不能用定向通过抹去原组合失败，也未再次运行未变化的590例组合。",
+      "重跑命令前，在本项工作树server目录使用项目Python，并设置UTF-8输出。同时运行仓库根tests时，PYTHONPATH需要包含本工作树根目录与server目录。测试数据库连接只复制本次运行自有的受保护合成配置，不能使用个人.env。重复命令已合并；每次执行的独立退出码和原始日志仍保留在command-history.json。"
+    ],
+    "checks": [
+      [
+        "旧行为",
+        "metadata及loopback两例旧版未抛拒绝，保存红证据",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\h2\\red.log"
+      ],
+      [
+        "网络、IPv6、TLS、部署例外和终态拒绝",
+        "聚焦组合112 passed，含真实TLS/Host、全部DNS、精确origin和relay安全错误",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\h2\\focused-final-seams-2.log"
+      ],
+      [
+        "公共账本、凭据、设置与反馈",
+        "定向子集162 passed",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\h2\\focused-tail-2.log"
+      ],
+      [
+        "最终组合",
+        "10 failed, 580 passed, 1 warning in 499.07s (0:08:19)",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\h2\\final-combination.log"
+      ],
+      [
+        "80ms传输deadline定向检查",
+        "1 passed；组合里的真实失败仍保留",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\h2\\focused-deadline.log"
+      ],
+      [
+        "最终修改后的定向组合",
+        "34 passed，包含确定性SSE夹具、8个注册路由、公开终态、账本身份和DNS取消",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\h2\\final-focused.log"
+      ],
+      [
+        "作者改动Python文件Ruff",
+        "All checks passed!；父代理generator排除",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\h2\\final-ruff.log"
+      ]
+    ],
+    "commands": [
+      "& 'D:/agent-interview/server/.venv/Scripts/python.exe' run_isolated_tests.py tests/test_model_outbound_policy.py -q --tb=short",
+      "& 'D:/agent-interview/server/.venv/Scripts/python.exe' run_isolated_tests.py tests/test_model_outbound_policy.py tests/test_llm_endpoint_credentials.py tests/test_llm_metric_classification.py tests/test_llm_stream_transport.py tests/test_llm_stream_deadlines.py tests/test_llm_stream_terminal_phase.py tests/test_llm_transport_diagnostics.py tests/test_private_model_billing.py tests/test_public_seed_model.py tests/test_secret_storage.py tests/test_settings_workspaces.py tests/test_feedback_delivery.py -q --tb=short",
+      "& 'D:/agent-interview/server/.venv/Scripts/python.exe' run_isolated_tests.py tests/test_llm_endpoint_credentials.py tests/test_llm_transport_diagnostics.py -q --tb=short -x",
+      "& 'D:/agent-interview/server/.venv/Scripts/python.exe' run_isolated_tests.py tests/test_model_outbound_policy.py tests/test_llm_endpoint_credentials.py tests/test_llm_transport_diagnostics.py tests/test_private_model_billing.py::test_chat_actual_repair_fallback_and_policy_terminal -q --tb=short -x",
+      "& 'D:/agent-interview/server/.venv/Scripts/python.exe' run_isolated_tests.py tests/test_public_seed_model.py tests/test_secret_storage.py tests/test_settings_workspaces.py tests/test_feedback_delivery.py -vv --tb=short -x -o faulthandler_timeout=20",
+      "& 'D:/agent-interview/server/.venv/Scripts/python.exe' run_isolated_tests.py tests/test_model_outbound_policy.py tests/test_llm_endpoint_credentials.py tests/test_llm_transport_diagnostics.py tests/test_private_model_billing.py::test_chat_actual_repair_fallback_and_policy_terminal tests/test_private_model_billing.py::test_budget_denial_performs_zero_dns_and_tcp tests/test_private_model_billing.py::test_cancelled_dns_keeps_reservation_and_does_not_later_dial ../tests/test_model_relay.py -q --tb=short -x",
+      "& 'D:/agent-interview/server/.venv/Scripts/python.exe' run_isolated_tests.py 'tests/test_llm_stream_deadlines.py::test_continuous_stream_activity_cannot_extend_default_or_explicit_total[None]' -q --tb=short",
+      "& 'D:/agent-interview/server/.venv/Scripts/python.exe' run_isolated_tests.py tests/test_model_outbound_policy.py tests/test_llm_endpoint_credentials.py tests/test_llm_metric_classification.py tests/test_llm_stream_transport.py tests/test_llm_stream_deadlines.py tests/test_llm_stream_terminal_phase.py tests/test_llm_transport_diagnostics.py tests/test_private_model_billing.py tests/test_public_seed_model.py tests/test_public_coach.py tests/test_public_native_gateway.py tests/test_public_auth.py tests/test_secret_storage.py tests/test_settings_workspaces.py tests/test_feedback_delivery.py tests/test_study_routing.py tests/test_project_autopilot_engine.py tests/test_project_deep_analysis.py tests/test_study_interview_question.py ../tests/test_model_relay.py -q --tb=short -o faulthandler_timeout=45",
+      "& 'D:/agent-interview/server/.venv/Scripts/python.exe' run_isolated_tests.py tests/test_study_routing.py -k registered -q --tb=short",
+      "& 'D:/agent-interview/server/.venv/Scripts/python.exe' run_isolated_tests.py tests/test_llm_stream_deadlines.py tests/test_study_routing.py::test_registered_turn_preserves_upstream_retry_class tests/test_study_routing.py::test_registered_retry_uses_distinct_physical_models tests/test_public_coach.py::test_real_model_outbound_refusal_reaches_registered_terminal_error tests/test_private_model_billing.py::test_pinned_connection_preserves_price_and_ledger_endpoint_identity tests/test_private_model_billing.py::test_cancelled_dns_keeps_reservation_and_does_not_later_dial -q --tb=short",
+      "$changedPython = @(git diff --name-only -- '*.py' | Where-Object { $_ -ne 'scripts/build_wave1_reports.py' })\n$changedPython += @('server/app/services/model_outbound.py','server/tests/test_model_outbound_policy.py','server/tests/model_transport_fixtures.py')\n& 'D:/agent-interview/server/.venv/Scripts/python.exe' -m ruff check --config server/pyproject.toml --config 'lint.isort.known-first-party=[\"app\"]' @changedPython",
+      "git diff --check"
+    ]
+  },
+  "limits": [
+    "没有真实模型供应商调用、真实外部SMTP投递、个人实例部署或个人库访问。TLS证据来自回环服务和测试独立信任的临时证书。",
+    "DNS三秒是调用方等待上限，不能强杀OS getaddrinfo。每进程最多八个真实查询，底层未完成前不归还名额；全部卡住会失败关闭，也可能延缓进程退出。",
+    "64条答案上限在OS返回后检查，不是OS内存硬限制。当前只连接第一个已核验IP，不提供自动双栈或其他IP重试。",
+    "HTTPX _pool和httpcore AnyIOBackend是版本敏感适配点，依赖区间已限制，升级需重跑真实连接与TLS测试。",
+    "精确本地origin需操作员配置且只允许该协议/主机/端口；不能替代网络防火墙，也不检查已获准网关在远端继续转发的目标。",
+    "继承的结算二次取消风险不在H2扩大修复。已知F8 test_generation_deadline_closes_a_stalled_attempt仍按父代理账本另行处理。组合结果按实际日志报告，不声称全部绿。"
+  ],
+  "interview": [
+    "可以解释为什么只做DNS预检不够，并指出实际TCP前的VettedDialTarget以及Host/SNI保留证据。不能把受控模型测试说成真实供应商兼容性认证。",
+    "可以解释预算准入、凭据绑定和出站权限是三个独立边界：合法URL不授权付费，有预算不允许任意地址，密钥属于原逻辑端点。",
+    "可以说明线程池容量与调用超时不同，取消等待不等于取消OS解析；这也是为什么实际future完成后才释放名额。用户本人是否能独立复现和讲解，需要另行真实作答检验。"
+  ],
+  "questions": [
+    [
+      "为什么保存时解析出公网IP，实际调用还要再查？",
+      "存量与环境配置不可信，而且DNS答案会变。真实TCP前重新核验全部结果并只拨已核验字面IP，才能绑定安全判断和连接。"
+    ],
+    [
+      "为什么IP只交给拨号器，不替换base_url？",
+      "base_url仍是HTTP/TLS、价格与凭据身份。替换它会使Host/SNI、pool key、价格快照与密钥绑定产生错配。"
+    ],
+    [
+      "设置里传model_local_origins能启用本地服务吗？",
+      "不能。有效列表只来自部署Settings，包含准确协议、主机和端口；API请求、DB设置和免计费开关都不能扩大它。"
+    ],
+    [
+      "超时后为什么还占DNS名额？",
+      "OS查询仍可能运行。提前归还会允许连续取消制造无限底层任务，必须由底层future完成回调归还。"
+    ],
+    [
+      "DNS拒绝后能直接把预留费用退掉吗？",
+      "H2保持E2既有未知用量不退款契约，不在本项推断零用量或新增账本状态。"
+    ]
+  ],
+  "delivery": [
+    "目标是完成第 1 波 H2，从最新 dev 50870a0769bf681e5cb4fc69533dbc42ba49bb11 建独立分支 codex/wave1-h2-outbound-policy。",
+    "报告代码入口固定在 630097d5c0350ade03c5da5a0be68f90a508a512。这份说明对应受控测试环境；个人实例与个人数据库没有升级。",
+    "本篇 PR 保存独立审核结论和实际合入状态。最终 dev 提交以合入回执为准，报告只将已运行的检查写为通过。",
+    "回退通过对本项 squash 提交建立新的反向 PR 完成；含持久数据的改动先核对其报告边界，保留已有账本和历史证据。"
+  ],
+  "source_ref": "630097d5c0350ade03c5da5a0be68f90a508a512",
+  "links": [
+    {
+      "label": "PR #61 与真实合入状态",
+      "href": "https://github.com/Lueyu/CareerPilot/pull/61"
+    }
+  ]
+}

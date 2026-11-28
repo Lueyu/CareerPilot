@@ -63,3 +63,10 @@
 - 验证 SHA：4fe46c85e8ddb193db70937ceb5ee20e2e7fb1d9
 - 证据：.agent-runs/20261128-wave1/e2-followup/handoff.json
 - 遗留/后续：F7仍须修复取消传播，F8仍须复查deadline清理；真实供应商与个人实例未验证。
+
+## H2 · 2026-11-28 · DONE
+- 结论：模型出站共享策略绑定实际TCP已验证IP，保留原URL/Host/TLS及定价凭据身份；公网HTTPS默认与部署侧精确例外，个人/注册/租户/反馈模型入口覆盖。112项、162项及最终34项分次通过，范围重叠不加总；独立终审以本PR最终head为准。
+- PR：https://github.com/Lueyu/CareerPilot/pull/61
+- 验证 SHA：630097d5c0350ade03c5da5a0be68f90a508a512
+- 证据：.agent-runs/20261128-wave1/h2/handoff.json
+- 遗留/后续：590组合580通过10失败，9项夹具问题已定向修复，已登记cancelled/timeout问题仍由F8闭环。真实供应商、个人部署未验证；本地模型须显式部署origin授权。
