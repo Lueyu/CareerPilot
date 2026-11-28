@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.errors import error_response
 from app.api.public_auth import current_workspace
 from app.db import get_session
 from app.i18n import message as localized_message
@@ -87,8 +88,28 @@ async def forward(request: Request, path: str, target: NativeTarget):
         finally:
             await close()
     response_headers = {name: upstream.headers[name] for name in (
-        "Content-Type", "Content-Disposition", "Content-Encoding", "Content-Length", "Retry-After"
+        "Content-Type", "Content-Disposition", "Content-Encoding", "Content-Length", "Retry-After", "WWW-Authenticate"
     ) if name in upstream.headers}
+    if upstream.status_code >= 400:
+        # This is a second HTTP hop. Use the gateway's transport ID in its envelope
+        # and header, preserving the upstream business detail and status.
+        try:
+            if upstream.headers.get("content-type", "").split(";", 1)[0].strip().lower() not in {"", "application/json"}:
+                raise HTTPException(502, "Invalid workspace error response.")
+            body = bytearray()
+            async for chunk in upstream.aiter_bytes():
+                if len(body) + len(chunk) > 64 * 1024:
+                    raise HTTPException(502, "Workspace error response exceeded the limit.")
+                body.extend(chunk)
+            try:
+                detail = json.loads(body)["detail"]
+            except (ValueError, KeyError, TypeError):
+                raise HTTPException(502, "Invalid workspace error response.") from None
+            return error_response(request.scope, upstream.status_code, detail,
+                                  {key: value for key, value in response_headers.items()
+                                   if key.lower() in {"retry-after", "content-disposition", "www-authenticate"}})
+        finally:
+            await close()
     return NativeStream(upstream, response_headers, close)
 
 

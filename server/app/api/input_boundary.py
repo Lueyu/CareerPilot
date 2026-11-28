@@ -2,11 +2,9 @@
 import json
 import re
 
-from fastapi.exception_handlers import request_validation_exception_handler
-from fastapi.exceptions import RequestValidationError
-from starlette.requests import Request
-from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+from app.api.errors import error_response, validation_error
 
 _SCOPES = (
     ('POST', re.compile(r'/api/v1/telemetry/events/?$'), 128 * 1024),
@@ -22,13 +20,7 @@ def json_input_limit(scope: Scope):
                  and path.fullmatch(scope['path'])), None)
 
 
-async def input_validation_error(request: Request, error: RequestValidationError):
-    if json_input_limit(request.scope) is None:
-        return await request_validation_exception_handler(request, error)
-    # Raw invalid JSON may include NaN/Infinity, which JSONResponse cannot encode.
-    # Preserve the 422 field locations and messages without echoing entire answers.
-    errors = [{key: item[key] for key in ('type', 'loc', 'msg')} for item in error.errors()]
-    return JSONResponse({'detail': errors}, status_code=422)
+input_validation_error = validation_error
 
 
 def _too_deep(body: bytearray) -> bool:
@@ -73,13 +65,13 @@ class JsonInputBoundary:
                 return
             chunk = message.get('body', b'')
             if len(body) + len(chunk) > limit:
-                await JSONResponse({'detail': 'request body too large'}, status_code=413)(scope, receive, send)
+                await error_response(scope, 413, 'request body too large')(scope, receive, send)
                 return
             body.extend(chunk)
             if not message.get('more_body', False):
                 break
         if _too_deep(body):
-            await JSONResponse({'detail': 'JSON nesting exceeds 32'}, status_code=422)(scope, receive, send)
+            await error_response(scope, 422, 'JSON nesting exceeds 32')(scope, receive, send)
             return
         replayed = False
 

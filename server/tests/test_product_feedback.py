@@ -213,3 +213,15 @@ async def test_post_delivery_commit_failure_remains_ambiguous(clients, monkeypat
     assert (await native.post(PATH, headers=token_headers(), json=body)).status_code == 409
     assert (await native.post(PATH, headers=token_headers(), json=body)).status_code == 409
     assert delivery.await_count == 1
+
+async def test_public_cancelled_feedback_is_not_replayed(clients, db_session):
+    _, public, delivery, _ = clients
+    expected = await register(public)
+    delivery.side_effect = asyncio.CancelledError
+    body = payload()
+    with pytest.raises(asyncio.CancelledError):
+        await public.post(PATH, headers=expected, json=body)
+    assert (await public.post(PATH, headers=expected, json=body)).status_code == 409
+    assert delivery.await_count == 1
+    row = await db_session.get(FeedbackSubmission, (int(expected["X-Expected-Workspace"]), body["submission_id"]))
+    assert row.status == "in_progress"
