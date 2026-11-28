@@ -48,7 +48,7 @@ from app.services.llm import AgentAdapter
 from app.services.model_outbound import OutboundPolicyError
 from app.services.private_model_billing import BillingScope, BudgetPolicyError
 from app.services.project_context import PROFILE_LABELS, project_profile
-from app.services.text_extract import MAX_FILE_BYTES, MAX_TEXT_CHARS, extract_many
+from app.services.text_extract import MAX_FILE_BYTES, MAX_TEXT_CHARS, extract_many_async
 from app.services.tracing import add_span, emit_event, finish_trace, start_trace
 from app.services.untrusted_source import SOURCE_AUTHORITY_CONTRACT, source_json, source_review
 
@@ -421,7 +421,7 @@ async def _process_import(
         text_parts = [("粘贴文本", paste_text)] if paste_text else []
         if raw_items:
             t_stage = time.perf_counter()
-            extracted = await asyncio.to_thread(extract_many, raw_items)
+            extracted = await extract_many_async(raw_items)
             parse_ms = int((time.perf_counter() - t_stage) * 1000)
             file_meta = [x.as_meta() for x in extracted.files]
             ok_names = [f.name for f in extracted.ok_files]
