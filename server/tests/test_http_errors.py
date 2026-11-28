@@ -318,6 +318,37 @@ async def test_disconnect_does_not_expose_an_original_secret(transport_failure, 
     assert counts.snapshot()["counts"] == ({} if transport_failure else {"unexpected_disconnected": 1})
 
 
+@pytest.mark.parametrize("failure_type", [OSError, RuntimeError])
+@pytest.mark.parametrize("failed_message", ["http.response.start", "http.response.body"])
+async def test_fallback_send_failure_cannot_expose_either_exception(failure_type, failed_message, caplog):
+    counts = errors.ErrorCounts()
+    messages = []
+
+    async def application(scope, receive, send):
+        raise RuntimeError(SENTINEL)
+
+    async def receive():
+        return {"type": "http.request", "body": b""}
+
+    async def send(message):
+        messages.append(message)
+        if message["type"] == failed_message:
+            raise failure_type(SENTINEL + "-transport")
+
+    scope = {"type": "http", "method": "GET", "path": "/fallback-fixture", "headers": [], "state": {}}
+    boundary = errors.ErrorBoundary(application, counts=counts, response_policy=lambda response: response)
+    expected = ClientDisconnect if failure_type is OSError else errors.StreamAborted
+    with pytest.raises(expected) as captured, caplog.at_level("ERROR"):
+        await boundary(scope, receive, send)
+    import traceback
+
+    assert SENTINEL not in "".join(traceback.format_exception(captured.value))
+    assert captured.value.__context__ is None
+    assert SENTINEL not in caplog.text
+    assert len([m for m in messages if m["type"] == "http.response.start"]) == 1
+    assert counts.snapshot()["counts"] == {"unexpected_before_start": 1}
+
+
 async def test_safe_faults_do_not_reach_uvicorn_raw_logger(tmp_path, db_session):
     # A disposable local server verifies the outer framework/server logging path.
     script = tmp_path / "f7_server_probe.py"

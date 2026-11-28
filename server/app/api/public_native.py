@@ -22,6 +22,10 @@ Member = Annotated[Workspace, Depends(current_workspace)]
 Database = Annotated[AsyncSession, Depends(get_session)]
 
 
+def reject_json_constant(_value):
+    raise ValueError("Non-finite JSON constant")
+
+
 @router.get("/access")
 async def native_access(ws: Member):
     return {"personal_owner": is_bound_owner(ws)}
@@ -102,12 +106,12 @@ async def forward(request: Request, path: str, target: NativeTarget):
                     raise HTTPException(502, "Workspace error response exceeded the limit.")
                 body.extend(chunk)
             try:
-                detail = json.loads(body)["detail"]
-            except (ValueError, KeyError, TypeError):
+                detail = json.loads(body, parse_constant=reject_json_constant)["detail"]
+                return error_response(request.scope, upstream.status_code, detail,
+                                      {key: value for key, value in response_headers.items()
+                                       if key.lower() in {"retry-after", "content-disposition", "www-authenticate"}})
+            except (ValueError, KeyError, TypeError, RecursionError):
                 raise HTTPException(502, "Invalid workspace error response.") from None
-            return error_response(request.scope, upstream.status_code, detail,
-                                  {key: value for key, value in response_headers.items()
-                                   if key.lower() in {"retry-after", "content-disposition", "www-authenticate"}})
         finally:
             await close()
     return NativeStream(upstream, response_headers, close)

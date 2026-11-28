@@ -10,6 +10,8 @@
 !app/locales/*.json
 !app/api/__init__.py
 !app/api/deps.py
+!app/api/errors.py
+!app/api/input_boundary.py
 !app/api/rate_limits.py
 !app/api/recovery_guard.py
 !app/api/public_*.py

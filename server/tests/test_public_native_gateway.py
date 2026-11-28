@@ -410,14 +410,18 @@ async def test_native_error_envelope_uses_gateway_id_and_closes_upstream(gateway
         assert int(response.headers["Content-Length"]) == len(response.content)
     for case_mime, case_content in (("application/json", b"x" * (64 * 1024 + 1)),
                           ("application/json", b'{"invalid":"shape"}'),
+                          ("application/json", b'{"detail":{"value":NaN}}'),
+                          ("application/json", b'{"detail":{"value":Infinity}}'),
+                          ("application/json", b'{"detail":{"value":-Infinity}}'),
+                          ("application/json", b'{"detail":' + b'[' * 2000 + b'0' + b']' * 1999 + b'}'),
                           ("text/html", b"<html>synthetic-private-traceback</html>")):
         mime, content = case_mime, case_content
         response = await client.get(NATIVE + "/example")
-        assert response.status_code == 502
+        assert response.status_code == 502, response.text
         assert response.json()["request_id"] == response.headers["X-Request-ID"]
         assert "synthetic-private-traceback" not in response.text
-    assert len(closed) == 6
+    assert len(closed) == 10
     status, mime, content = 200, "application/json", b'{"request_id":"business-ticket-preserved"}'
     response = await client.get(NATIVE + "/example")
     assert response.json() == {"request_id": "business-ticket-preserved"}
-    assert len(closed) == 7
+    assert len(closed) == 11

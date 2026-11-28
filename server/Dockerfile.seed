@@ -11,6 +11,7 @@ COPY app/ app/
 COPY migrations/20261128_recovery_control.sql migrations/20261128_recovery_control.sql
 RUN test -f app/public_main.py && test -f app/services/feedback_delivery.py \
     && test -f app/readiness.py \
+    && test -f app/api/errors.py && test -f app/api/input_boundary.py \
     && test -f migrations/20261128_recovery_control.sql
 
 USER 65532:65532

@@ -138,6 +138,7 @@ class ErrorBoundary:
 
         abort_stream = False
         abort_disconnect = False
+        send_fallback = False
         try:
             await self.app(scope, observed_receive, observed_send)
         except ClientDisconnect:
@@ -157,12 +158,21 @@ class ErrorBoundary:
                              request_id(scope), fault_phase, type(exc).__name__, filename, line)
                 self.counts.add("unexpected_" + fault_phase)
                 if not disconnected and phase is ResponsePhase.BEFORE_START:
-                    detail = {"code": "INTERNAL_ERROR", "message": error_payload(scope, 500, None)["message"]}
-                    response = self.response_policy(error_response(scope, 500, detail))
-                    await response(scope, receive, send)
+                    send_fallback = True
                 elif not disconnected and phase is ResponsePhase.STARTED:
                     abort_stream = True
             # A completed response (e.g. failing BackgroundTask) is already immutable.
+        if send_fallback:
+            try:
+                detail = {"code": "INTERNAL_ERROR", "message": error_payload(scope, 500, None)["message"]}
+                response = self.response_policy(error_response(scope, 500, detail))
+                await response(scope, observed_receive, observed_send)
+            except (ClientDisconnect, OSError):
+                abort_disconnect = True
+            except Exception as exc:
+                logger.error("http_error_response_failed request_id=%s exception_type=%s",
+                             request_id(scope), type(exc).__name__)
+                abort_stream = True
         if abort_disconnect:
             raise ClientDisconnect("HTTP client disconnected; request_id=" + request_id(scope))
         if abort_stream:
