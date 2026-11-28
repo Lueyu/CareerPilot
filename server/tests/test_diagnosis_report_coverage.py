@@ -113,3 +113,6 @@ async def test_deep_coverage_preserves_official_assessment(
     await db_session.refresh(run)
     assert run.report == frozen_report
     assert (await db_session.execute(evidence_query)).all() == evidence
+
+
+pytestmark = pytest.mark.usefixtures("enrolled_default_owner")

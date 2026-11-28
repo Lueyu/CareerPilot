@@ -120,3 +120,6 @@ async def test_resume_drafts_require_confirmation_and_isolate_revision_and_proje
         await db_session.rollback()
         await db_session.execute(delete(Workspace).where(Workspace.id == foreign_id))
         await db_session.commit()
+
+
+pytestmark = pytest.mark.usefixtures("enrolled_default_owner")

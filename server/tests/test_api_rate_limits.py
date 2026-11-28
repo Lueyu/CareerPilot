@@ -1,6 +1,5 @@
 """Synthetic HTTP/auth/provider, real isolated PostgreSQL admission and process state."""
 import asyncio
-import hashlib
 import json
 import os
 import runpy
@@ -13,6 +12,7 @@ from uuid import uuid4
 import httpx
 import pytest
 import pytest_asyncio
+from credential_fixtures import enroll_token
 from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -40,7 +40,8 @@ def policy(*, burst=10, daily=100, llm_burst=1, llm_daily=100):
 async def api(db_session, test_workspace, monkeypatch):
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False, autoflush=False)
     cfg = get_settings()
-    monkeypatch.setattr(cfg, "api_token", "synthetic-e3-owner")
+    monkeypatch.setattr(cfg, "api_token", secrets.token_urlsafe(32))
+    await enroll_token(db_session, cfg.api_token)
     monkeypatch.setattr(cfg, "default_workspace_slug", test_workspace.slug)
     monkeypatch.setattr(cfg, "workspace_token_hashes", {})
     monkeypatch.setattr(cfg, "api_rate_limits", policy())
@@ -69,8 +70,9 @@ async def test_http_write_denies_before_mutation_and_shared_credentials_cannot_r
     cfg.api_rate_limits = policy(burst=1)
     first = await client.patch("/settings/workspace", json={"name": "one accepted edit"})
     assert first.status_code == 200, first.text
-    scoped = "synthetic-scoped-credential"
-    cfg.workspace_token_hashes = {workspace.slug: hashlib.sha256(scoped.encode()).hexdigest()}
+    scoped = secrets.token_urlsafe(32)
+    async with factory() as db:
+        await enroll_token(db, scoped, workspace.slug)
     client.headers["X-Api-Token"] = scoped
     denied = await client.patch("/settings/workspace", json={"name": "must not persist"},
                                 headers={"X-Forwarded-For": "203.0.113.99", "X-Request-ID": "secret-do-not-reflect"})
@@ -88,8 +90,9 @@ async def test_http_write_denies_before_mutation_and_shared_credentials_cannot_r
 async def test_failed_auth_or_scope_spoof_does_not_drain_victim(api):
     client, cfg, factory, workspace = api
     cfg.api_rate_limits = policy(burst=1)
-    scoped = "synthetic-scope"
-    cfg.workspace_token_hashes = {workspace.slug: hashlib.sha256(scoped.encode()).hexdigest()}
+    scoped = secrets.token_urlsafe(32)
+    async with factory() as db:
+        await enroll_token(db, scoped, workspace.slug)
     assert (await client.get("/study/sessions", headers={"X-Api-Token": "bad"})).status_code == 401
     assert (await client.get("/study/sessions", headers={"X-Api-Token": scoped, "X-Workspace": "victim"})).status_code == 404
     assert await counts(factory, f"workspace:{workspace.id}") == {}

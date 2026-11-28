@@ -104,17 +104,17 @@ async def _subject(request: Request, route: APIRoute, session, registered: bool)
             return None
         scope = await require_auth(authorization=request.headers.get("authorization"),
                                    x_api_token=request.headers.get("x-api-token"))
-        if require_local_owner in calls and scope is not None:
+        if require_local_owner in calls and not scope.is_owner:
             raise HTTPException(403, "local owner required")
         if get_workspace in calls:
             ws = await get_workspace(session=session, _auth=scope, x_workspace=request.headers.get("x-workspace"))
             return f"workspace:{ws.id}"
-        if scope is not None:
-            workspace_id = await session.scalar(select(Workspace.id).where(Workspace.slug == scope))
+        if not scope.is_owner:
+            workspace_id = await session.scalar(select(Workspace.id).where(Workspace.id == scope.workspace_id))
             if workspace_id is None:
                 raise HTTPException(404, "workspace not found")
             return f"workspace:{workspace_id}"
-        return "local-owner"
+        return scope.subject
 
     from app.api.public_auth import _session_account, current_workspace
 

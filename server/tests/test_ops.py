@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from credential_fixtures import enroll_token
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import get_settings
@@ -17,6 +18,7 @@ async def _setup(db_session, monkeypatch):
     cfg = get_settings()
     monkeypatch.setattr(cfg, "workspace_token_hashes", {})
     monkeypatch.setattr(cfg, "api_token", "owner-" + uuid4().hex)
+    await enroll_token(db, cfg.api_token)
     factory = async_sessionmaker(db.bind, expire_on_commit=False, autoflush=False)
 
     async def request_db():

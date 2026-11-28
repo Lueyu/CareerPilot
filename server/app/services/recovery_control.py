@@ -13,13 +13,12 @@ class RecoveryBlocked(HTTPException):
                                "message": "Recovery requires offline validation and separate credential/budget reconciliation."})
 
 
-async def require_normal(session=None) -> None:
+async def require_normal(session=None) -> str:
     """Read on every boundary; missing schema/row or unsupported state is a denial."""
     if session is None:
         from app.db import SessionLocal
         async with SessionLocal() as db:
-            await require_normal(db)
-        return
+            return await require_normal(db)
     try:
         rows = (await session.execute(text(
             "SELECT *, current_database() AS actual_database, inet_server_addr()::text AS actual_address, "
@@ -38,6 +37,7 @@ async def require_normal(session=None) -> None:
             and row["validation_state"] == "KNOWN_INSTALLATION"
             and row["access_state"] == row["paid_state"] == row["credentials_state"] == "NORMAL"):
         raise RecoveryBlocked()
+    return row["restore_id"]
 
 
 async def provision_known_installation(session) -> None:

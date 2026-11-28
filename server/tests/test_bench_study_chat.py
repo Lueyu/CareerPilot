@@ -4,14 +4,12 @@ import socket
 from argparse import Namespace
 from collections import Counter
 from contextlib import AsyncExitStack
-from types import SimpleNamespace
 
 import httpx
 import pytest
 import uvicorn
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.api import deps
 from app.db import get_session
 from app.main import app
 from app.services import study_chat as worker
@@ -30,7 +28,11 @@ from bench_study_chat import (
 
 @pytest.mark.asyncio
 async def test_benchmark_over_loopback_production_routes(monkeypatch, db_session, test_workspace):
-    token = "synthetic-study-bench-token"
+    from secrets import token_urlsafe
+
+    from credential_fixtures import enroll_token
+    token = token_urlsafe(32)
+    await enroll_token(db_session, token)
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False, autoflush=False)
 
     async def isolated_session():
@@ -55,7 +57,6 @@ async def test_benchmark_over_loopback_production_routes(monkeypatch, db_session
             return {"content": "   固定夹具正文"}
 
     monkeypatch.setitem(app.dependency_overrides, get_session, isolated_session)
-    monkeypatch.setattr(deps, "get_settings", lambda: SimpleNamespace(api_token=token, workspace_token_hashes={}))
     monkeypatch.setattr(worker, "SessionLocal", factory)
     monkeypatch.setattr(worker, "get_llm_config", config)
     monkeypatch.setattr(worker, "AgentAdapter", FixtureAdapter)

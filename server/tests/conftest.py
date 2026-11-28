@@ -73,6 +73,10 @@ async def db_session(monkeypatch):
     # Middleware/credential guards own independent transactions on this same loop.
     monkeypatch.setattr(db, "SessionLocal", factory)
     async with factory() as session:
+        from app.models import LocalAuthFailure
+        # Each test owns its failure allowance; HTTP/peer checks within it share durable state.
+        await session.execute(delete(LocalAuthFailure))
+        await session.commit()
         yield session
         await session.rollback()
     await engine.dispose()
@@ -118,6 +122,18 @@ def secrets_key(monkeypatch):
     from cryptography.fernet import Fernet
 
     monkeypatch.setenv("CAREERPILOT_SECRETS_KEY", Fernet.generate_key().decode())
+
+
+@pytest_asyncio.fixture
+async def enrolled_default_owner(db_session, monkeypatch):
+    """Opt-in fixture for HTTP contracts that need an explicitly enrolled owner."""
+    from credential_fixtures import enroll_token
+
+    from app.config import get_settings
+    token = secrets.token_urlsafe(32)
+    monkeypatch.setattr(get_settings(), "api_token", token)
+    await enroll_token(db_session, token)
+    return token
 
 
 @pytest.fixture

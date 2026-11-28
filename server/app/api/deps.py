@@ -1,10 +1,4 @@
-"""API 依赖: 认证(MVP token) + 工作空间解析。
-
-所有业务路由通过 get_workspace 拿到当前工作空间, 查询一律带 workspace_id 过滤。
-"""
-import hashlib
-import hmac
-
+"""Authenticated local principals and persisted workspace isolation."""
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,52 +6,40 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.db import get_session
 from app.models import Workspace
-from app.services.recovery_control import require_normal
+from app.services.local_credentials import AuthenticatedPrincipal, authenticate, tenant_workspace_ids
 
 
 async def require_auth(
     authorization: str | None = Header(default=None),
     x_api_token: str | None = Header(default=None),
-) -> str | None:
-    """MVP 认证: Bearer <api_token> 或 X-Api-Token 头。生产换 JWT。"""
-    await require_normal()
+) -> AuthenticatedPrincipal:
     token = None
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization[7:].strip()
     elif x_api_token:
         token = x_api_token
-    cfg = get_settings()
-    if token:
-        digest = hashlib.sha256(token.encode()).hexdigest()
-        for slug, expected in cfg.workspace_token_hashes.items():
-            if hmac.compare_digest(digest, expected):
-                return slug
-        if (not cfg.workspace_token_hashes or cfg.api_token != "cp-dev-token") and hmac.compare_digest(
-            token.encode(), cfg.api_token.encode()
-        ):
-            return None
-    raise HTTPException(status_code=401, detail="invalid token")
+    return await authenticate(token)
 
 
-async def require_local_owner(scope: str | None = Depends(require_auth)) -> None:
-    if scope is not None:
+async def require_local_owner(scope: AuthenticatedPrincipal = Depends(require_auth)) -> None:
+    if not scope.is_owner:
         raise HTTPException(status_code=403, detail="local owner required")
 
 
 async def get_workspace(
     session: AsyncSession = Depends(get_session),
-    _auth: str | None = Depends(require_auth),
+    _auth: AuthenticatedPrincipal = Depends(require_auth),
     x_workspace: str | None = Header(default=None),
 ) -> Workspace:
-    """解析当前工作空间: X-Workspace 头(slug) 或默认 personal; 缺失时绝不回退 Demo。"""
-    cfg = get_settings()
-    scope = _auth if isinstance(_auth, str) else None
-    slug = x_workspace or scope or cfg.default_workspace_slug
-    if (scope and slug != scope) or (scope is None and slug in cfg.workspace_token_hashes):
-        raise HTTPException(status_code=404, detail="workspace not found")
-    ws = (
-        await session.execute(select(Workspace).where(Workspace.slug == slug))
-    ).scalar_one_or_none()
+    statement = select(Workspace)
+    if _auth.is_owner:
+        slug = x_workspace or get_settings().default_workspace_slug
+        statement = statement.where(Workspace.slug == slug, Workspace.id.not_in(tenant_workspace_ids()))
+    else:
+        statement = statement.where(Workspace.id == _auth.workspace_id)
+        if x_workspace:
+            statement = statement.where(Workspace.slug == x_workspace)
+    ws = (await session.execute(statement)).scalar_one_or_none()
     if ws is None:
-        raise HTTPException(status_code=404, detail=f"workspace '{slug}' not found")
+        raise HTTPException(status_code=404, detail="workspace not found")
     return ws

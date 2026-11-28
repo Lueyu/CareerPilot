@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import sys
@@ -134,6 +135,11 @@ async def test_actual_encrypted_drill_and_controlled_standby(db_session, test_wo
     for setting in ['llm', f'llm:{test_workspace.id}', 'github', f'github:{test_workspace.id}', f'gitcode:{test_workspace.id}']:
         db_session.add(AppSetting(key=setting, value=seal_setting(setting, {'api_key': secret} if setting.startswith('llm') else {'token': secret})))
     await db_session.commit()
+    # H1: archive an active credential, then revoke the source before restoring.
+    from app.services.local_credentials import enroll, revoke
+    archived_token = secrets.token_urlsafe(32)
+    archived_credential = await enroll(db_session, archived_token)
+    await db_session.commit()
     source = await asyncpg.connect(url.render_as_string(hide_password=False).replace('+asyncpg', ''))
     before = await validate(source)
     await source.close()
@@ -141,6 +147,8 @@ async def test_actual_encrypted_drill_and_controlled_standby(db_session, test_wo
     storage = tmp_path / 'backups'
     start = time.monotonic()
     result = powershell('backup.ps1', '-Database', url.database, '-OutDir', storage, *common, env=env)
+    await revoke(db_session, archived_credential.id)
+    await db_session.commit()
     bundle = Path(result.stdout.strip().splitlines()[-1])
     manifest = json.loads((bundle / 'manifest.json').read_text(encoding='utf-8-sig'))
     (RUN / 'actual-manifest.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
@@ -166,7 +174,10 @@ async def test_actual_encrypted_drill_and_controlled_standby(db_session, test_wo
     assert await connection.fetchval('SELECT count(*) FROM recovery_control WHERE origin=\'RESTORE\' AND access_state=\'QUARANTINED\' AND paid_state=\'BLOCKED\'') == 1
     await connection.close()
     # Independent process reads durable state; no HTTP provider or SMTP is contacted.
-    child_env = {**env, 'DATABASE_URL': url.set(database=target).render_as_string(hide_password=False)}
+    archived_row = await asyncpg.connect(url.set(database=target).render_as_string(hide_password=False).replace('+asyncpg', ''))
+    assert await archived_row.fetchval('SELECT revoked_at IS NULL FROM local_credentials WHERE id=$1', archived_credential.id)
+    await archived_row.close()
+    child_env = {**env, 'DATABASE_URL': url.set(database=target).render_as_string(hide_password=False), 'API_TOKEN': archived_token}
     worker = command([sys.executable, '-m', 'app.project_worker', '--once'], child_env)
     assert 'RECOVERY_QUARANTINED' in worker.stderr
     child = command([sys.executable, ROOT / 'server/tests/recovery_probe.py'], child_env)

@@ -7,12 +7,12 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from credential_fixtures import enroll_token
 from fastapi import FastAPI, HTTPException
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.v1 import study_chat as api
-from app.config import get_settings
 from app.db import get_session
 from app.models import Project, ProjectAnalysis, Workspace
 from app.services import study_chat as worker
@@ -272,7 +272,7 @@ async def test_workspace_token_study_turn_uses_own_current_scan(db_session, test
 
     monkeypatch.setenv("STUDY_PROJECT_ROOTS", "{}")
     token = uuid4().hex
-    monkeypatch.setattr(get_settings(), "workspace_token_hashes", {ws.slug: hashlib.sha256(token.encode()).hexdigest()})
+    await enroll_token(db, token, ws.slug)
     factory = async_sessionmaker(db.bind, expire_on_commit=False, autoflush=False)
     monkeypatch.setattr(worker, "SessionLocal", factory)
 

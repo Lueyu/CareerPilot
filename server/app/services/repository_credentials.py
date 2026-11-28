@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models import AppSetting, Workspace
+from app.services.local_credentials import tenant_workspace_ids
 from app.services.secret_storage import SecretStorageError, open_setting
 
 
@@ -24,7 +25,8 @@ async def _stored_token(session: AsyncSession, key: str) -> str:
 async def repository_credentials(session: AsyncSession, workspace_id: int) -> dict[str, str]:
     settings = get_settings()
     slug = await session.scalar(select(Workspace.slug).where(Workspace.id == workspace_id))
-    allow_owner_credentials = slug == settings.default_workspace_slug and slug not in settings.workspace_token_hashes
+    isolated = await session.scalar(select(Workspace.id).where(Workspace.id == workspace_id, Workspace.id.in_(tenant_workspace_ids())))
+    allow_owner_credentials = slug == settings.default_workspace_slug and isolated is None
     credentials = {'github_token': '', 'gitcode_token': ''}
     if slug is None:
         return credentials

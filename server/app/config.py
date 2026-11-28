@@ -44,12 +44,12 @@ class Settings(BaseSettings):
     database_url: str = ""
     db_echo: bool = False
 
-    # 认证(MVP: API token 简单校验; 生产换 JWT/OAuth)
+    # Offline enrollment source only. Runtime authentication never trusts this value.
     api_token: str = ""
 
     # 可选静态托管: 指向前端构建产物目录(如 web/dist), 非空时 app 挂载 /assets 与 SPA 回退。
     static_dir: str = ""
-    workspace_token_hashes: dict[str, str] = {}
+    workspace_token_hashes: dict[str, str] = {}  # legacy migration reference only, never runtime authority
     # 正式个人空间; Demo 仅由显式 X-Workspace: demo 访问。
     default_workspace_slug: str = "personal"
     # Deployment-only JSON settings. Daily is a strict UTC+8 calendar-day request cap.

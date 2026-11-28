@@ -1,11 +1,11 @@
 import asyncio
-import hashlib
 import json
 from uuid import uuid4
 
 import httpx
 import pytest
 import pytest_asyncio
+from credential_fixtures import enroll_token
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from test_llm_stream_transport import DONE, frame
@@ -40,10 +40,8 @@ async def chat_client(db_session, test_workspace, monkeypatch):
     await db_session.commit()
     other_id = other.id
     tokens = [uuid4().hex for _ in range(2)]
-    monkeypatch.setattr(get_settings(), "workspace_token_hashes", {
-        space.slug: hashlib.sha256(token.encode()).hexdigest()
-        for space, token in zip((test_workspace, other), tokens)
-    })
+    for space, token in zip((test_workspace, other), tokens):
+        await enroll_token(db_session, token, space.slug)
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False, autoflush=False)
 
     async def request_db():
