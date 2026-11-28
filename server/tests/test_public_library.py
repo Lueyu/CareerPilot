@@ -11,7 +11,6 @@ import pytest
 import pytest_asyncio
 from fastapi import Depends, FastAPI, Header, HTTPException
 from sqlalchemy import delete, func, select, update
-
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api import public_library as library
@@ -224,6 +223,7 @@ async def test_question_detail_and_search_respect_workspace(browser, db_session)
 
 @pytest.fixture
 def starter_provider(browser, monkeypatch):
+    from app.config import get_settings
     from app.services import public_model
 
     for name, value in {
@@ -238,13 +238,15 @@ def starter_provider(browser, monkeypatch):
         "SEED_DAILY_USER_CNY": "10",
     }.items():
         monkeypatch.setenv(name, value)
+    monkeypatch.setattr(get_settings(), 'model_local_origins', ['http://127.0.0.1:1'])
     client = httpx.AsyncClient
 
     def install(handler):
-        def provider_client(**options):
+        def provider_client(url, **options):
+            assert url == 'http://127.0.0.1:1/v1/chat/completions'
             return client(transport=httpx.MockTransport(handler), **options)
 
-        monkeypatch.setattr(public_model.httpx, "AsyncClient", provider_client)
+        monkeypatch.setattr(public_model, "model_client", provider_client)
         monkeypatch.setattr(library, "complete_text", public_model.complete_text)
 
     return install

@@ -1,4 +1,12 @@
 {
+  "sourceReviewWarning": "原文含有疑似指令，请对比完整原文与提取的题目。引用这些内容的正常安全面试题仍可照常审核。",
+  "sourceReviewFinding": "{source}：{reason}",
+  "sourceReviewTruncated": "仅展示前 100 条提示，请对比完整原文中的其他匹配内容。",
+  "sourceInstructionOverride": "尝试覆盖已有指令",
+  "sourceRoleSpoofing": "冒充系统或助手角色",
+  "sourceDelimiterClosure": "尝试结束原文边界",
+  "sourceWorkspaceOrApproval": "要求修改工作区或绕过审批",
+  "sourceSecretRequest": "索取密钥或凭据",
   "selectForPodcast": "多选制作播客",
   "preparePodcasts": "制作播客 · {count} 题",
   "pickPodcastQuestions": "勾选要制作播客的题目",

@@ -1,4 +1,12 @@
 {
+  "sourceReviewWarning": "Suspected instructions in the source. Compare the full original with the extracted questions. Quoted security interview questions can still be reviewed normally.",
+  "sourceReviewFinding": "{source}: {reason}",
+  "sourceReviewTruncated": "Only the first 100 findings are shown. Compare the full original for additional matches.",
+  "sourceInstructionOverride": "Attempts to override instructions",
+  "sourceRoleSpoofing": "Imitates a system or assistant role",
+  "sourceDelimiterClosure": "Attempts to close the source boundary",
+  "sourceWorkspaceOrApproval": "Requests workspace changes or bypassing approval",
+  "sourceSecretRequest": "Requests secrets or credentials",
   "selectForPodcast": "Select for podcast",
   "preparePodcasts": "Create podcasts · {count} questions",
   "pickPodcastQuestions": "Select questions for your podcasts",

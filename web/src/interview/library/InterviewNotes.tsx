@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, ApiError, type ImportReview } from "../../api/client";
+import ImportSourceReview, { importSourceText } from "../../components/ImportSourceReview";
 import {
   chatLink,
   ButtonLink,
@@ -23,9 +24,8 @@ type ReviewItem = ImportReview["items"][number] & {
   review_state?: "idle" | "running" | "failed";
   review_error?: string | null;
 };
-type Batch = Omit<ImportReview, "items" | "meta"> & {
+type Batch = Omit<ImportReview, "items"> & {
   items: ReviewItem[];
-  meta?: ImportReview["meta"] & { pasted_text?: string | null };
 };
 export type PendingImports = { imports: Batch[] };
 export type InterviewSet = {
@@ -312,6 +312,7 @@ export default function InterviewNotes() {
   const rows = filter === "sets" ? [] : imports;
   const papers = filter === "pending" ? [] : interviewSets;
   const activeBatch = current.data;
+  const originalSource = importSourceText(activeBatch?.meta);
   function openBatch(id: number) {
     setParams({ batch: String(id) }, { replace: true });
   }
@@ -440,10 +441,11 @@ export default function InterviewNotes() {
                     ))}
                   </ul>
                 )}
-                {activeBatch.meta?.pasted_text && (
+                <ImportSourceReview review={activeBatch.meta?.source_review} />
+                {originalSource && (
                   <details className="ial-inset">
                     <summary>查看原文</summary>
-                    <p className="ial-prewrap">{activeBatch.meta.pasted_text}</p>
+                    <p className="ial-prewrap" style={{ maxHeight: "18rem", overflowY: "auto" }}>{originalSource}</p>
                   </details>
                 )}
                 <ul className="ial-list">

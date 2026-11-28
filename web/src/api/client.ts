@@ -469,10 +469,25 @@ export interface ImportFileMeta {
   name: string; suffix: string; ok: boolean; chars: number; error?: string; warning?: string;
 }
 
+export interface SourceReview {
+  version: 1;
+  flags: {
+    source: string;
+    source_index: number;
+    start: number;
+    end: number;
+    reason: 'instruction_override' | 'role_spoofing' | 'delimiter_closure' | 'workspace_or_approval' | 'secret_request';
+  }[];
+  truncated: boolean;
+}
+
 export interface ImportReview {
   id: number; short_code: string; status: string;
   meta?: {
     generation_task_id?: number;
+    extracted_source_text?: string | null;
+    pasted_text?: string | null;
+    source_review?: SourceReview | null;
     source?: string; chars?: number; files?: ImportFileMeta[]; company?: string | null; level?: string | null;
     progress?: { step: number; total: number; note?: string }; error?: string;
   };

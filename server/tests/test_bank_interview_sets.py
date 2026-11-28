@@ -116,7 +116,7 @@ async def test_long_import_keeps_late_question_when_model_returns_early_item(
         {'source_files': ['粘贴文本'], 'extraction_method': 'model'},
         {'source_files': ['粘贴文本'], 'extraction_method': 'rules'},
     ]
-    assert prompts == [pasted_text[:8000]]
+    assert [json.loads(prompt)['document'] for prompt in prompts] == [pasted_text[:8000]]
 
 
 @pytest.mark.asyncio

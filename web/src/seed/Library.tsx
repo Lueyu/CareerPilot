@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useLocale, useT } from "../i18n";
+import type { SourceReview } from "../api/client";
+import ImportSourceReview from "../components/ImportSourceReview";
 import { PageHead } from "../components/PageHead";
 import { BankQuestionRow, BankSearch, BankUploadPicker } from "../components/BankPresentation";
 import "../styles/bank-presentation.css";
@@ -43,7 +45,7 @@ type Candidate = CandidateEdit & {
   ai_title: boolean;
   ai_answer: string | null;
 };
-type ImportDraft = ImportSummary & { source_text: string; items: Candidate[] };
+type ImportDraft = ImportSummary & { source_text: string; source_review?: SourceReview | null; items: Candidate[] };
 type ImportPage = { imports: ImportSummary[]; next_before: number | null };
 type Privacy = { region: string; provider: string };
 
@@ -468,6 +470,7 @@ function Imports({ selection, topicLabel, onSaved }: { selection: Selection | nu
               {draft.error}
             </p>
           )}
+          <ImportSourceReview review={draft.source_review} />
           {!!draft.source_text && (
             <details>
               <summary>{t('registered.viewExtractedText')}</summary>

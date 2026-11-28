@@ -35,6 +35,7 @@ from app.services.bank_review_memory import load_review_feedback
 from app.services.private_model_billing import BillingScope, BudgetPolicyError
 from app.services.project_context import build_project_context
 from app.services.project_memory import issue_targets
+from app.services.untrusted_source import source_review
 
 router = APIRouter(prefix="/question-generation", tags=["question-generation"])
 _running: set[asyncio.Task] = set()
@@ -203,6 +204,7 @@ async def create_task(req: GenerationIn, ws: Workspace = Depends(get_workspace),
     snapshot.update(source_analysis_id=req.source_analysis_id, source_issue_ids=req.source_issue_ids,
                     project_issue_targets=targets, generation_language=request_language())
     snapshot["bank_review_feedback"] = await load_review_feedback(session, ws.id, keys)
+    snapshot["source_review"] = source_review([("source_text", source_text)])
     task = QuestionGeneration(workspace_id=ws.id, kind=req.kind, mode=req.mode, request_key=request_key, request_json=req.model_dump(exclude={"request_key"}), input_snapshot=snapshot, prompt_text="")
     session.add(task)
     await session.flush()
@@ -217,6 +219,8 @@ async def get_task(task_id: int, ws: Workspace = Depends(get_workspace), session
 
 
 async def store_response(session, task, raw, result_meta=None):
+    source_text = task.input_snapshot.get("source_text") or ""
+    review = source_review([("source_text", source_text)])
     task.raw_response = raw
     task.result_meta = result_meta or {"source": task.mode}
     try:
@@ -226,7 +230,12 @@ async def store_response(session, task, raw, result_meta=None):
         task.status, task.error = "FAILED", str(exc)
         await session.commit()
         return
-    imp = ImportSession(short_code=f"IM-G{task.id}", workspace_id=task.workspace_id, paste_text=task.input_snapshot.get("source_text"), status="REVIEW", meta={"generation_task_id": task.id, "source": "question_generation", "mode": task.mode, "purpose": task.input_snapshot.get("purpose")})
+    imp = ImportSession(
+        short_code=f"IM-G{task.id}", workspace_id=task.workspace_id, paste_text=source_text, status="REVIEW",
+        meta={"generation_task_id": task.id, "source": "question_generation", "mode": task.mode,
+              "purpose": task.input_snapshot.get("purpose"), "extracted_source_text": source_text,
+              "source_review": review},
+    )
     session.add(imp)
     await session.flush()
     existing = (await session.scalars(select(Question).options(lazyload("*")).where((Question.workspace_id.is_(None)) | (Question.workspace_id == task.workspace_id), Question.generation_meta['assessment_use'].as_string().is_distinct_from('PRACTICE_ONLY')))).all()

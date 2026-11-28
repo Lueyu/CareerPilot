@@ -5,6 +5,7 @@ import json
 
 from app.generation_i18n import with_output_language
 from app.services.llm import AgentAdapter, get_llm_config
+from app.services.untrusted_source import SOURCE_AUTHORITY_CONTRACT, source_json
 
 
 async def rewrite_interview_questions(project_name: str, items: list[dict], facts: dict[str, dict], *, billing_scope=None) -> tuple[dict[int, dict], str]:
@@ -20,7 +21,8 @@ async def rewrite_interview_questions(project_name: str, items: list[dict], fact
         '不编造实现、经历、结果或规模；没有相关依据就省略该题。只输出 JSON：'
         '{"questions":[{"item_id":123,"question":"项目追问？","fact_refs":["P1-responsibilities"]}]}。'
     )
-    payload = json.dumps({'project': project_name, 'items': items, 'facts': facts}, ensure_ascii=False)
+    system += '\n' + SOURCE_AUTHORITY_CONTRACT
+    payload = source_json({'project': project_name, 'items': items, 'facts': facts})
     try:
         adapter = AgentAdapter()
         cfg = {**cfg, 'output_limit': min(int(cfg.get('output_limit') or 4096), 4096)}

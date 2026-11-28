@@ -417,6 +417,7 @@ async def test_paid_service_paths_reach_real_gate_with_trusted_scope(metered, mo
     from app.services.assessment_rubric import compile_rubric
     # Configuration resolution is live now; supply this synthetic caller fixture explicitly.
     monkeypatch.setattr(llm, "get_llm_config", AsyncMock(return_value=dict(CONFIG)))
+    monkeypatch.setattr(llm, "_CACHE", None)
     async def configured(self): return dict(CONFIG)
     monkeypatch.setattr(AgentAdapter, "_effective", configured)
     for key, value in CONFIG.items():

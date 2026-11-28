@@ -24,9 +24,10 @@ from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.formparsers import MultiPartException
 
-from app.i18n import message as localized_message, request_language
 from app.api.public_auth import current_workspace
 from app.db import get_session
+from app.i18n import message as localized_message
+from app.i18n import request_language
 from app.models import ImportItem, ImportSession, Question, Workspace
 from app.models.public_library import PublicLibraryRole, PublicLibraryStarter
 from app.models.question import SOURCE_GENERATED, SOURCE_PRIVATE
@@ -34,6 +35,7 @@ from app.services.interview_import_text import extract_structured_questions, rea
 from app.services.public_library_extract import MAX_UPLOAD_BYTES, SUFFIXES
 from app.services.public_library_presets import example_titles, preset_directions
 from app.services.public_model import complete_text
+from app.services.untrusted_source import SOURCE_AUTHORITY_CONTRACT, source_json, source_review
 
 router = APIRouter(prefix="/library", tags=["public-library"])
 
@@ -172,9 +174,9 @@ async def _model_list(
         [
             {
                 "role": "system",
-                "content": localized_message("library.system") + "\n" + instruction,
+                "content": localized_message("library.system") + "\n" + instruction + "\n" + SOURCE_AUTHORITY_CONTRACT,
             },
-            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            {"role": "user", "content": source_json(payload)},
         ],
         max_tokens=1600,
     )
@@ -484,6 +486,7 @@ def _import_view(batch: ImportSession) -> dict:
     return {
         **_import_summary(batch),
         "source_text": batch.paste_text or "",
+        "source_review": batch.meta.get("source_review"),
         "items": [
             dict(
                 id=item.id,
@@ -646,6 +649,7 @@ async def _parse_import(request: Request, db: AsyncSession, workspace_id: int):
             "digest": digest,
             "suffix": suffix,
             "error": result.get("error"),
+            "source_review": source_review([(filename, source_text)]),
         },
         items=list(candidates.values()),
     )
