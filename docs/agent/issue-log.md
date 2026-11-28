@@ -96,3 +96,4 @@
 - 验证 SHA：a369f3d9a4704fdb6595a60c6a9b8cdae52ba611
 - 证据：.agent-runs/20261128-wave1/h3/product-browser.json
 - 遗留/后续：未调用真实模型，词法提示不证明攻击抵抗率；原生租户功能关闭，旧Bank组件由组件与受控网关测试覆盖。
+- PR：https://github.com/Lueyu/CareerPilot/pull/65；独立源码审核与最终精确head续审记录见 .agent-runs/20261128-wave1/h3/review/。

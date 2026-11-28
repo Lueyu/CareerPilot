@@ -1,6 +1,6 @@
 {
   "id": "H3",
-  "status": "实现与验证记录",
+  "status": "源码与实例已验证",
   "title": "导入面经始终作为资料，保留原文并提示可疑指令",
   "calculator": "import-authority",
   "goal": "让个人、注册 native 和仍可访问的 seed 面经导入在提取、补答案、改写及审核时保持资料身份。用户可在原有审核区对照完整保存的解析原文，看到确定性的来源和原因提示，再决定如何处理草稿。",
@@ -458,7 +458,14 @@
     "目标是完成第 1 波 H3，从最新 dev a5c760162214371b27bf5e0c127e20b872bd4e47 建独立分支 codex/wave1-h3-untrusted-import-contract-integrated。",
     "报告代码入口固定在 a369f3d9a4704fdb6595a60c6a9b8cdae52ba611。这份说明对应受控测试环境；个人实例与个人数据库没有升级。",
     "本篇 PR 保存独立审核结论和实际合入状态。最终 dev 提交以合入回执为准，报告只将已运行的检查写为通过。",
-    "回退通过对本项 squash 提交建立新的反向 PR 完成；含持久数据的改动先核对其报告边界，保留已有账本和历史证据。"
+    "回退通过对本项 squash 提交建立新的反向 PR 完成；含持久数据的改动先核对其报告边界，保留已有账本和历史证据。",
+    "非作者源码阶段PASS+NOTES，81个后端节点、8项独立探测和7项组件测试通过。最终打包、报告与浏览器证据在同一审核任务中续审，并以PR65精确head的review.json及合入回读为准。"
   ],
-  "source_ref": "a369f3d9a4704fdb6595a60c6a9b8cdae52ba611"
+  "source_ref": "a369f3d9a4704fdb6595a60c6a9b8cdae52ba611",
+  "links": [
+    {
+      "href": "https://github.com/Lueyu/CareerPilot/pull/65",
+      "label": "PR #65 与实际合入状态"
+    }
+  ]
 }
