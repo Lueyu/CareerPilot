@@ -78,7 +78,8 @@
     "认证是一个独立事务。它先通过require_normal完整校验F6来源、数据库身份和所有NORMAL状态，再比较凭据代次。不存在的表、数据库异常或未知安装均拒绝。有效行按行锁读取并用数据库时间判断到期，成功才写last_used_at。没有原文回退路径。超过512字符或非ASCII的请求token不进入摘要计算，也不会把拒绝的输入写入数据库。",
     "失败路径尤其需要事务正确。若在事务上下文里直接抛401，异常会让计数回滚，攻击者每次都像第一次失败。本次把记录失败和抛异常分开。数据库事务先取得固定advisory lock，更新整安装共享的容量10令牌桶并提交，离开事务后才抛401或带Retry-After的429。每6秒恢复一次机会。桶身份不含token、X-Forwarded-For或X-Workspace，所以伪造这些值不能新增无限桶。有效token在桶耗尽后仍可认证；失败请求从未进入E3的workspace扣额。",
     "轮换先锁定旧凭据，只接受当前代次且未撤销、未到期的行。新token由安全随机数生成器产生，scope沿用旧行，随后在同一数据库事务里写新行并撤销旧行。并发轮换会在旧行上竞争，后到者看到已经撤销而拒绝。输出文件先用G6的独占创建和Windows ACL保护，再写原文；已有输出路径不会被覆盖。创建输出失败时还没有提交撤销。文件系统与数据库并非同一事务，进程崩溃仍可能留下空文件或无法交付的新凭据，此时应通过元数据列出并撤销后重新签发。",
-    "F6没有被简化为只比较一个generation字符串。归档恢复后的RESTORE来源、QUARANTINED访问状态和BLOCKED付费状态继续拒绝。实际备份演练先把一个有效凭据写入归档，再在源库撤销，恢复出的旧行仍是未撤销状态，但恢复库的worker和访问边界继续被拒绝。当前没有恢复放行API或CLI，也没有把恢复库偷偷改成正常安装。新凭据、离线验证和独立付费批准需要后续完整恢复协议。"
+    "F6没有被简化为只比较一个generation字符串。归档恢复后的RESTORE来源、QUARANTINED访问状态和BLOCKED付费状态继续拒绝。实际备份演练先把一个有效凭据写入归档，再在源库撤销，恢复出的旧行仍是未撤销状态，但恢复库的worker和访问边界继续被拒绝。当前没有恢复放行API或CLI，也没有把恢复库偷偷改成正常安装。新凭据、离线验证和独立付费批准需要后续完整恢复协议。",
+    "轮换必须继承原空间编号。旧实现先按编号读取名称，再按名称创建后继凭据，两个查询之间若发生删除和同名重建，名称就会指向另一编号。现在读取原空间时持有数据库行锁，直到同一轮换事务提交；并发删除等待，或在原记录已不存在时明确拒绝。不会用名称重新寻找一个替代身份。"
   ],
   "concepts": [
     [
@@ -116,7 +117,8 @@
     "采用PostgreSQL注册表，复用E3和F6已有的事务、数据库时间、行锁及跨进程共享状态。没有新建SQLite文件、进程缓存或Redis服务。Model the Domain原则改变了核心形状，归属、钥匙和认证结果分别有明确数据结构，不再从字符串或空配置推导权限。",
     "复用G6的强输入校验、create_private_empty和Windows权限验证。新签发原文只写受保护输出；--show-token是操作员主动请求终端显示的例外，不能用于共享日志。登记输入通过文件或已有环境读取，命令行参数不包含token原文。",
     "失败桶选择安装共享身份，牺牲按来源细分的便利，换取代理配置未审核时也无法伪造新桶。攻击者可以让其他无效请求也收到429，但持有有效凭据的用户仍可通过。这不是网络层抗拒绝服务系统，也不阻止所有无效请求造成数据库读压力。",
-    "Prove It Works原则改变了验证方式。除内存调用外，还真正启动其他Python进程执行CLI、鉴权和应用lifespan；用真实新测试库进行并发轮换、HTTP失败限速及加密备份恢复。没有把编译通过、健康检查或作者描述当成认证行为证据。"
+    "Prove It Works原则改变了验证方式。除内存调用外，还真正启动其他Python进程执行CLI、鉴权和应用lifespan；用真实新测试库进行并发轮换、HTTP失败限速及加密备份恢复。没有把编译通过、健康检查或作者描述当成认证行为证据。",
+    "采用现有事务中的行锁，保留当前数据结构和调用契约。等待只发生在操作同一空间的轮换或删除之间；轮换不调用外部模型。CLI在提交前写私有输出，本地写盘也会影响锁的持有时间，因此保留失败回滚和输出不覆盖规则。"
   ],
   "alternatives": [
     [
@@ -179,7 +181,7 @@
     },
     {
       "path": "server/app/services/local_credentials.py",
-      "why": "AuthenticatedPrincipal、enroll/rotate/revoke/authenticate及legacy归属迁移；拒绝前提交失败计数，不使用配置fallback。"
+      "why": "AuthenticatedPrincipal、enroll/rotate/revoke/authenticate及legacy归属迁移；拒绝前提交失败计数，不使用配置fallback。 H1-R1同时锁住原工作空间行，保证通过名称查回时仍是相同编号，防止并发删除重建造成身份变化。"
     },
     {
       "path": "server/app/services/recovery_control.py",
@@ -291,7 +293,7 @@
     },
     {
       "path": "server/tests/test_token_lifecycle.py",
-      "why": "实际PG、CLI、并发和其他Python进程验证登记/hash/到期/撤销/轮换、last-token隔离、删除墓碑、限速、lifespan重启和F6代次。"
+      "why": "实际PG、CLI、并发和其他Python进程验证登记/hash/到期/撤销/轮换、last-token隔离、删除墓碑、限速、lifespan重启和F6代次。 新增真实SQL与两个HTTP操作的受控并发回归，断言后继凭据始终保留原空间编号，删除后的凭据不能访问同名替代空间。"
     },
     {
       "path": "server/token_lifecycle.py",
@@ -304,7 +306,8 @@
       "红测试为1 failed，base实际返回200而预期401。core-2为127 passed；lifecycle-final为18 passed，之后对最终CLI增量检查为4 passed、15 deselected。F6加密备份恢复为5 passed。候选预览适配器为11 passed，Docker命令边界在单元测试中受控，未实际启动本轮预览容器。",
       "直接调用者回归为246 passed、16 failed。使用不可变精确base导出另一个只读源码快照，重新执行相关失败函数得到相同16个失败节点，另有5个参数用例通过。base-comparison.json保存完整节点和原因。它们不是通过项，也没有被删除或通过放松产品闸门掩盖。父代理按用户要求另开E2后续分支和PR，在H2前处理。",
       "第一次跨进程限速测试错误地假设进程启动一定短于6秒补充间隔，实际多了一次合法补充机会。最终测试在两个真实进程内各发出一组变化token、转发IP和空间头的HTTP失败请求，再启动第三进程，验证持久429。计时假设被修正，产品限速阈值没有为测试放宽。",
-      "父代理逐项核对39个作者源文件原始摘要，并保留作者完整失败日志和精确base对照。127、18、4、5、11是不同范围和时间的运行结果，存在重叠，不能相加当作一个全套通过数字。"
+      "父代理逐项核对39个作者源文件原始摘要，并保留作者完整失败日志和精确base对照。127、18、4、5、11是不同范围和时间的运行结果，存在重叠，不能相加当作一个全套通过数字。",
+      "127、18、4、5、11及独立103项来自首轮版本或不同专项，保留其原始来源。H1-R1修复后单独重跑完整生命周期文件，20项通过；新回归在修复前以新旧空间编号不同的断言真实失败，修复后通过。未把不同版本的数字相加。"
     ],
     "checks": [
       [
@@ -351,6 +354,11 @@
         "静态检查",
         "37个改动Python文件ruff通过，git diff --check通过",
         "D:/agent-interview/.agent-runs/20261128-wave1/h1/ruff-final.log"
+      ],
+      [
+        "并发删除、同名重建与轮换",
+        "旧实现回归失败：新凭据绑定4而原编号为2。锁住原编号对应的空间行直到轮换提交后，完整20项生命周期检查通过。",
+        ".agent-runs/20261128-wave1/h1/r1-fix/red.log；green.log"
       ]
     ],
     "commands": [
@@ -365,7 +373,8 @@
       "cwd=D:\\agent-interview\\.agent-runs\\20261128-wave1\\worktrees\\h1\\server | D:/agent-interview/server/.venv/Scripts/python.exe run_isolated_tests.py ../scripts/agent/tests/test_candidate_delivery.py -q --tb=short",
       "cwd=D:\\agent-interview\\.agent-runs\\20261128-wave1\\worktrees\\h1\\server | D:/agent-interview/server/.venv/Scripts/python.exe D:\\agent-interview\\.agent-runs\\20261128-wave1\\h1\\check_base_callers.py",
       "cwd=D:\\agent-interview\\.agent-runs\\20261128-wave1\\worktrees\\h1 | D:/agent-interview/server/.venv/Scripts/python.exe -m ruff check scripts/agent/candidate_delivery.py scripts/agent/tests/test_candidate_delivery.py server/app/api/deps.py server/app/api/rate_limits.py server/app/api/v1/settings.py server/app/config.py server/app/models/__init__.py server/app/models/local_credential.py server/app/services/local_credentials.py server/app/services/recovery_control.py server/app/services/repository_credentials.py server/app/services/workspaces.py server/tests/conftest.py server/tests/credential_fixtures.py server/tests/test_api_rate_limits.py server/tests/test_backup_recovery.py server/tests/test_bench_study_chat.py server/tests/test_diagnosis_report_coverage.py server/tests/test_exam_history_paging.py server/tests/test_experienced_bank.py server/tests/test_interview_agent_exam.py server/tests/test_local_safety.py server/tests/test_ops.py server/tests/test_podcasts.py server/tests/test_product_feedback.py server/tests/test_profile_assessment_date.py server/tests/test_project_resume.py server/tests/test_repository_credentials.py server/tests/test_secret_storage.py server/tests/test_settings_workspaces.py server/tests/test_standalone_ops_study_chat.py server/tests/test_study_interview_question.py server/tests/test_study_ownership.py server/tests/test_study_project_evidence.py server/tests/test_telemetry.py server/tests/test_token_lifecycle.py server/token_lifecycle.py",
-      "cwd=D:\\agent-interview\\.agent-runs\\20261128-wave1\\worktrees\\h1 | git diff --check"
+      "cwd=D:\\agent-interview\\.agent-runs\\20261128-wave1\\worktrees\\h1 | git diff --check",
+      "cd server; D:/agent-interview/server/.venv/Scripts/python.exe run_isolated_tests.py tests/test_token_lifecycle.py -q --tb=short"
     ]
   },
   "limits": [
@@ -410,13 +419,14 @@
   ],
   "delivery": [
     "目标是完成第 1 波 H1，从最新 dev 5a2d63348b0debb39d74facb02e319162d8f9cf2 建独立分支 codex/wave1-h1-token-lifecycle。",
-    "报告代码入口固定在 3e88bca91506db173632d8dc10ff8a1ddd7c3dff。这份说明对应受控测试环境；个人实例与个人数据库没有升级。",
+    "报告代码入口固定在 3febcde33427bb0b46984388b5e7adb9eb95de4d，包含H1-R1并发身份修复。个人实例与个人数据库没有升级。",
     "本篇 PR 保存独立审核结论和实际合入状态。最终 dev 提交以合入回执为准，报告只将已运行的检查写为通过。",
     "回退通过对本项 squash 提交建立新的反向 PR 完成；含持久数据的改动先核对其报告边界，保留已有账本和历史证据。",
     "本项同时校正上一份G6说明的代码入口句子，统一为包含修复的e28d176；旧5f97694浏览器证据仍按其原版本记录，未改写历史测试回执。",
-    "H1交接时识别的16项base失败已登记：E2独立补修负责计费身份和适配夹具，F7负责取消传播边界，F8复查原始deadline清理问题。整波最终交付必须提供各项修复后的回执；本篇记录H1当时的观察。"
+    "H1交接时识别的16项base失败已登记：E2独立补修负责计费身份和适配夹具，F7负责取消传播边界，F8复查原始deadline清理问题。整波最终交付必须提供各项修复后的回执；本篇记录H1当时的观察。",
+    "首轮非作者审核在af82cde独立复现H1-R1，原空间编号1的轮换结果错误指向同名新空间3；该FAIL和完整反例保留。修复后必须按新的冻结提交复核，不能沿用首轮结论当作通过。"
   ],
-  "source_ref": "3e88bca91506db173632d8dc10ff8a1ddd7c3dff",
+  "source_ref": "3febcde33427bb0b46984388b5e7adb9eb95de4d",
   "links": [
     {
       "label": "PR #59 与真实合入状态",
