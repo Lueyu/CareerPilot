@@ -13,7 +13,7 @@ import pytest
 import pytest_asyncio
 from fastapi import HTTPException
 from sqlalchemy import delete, func, select, text, update
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import get_settings
 from app.db import get_session
@@ -400,3 +400,67 @@ async def test_enrollment_rejects_weak_input_without_rows(lifecycle, raw):
         with pytest.raises(RuntimeError):
             await enroll(session, raw, workspace=workspace.slug)
         assert await session.scalar(select(func.count()).select_from(LocalCredential)) == before
+
+
+@pytest.mark.asyncio
+async def test_rotation_preserves_workspace_id_during_concurrent_replacement(lifecycle):
+    client, factory, _, _ = lifecycle
+    slug = f"rotation-{uuid4().hex}"
+    async with factory.begin() as session:
+        original = Workspace(slug=slug, name="Original workspace")
+        session.add(original)
+        await session.flush()
+        original_id = original.id
+    _, credential_id = await install(factory, workspace=slug)
+    deleting_token, _ = await install(factory, workspace=slug)
+    owner_token, _ = await install(factory)
+    successor_token = secrets.token_urlsafe(32)
+    read_identity, resume = asyncio.Event(), asyncio.Event()
+
+    class ObservedSession(AsyncSession):
+        async def scalar(self, statement, *args, **kwargs):
+            value = await super().scalar(statement, *args, **kwargs)
+            descriptions = getattr(statement, "column_descriptions", [])
+            if descriptions and descriptions[0].get("expr") is Workspace.slug:
+                read_identity.set()
+                await asyncio.wait_for(resume.wait(), 15)
+            return value
+
+    async def rotate_original():
+        async with ObservedSession(factory.kw["bind"], expire_on_commit=False) as session, session.begin():
+            return await rotate(session, credential_id, successor_token)
+
+    async def replace_workspace():
+        response = await client.request("DELETE", "/settings/workspace", headers={"X-Api-Token": deleting_token},
+                                        json={"confirm_slug": slug})
+        assert response.status_code == 200, response.text
+        response = await client.post("/settings/workspaces", headers={"X-Api-Token": owner_token}, json={"name": slug})
+        assert response.status_code == 200, response.text
+        return response.json()["workspace"]["id"]
+
+    rotation = asyncio.create_task(rotate_original())
+    replacement = None
+    try:
+        await asyncio.wait_for(read_identity.wait(), 10)
+        replacement = asyncio.create_task(replace_workspace())
+        async with asyncio.timeout(5):
+            while not replacement.done():
+                async with factory() as session:
+                    waiting = await session.scalar(text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname=current_database() "
+                        "AND wait_event_type='Lock' AND query LIKE 'DELETE FROM workspaces%')"))
+                if waiting:
+                    break
+                await asyncio.sleep(0.01)
+        resume.set()
+        successor = await asyncio.wait_for(rotation, 10)
+        replacement_id = await asyncio.wait_for(replacement, 10)
+        assert replacement_id != original_id
+        assert successor.workspace_id == original_id, "Rotation must retain its original workspace identity"
+        assert (await status(successor_token))[0] in {401, 429}
+    finally:
+        resume.set()
+        pending = [task for task in (rotation, replacement) if task is not None and not task.done()]
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)

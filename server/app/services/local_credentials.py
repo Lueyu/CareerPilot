@@ -88,7 +88,7 @@ async def rotate(session, credential_id: str, raw: str, *, days: int = 30) -> Lo
         raise ValueError("Only an active credential in this installation can rotate")
     workspace = None
     if row.workspace_id is not None:
-        workspace = await session.scalar(select(Workspace.slug).where(Workspace.id == row.workspace_id))
+        workspace = await session.scalar(select(Workspace.slug).where(Workspace.id == row.workspace_id).with_for_update())
         if workspace is None:
             raise ValueError("Credential workspace no longer exists")
     successor = await enroll(session, raw, workspace=workspace, days=days)
