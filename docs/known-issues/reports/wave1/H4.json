@@ -1,6 +1,6 @@
 {
   "id": "H4",
-  "status": "实现与验证记录",
+  "status": "源码与实例已验证",
   "status_description": "已实现并有针对性源码运行证据，真实制品、产品浏览器与最终独立审核由父代理补充绑定。",
   "title": "让个人版与公开版共用受限文档解析",
   "goal": "让网上下载的面经经过共享的资源检查，并在解析超时或取消时结束相关进程。保留个人版更多文件格式与公开版较小上传限制；错误文件仍有明确原因，同批合法文件可以继续形成待审资料。",
@@ -338,6 +338,11 @@
         "浏览器等待器负向探针",
         "始终false的异步谓词被当前CLI当成完成；最终验收改用实际API终态轮询，保留原始失败。",
         "D:\\agent-interview\\.agent-runs\\20261128-wave1\\h4\\async-wait-negative.log"
+      ],
+      [
+        "桌面和手机教学报告",
+        "1440/390宽度均为12节、12道自测题、12个固定源码链接；答案展开与六种情景的12个固定演示组合通过。",
+        "D:/agent-interview/.agent-runs/20261128-wave1/h4/report-browser.log"
       ]
     ],
     "commands": [
@@ -422,7 +427,14 @@
     "目标是完成第 1 波 H4，从最新 dev 7d1de95f46b0f4571d4aec81d7171056177e2909 建独立分支 codex/wave1-h4-safe-document-parsing。",
     "报告代码入口固定在 9e3197df70bd3f2bdbec4b8b8a8e8d3e2a44e1ee。这份说明对应受控测试环境；个人实例与个人数据库没有升级。",
     "本篇 PR 保存独立审核结论和实际合入状态。最终 dev 提交以合入回执为准，报告只将已运行的检查写为通过。",
-    "回退通过对本项 squash 提交建立新的反向 PR 完成；含持久数据的改动先核对其报告边界，保留已有账本和历史证据。"
+    "回退通过对本项 squash 提交建立新的反向 PR 完成；含持久数据的改动先核对其报告边界，保留已有账本和历史证据。",
+    "非作者源码阶段实跑同一85项与自选风险探针，PASS+NOTES。实际精简镜像无宿主app源码挂载，真实浏览器9次上传的12份文件输入通过；最终文档head的续审与条件合入以PR66及本次review.json/merge-receipt.json为准。"
   ],
-  "source_ref": "9e3197df70bd3f2bdbec4b8b8a8e8d3e2a44e1ee"
+  "source_ref": "9e3197df70bd3f2bdbec4b8b8a8e8d3e2a44e1ee",
+  "links": [
+    {
+      "label": "PR #66 与实际合入状态",
+      "href": "https://github.com/Lueyu/CareerPilot/pull/66"
+    }
+  ]
 }

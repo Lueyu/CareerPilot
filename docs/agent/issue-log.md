@@ -103,3 +103,4 @@
 - 验证 SHA：9e3197df70bd3f2bdbec4b8b8a8e8d3e2a44e1ee
 - 证据：.agent-runs/20261128-wave1/h4/product-browser.json
 - 遗留/后续：资源隔离不等于权限沙箱；Linux按进程限额与Windows Job整组限额分开说明，个人实例未升级，Linux可选OCR未实测。
+- PR：https://github.com/Lueyu/CareerPilot/pull/66；最终非作者精确head记录与合入回读见 .agent-runs/20261128-wave1/h4/review/ 和 merge-receipt.json。
