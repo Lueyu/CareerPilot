@@ -8,7 +8,8 @@ import httpx
 import pytest
 from test_llm_stream_transport import CONFIG, DONE, Body, frame, install
 
-from app.config import MAX_STUDY_TIMEOUT_SECONDS
+from app.config import MAX_STUDY_TIMEOUT_SECONDS, get_settings
+from app.services import model_outbound
 from app.services.llm import AgentAdapter
 
 
@@ -24,7 +25,12 @@ async def loopback(monkeypatch,mode):
             async def send(data):
                 writer.write(f'{len(data):x}\r\n'.encode()+data+b'\r\n')
                 await writer.drain()
-            await send(frame(role='assistant'))
+            # Establish activity before scheduler-dependent sleeps. Endless mode
+            # then keeps sending events across the unchanged total deadline.
+            initial = frame(role='assistant')
+            if mode == 'endless':
+                initial += frame(reasoning_content='synthetic heartbeat')
+            await send(initial)
             if mode=='idle':
                 await reader.read()
             else:
@@ -44,15 +50,16 @@ async def loopback(monkeypatch,mode):
             finished.set()
     server=await asyncio.start_server(serve,'127.0.0.1',0)
     port=server.sockets[0].getsockname()[1]
-    original=httpx.AsyncClient
     # Fixture TLS context preparation occurs before the short test deadline.
-    prepared=original(trust_env=False)
+    origin=f"http://127.0.0.1:{port}"
+    monkeypatch.setattr(get_settings(), "model_local_origins", [origin])
+    prepared=model_outbound.model_client(origin,timeout=2)
     def client(**kwargs):
         io_timeouts.append(kwargs['timeout'])
         prepared.timeout=kwargs['timeout']
         prepared.event_hooks=kwargs.get('event_hooks',{})
         return prepared
-    monkeypatch.setattr(httpx,'AsyncClient',client)
+    monkeypatch.setattr('app.services.llm.model_client',lambda value, **kw: client(**kw))
     try:
         yield {**CONFIG,'base_url':f'http://127.0.0.1:{port}/v1'},requests,io_timeouts
     finally:

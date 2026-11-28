@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from model_transport_fixtures import install_model_transport
 
 from app.services import project_autopilot_engine as engine
 from app.services.llm import AgentAdapter
@@ -21,8 +22,7 @@ class InterruptedBody(httpx.AsyncByteStream):
 
 
 def transport(monkeypatch, handler):
-    original=httpx.AsyncClient
-    monkeypatch.setattr(httpx,'AsyncClient',lambda **kw:original(transport=httpx.MockTransport(handler),**kw))
+    install_model_transport(monkeypatch, httpx.MockTransport(handler))
 
 
 @pytest.mark.asyncio
@@ -159,34 +159,36 @@ async def test_trace_scope_switches_after_tunnel_without_storing_connect_info(mo
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('proxy',[False,True])
-async def test_real_httpcore_loopback_trace_distinguishes_connect_from_post(monkeypatch,proxy):
-    """Exercise HTTPcore's actual trace calls against a local stalled server."""
+async def test_real_httpcore_loopback_trace_ignores_environment_proxy(monkeypatch,proxy):
+    """Real HTTPcore keeps direct target POST tracing under inherited proxies."""
+    from app.config import get_settings
     finished=asyncio.Event()
+    requests=[]
     async def stalled(reader,writer):
         try:
-            await reader.readuntil(b'\r\n\r\n')
-            await reader.read()  # Client deadline closes it; never send a response.
+            requests.append(await reader.readuntil(b'\r\n\r\n'))
+            await reader.read()
         finally:
             writer.close()
             await writer.wait_closed()
             finished.set()
     server=await asyncio.start_server(stalled,'127.0.0.1',0)
     port=server.sockets[0].getsockname()[1]
-    original=httpx.AsyncClient
-    def client(**kwargs):
-        # Loopback fixture only: never touch inherited route settings or a provider.
-        return original(trust_env=False,proxy=f'http://127.0.0.1:{port}' if proxy else None,**kwargs)
-    monkeypatch.setattr(httpx,'AsyncClient',client)
-    cfg=CONFIG if proxy else {**CONFIG,'base_url':f'http://127.0.0.1:{port}/v1'}
+    origin=f'http://127.0.0.1:{port}'
+    monkeypatch.setattr(get_settings(), 'model_local_origins', [origin])
+    if proxy:
+        monkeypatch.setenv('HTTP_PROXY', 'http://127.0.0.1:1')
+        monkeypatch.setenv('HTTPS_PROXY', 'http://127.0.0.1:1')
+        monkeypatch.setenv('NO_PROXY', '')
     try:
         adapter=AgentAdapter()
-        assert await adapter.chat_with(cfg,'system','user',timeout=0.05) is None
+        assert await adapter.chat_with({**CONFIG,'base_url':origin+'/v1'},'system','user',timeout=0.05) is None
         await asyncio.wait_for(finished.wait(),1)
         meta=adapter.last_response_meta
-        scope='PROXY_CONNECT' if proxy else 'TARGET_POST'
-        assert meta['transport_phase']==scope.lower()+':http11.receive_response_headers.failed'
+        assert meta['transport_phase']=='target_post:http11.receive_response_headers.failed'
         assert any(e['event']=='connection.connect_tcp.complete' for e in meta['transport_events'])
-        assert any(e['event']=='http11.send_request_body.complete' and e['request_kind']==scope for e in meta['transport_events'])
+        assert any(e['event']=='http11.send_request_body.complete' and e['request_kind']=='TARGET_POST' for e in meta['transport_events'])
+        assert requests[0].startswith(b'POST /v1/chat/completions HTTP/1.1')
         assert not meta['response_headers_received']
         assert 'SECRET' not in json.dumps(meta)
     finally:

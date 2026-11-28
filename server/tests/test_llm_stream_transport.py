@@ -6,7 +6,10 @@ from dataclasses import replace
 
 import httpx
 import pytest
+from model_transport_fixtures import install_model_transport
 
+from app.config import get_settings
+from app.services import model_outbound
 from app.services.llm import AgentAdapter
 
 CONFIG={'provider':'fixture','model':'unchanged-model','base_url':'https://fixture.invalid/v1','api_key':'SECRET_KEY'}
@@ -33,12 +36,12 @@ class Body(httpx.AsyncByteStream):
     async def aclose(self):self.closed=True
 
 def install(monkeypatch,body,*,status=200,content_type='text/event-stream',handler=None):
-    requests=[];original=httpx.AsyncClient
+    requests=[]
     async def dispatch(request):
         requests.append(json.loads(request.content))
         if handler:return await handler(request)
         return httpx.Response(status,headers={'content-type':content_type,'x-request-id':'stream-fixture','set-cookie':'SECRET_COOKIE'},stream=body)
-    monkeypatch.setattr(httpx,'AsyncClient',lambda **kw:original(transport=httpx.MockTransport(dispatch),**kw))
+    install_model_transport(monkeypatch, httpx.MockTransport(dispatch))
     return requests
 
 @pytest.mark.asyncio
@@ -268,12 +271,13 @@ async def test_loopback_http_stream_enforces_idle_timeout_and_one_post(monkeypat
             await reader.read()
         finally:writer.close();await writer.wait_closed();finished.set()
     server=await asyncio.start_server(stalled,'127.0.0.1',0);port=server.sockets[0].getsockname()[1]
-    original=httpx.AsyncClient
-    prepared=original(trust_env=False,timeout=httpx.Timeout(2,read=.03))
+    origin=f"http://127.0.0.1:{port}"
+    monkeypatch.setattr(get_settings(), "model_local_origins", [origin])
+    prepared=model_outbound.model_client(origin,timeout=httpx.Timeout(2,read=.03))
     def client(**kw):
         prepared.event_hooks=kw.get('event_hooks',{})
         return prepared
-    monkeypatch.setattr(httpx,'AsyncClient',client)
+    monkeypatch.setattr('app.services.llm.model_client',lambda value, **kw: client(**kw))
     try:
         adapter=AgentAdapter()
         assert await adapter.chat_with({**CONFIG,'base_url':f'http://127.0.0.1:{port}/v1'},'s','u',timeout=2,stream=True) is None

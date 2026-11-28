@@ -13,6 +13,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from cryptography.fernet import Fernet
+from migrate_secrets import migrate_legacy
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -23,7 +24,6 @@ from app.models import AppSetting
 from app.services import gitcode_repo, github_publish, llm, podcast_content, project_autopilot_config
 from app.services.repository_credentials import repository_credentials
 from app.services.secret_storage import SecretStorageError, open_setting, seal_setting
-from migrate_secrets import migrate_legacy
 
 CONFIG = {"provider": "synthetic", "base_url": "https://g5.invalid/v1", "model": "fixture",
           "api_key": "synthetic-llm-credential-6789"}
@@ -366,3 +366,5 @@ async def test_migration_covers_every_persisted_family(storage, test_workspace, 
         assert config["api_key"] == CONFIG["api_key"]
         assert creds == {"github_token": values[f"github:{ws.id}"]["token"],
                          "gitcode_token": values[f"gitcode:{ws.id}"]["token"]}
+
+pytestmark = pytest.mark.usefixtures("synthetic_model_dns")

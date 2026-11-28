@@ -36,6 +36,7 @@ services:
       SEED_MODEL_BASE_URL: ${SEED_MODEL_BASE_URL:?set the provider HTTPS API base}
       SEED_MODEL_KEY: ${SEED_MODEL_KEY:?set the dedicated beta provider key}
       SEED_MODEL_NAME: ${SEED_MODEL_NAME:?set the provider model name}
+      MODEL_LOCAL_ORIGINS: ${MODEL_LOCAL_ORIGINS:-[]}
       SEED_INPUT_CNY_PER_MILLION: ${SEED_INPUT_CNY_PER_MILLION:?set the input rate}
       SEED_OUTPUT_CNY_PER_MILLION: ${SEED_OUTPUT_CNY_PER_MILLION:?set the output rate}
       SEED_MONTHLY_CNY: ${SEED_MONTHLY_CNY:?set the site monthly cap}

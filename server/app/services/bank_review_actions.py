@@ -246,6 +246,7 @@ async def _revision_context(session, imported, item, skill_key):
 async def review_import_item(session, workspace, import_id, item_id, request):
     from app.api.v1.bank import ApproveItemReq, _approve_locked_import
     from app.services.bank_review_memory import load_review_feedback, record_review_feedback
+    from app.services.model_outbound import OutboundPolicyError
     from app.services.private_model_billing import BillingScope, BudgetPolicyError
 
     imported, item = await lock_review_item(session, workspace, import_id, item_id)
@@ -302,7 +303,7 @@ async def review_import_item(session, workspace, import_id, item_id, request):
         updated, payload = await revise_answer(context, hints, feedback, billing_scope=BillingScope(workspace.id, f"import:{import_id}:revise:{item_id}"))
     except (ValueError, TypeError, KeyError):
         receipt = {**receipt, "outcome": "failed", "error": "模型返回的答案格式或资料引用不符合要求，已保留原草稿。请重试。"}
-    except BudgetPolicyError:
+    except (BudgetPolicyError, OutboundPolicyError):
         raise
     except Exception:
         receipt = {**receipt, "outcome": "failed", "error": "模型改写失败，已保留原草稿。请检查模型连接后重试。"}

@@ -227,7 +227,7 @@ async def test_download_is_bounded_and_uses_pinned_ref(monkeypatch):
     async def handler(request):
         captured.append(request)
         return httpx.Response(200, content=b"x" * 100)
-    monkeypatch.setattr(sources.httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+    monkeypatch.setattr(sources.httpx, "AsyncClient", lambda **kwargs: original_client(**{**kwargs, "transport": httpx.MockTransport(handler)}))
     monkeypatch.setattr(sources, "MAX_DOWNLOAD_BYTES", 20)
     repo = sources.SourceRepository("github", "example", "fixture", "main", REVISION,
         [{"path": "app/api.py", "size": 100}], False, "fixture-token")
@@ -269,7 +269,7 @@ async def test_raw_json_source_is_not_mistaken_for_a_contents_api_envelope(monke
     original_client = httpx.AsyncClient
     source = '{"encoding":"base64","content":"aGVsbG8="}'
     async def handler(request): return httpx.Response(200, text=source, headers={"content-type": "application/json"})
-    monkeypatch.setattr(sources.httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+    monkeypatch.setattr(sources.httpx, "AsyncClient", lambda **kwargs: original_client(**{**kwargs, "transport": httpx.MockTransport(handler)}))
     repo = sources.SourceRepository("github", "example", "fixture", "main", REVISION,
         [{"path": "app/schema.json", "size": len(source)}], False, "")
     assert await repo.read_file("app/schema.json") == source
@@ -331,7 +331,7 @@ async def test_adapter_failure_diagnostics_are_safe_and_reset(monkeypatch, kind,
         if kind == 'network': raise httpx.ConnectError('private-network-secret', request=request)
         if kind == 'http': return httpx.Response(status, text='private-provider-body-secret')
         return httpx.Response(200, json={'choices': [], 'private-secret': 'do-not-persist'})
-    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: original_client(**{**kwargs, "transport": httpx.MockTransport(handler)}))
     adapter = AgentAdapter()
     cfg = {'provider': 'fixture', 'api_key': 'private-config-secret', 'base_url': 'https://invalid.example', 'model': 'fixture'}
     assert await adapter.chat_with(cfg, 'system', 'user') is None
@@ -573,7 +573,7 @@ async def test_adapter_effort_is_explicit_and_does_not_change_default_payload(mo
     async def handler(request):
         payloads.append(json.loads(request.content))
         return httpx.Response(200, json={'choices': [{'message': {'content': 'ok'}}]})
-    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kwargs: original_client(**{**kwargs, "transport": httpx.MockTransport(handler)}))
     adapter = AgentAdapter()
     cfg = {'provider': 'fixture', 'api_key': 'fixture-key', 'base_url': 'https://invalid.example', 'model': 'deepseek-v4-flash'}
     before = dict(cfg)

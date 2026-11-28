@@ -16,6 +16,8 @@ from uuid import UUID
 
 import httpx
 
+from app.services.model_outbound import OutboundPolicyError, model_client
+
 
 class FeedbackRejected(Exception):
     """The message violates the feedback policy."""
@@ -139,7 +141,7 @@ async def _review(settings: _Settings, message: str) -> None:
     }
     try:
         async with asyncio.timeout(_REVIEW_TIMEOUT):
-            async with httpx.AsyncClient(timeout=_REVIEW_TIMEOUT, trust_env=False, follow_redirects=False) as client:
+            async with model_client(str(settings.review_url), timeout=_REVIEW_TIMEOUT) as client:
                 async with client.stream(
                     "POST",
                     settings.review_url,
@@ -174,7 +176,7 @@ async def _review(settings: _Settings, message: str) -> None:
         result = json.loads(reply["content"], object_pairs_hook=_unique_keys)
         if not isinstance(result, dict) or result.keys() != {"verdict"} or result["verdict"] not in _VERDICTS:
             raise ValueError
-    except (httpx.HTTPError, TimeoutError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
+    except (OutboundPolicyError, httpx.HTTPError, TimeoutError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
         raise FeedbackUnavailable from None
 
     if result["verdict"] == "reject":

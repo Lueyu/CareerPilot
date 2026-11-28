@@ -9,17 +9,19 @@ import httpx
 import pytest
 import pytest_asyncio
 import uvicorn
+from conftest import TEST_DATABASE_URL, prepare_schema
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
+from model_transport_fixtures import install_model_transport
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 from sqlalchemy.schema import CreateSchema, DropSchema
 
+from app.config import get_settings
 from app.models.public_model import PublicModelCall, PublicModelMonth
 from app.models.workspace import Workspace
 from app.services import public_model as model
-from conftest import TEST_DATABASE_URL
 
 MESSAGES = [{"role": "user", "content": "问题"}]
 ANSWER = "测试答复"
@@ -30,6 +32,7 @@ TODAY = datetime(2026, 11, 30, 23, 59, 58, tzinfo=CHINA)
 
 @pytest_asyncio.fixture
 async def ledger(monkeypatch):
+    await prepare_schema()
     schema = "seed_model_" + uuid4().hex
     engine = create_async_engine(
         TEST_DATABASE_URL,
@@ -76,14 +79,9 @@ def seed_config(monkeypatch):
 
 @pytest.fixture
 def mock_provider(monkeypatch):
-    client = httpx.AsyncClient
 
     def install(handler):
-        monkeypatch.setattr(
-            model.httpx,
-            "AsyncClient",
-            lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs),
-        )
+        install_model_transport(monkeypatch, httpx.MockTransport(handler))
 
     return install
 
@@ -335,7 +333,9 @@ async def sse_provider(monkeypatch):
 
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
-    monkeypatch.setenv("SEED_MODEL_BASE_URL", f"http://127.0.0.1:{sock.getsockname()[1]}/v1")
+    origin = f"http://127.0.0.1:{sock.getsockname()[1]}"
+    monkeypatch.setattr(get_settings(), "model_local_origins", [origin])
+    monkeypatch.setenv("SEED_MODEL_BASE_URL", origin + "/v1")
     server = uvicorn.Server(uvicorn.Config(app, log_level="error", lifespan="off"))
     task = asyncio.create_task(server.serve(sockets=[sock]))
     try:
@@ -437,3 +437,42 @@ async def test_zero_completion_tokens_with_answer_retains_reservation(ledger, mo
     calls, months = await charges(ledger)
     assert calls[0].completion_tokens is None
     assert calls[0].charged_nano_cny == months[0].charged_nano_cny == 526_000_000
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_registered_real_policy_denial_is_terminal_safe_and_keeps_reserve(ledger, monkeypatch, stream):
+    from unittest.mock import AsyncMock
+
+    from app.services import model_outbound, public_coach
+    resolver = AsyncMock(return_value=("93.184.216.34", "127.0.0.1"))
+    monkeypatch.setattr(model_outbound, "_resolve", resolver)
+    dial = AsyncMock()
+    monkeypatch.setattr(model_outbound.AnyIOBackend, "connect_tcp", dial)
+    with pytest.raises(model.PublicModelError) as error:
+        if stream:
+            await stream_answer(1, "outbound-denied")
+        else:
+            await answer(1, "outbound-denied")
+    assert error.value.detail == {"code": "MODEL_OUTBOUND_POLICY", "message": model_outbound.SAFE_MESSAGE}
+    assert public_coach._public_error(error.value) == model_outbound.SAFE_MESSAGE
+    assert "127.0" not in str(error.value.detail) and "synthetic-key" not in str(error.value.detail)
+    assert resolver.await_count == 1
+    dial.assert_not_called()
+    calls, months = await charges(ledger)
+    assert len(calls) == 1 and calls[0].result is None
+    assert calls[0].charged_nano_cny == calls[0].reserved_nano_cny == months[0].charged_nano_cny
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_registered_real_local_origin_uses_shared_backend(ledger, monkeypatch, stream):
+    from test_model_outbound_policy import local_provider
+    async with local_provider(monkeypatch) as (url, requests):
+        monkeypatch.setenv("SEED_MODEL_BASE_URL", url)
+        result = await stream_answer(1, "local-outbound") if stream else await answer(1, "local-outbound")
+        assert result == (["OK"] if stream else "OK")
+        assert len(requests) == 1 and b"Authorization: Bearer synthetic-key" in requests[0][0]
+        assert b"Host: local.example:" in requests[0][0]
+    calls, months = await charges(ledger)
+    assert calls[0].prompt_tokens == 3 and calls[0].completion_tokens == 2

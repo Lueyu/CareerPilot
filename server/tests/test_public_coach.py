@@ -11,13 +11,13 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.api import public_coach as api, public_memory
+from app.api import public_coach as api
+from app.api import public_memory
 from app.db import get_session
 from app.i18n import LanguageMiddleware, message
 from app.models import Question, Workspace
-from app.services import public_coach as service
-
 from app.models.public_library import PublicLibraryRole
+from app.services import public_coach as service
 
 pytestmark = pytest.mark.asyncio
 
@@ -403,3 +403,33 @@ async def test_public_note_snapshot_edit_history_and_isolation(coach, monkeypatc
     exported = await api.export_coach(db_session, workspaces[0].id)
     assert [version["body"] for version in exported["notes"][0]["versions"]] == ["笔记原文", "我自己的总结"]
     assert "notes" not in await api.export_coach(db_session, workspaces[1].id)
+
+
+@pytest.mark.parametrize("action", ["chat", "generate"])
+async def test_real_model_outbound_refusal_reaches_registered_terminal_error(coach, db_session, monkeypatch, action):
+    from unittest.mock import AsyncMock
+
+    from app.services import model_outbound, public_model
+    owner, _, service, _, _, _ = coach
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False, autoflush=False)
+    monkeypatch.setattr(public_model, "SessionLocal", factory)
+    monkeypatch.setattr(service, "complete_text", public_model.complete_text)
+    monkeypatch.setattr(service, "stream_text", public_model.stream_text)
+    for name, value in {
+        "SEED_MODEL_BASE_URL": "https://models.example/v1", "SEED_MODEL_KEY": "synthetic-coach-key",
+        "SEED_MODEL_NAME": "fake", "SEED_MODEL_THINKING": "", "SEED_LOCAL_UNMETERED": "false",
+        "SEED_INPUT_CNY_PER_MILLION": "1", "SEED_OUTPUT_CNY_PER_MILLION": "1",
+        "SEED_MONTHLY_CNY": "50", "SEED_DAILY_USER_CNY": "10",
+    }.items():
+        monkeypatch.setenv(name, value)
+    resolver = AsyncMock(return_value=("93.184.216.34", "127.0.0.1"))
+    monkeypatch.setattr(model_outbound, "_resolve", resolver)
+    dial = AsyncMock()
+    monkeypatch.setattr(model_outbound.AnyIOBackend, "connect_tcp", dial)
+    path = await make_thread(owner, mode="study", direction="用户增长")
+    await submit(owner, path, action, text="合成学习请求")
+    saved = (await detail(owner, path))["turns"][0]
+    assert saved["status"] == "failed" and saved["error"] == model_outbound.SAFE_MESSAGE
+    assert not saved["reply"] and resolver.await_count == 1
+    dial.assert_not_called()
+    assert "127.0.0.1" not in dump(saved) and "synthetic-coach-key" not in dump(saved)

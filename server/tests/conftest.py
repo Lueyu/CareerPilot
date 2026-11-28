@@ -165,3 +165,15 @@ def mock_private_billing(monkeypatch):
     monkeypatch.setattr(llm.AgentAdapter, "_record_metric", metric)
     monkeypatch.setattr(llm, "reserve", reserve)
     monkeypatch.setattr(llm, "settle", settle)
+
+
+@pytest.fixture
+def synthetic_model_dns(monkeypatch):
+    """Opt-in settings tests resolve only synthetic names, without external DNS."""
+    from app.services import model_outbound
+
+    async def resolve(host, port, timeout):
+        assert host.endswith((".invalid", ".example", ".test"))
+        return ("93.184.216.34",)
+
+    monkeypatch.setattr(model_outbound, "_resolve", resolve)

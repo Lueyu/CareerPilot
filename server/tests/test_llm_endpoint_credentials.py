@@ -14,7 +14,7 @@ from app.services.secret_storage import open_setting
 @pytest.fixture
 def isolated(monkeypatch, secrets_key):
     env = SimpleNamespace(
-        llm_provider="compatible", llm_base_url="https://old.invalid/v1",
+        model_local_origins=[], llm_provider="compatible", llm_base_url="https://old.invalid/v1",
         llm_api_key="synthetic-env", llm_model="original",
         study_flash_model="", study_strong_model="deep",
         study_strong_base_url="", study_strong_api_key="", study_strong_provider="",
@@ -30,6 +30,9 @@ def isolated(monkeypatch, secrets_key):
         yield session
 
     monkeypatch.setattr(db, "SessionLocal", local_session)
+    # This response-only fixture has no recovery table. Recovery guards have
+    # their own real-database tests; this fixture models a normal installation.
+    monkeypatch.setattr("app.services.recovery_control.require_normal", AsyncMock())
     for module in (llm, settings, project_autopilot_config, project_autopilot_config.study_routing):
         monkeypatch.setattr(module, "get_settings", lambda: env)
     monkeypatch.setattr(llm, "_CACHE", None)
@@ -109,3 +112,5 @@ async def test_existing_keyless_override_cannot_inherit_env_key(isolated, monkey
         expected = "" if key else env.llm_api_key
         assert config["api_key"] == config["auto_profiles"]["flash"]["api_key"] == expected
         assert config["auto_profiles"]["strong"]["api_key"] == expected
+
+pytestmark = pytest.mark.usefixtures("synthetic_model_dns")

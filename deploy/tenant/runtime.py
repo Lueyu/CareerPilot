@@ -1,24 +1,23 @@
 """Provision a private native API and worker for an authenticated account."""
 
-from contextlib import contextmanager
-from dataclasses import dataclass, field
 import hashlib
 import hmac
 import ipaddress
 import json
 import os
-from pathlib import Path
 import re
 import sqlite3
 import subprocess
 import tempfile
-from threading import Lock
 import time
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from pathlib import Path
+from threading import Lock
 from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, Request, build_opener
 
 from .relay import LoopbackRelay
-
 
 IMAGE = "careerpilot-tenant-native:parity-20261124"
 DATABASE_IMAGE = "postgres:16-alpine"
@@ -289,7 +288,8 @@ def _model_upstream() -> dict[str, str]:
     if optional["MODEL_STRONG_BASE_URL"] or optional["MODEL_STRONG_API_KEY"]:
         if not all(optional[key] for key in ("MODEL_STRONG_MODEL", "MODEL_STRONG_BASE_URL", "MODEL_STRONG_API_KEY")):
             raise RuntimeError("A separate Strong connection needs its model, URL and key")
-    return {**config, **{key: value for key, value in optional.items() if value}}
+    return {**config, **{key: value for key, value in optional.items() if value},
+            "MODEL_LOCAL_ORIGINS": os.environ.get("MODEL_LOCAL_ORIGINS", "[]")}
 
 
 def _compose(
@@ -388,6 +388,7 @@ def _compose(
             "LLM_PROVIDER": "openai",
             "LLM_API_KEY": model_token,
             "LLM_BASE_URL": f"http://{model_ip}:8080/v1",
+            "MODEL_LOCAL_ORIGINS": json.dumps([f"http://{model_ip}:8080"]),
             "LLM_MODEL": upstream["MODEL_UPSTREAM_MODEL"].replace("$", "$$"),
             "STUDY_FLASH_MODEL": upstream.get("MODEL_FLASH_MODEL", "").replace("$", "$$"),
             "STUDY_FLASH_THINKING": os.environ.get("SEED_STUDY_FLASH_THINKING", ""),

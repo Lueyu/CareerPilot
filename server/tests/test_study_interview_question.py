@@ -119,7 +119,7 @@ async def test_interview_question_reserves_for_its_workspace_and_cache_does_not_
         return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=payload)
 
     real_client = httpx.AsyncClient
-    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real_client(transport=httpx.MockTransport(provider), **kwargs))
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real_client(**{**kwargs, "transport": httpx.MockTransport(provider)}))
     sid = await new_chat(client, owner)
     await turn(db_session, sid, "metered-guide", "如何保持重试安全？", "先检查业务编号，再原子写入结果。")
     path = f"/study/sessions/{sid}/interview-question"
@@ -245,7 +245,7 @@ async def test_interview_question_respects_budget_and_rejects_truncation(
         return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body)
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(
-        transport=httpx.MockTransport(upstream), **kwargs))
+        **{**kwargs, "transport": httpx.MockTransport(upstream)}))
     headers = {**owner, "Accept-Language": "en"}
     sid = await new_chat(client, headers)
     await turn(db_session, sid, "budget-fixture", "How do retries affect this design?", "重试时使用相同的业务键。",
@@ -307,7 +307,7 @@ async def test_interview_question_fits_full_prompt_in_context(
 
     monkeypatch.setattr(study_interview_questions, "get_llm_config", config)
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(
-        transport=httpx.MockTransport(upstream), **kwargs))
+        **{**kwargs, "transport": httpx.MockTransport(upstream)}))
 
     response = await client.post(path, headers=headers)
     if context == 8192:
@@ -372,7 +372,7 @@ async def test_interview_question_fits_reviewer_transcript(
 
     monkeypatch.setattr(study_interview_questions, "get_llm_config", config)
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(
-        transport=httpx.MockTransport(upstream), **kwargs))
+        **{**kwargs, "transport": httpx.MockTransport(upstream)}))
     response = await client.post(path, headers=headers)
     assert response.status_code == expected_status, response.text
     saved = await client.get(path, headers=headers)

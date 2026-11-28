@@ -56,6 +56,7 @@ from app.services.github_publish import get_github_token, set_github_token_cache
 from app.services.llm import adapter, get_llm_config, set_llm_config_cache
 from app.services.llm_endpoint_config import endpoint, resolve_llm_config
 from app.services.local_credentials import AuthenticatedPrincipal, tenant_workspace_ids
+from app.services.model_outbound import validate_model_url
 from app.services.private_model_billing import BillingScope
 from app.services.secret_storage import open_setting, seal_setting
 from app.services.workspaces import ensure_personal_workspace
@@ -571,6 +572,8 @@ async def update_llm(
         raise HTTPException(422, error)
     if new_key:
         updated.update(api_key=new_key, provider=proposed["provider"], base_url=proposed["base_url"])
+    if proposed["base_url"]:
+        await validate_model_url(proposed["base_url"])
     if row:
         row.value = seal_setting("llm", updated)
     else:

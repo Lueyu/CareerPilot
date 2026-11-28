@@ -337,7 +337,7 @@
 - **为什么是问题**：工业级凭据生命周期管理是基本要求；与 G6 叠加风险放大。
 - **目标方案**：token 表（hash+过期时间+最后使用），支持轮换与撤销；失败尝试限速；管理端点操作审计。
 
-### H2. LLM endpoint 可配任意 URL：SSRF 探测面 `P1` `OPEN`
+### H2. LLM endpoint 可配任意 URL：SSRF 探测面 `P1` `DONE`
 - **现状**：settings 可配任意 base_url，/llm/test 是现成的探测 oracle（可打内网地址看响应差异）；个人版无 URL 白名单/内网黑名单（注册版模型 URL 有 https/loopback 白名单，做得对）。
 - **代码**：`server/app/api/v1/settings.py:493,549-599`；`services/llm.py:196`；对比注册版白名单。
 - **为什么是问题**：ECS 部署时这是云元数据服务（169.254.169.254）/内网探测入口；工业级出站必须受控。

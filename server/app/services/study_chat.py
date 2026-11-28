@@ -18,6 +18,7 @@ from app.i18n import message as localized_message
 from app.models.jd import JdSource
 from app.models.study_chat import StudyMessage, StudySession
 from app.services.llm import AgentAdapter, get_llm_config
+from app.services.model_outbound import OutboundPolicyError
 from app.services.private_model_billing import BillingScope, BudgetPolicyError
 from app.services.study_chat_capacity import generation_event, interrupted_coach
 from app.services.study_routing import (
@@ -807,6 +808,11 @@ async def _execute_reply(message_id: int, attempt: int, *, submitted_at=None, ac
         except InterruptedError:
             pass
         raise
+    except OutboundPolicyError as exc:
+        trace.update(error_kind="outbound_policy", policy_code=exc.code)
+        if trace["calls"]:
+            trace["calls"][-1].update(outcome="denied", error=exc.code)
+        await fail("outbound_policy", str(exc))
     except BudgetPolicyError as exc:
         trace.update(error_kind="budget_policy", policy_code=exc.code, policy_phase=exc.phase, retry_after=exc.retry_after)
         if trace["calls"]:

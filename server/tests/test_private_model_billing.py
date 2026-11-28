@@ -8,13 +8,14 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 import pytest_asyncio
+from model_transport_fixtures import install_model_transport
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import Settings
 from app.models import AppSetting, Trace
 from app.models.private_model import PrivateModelCall
-from app.services import llm
+from app.services import llm, model_outbound
 from app.services import private_model_billing as billing
 from app.services.llm import AgentAdapter
 from app.services.private_model_billing import BillingScope, BudgetPolicyError
@@ -22,6 +23,64 @@ from app.services.private_model_billing import BillingScope, BudgetPolicyError
 CONFIG = {"provider": "synthetic", "base_url": "https://billing.invalid/v1", "model": "model-a", "api_key": "synthetic"}
 SCOPE = BillingScope(1128, "synthetic:operation")
 REAL_CLIENT = httpx.AsyncClient
+REAL_MODEL_TRANSPORT = model_outbound.PinnedModelTransport
+
+
+@pytest.mark.asyncio
+async def test_budget_denial_performs_zero_dns_and_tcp(metered, monkeypatch):
+    resolver, dial = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(model_outbound, "_resolve", resolver)
+    monkeypatch.setattr(model_outbound.AnyIOBackend, "connect_tcp", dial)
+    metered.settings.private_llm_daily_budget_cny = "0"
+    with pytest.raises(BudgetPolicyError):
+        await AgentAdapter().chat_with(CONFIG, "s", "u", billing_scope=metered.scope)
+    resolver.assert_not_called()
+    dial.assert_not_called()
+    assert not await metered.rows()
+
+
+@pytest.mark.asyncio
+async def test_pinned_connection_preserves_price_and_ledger_endpoint_identity(metered, monkeypatch):
+    from test_model_outbound_policy import WireStream
+    observed = {}
+    monkeypatch.setattr(model_outbound, "_resolve", AsyncMock(return_value=("93.184.216.34",)))
+
+    async def dial(self, host, port, **kwargs):
+        observed["ip"] = host
+        return WireStream(observed, json.dumps({"choices": [{"message": {"content": "OK"}}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}}).encode())
+
+    monkeypatch.setattr(model_outbound.AnyIOBackend, "connect_tcp", dial)
+    assert (await AgentAdapter().chat_with(CONFIG, "s", "u", billing_scope=metered.scope))["content"] == "OK"
+    record = (await metered.rows())[0]
+    assert record.endpoint == CONFIG["base_url"] and record.state == "SETTLED"
+    assert observed["ip"] == "93.184.216.34" and observed["sni"] == "billing.invalid"
+    assert b"Host: billing.invalid\r\n" in observed["wire"]
+
+
+@pytest.mark.asyncio
+async def test_cancelled_dns_keeps_reservation_and_does_not_later_dial(metered, monkeypatch):
+    arrived, release = asyncio.Event(), asyncio.Event()
+    async def resolve(*args):
+        arrived.set()
+        await release.wait()
+        return ("93.184.216.34",)
+    monkeypatch.setattr(model_outbound, "_resolve", resolve)
+    dial = AsyncMock()
+    monkeypatch.setattr(model_outbound.AnyIOBackend, "connect_tcp", dial)
+    adapter = AgentAdapter()
+    task = asyncio.create_task(adapter.chat_with(CONFIG, "s", "u", billing_scope=metered.scope))
+    await asyncio.wait_for(arrived.wait(), 3)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    release.set()
+    await asyncio.sleep(0)
+    dial.assert_not_called()
+    record = (await metered.rows())[0]
+    assert record.endpoint == CONFIG["base_url"] and record.state == "UNKNOWN"
+    assert record.charged_nano_cny == record.reserved_nano_cny > 0
+    assert adapter.last_error == {"kind": "cancelled"}
 
 
 @pytest_asyncio.fixture
@@ -54,7 +113,7 @@ async def metered(db_session, test_workspace, monkeypatch):
             calls.append(payload)
             response = handler(request)
             return await response if hasattr(response, "__await__") else response
-        monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: REAL_CLIENT(transport=httpx.MockTransport(dispatch), **kw))
+        install_model_transport(monkeypatch, httpx.MockTransport(dispatch))
 
     # Each test uses its own scope to keep durable ledger rows independent.
     scope = BillingScope(test_workspace.id, "synthetic:operation")
@@ -418,7 +477,7 @@ async def test_paid_service_paths_reach_real_gate_with_trusted_scope(metered, mo
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("flow", ["artifact_repair", "provider_fallback", "policy_denial", "settlement_failure"])
+@pytest.mark.parametrize("flow", ["artifact_repair", "provider_fallback", "policy_denial", "settlement_failure", "outbound_denial"])
 async def test_chat_actual_repair_fallback_and_policy_terminal(metered, monkeypatch, test_workspace, flow):
     from unittest.mock import AsyncMock
 
@@ -454,6 +513,10 @@ async def test_chat_actual_repair_fallback_and_policy_terminal(metered, monkeypa
         return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body)
 
     metered.transport(handler)
+    if flow == "outbound_denial":
+        # Use the real pinned backend, not this suite's response-only seam.
+        monkeypatch.setattr(model_outbound, "PinnedModelTransport", REAL_MODEL_TRANSPORT)
+        monkeypatch.setattr(model_outbound, "_resolve", AsyncMock(return_value=("127.0.0.1",)))
     async with metered.factory() as db:
         sid = (await api.create(api.StartSession(topic="synthetic", mode="auto"), db, test_workspace))["id"]
         tasks = BackgroundTasks()
@@ -465,7 +528,13 @@ async def test_chat_actual_repair_fallback_and_policy_terminal(metered, monkeypa
         trace = message.coach["trace"]
     records = await metered.rows()
     assert all(r.workspace_id == test_workspace.id and r.operation.startswith("study_message:") for r in records)
-    if flow == "settlement_failure":
+    if flow == "outbound_denial":
+        assert len(records) == len(trace["calls"]) == 1 and not metered.calls
+        assert message.status == "failed" and trace["error_kind"] == "outbound_policy"
+        assert trace["policy_code"] == "MODEL_OUTBOUND_POLICY" and trace["calls"][0]["outcome"] == "denied"
+        assert records[0].state == "UNKNOWN" and records[0].charged_nano_cny == records[0].reserved_nano_cny
+        assert records[0].endpoint == CONFIG["base_url"] and "127.0.0.1" not in message.error
+    elif flow == "settlement_failure":
         assert len(records) == len(metered.calls) == len(trace["calls"]) == 1
         assert records[0].state == "RESERVED" and records[0].charged_nano_cny == records[0].reserved_nano_cny
         assert message.status == "failed" and trace["policy_phase"] == "settlement"

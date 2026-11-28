@@ -23,6 +23,7 @@ from app.services import project_autopilot_sources as sources
 from app.services import project_claim_registry as claim_registry
 from app.services import project_stage_splits as stage_splits
 from app.services.llm import AgentAdapter
+from app.services.model_outbound import OutboundPolicyError
 from app.services.private_model_billing import BillingScope, BudgetPolicyError
 from app.services.project_prompts import PROMPT_BUNDLE_VERSION, system_prompt
 from app.services.project_report_i18n import report_message
@@ -530,6 +531,10 @@ async def _ask(task, payload, model, runtime):
         result = await asyncio.wait_for(adapter.chat_with({**cfg, "output_limit": runtime.output_reserve_tokens}, system, user, json_mode=True,
             billing_scope=BillingScope(runtime.workspace_id, f"project:{runtime.project_id}:{task}"),
             timeout=runtime.request_timeout, **transport_options), timeout=stage_timeout)
+    except OutboundPolicyError as exc:
+        meta.update(getattr(adapter, 'last_response_meta', {}) or {})
+        meta['policy_code'] = exc.code
+        raise StageError(exc.code, str(exc), request_meta=meta) from None
     except BudgetPolicyError as exc:
         meta.update(getattr(exc, "request_meta", None) or {})
         meta.update(request_started=exc.phase == "settlement", billing_phase=exc.phase, policy_code=exc.code)

@@ -3,13 +3,12 @@ import argparse
 import asyncio
 import json
 import os
-from pathlib import Path
 import secrets
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 from urllib.parse import urlsplit
-
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -30,6 +29,7 @@ def initialize_once(path, factory):
 
 async def environment(args):
     import asyncpg
+
     from app.config import get_settings
     from app.db import engine
     from app.services.llm import get_llm_config
@@ -74,7 +74,7 @@ async def environment(args):
         owner_token = get_settings().api_token if owner else None
     finally:
         await engine.dispose()
-    env = {**os.environ, **{k: v for k, v in settings.items() if k == "DATABASE_URL" or k.startswith(("SEED_", "FEEDBACK_"))},
+    env = {**os.environ, **{k: v for k, v in settings.items() if k in {"DATABASE_URL", "MODEL_LOCAL_ORIGINS"} or k.startswith(("SEED_", "FEEDBACK_"))},
            "SEED_PUBLIC_ORIGIN": f"http://127.0.0.1:{args.port}",
            "SEED_STATIC_DIR": str(ROOT/"web/dist-seed"), "SEED_NATIVE_LOCAL_TENANTS": "1",
            "TENANT_RUNTIME_SECRET": initialize_once(args.state_dir/"native.key", lambda: secrets.token_hex(48)),
@@ -92,6 +92,8 @@ async def environment(args):
             raise ValueError("The personal model is not configured")
         env.update(SEED_MODEL_NAME=model["model"], SEED_MODEL_KEY=model["api_key"], SEED_MODEL_BASE_URL=model["base_url"],
                    SEED_MODEL_PROVIDER_LABEL="CareerPilot · " + model["model"])
+        if "MODEL_LOCAL_ORIGINS" not in settings:
+            env["MODEL_LOCAL_ORIGINS"] = json.dumps(get_settings().model_local_origins)
         flash = profile(model, "flash")
         strong = profile(model, "strong") or {}
         separate = strong and (strong["base_url"].rstrip("/") != model["base_url"].rstrip("/")

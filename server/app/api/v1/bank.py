@@ -43,6 +43,7 @@ from app.services.interview_import_text import extract_structured_questions as _
 from app.services.interview_import_text import read_json
 from app.services.interview_rewrite import rewrite_interview_questions
 from app.services.llm import AgentAdapter
+from app.services.model_outbound import OutboundPolicyError
 from app.services.private_model_billing import BillingScope, BudgetPolicyError
 from app.services.project_context import PROFILE_LABELS, project_profile
 from app.services.text_extract import MAX_FILE_BYTES, MAX_TEXT_CHARS, extract_many
@@ -662,7 +663,7 @@ async def _extract_questions(text: str, *, billing_scope=None) -> list[dict]:
                     model_candidates = [{**item, "extraction_method": "model"} for item in parsed]
                     if len(text) <= prompt_limit:
                         return model_candidates
-        except BudgetPolicyError:
+        except (BudgetPolicyError, OutboundPolicyError):
             raise
         except Exception:
             pass

@@ -24,6 +24,7 @@ from sqlalchemy import select
 from app.config import MAX_STUDY_TIMEOUT_SECONDS, get_settings
 from app.services.llm_endpoint_config import resolve_llm_config
 from app.services.llm_stream import ChatCompletionStream, StreamFailure
+from app.services.model_outbound import ModelOutboundPolicy, OutboundPolicyError, model_client
 from app.services.private_model_billing import BillingScope, BudgetPolicyError, reserve, settle
 from app.services.secret_storage import SecretStorageError, open_setting
 
@@ -194,6 +195,11 @@ class AgentAdapter:
 
         # Policy errors happen outside provider-failure handling. No request exists yet.
         try:
+            ModelOutboundPolicy.deployment().endpoint(cfg['base_url'])
+        except OutboundPolicyError:
+            self.last_error = {"kind": "outbound_policy", "code": "MODEL_OUTBOUND_POLICY"}
+            raise
+        try:
             call_id = await reserve(billing_scope, cfg, system, user, payload["max_tokens"])
         except BudgetPolicyError as exc:
             self.last_error = {"kind": "budget_policy", "code": exc.code, "retry_after": exc.retry_after}
@@ -211,7 +217,7 @@ class AgentAdapter:
                     # One request, no fallback/reconnect. Bound the complete operation even
                     # while data/heartbeats arrive; per-I/O timeouts alone are insufficient.
                     async with asyncio.timeout(timeout if total_timeout is None else total_timeout):
-                        async with httpx.AsyncClient(timeout=timeout, event_hooks={'response': [record_response_headers]}) as client:
+                        async with model_client(cfg['base_url'], timeout=timeout, event_hooks={'response': [record_response_headers]}) as client:
                             async with client.stream('POST', f"{cfg['base_url'].rstrip('/')}/chat/completions",
                                 headers=headers, json=payload, extensions={'trace': record_transport_event}) as resp:
                                 resp.raise_for_status()
@@ -223,7 +229,7 @@ class AgentAdapter:
                     billing_usage = reader.billing_usage
                     if getattr(reader, "reported_model", None):
                         self.last_response_meta["reported_model"] = reader.reported_model
-            async with httpx.AsyncClient(timeout=timeout, event_hooks={'response': [record_response_headers]}) as client:
+            async with model_client(cfg['base_url'], timeout=timeout, event_hooks={'response': [record_response_headers]}) as client:
                 resp = await client.post(
                     f"{cfg['base_url'].rstrip('/')}/chat/completions",
                     headers=headers,
@@ -267,6 +273,9 @@ class AgentAdapter:
                     }
                 result = parsed_result
                 return result
+        except OutboundPolicyError:
+            self.last_error = {"kind": "outbound_policy", "code": "MODEL_OUTBOUND_POLICY"}
+            raise
         except (httpx.TimeoutException, TimeoutError):
             self.last_error = {"kind": "timeout"}
             return None

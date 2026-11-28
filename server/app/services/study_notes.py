@@ -15,6 +15,7 @@ from app.i18n import message as localized_message
 from app.models.study_chat import StudyMessage, StudySession
 from app.models.study_notes import StudyCard, StudyNote, StudyNoteJob, StudyNoteVersion
 from app.services.llm import AgentAdapter, get_llm_config
+from app.services.model_outbound import OutboundPolicyError
 from app.services.note_store import create_note, own_note, own_version, utcnow
 from app.services.private_model_billing import BillingScope, BudgetPolicyError
 from app.services.study_teaching import teaching_prompt
@@ -235,7 +236,7 @@ async def process_next_note_job(factory):
     try:
         with using_language(language):
             result = await generate_note(snapshot, billing_scope=billing_scope)
-    except BudgetPolicyError as exc:
+    except (BudgetPolicyError, OutboundPolicyError) as exc:
         error = str(exc)
     except GenerationError as exc:
         error = str(exc)
