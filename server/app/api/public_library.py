@@ -6,17 +6,14 @@ import asyncio
 import hashlib
 import json
 import re
-import subprocess
-import sys
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from html import escape
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +29,7 @@ from app.models import ImportItem, ImportSession, Question, Workspace
 from app.models.public_library import PublicLibraryRole, PublicLibraryStarter
 from app.models.question import SOURCE_GENERATED, SOURCE_PRIVATE
 from app.services.interview_import_text import extract_structured_questions, read_json
-from app.services.public_library_extract import MAX_UPLOAD_BYTES, SUFFIXES
+from app.services.public_library_extract import MAX_UPLOAD_BYTES, SUFFIXES, extract_async
 from app.services.public_library_presets import example_titles, preset_directions
 from app.services.public_model import complete_text
 from app.services.untrusted_source import SOURCE_AUTHORITY_CONTRACT, source_json, source_review
@@ -560,20 +557,8 @@ async def _upload(request: Request) -> tuple[DirectionInput, str, str, bytes]:
     return direction, filename, suffix, raw
 
 
-def _parse_document(suffix: str, raw: bytes) -> dict[str, str]:
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "app.services.public_library_extract", suffix],
-            cwd=Path(__file__).resolve().parents[2],
-            input=raw,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            timeout=10,
-            check=True,
-        )
-        return json.loads(result.stdout)
-    except (subprocess.SubprocessError, OSError, ValueError):
-        return {"error": "文件解析超时或超过资源限制，请拆分文档后重试。"}
+async def _parse_document(suffix: str, raw: bytes) -> dict[str, str]:
+    return await extract_async(suffix, raw)
 
 
 def _candidate(
@@ -625,7 +610,7 @@ async def _parse_import(request: Request, db: AsyncSession, workspace_id: int):
     if batch:
         return _import_view(batch)
     await db.rollback()
-    result = await run_in_threadpool(_parse_document, suffix, raw)
+    result = await _parse_document(suffix, raw)
     await _lock_space(db, workspace_id)
     batch = await db.scalar(prior)
     if batch:

@@ -26,6 +26,9 @@
 !app/services/feedback_delivery.py
 !app/services/interview_import_text.py
 !app/services/text_extract.py
+!app/services/document_policy.py
+!app/services/document_runner.py
+!app/services/document_worker.py
 !app/services/public_*.py
 !app/services/note_store.py
 !app/services/daily_learning_plan.py

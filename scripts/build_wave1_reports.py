@@ -330,6 +330,53 @@ def import_authority_demo() -> str:
 """
 
 
+def document_isolation_demo() -> str:
+    return r"""
+<section id="document-demo"><h2>切换样例，看检查发生在哪一步</h2>
+<p>这是处理顺序的教学演示，不会上传、解压或解析文件，也不会启动进程。实际阈值、操作系统限制和测试证据在正文中分别说明。</p>
+<div class="calc-fields"><label>文档或运行样例<select id="dp-case">
+<option value="normal">正常文档，在各项限制内</option>
+<option value="archive">DOCX 声明的解压总量超限</option>
+<option value="pixels">图像像素数超限</option>
+<option value="timeout">解析持续运行，超过截止时间</option>
+<option value="cancel">解析期间，请求被取消</option>
+<option value="unavailable">操作系统限额建立失败</option>
+</select></label></div>
+<div id="dp-flow" class="flow" style="margin-top:24px"></div>
+<div class="calc-results" aria-live="polite"><div><span>本文件结果</span><strong id="dp-result"></strong></div>
+<div><span>解析子进程</span><strong id="dp-child"></strong></div></div>
+<p id="dp-reason"></p><p class="small">文件解析产生资料文本。题目审核、评分和本人能力证据仍由各自的后续流程决定。一个文件失败时，同批其他文件的处理以正文说明的实际策略为准。</p>
+</section><script>
+(() => {
+ const steps=['接收并检查文件大小','建立子进程资源限制','检查格式元数据','解析正文','返回资料文本'];
+ const cases={
+  normal:{stop:-1,result:'返回解析文本',child:'解析结束后回收',reason:'在限制内的文档经过预检和解析，文本仍然属于待审核资料。'},
+  archive:{stop:2,result:'报告本文件受限',child:'结束并回收',reason:'在解压和调用文档解析库之前检查目录与展开预算。压缩后的文件大小不能代表解压后的内存需求。'},
+  pixels:{stop:2,result:'报告本文件受限',child:'结束并回收',reason:'图像尺寸检查先于颜色转换、数组分配和文字识别。文件字节较少，也可能描述一张像素数很大的图片。'},
+  timeout:{stop:3,result:'报告解析超时',child:'终止并等待回收',reason:'解析不按时结束时，父进程负责终止拥有的解析进程并回收资源。只停止等待，仍会留下消耗资源的工作。'},
+  cancel:{stop:3,result:'停止本次解析',child:'终止并等待回收',reason:'这个样例设定取消发生在解析期间。请求取消后，已启动的解析工作也必须结束；准入名额随后释放。'},
+  unavailable:{stop:1,result:'拒绝继续解析',child:'终止并等待回收',reason:'如果操作系统资源限制无法建立，就不向未受限的子进程放行不可信内容，也不改用 API 线程直接解析。'}
+ };
+ const get=name=>document.getElementById('dp-'+name);
+ function update(){
+  const sample=cases[get('case').value];
+  get('flow').replaceChildren(...steps.map((label,index)=>{
+   const node=document.createElement('div');node.className='step';
+   const title=document.createElement('strong');title.textContent=label;
+   const state=document.createElement('span');
+   state.textContent=sample.stop<0||index<sample.stop?'完成':index===sample.stop?'在这里停止':'不执行';
+   if(index===sample.stop){node.style.borderTopColor='#a3422c';node.style.background='#fff0e9';}
+   if(sample.stop>=0&&index>sample.stop)node.style.opacity='0.55';
+   node.append(title,state);return node;
+  }));
+  get('result').textContent=sample.result;get('child').textContent=sample.child;get('reason').textContent=sample.reason;
+ }
+ get('case').addEventListener('change',update);update();
+})();
+</script>
+"""
+
+
 def render(record: dict) -> str:
     issue = record["id"]
     body = '<nav><a href="index.html">第 1 波报告目录</a> · <a href="../../timeline.html">施工时间线</a></nav>'
@@ -351,6 +398,8 @@ def render(record: dict) -> str:
         body += bounded_input_demo()
     if record.get("calculator") == "import-authority":
         body += import_authority_demo()
+    if record.get("calculator") == "document-isolation":
+        body += document_isolation_demo()
     body += '<section><h2>读懂这些概念就能读懂代码</h2>' + table(["概念", "人话解释", "在这里的作用"], record["concepts"]) + '</section>'
     body += '<section><h2>为什么选择这个方案</h2>' + paragraphs(record["rationale"]) + table(["方案", "收益", "代价与决定"], record["alternatives"]) + '</section>'
     body += '<section><h2>具体改了哪些代码</h2>'
