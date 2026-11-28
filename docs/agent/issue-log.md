@@ -43,3 +43,10 @@
 - 验证 SHA：5f97694b0d03dd92d8ba907b07700170ba54641d
 - 证据：.agent-runs/20261128-wave1/g6/handoff.json
 - 遗留/后续：H1负责hash/撤销/轮换/租户与恢复代际；已有弱配置由操作者维护迁移。未改个人实例或既有角色密码；Python控制器未被标为PASS，原生Docker证据单列。
+
+## H1 · 2026-11-28 · DONE
+- 结论：持久化hash凭据、到期撤销轮换、稳定租户边界与安装级失败桶；127项核心及18项生命周期、4项CLI、5项恢复、11项适配分次通过，未累加重叠。
+- PR：https://github.com/Lueyu/CareerPilot/pull/59
+- 验证 SHA：3e88bca91506db173632d8dc10ff8a1ddd7c3dff
+- 证据：.agent-runs/20261128-wave1/h1/handoff.json
+- 遗留/后续：注册租户真实首次安装需明确离线登记；16项基线调用者失败已分配E2补修/F7/F8和安全夹具验证，不在此冒称整波通过。
