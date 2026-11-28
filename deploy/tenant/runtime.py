@@ -346,7 +346,7 @@ def _compose(
                 ],
                 "depends_on": {"postgres": {"condition": "service_healthy"}},
                 "healthcheck": {
-                    "test": ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"],
+                    "test": ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/readyz"],
                     "interval": "2s", "timeout": "3s", "retries": 45,
                 },
             },

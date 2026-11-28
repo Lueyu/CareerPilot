@@ -1,0 +1,345 @@
+{
+  "id": "G4",
+  "status": "实现与验证记录",
+  "title": "把进程存活与数据库就绪分开，数据库故障不再继续报告可接流量",
+  "goal": "让 CareerPilot 在数据库不可用时准确返回未就绪，同时保留能用于观察进程的存活入口。调用者可以区分进程没有响应、数据库故障和恢复隔离，减少把业务失败误判成整台 API 已经死掉的情况。",
+  "scenario": [
+    "设想用户正在提交练习，数据库连接突然断开。API 事件循环仍能处理 HTTP，旧 /healthz 因此继续返回成功。如果容器检查只访问这个地址，面板看起来正常，真正需要读写记录的操作却失败。本次把能回应请求和能访问必要依赖拆成两个明确的问题。",
+    "另一个场景是从备份恢复的数据库已经可以执行查询，但恢复核验、凭据或付费状态尚未完成。只做 SELECT 1 会把这样的实例错误放行。这里沿用 F6 恢复闸，探针只读当前状态，既不代替操作员核验，也不自动把隔离标成正常。",
+    "对于 Agent 工程，可靠性还包括依赖失败时给出可信信号。任务执行、模型调用和账本写入会跨多个组件，健康信号必须写清证明范围。这个改动提供一项可复查的工程证据，不能据此宣称用户已掌握分布式系统或整套 Agent 已达到高可用。"
+  ],
+  "before_after": [
+    [
+      "进程探针",
+      "/healthz 只代表能够回应，但被容器当作整体健康",
+      "保留原响应，明确用作轻量存活检查"
+    ],
+    [
+      "数据库故障",
+      "API 还能回应健康成功，没有就绪入口",
+      "/readyz 读取当前数据库及恢复状态，预期依赖故障返回安全 503"
+    ],
+    [
+      "恢复控制未登记",
+      "数据库能查到数据不能说明恢复闸已放行",
+      "恢复控制行为空或隔离时始终未就绪"
+    ],
+    [
+      "网页入口",
+      "探针路径可能落到 SPA，得到 HTML 200",
+      "三处反代配置给探针精确匹配，保持 API 状态码及 JSON"
+    ],
+    [
+      "公开镜像",
+      "新增模块会被严格构建白名单排除",
+      "显式放行 readiness.py，并在构建步骤检查文件存在"
+    ]
+  ],
+  "flow": [
+    [
+      "访问存活入口",
+      "/healthz → 既有入口处理函数 → 200；不获取数据库连接，不读取恢复表，也不进入 API 身份及限流账本。公开版仍检查配置的 Host。"
+    ],
+    [
+      "访问就绪入口",
+      "/readyz → 个人版或公开版路由 → 共享 readiness_response(service)，服务名由入口固定提供。"
+    ],
+    [
+      "开启本次检查",
+      "共享函数 → 1 秒协作式超时 → 新建本请求独占的 session → 等待连接池及数据库连接。"
+    ],
+    [
+      "检查当前依赖",
+      "同一 session → SELECT 1 → require_normal(session)；后者读取已有恢复控制行并核对安装来源、数据库身份和各项正常状态。"
+    ],
+    [
+      "给出响应",
+      "成功清理 session 后返回 200 和 ok=true；预期数据库、连接、超时或恢复拒绝返回 503 和 ok=false。两种响应均带服务名和 no-store。"
+    ],
+    [
+      "基础设施消费",
+      "个人、公开及租户 API 探针改用 /readyz；反代精确转发探针。worker 仍在 API 就绪后启动，不反过来成为 API 的推测性就绪条件。"
+    ]
+  ],
+  "mechanism": [
+    "核心形状只有一个共享异步函数和固定响应对象。服务名分别为 careerpilot-api 与 careerpilot-public，布尔值只描述这一次检查结果。既有 app.db 拥有 session 工厂，恢复控制表拥有准入状态，探针自己不增加缓存、后台任务或一套新的健康状态表。",
+    "每次调用都创建一个 session，并把它直接交给 require_normal。这样连接获取、试查询和恢复判断使用同一个数据库上下文。假如分别开两个连接，试查询成功后恢复检查还可能等待另一条连接，也更难说明超时覆盖了什么。这里的连接独占只限本次请求，不会锁住整个连接池。",
+    "超时从进入 session 上下文之前开始，覆盖连接池等待、建立连接、两次查询以及正常清理。它不是给两条查询各分配一秒，也不会使用上一次成功补偿本次超时。asyncio 通过取消协程结束等待，驱动清理可能短暂超过截止时间，所以不能把一秒宣传成操作系统级硬期限。外部取消会继续向上传播。",
+    "函数只转换已知依赖异常。SQLAlchemy 异常、asyncpg 数据库异常、操作系统连接异常、超时和 RecoveryBlocked 都产生同一份安全响应。程序错误继续暴露给既有服务错误处理，避免用一个捕获所有异常的分支把代码缺陷永久伪装为数据库不通。",
+    "响应不携带连接串、主机、用户名、SQL 或原始错误堆栈。探针没有新增异常日志，因此也不把连接失败详情写入公开响应或探针自己的日志。测试分别注入带合成秘密的驱动及 SQLAlchemy 错误，再检查响应形状与捕获日志。此结论只覆盖本次边界，不是对全项目日志脱敏的审计。",
+    "公开版仍使用既有 Host 和来源校验。容器从回环地址访问公开 API 时必须手动提供公开站点的 Host，不能因为是探针就绕过该校验。GET 不需要用户 token 或登录 cookie，错误 Host 仍然被拒绝。个人版原有 scorer_model 存活字段继续保留。"
+  ],
+  "concepts": [
+    [
+      "Liveness，存活",
+      "现在这个 API 是否还能回应轻量请求",
+      "数据库停机时仍保留观察进程的信号，避免依赖故障导致无意义重启"
+    ],
+    [
+      "Readiness，就绪",
+      "当前实例是否满足接收这类流量的必要条件",
+      "本次只要求数据库试查询及既有恢复准入同时通过"
+    ],
+    [
+      "连接池",
+      "可重复使用的一组数据库连接",
+      "池里没有空位也属于暂时无法服务，必须受同一个超时预算约束"
+    ],
+    [
+      "恢复隔离",
+      "恢复后先限制访问，等待核验和独立对账",
+      "数据库能查询时仍可能返回 503，探针不能擅自解除限制"
+    ],
+    [
+      "协作式取消",
+      "异步任务在等待点收到取消并清理资源",
+      "超时与外部取消都需要释放资源，外部取消不能被吞成普通失败"
+    ],
+    [
+      "SPA 回退",
+      "网页服务器把未知页面路径交给 index.html",
+      "如果探针也走这个回退，HTML 200 就会误导检查者"
+    ]
+  ],
+  "rationale": [
+    "复用 SessionLocal 与 require_normal，避免另造数据库接入和恢复规则。Foundational Thinking 原则促使本次先确定请求独占 session 与固定响应对象，再写路由；Test Behavior, Not Implementation 原则促使测试通过真实入口断言状态码、正文和故障恢复，不把内部函数调用顺序当验收。",
+    "共享函数只承担探针边界，两个入口保留服务身份。这样个人版与公开版对数据库异常、超时和恢复隔离使用同一政策，修改时容易核对；不需要引入健康检查框架、可配置检查注册表或全局结果缓存。",
+    "连接预算一秒，公开容器 HTTP 客户端两秒，Docker 探针三秒，给返回和基础设施调用留出空间。个人与租户 Docker 探针仍保留原三秒超时，轮询周期和失败次数也没有借本次任务重新调参。",
+    "配置回归逐个检查真实消费方。候选预览只把 CareerPilot 的检查路径改成 readiness，保留 Squabble 配置；ops 服务仍可使用自己的轻量存活。worker 保持启动依赖，不引入互相等待的就绪环。"
+  ],
+  "alternatives": [
+    [
+      "两个入口复制实现",
+      "不新增共享导入，局部代码直接可见",
+      "两套超时和恢复政策容易漂移，选择共享小函数"
+    ],
+    [
+      "在 /healthz 加数据库查询",
+      "原有容器配置不用迁移",
+      "会改变轻量存活语义，数据库故障可能触发错误重启动作，因此保留旧入口并新增 /readyz"
+    ],
+    [
+      "缓存最近成功或只做 SELECT 1",
+      "少查恢复表，响应开销更低",
+      "可能在故障或隔离后继续报告可接流量，与本项目标冲突"
+    ],
+    [
+      "把所有 worker 和供应商纳入就绪",
+      "看起来覆盖范围更广",
+      "外部服务抖动会阻断普通读写，新 worker 启动也可能造成依赖环，留给独立诊断与 G3 告警"
+    ]
+  ],
+  "files": [
+    {
+      "path": "server/app/readiness.py",
+      "why": "readiness_response 定义共享固定响应、单 session 查询、恢复检查与总超时。"
+    },
+    {
+      "path": "server/app/main.py",
+      "why": "在静态网页回退之前注册个人版 /readyz，保留旧 /healthz。"
+    },
+    {
+      "path": "server/app/public_main.py",
+      "why": "给公开版添加同一就绪政策和独立服务名。"
+    },
+    {
+      "path": "docker-compose.yml",
+      "why": "个人 API 健康探针改用 readiness，worker 保持 service_healthy 启动依赖。"
+    },
+    {
+      "path": "deploy/public/compose.yaml",
+      "why": "公开 API 改用 readiness，继续发送配置 Host。"
+    },
+    {
+      "path": "deploy/tenant/runtime.py",
+      "why": "租户生成 API 探针改用 readiness，不改 worker 文件探针。"
+    },
+    {
+      "path": "scripts/agent/candidate_delivery.py",
+      "why": "CareerPilot 预览检查 readiness，并为网页探针精确反代。"
+    },
+    {
+      "path": "web/nginx.local.conf",
+      "why": "本地网页转发两个精确探针路径，防止落到 SPA。"
+    },
+    {
+      "path": "deploy/public/Caddyfile",
+      "why": "公开网页精确转发两个探针，沿用后端 Host 校验。"
+    },
+    {
+      "path": "server/Dockerfile.seed.dockerignore",
+      "why": "把共享模块纳入严格公开镜像白名单。"
+    },
+    {
+      "path": "server/Dockerfile.seed",
+      "why": "构建时断言共享模块存在，缺失立即失败。"
+    },
+    {
+      "path": "server/tests/test_readiness.py",
+      "why": "匿名 HTTP、真实数据库、故障注入、取消、脱敏和静态托管行为。"
+    },
+    {
+      "path": "server/tests/test_readiness_deployment.py",
+      "why": "检查实际 Compose、租户生成配置、反代及镜像打包契约。"
+    },
+    {
+      "path": "docs/adr/20261128-g4-readiness-liveness.md",
+      "why": "记录本次决策、超时含义、使用范围及基础设施边界。"
+    }
+  ],
+  "verification": {
+    "explanation": [
+      "源码证据由本 worker 产生。run_isolated_tests.py 每次新建 *_test PostgreSQL，沿用可信 conftest 建表、迁移并显式登记全新测试安装。没有调用真实模型或 SMTP，没有改变个人数据库、运行进程和恢复状态。HTTP 使用实际两个 FastAPI 入口的 ASGI 传输，不启动业务 lifespan 或 worker。",
+      "故障用真实资源制造。拒绝连接使用自己绑定但不监听的回环端口；连接池测试占住唯一连接；查询超时测试在独立事务锁住恢复表。隔离与缺行测试只改本次测试库并在 finally 还原，再次请求确认恢复。合成异常只用于补足敏感字段和程序错误边界。",
+      "最终聚焦数据库命令为 62 项通过，预览凭据为另一条不相交命令，在 UTF-8 模式下 2 项通过，合计 64 项通过且无跳过。原扩展运行是 61 项通过、1 项失败，不能与最终命令相加。最初红基线为两入口 readiness 404、两项存活通过。旧静态测试失败已用原基线 main.py 复现，夹具未准备恢复控制状态；父代理将其登记为 F7 验证跟进，追查夹具边界时须保留 F6 恢复闸。租户文件四项 Ruff 提示在基线完全相同，其余本次 Python 文件通过检查。",
+      "实际产物证据与源码证据分开。父代理已保存旧镜像 API 404 与网页 HTML 200 的基线回执，并核对全部 14 个原始文件摘要，将冻结源码提交为 58b7bed906cc3c81037292411f94de6d11c45e75。该提交对应的个人及最小公开镜像、实际 Nginx/Caddy、预览数据库停止与重启、容器实际 Healthcheck.Test 和最终独立审核均待父代理补证；配置断言不等于真实产物检查已通过。",
+      "父任务用精确源码 58b7bed 构建全新个人模式和精简公开模式镜像。两个入口均通过网页反代，在故障前、实际停止各自合成 PostgreSQL 后、恢复数据库后三阶段并发访问两条路径。存活/就绪依次为 200/200、200/503、200/200，JSON 保留安全字段，数据库均已恢复。独立测试库、个人进程和其他任务资源未操作。",
+      "两个容器实际配置的 Healthcheck.Test 在故障前退出 0、数据库停止后非零、恢复后再为 0。公开变体复制归档 deploy/public/compose.yaml 的完整探针，保留正确 Host、两秒 HTTP 超时和三秒 Docker 超时。个人七个、精简公开五个 server 文件与精确归档摘要相同，实际 HTTP JavaScript 匹配各自 web 镜像。",
+      "公开新安装的数据库登记前能执行 SQL，/healthz 为 200，而 /readyz 和受保护 API 为 503。父任务只为全新自有合成库执行 F6 离线登记，核对空控制表变成唯一 NORMAL 安装记录，再确认未登录 API 为 401、就绪为 200，最后完成正常 Compose 等待。临时 --no-deps 仅用于启动尚未就绪的新 API 以便离线登记，不作为验收通过，也没有增加产品自动放行规则。",
+      "实际 Caddy 2-alpine 镜像的解析器在断网、只读条件下验证精确 Caddyfile，退出 0。本次运行反代为合成 Nginx，未运行生产 Caddy/TLS、集群摘流或实际租户。标准 candidate controller 仍为 false，原生适配的镜像与 HTTP 证据分别保留，没有把标准控制器改写为通过。",
+      "非作者 Erdos 在精确源码上独立复跑64项既有检查，并另做14项风险探测，两组分别通过，不与作者运行次数相加。独立原生 socket 观察显示 Windows 预留但不监听的端口最终返回 WSAECONNREFUSED 10061，约五秒等待可观察到；较短等待曾为 10035。就绪的一秒预算可能先触发，因此不能把原测试通过说成一秒内已收到操作系统拒绝。真实容器数据库停止实验直接证明了本项需要的未就绪行为。"
+    ],
+    "checks": [
+      [
+        "源码红基线",
+        "两入口 /readyz 404；/healthz 两项通过",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\g4\\evidence\\red-baseline.log"
+      ],
+      [
+        "源码最终聚焦",
+        "62 passed，无跳过；包含静态回退与数据库恢复",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\g4\\evidence\\source-focused-green.log"
+      ],
+      [
+        "原扩展运行",
+        "61 passed、1 failed；旧静态夹具失败单列，不计入最终64项",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\g4\\evidence\\source-green.log"
+      ],
+      [
+        "预览凭据",
+        "UTF-8 模式 2 passed，继续显式登记新安装",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\g4\\evidence\\preview-credentials-utf8-green.log"
+      ],
+      [
+        "源码静态检查",
+        "聚焦 Python Ruff 通过，租户基线四提示单列",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\g4\\evidence\\ruff-focused-final.log"
+      ],
+      [
+        "租户基线静态检查",
+        "四项与基线相同，未顺手修复",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\g4\\evidence\\ruff-tenant-baseline.log"
+      ],
+      [
+        "旧静态测试基线",
+        "原 main.py 同样失败，恢复闸返回 503 而夹具期望 401",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\g4\\evidence\\static-baseline.log"
+      ],
+      [
+        "实际旧 API 产物",
+        "父代理回执，旧镜像 /readyz 404",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\g4\\old-a2-api-route-baseline.json"
+      ],
+      [
+        "实际旧网页产物",
+        "父代理回执，旧网页 /readyz 200 HTML",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\g4\\old-a2-web-route-baseline.json"
+      ],
+      [
+        "真实个人镜像故障与恢复",
+        "存活/就绪三阶段为200/200、200/503、200/200；实际配置探针失败后恢复，数据库已恢复。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\g4\\product-personal\\g4-health-receipt.json"
+      ],
+      [
+        "真实精简公开镜像故障与恢复",
+        "存活/就绪三阶段为200/200、200/503、200/200；实际配置探针失败后恢复，数据库已恢复。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\g4\\product-public\\g4-health-receipt.json"
+      ],
+      [
+        "新公开安装的恢复隔离",
+        "登记前就绪503，离线登记后200；未登录 API503变401，仅全新自有合成库。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\g4\\product-public\\readiness-bootstrap.json"
+      ],
+      [
+        "实际镜像与编译资源",
+        "个人七个、公开五个 server 文件匹配归档；实际 HTTP JavaScript 匹配各自 web 镜像。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\g4\\product-personal\\packaged-files.json；D:\\agent-interview\\.agent-runs\\20261128-wave1\\g4\\product-public\\packaged-files.json"
+      ],
+      [
+        "真实 Caddy 配置解析",
+        "精确配置解析退出0；断网只读，不宣称生产代理/TLS运行通过。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\g4\\caddy-validate.json"
+      ],
+      [
+        "非作者源码验证",
+        "64项既有检查与14项独立风险探测分别通过，无阻塞发现；最终文档及实际镜像另作精确绑定。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\g4\\review\\source-stage.json"
+      ],
+      [
+        "教学报告页面",
+        "11个章节、7道理解题、14个固定源码链接，1440和390两种宽度及答案展开通过。首次观察器误用带演示报告的12章节预期，修正为本篇无演示的11章节后复查。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\g4\\report-browser.log"
+      ]
+    ],
+    "commands": [
+      "从指定工作树 server 运行 D:/agent-interview/server/.venv/Scripts/python.exe -X utf8 run_isolated_tests.py tests/test_readiness.py tests/test_readiness_deployment.py tests/test_public_bootstrap_recovery.py tests/test_local_safety.py -q --tb=short",
+      "从指定工作树根运行 D:/agent-interview/server/.venv/Scripts/python.exe -X utf8 -m pytest scripts/agent/tests/test_candidate_credentials.py -q --tb=short",
+      "从指定工作树根运行 D:/agent-interview/server/.venv/Scripts/python.exe -m ruff check server/app/readiness.py server/app/main.py server/app/public_main.py server/tests/test_readiness.py server/tests/test_readiness_deployment.py scripts/agent/candidate_delivery.py"
+    ]
+  },
+  "limits": [
+    "200 只证明本次数据库连接、SELECT 1 和恢复闸成功；它不验证全部表、每条业务查询、worker 心跳、队列积压、模型供应商、费用余额或 SMTP。相关诊断保留在鉴权 ops 路径及独立监控任务。",
+    "Docker unhealthy 本身不会杀死并重启还在运行的进程。unless-stopped 面向容器退出后的重启，depends_on 主要处理启动顺序，两者都不保证运行中持续摘流。要自动停止送流量，部署者必须把 readiness 接到有此能力的反代或编排器。",
+    "操作员应先在授权实例查看 /healthz，再查 /readyz 的状态码与 JSON。公开版提供正确 Host。只有就绪失败时继续查看受保护诊断和数据库状态，不要为了让容器变绿而删除恢复控制行或绕过核验。数据库恢复后再次访问 /readyz，不能用过去的成功当当前结果。",
+    "新建公开实例在显式 F6 安装登记前返回 503 是预期行为。父代理预览会先观察未登记状态，再用既有离线入口登记这份全新自有测试库。本次没有自动 NORMAL、运行时释放 API 或恢复隔离降级。租户配置消费者也必须使用包含本次探针的对应镜像，配置测试没有验证旧固定标签镜像。",
+    "本项验证两个合成镜像的数据库故障恢复及真实 Caddy 语法。实际运行反代为 Nginx，未验证生产 Caddy/TLS、实际租户或集群摘流。controller_pass=false 保留。旧静态夹具503/401基线已登记给F7跟进，最终独立审核及合入以回执为准。个人实例没有升级。"
+  ],
+  "interview": [
+    "可以说明我把存活和就绪的失败域拆开，保留轻量存活，并用真实 PostgreSQL 故障、连接池耗尽及恢复隔离检验就绪。共享函数保证两个入口使用同一政策。回答应同时说清检查范围和 Docker 行为，不能把探针改造包装成集群高可用。",
+    "工程产出由代理实施，本次通过测试说明代码行为成立。用户是否能独立解释连接池、取消、恢复核验和部署摘流，需要下面的理解题或真实操作证明，不能由报告替用户认定。"
+  ],
+  "questions": [
+    [
+      "数据库停机时为什么 /healthz 还能是 200？",
+      "它只回答进程能否处理轻量请求，故意不访问数据库。/readyz 负责报告必要依赖不可用。"
+    ],
+    [
+      "SELECT 1 成功为什么仍会是 503？",
+      "恢复控制行可能缺失、来源不匹配或处于隔离。探针必须同时通过 require_normal，不能自动解除隔离。"
+    ],
+    [
+      "为什么总超时要包住 session 获取，而不是只包 SQL？",
+      "连接池可能已经耗尽，建立连接也可能停滞。只限制 SQL 执行无法限制这些等待。"
+    ],
+    [
+      "外部任务取消为什么不转换成 ok=false？",
+      "取消表示调用者要结束工作，应继续传播并释放资源。吞掉取消会干扰关停和请求生命周期。"
+    ],
+    [
+      "为什么还需要检查网页探针？",
+      "网页服务器可能把未知路径返回为 index.html，状态也是 200。必须精确反代并核对 JSON，不能只看 HTTP 成功。"
+    ],
+    [
+      "Docker unhealthy 会自动重启或摘除流量吗？",
+      "不会保证。重启策略主要针对进程退出，启动依赖也不是持续路由控制。部署者需配置消费 readiness 的组件。"
+    ],
+    [
+      "这次哪些证据不能互相替代？",
+      "ASGI 与真实测试库证明源码行为；镜像、真实反代和容器实际探针证明构建产物。独立审核也不能用作者自查替代。"
+    ]
+  ],
+  "delivery": [
+    "目标是完成第 1 波 G4，从最新 dev 2f5ec80b0b6402cafa922abe18f30dc5f54ef826 建独立分支 codex/wave1-g4-readiness-probes。",
+    "报告代码入口固定在 58b7bed906cc3c81037292411f94de6d11c45e75。这份说明对应受控测试环境；个人实例与个人数据库没有升级。",
+    "本篇 PR 保存独立审核结论和实际合入状态。最终 dev 提交以合入回执为准，报告只将已运行的检查写为通过。",
+    "回退通过对本项 squash 提交建立新的反向 PR 完成；含持久数据的改动先核对其报告边界，保留已有账本和历史证据。",
+    "本机合成镜像地址为个人模式 http://127.0.0.1:57993/、公开模式 http://127.0.0.1:58740/。配置文件变化不会自动更新旧固定标签镜像。"
+  ],
+  "source_ref": "58b7bed906cc3c81037292411f94de6d11c45e75",
+  "links": [
+    {
+      "label": "PR #68 与真实合入状态",
+      "href": "https://github.com/Lueyu/CareerPilot/pull/68"
+    }
+  ]
+}

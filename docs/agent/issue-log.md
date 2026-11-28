@@ -110,3 +110,9 @@
 - PR：https://github.com/Lueyu/CareerPilot/pull/67
 - 验证 SHA：6746b6bb388eb3ccd7543821dd4bf1858a03deba
 - 证据：.agent-runs/20261128-wave1/a2/product-browser.json
+
+## G4 · 2026-11-28 · DONE
+- 结论：存活healthz与就绪readyz拆分；限时SELECT1及恢复闸，个人/公开/租户探针和反代迁移。作者与非作者各自64项通过，另14项独立风险探测通过；两个精确镜像真实DB停止后200/503、恢复200/200，Caddy语法验证通过。旧静态夹具基线交F7，标准controller false保留，未部署个人实例。
+- PR：https://github.com/Lueyu/CareerPilot/pull/68
+- 验证 SHA：58b7bed906cc3c81037292411f94de6d11c45e75
+- 证据：.agent-runs/20261128-wave1/g4/product-public/g4-health-receipt.json
