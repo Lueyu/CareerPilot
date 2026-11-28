@@ -1,9 +1,9 @@
 """Workspace maintenance: create / edit by id / delete by id (local owner)."""
-import hashlib
 from uuid import uuid4
 
 import httpx
 import pytest
+from credential_fixtures import enroll_token
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -21,6 +21,7 @@ async def test_local_owner_can_create_edit_and_delete_workspaces(db_session, tes
     cfg = get_settings()
     monkeypatch.setattr(cfg, "workspace_token_hashes", {})
     monkeypatch.setattr(cfg, "api_token", owner_token)
+    await enroll_token(db, owner_token)
     factory = async_sessionmaker(db.bind, expire_on_commit=False, autoflush=False)
 
     async def request_db():
@@ -137,9 +138,9 @@ async def test_scoped_tenant_cannot_create_or_manage_other_workspaces(db_session
     await db.commit()
     a_token, owner_token = "a-" + uuid4().hex, "owner-" + uuid4().hex
     cfg = get_settings()
-    monkeypatch.setattr(cfg, "workspace_token_hashes", {
-        other.slug: hashlib.sha256(a_token.encode()).hexdigest()})
+    await enroll_token(db, a_token, other.slug)
     monkeypatch.setattr(cfg, "api_token", owner_token)
+    await enroll_token(db, owner_token)
     factory = async_sessionmaker(db.bind, expire_on_commit=False, autoflush=False)
 
     async def request_db():

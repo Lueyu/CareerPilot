@@ -1,9 +1,9 @@
 """Exercise the authenticated ASGI application against two separate, token-bound tenants."""
-import hashlib
 from uuid import uuid4
 
 import httpx
 import pytest
+from credential_fixtures import enroll_token
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -27,8 +27,9 @@ async def test_two_bound_credentials_isolate_study_resources_over_http(db_sessio
     # This test exercises many forbidden resource accesses, not quota exhaustion.
     monkeypatch.setattr(cfg, "api_rate_limits", ApiRatePolicy(
         llm=ApiCategoryQuota(burst=100, per_minute=100, daily=10000)))
-    monkeypatch.setattr(cfg, "workspace_token_hashes", {
-        alice.slug: hashlib.sha256(a_token.encode()).hexdigest(), bob.slug: hashlib.sha256(b_token.encode()).hexdigest()})
+    await enroll_token(db, a_token, alice.slug)
+    await enroll_token(db, b_token, bob.slug)
+    await enroll_token(db, owner_token)
     monkeypatch.setattr(cfg, "api_token", owner_token)
     a, b = {"Authorization": "Bearer " + a_token}, {"X-Api-Token": b_token}
     # Separate request-scoped transactions on the isolated database, production auth unchanged.

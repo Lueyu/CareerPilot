@@ -4,14 +4,20 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User, Workspace, WorkspaceMember
+from app.services.local_credentials import tenant_workspace_ids
 
 
 async def ensure_personal_workspace(session: AsyncSession) -> Workspace:
+    from app.models import LocalWorkspaceBoundary
+    if await session.get(LocalWorkspaceBoundary, "personal") is not None:
+        raise ValueError("personal workspace is tenant-bound; explicit offline review required")
     await session.execute(
         insert(Workspace).values(slug="personal", name="个人学习空间", is_demo=False)
         .on_conflict_do_nothing(index_elements=[Workspace.slug])
     )
     workspace = (await session.execute(select(Workspace).where(Workspace.slug == "personal"))).scalar_one()
+    if await session.scalar(select(Workspace.id).where(Workspace.id == workspace.id, Workspace.id.in_(tenant_workspace_ids()))):
+        raise ValueError("personal workspace is tenant-bound; explicit offline review required")
     if workspace.is_demo:
         raise ValueError("personal workspace is marked as demo; explicit data review required")
     await session.execute(

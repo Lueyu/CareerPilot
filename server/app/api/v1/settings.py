@@ -55,6 +55,7 @@ from app.models import (
 from app.services.github_publish import get_github_token, set_github_token_cache
 from app.services.llm import adapter, get_llm_config, set_llm_config_cache
 from app.services.llm_endpoint_config import endpoint, resolve_llm_config
+from app.services.local_credentials import AuthenticatedPrincipal, tenant_workspace_ids
 from app.services.private_model_billing import BillingScope
 from app.services.secret_storage import open_setting, seal_setting
 from app.services.workspaces import ensure_personal_workspace
@@ -75,15 +76,15 @@ def _workspace_view(ws: Workspace) -> dict:
 
 
 @router.get("/settings/workspaces")
-async def list_workspaces(session: AsyncSession = Depends(get_session), scope: str | None = Depends(require_auth)):
+async def list_workspaces(session: AsyncSession = Depends(get_session), scope: AuthenticatedPrincipal = Depends(require_auth)):
     cfg = get_settings()
     statement = select(Workspace).order_by(Workspace.is_demo, Workspace.id)
-    if isinstance(scope, str):
-        statement = statement.where(Workspace.slug == scope)
-    elif cfg.workspace_token_hashes:
-        statement = statement.where(Workspace.slug.not_in(list(cfg.workspace_token_hashes)))
+    if not scope.is_owner:
+        statement = statement.where(Workspace.id == scope.workspace_id)
+    else:
+        statement = statement.where(Workspace.id.not_in(tenant_workspace_ids()))
     rows = (await session.scalars(statement)).all()
-    return {"workspaces": [_workspace_view(ws) for ws in rows], "default_slug": scope if isinstance(scope, str) else cfg.default_workspace_slug}
+    return {"workspaces": [_workspace_view(ws) for ws in rows], "default_slug": rows[0].slug if not scope.is_owner and rows else cfg.default_workspace_slug}
 
 
 @router.post("/settings/workspaces/personal", dependencies=[Depends(require_local_owner)])
@@ -121,18 +122,17 @@ async def _allocate_slug(session: AsyncSession, name: str) -> str:
     return f"ws-{uuid.uuid4().hex[:12]}"
 
 
-async def _manageable_workspace(session: AsyncSession, workspace_id: int, scope: str | None) -> Workspace:
-    """按 id 取工作空间, 并执行与 list 一致的可见性防护:
-    - scope 为 str 时只能操作该 slug 的空间;
-    - scope 为 None(本地 owner) 时不得操作 token_hashes 里的租户空间。
-    """
-    cfg = get_settings()
+async def _manageable_workspace(session: AsyncSession, workspace_id: int, scope: AuthenticatedPrincipal) -> Workspace:
+    """Use the same durable workspace boundary as selection and listing."""
+    statement = select(Workspace).where(Workspace.id == workspace_id)
+    if scope.is_owner:
+        statement = statement.where(Workspace.id.not_in(tenant_workspace_ids()))
+    else:
+        statement = statement.where(Workspace.id == scope.workspace_id)
     ws = (
-        await session.execute(select(Workspace).where(Workspace.id == workspace_id))
+        await session.execute(statement)
     ).scalar_one_or_none()
     if ws is None:
-        raise HTTPException(status_code=404, detail=localized_message("errors.this_workspace_does_not_exist"))
-    if (scope is not None and ws.slug != scope) or (scope is None and ws.slug in cfg.workspace_token_hashes):
         raise HTTPException(status_code=404, detail=localized_message("errors.this_workspace_does_not_exist"))
     return ws
 
@@ -147,7 +147,10 @@ async def create_workspace(
         raise HTTPException(status_code=422, detail=localized_message("errors.enter_a_workspace_name"))
     slug = await _allocate_slug(session, name)
     # 本地 owner 身份: 复用 personal 空间的 owner 用户
-    personal = await ensure_personal_workspace(session)
+    try:
+        personal = await ensure_personal_workspace(session)
+    except ValueError:
+        raise HTTPException(409, "personal workspace requires offline review") from None
     owner = await _owner_user(session, personal)
     ws = Workspace(
         slug=slug,
@@ -169,7 +172,7 @@ async def update_workspace_by_id(
     workspace_id: int,
     body: WorkspaceUpdate,
     session: AsyncSession = Depends(get_session),
-    scope: str | None = Depends(require_auth),
+    scope: AuthenticatedPrincipal = Depends(require_auth),
 ):
     ws = await _manageable_workspace(session, workspace_id, scope)
     data = body.model_dump(exclude_none=True)
@@ -186,7 +189,7 @@ async def delete_workspace_by_id(
     workspace_id: int,
     body: WorkspaceDelete,
     session: AsyncSession = Depends(get_session),
-    scope: str | None = Depends(require_auth),
+    scope: AuthenticatedPrincipal = Depends(require_auth),
 ):
     ws = await _manageable_workspace(session, workspace_id, scope)
     if body.confirm_slug != ws.slug:

@@ -481,7 +481,6 @@ async def test_experienced_catalog_visibility_for_workspace_token(
     track_public_question,
     monkeypatch,
 ):
-    from hashlib import sha256
 
     from app.services import experienced_bank
 
@@ -513,14 +512,9 @@ async def test_experienced_catalog_visibility_for_workspace_token(
     )
     db_session.add_all([installed, decoy])
     await db_session.commit()
-    token = "test-token-" + uuid4().hex
-    monkeypatch.setattr(
-        get_settings(),
-        "workspace_token_hashes",
-        {
-            test_workspace.slug: sha256(token.encode()).hexdigest(),
-        },
-    )
+    token = "podcast-" + uuid4().hex
+    from credential_fixtures import enroll_token
+    await enroll_token(db_session, token, test_workspace.slug)
 
     async with client(test_workspace) as api:
         api.headers["X-Api-Token"] = token
@@ -658,3 +652,6 @@ async def test_languages_keep_frozen_versions_and_reach_jobs(db_session, test_wo
         edited = await api.post(ROOT + "/import", json={"question_ids": [original.id], "language": "en"})
         assert edited.status_code == 200
         assert edited.json()["episode_ids"][0] not in versions.values()
+
+
+pytestmark = pytest.mark.usefixtures("enrolled_default_owner")

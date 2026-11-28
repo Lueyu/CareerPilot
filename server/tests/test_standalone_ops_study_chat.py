@@ -5,20 +5,22 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
 import pytest
-from app import db
-from app.api.v1 import study_chat
-from app.models import Question, StudyMessage, StudySession
-from app.services import study_chat as worker
 from fastapi import BackgroundTasks
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from test_llm_stream_transport import DONE, Body, event, frame, install
 from test_study_chat_attempts import generation as generation
 
+from app import db
+from app.api.v1 import study_chat
+from app.models import Question, StudyMessage, StudySession
+from app.services import study_chat as worker
+
 ROUTE = "/api/v1/ops/study-chat/messages"
 TOKEN = 'owner"</script><script>window.injected=true</script>'
 AUTH = {"X-Ops-Token": TOKEN}
 PRIVATE = "private-fixture-text"
+pytestmark = pytest.mark.usefixtures("mock_private_billing")
 
 
 @pytest.fixture
@@ -63,7 +65,7 @@ async def test_exact_lookup_requires_configured_header_auth(ops, monkeypatch):
 
         monkeypatch.setattr(ops, "OPS_TOKEN", "")
         assert (await http.get(f"{ROUTE}/1", headers=AUTH)).status_code == 503
-        assert (await http.get("/api/v1/ops/metrics")).status_code == 200
+        assert (await http.get("/api/v1/ops/metrics")).status_code == 503
         assert "window.injected=true" not in (await http.get("/", params={"token": TOKEN})).text
 
 
@@ -164,7 +166,7 @@ async def test_dashboard_proof_authorizes_only_header_reads_and_keeps_original_e
         assert (await http.get(f"{ROUTE}/1", headers=headers)).status_code == 401
         monkeypatch.setattr(ops, "OPS_TOKEN", "")
         assert (await http.get("/")).status_code == 200
-        assert (await http.get("/api/v1/ops/metrics")).status_code == 200
+        assert (await http.get("/api/v1/ops/metrics")).status_code == 503
         assert (await http.get(f"{ROUTE}/1", headers=headers)).status_code == 503
 
 
@@ -361,7 +363,7 @@ async def test_lookup_accepts_a_completed_inventory_without_a_provider(
 async def test_lookup_projects_question_only_inventory_counts(
     ops, monkeypatch, db_session, test_workspace, capture_timing, hits, shown,
 ):
-    async def sources(*_args, inventory=False):
+    async def sources(*_args, inventory=False, response_language=None):
         assert not inventory
         return {
             "sources": [{"kind": "library_summary", "text": json.dumps({"题库命中": hits, "题库展示": shown})}],

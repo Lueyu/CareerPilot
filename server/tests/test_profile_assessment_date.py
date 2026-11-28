@@ -63,3 +63,6 @@ async def test_detail_reports_same_assessment_date_as_profile_without_advancing_
         )
     )
     assert dict(stored.all()) == {assessed.id: observed_at, unassessed.id: None}
+
+
+pytestmark = pytest.mark.usefixtures("enrolled_default_owner")

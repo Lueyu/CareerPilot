@@ -95,3 +95,6 @@ async def test_exam_history_pages_and_legacy_resume(db_session, test_workspace, 
         assert another["total_count"] == 1
         assert another["next_cursor"] is None
         assert [row["id"] for row in another["history"]] == [other_exam.id]
+
+
+pytestmark = pytest.mark.usefixtures("enrolled_default_owner")

@@ -14,6 +14,8 @@ REVISION = 'd' * 40
 
 @pytest.fixture
 def repository_settings(monkeypatch, secrets_key):
+    from app.services import recovery_control
+    monkeypatch.setattr(recovery_control, 'require_normal', AsyncMock(return_value='a' * 32))
     settings = get_settings()
     monkeypatch.setattr(settings, 'default_workspace_slug', 'personal')
     monkeypatch.setattr(settings, 'workspace_token_hashes', {'scoped': 'a' * 64, 'other': 'b' * 64})
@@ -32,8 +34,11 @@ class SettingsSession:
         self.rows = rows
 
     async def scalar(self, query):
-        assert query.column_descriptions[0]['expr'] is Workspace.slug
-        return self.slug
+        column = query.column_descriptions[0]['expr']
+        if column is Workspace.slug:
+            return self.slug
+        assert column is Workspace.id
+        return 11 if self.slug in self.rows.get('_tenant_boundaries', {'scoped', 'other'}) else None
 
     async def get(self, model, key):
         assert model is AppSetting
@@ -80,7 +85,7 @@ async def test_personal_runtime_keeps_database_and_installation_fallbacks(reposi
 @pytest.mark.parametrize('slug', [None, 'other-local-workspace', 'personal'])
 async def test_runtime_requires_an_unscoped_personal_workspace_for_fallback(repository_settings, slug, monkeypatch):
     if slug == 'personal':
-        monkeypatch.setattr(get_settings(), 'workspace_token_hashes', {'personal': 'c' * 64})
+        repository_settings['_tenant_boundaries'] = {'personal'}
     session = SettingsSession(slug, repository_settings)
     _, credentials, _ = await runtime_config(session, 11, require_consent=False)
     assert not any(credentials.values())
@@ -149,7 +154,7 @@ async def test_learning_preview_uses_workspace_repository_access(repository_sett
     activity = SimpleNamespace(id=3, goal_id=2, version=1, snapshot={'project_contract': contract})
     project = SimpleNamespace(owner='example', repo='fixture', meta={})
     session = SettingsSession(slug, repository_settings)
-    session.scalar = AsyncMock(side_effect=[project, slug, None])
+    session.scalar = AsyncMock(side_effect=[project, slug, 11 if slug == 'scoped' else None, None])
     session.commit = AsyncMock()
     snapshots = []
     session.add = snapshots.append

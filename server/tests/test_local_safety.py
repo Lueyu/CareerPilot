@@ -37,16 +37,18 @@ async def test_personal_workspace_is_idempotent_and_contains_no_demo_data(db_ses
 
 
 @pytest.mark.asyncio
-async def test_workspace_list_reflects_database_and_missing_slug_does_not_fall_back(db_session, test_workspace):
+async def test_workspace_list_reflects_database_and_missing_slug_does_not_fall_back(db_session, test_workspace, enrolled_default_owner):
     from app.api.deps import get_workspace
     from app.api.v1 import settings
+    from app.services.local_credentials import authenticate
+    principal = await authenticate(enrolled_default_owner)
 
     listing = getattr(settings, "list_workspaces", None)
     assert callable(listing), "workspace switcher must list persisted rows"
-    result = await listing(session=db_session)
+    result = await listing(session=db_session, scope=principal)
     assert test_workspace.slug in {item["slug"] for item in result["workspaces"]}
     with pytest.raises(HTTPException) as exc:
-        await get_workspace(session=db_session, x_workspace="missing-workspace-fixture")
+        await get_workspace(session=db_session, _auth=principal, x_workspace="missing-workspace-fixture")
     assert exc.value.status_code == 404
 
 

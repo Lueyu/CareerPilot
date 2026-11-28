@@ -1,8 +1,8 @@
 import hashlib
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -54,6 +54,42 @@ def test_start_uses_candidate_snapshot_without_ignored_environment(identity, mon
     with pytest.raises(ValueError, match="Fixture stops"):
         delivery.start(*identity, ["unused"])
     assert delivery.read(run / delivery.RECEIPT)["status"] == "failed"
+
+
+def test_new_preview_enrolls_explicitly_after_startup_before_http(identity, monkeypatch):
+    run, _, *_ = identity
+    steps = []
+    original_run = subprocess.run
+    original_output = delivery.output
+
+    def process(args, **kwargs):
+        if args[0] == "docker":
+            assert "up" in args and "token_lifecycle.py" not in args
+            steps.append("startup")
+            return subprocess.CompletedProcess(args, 0)
+        return original_run(args, **kwargs)
+
+    def output(args, **kwargs):
+        if "token_lifecycle.py" in args:
+            assert steps == ["startup"]
+            assert args[-5:] == ["python", "token_lifecycle.py", "enroll-env", "--confirm", "ENROLL careerpilot"]
+            steps.append("explicit enrollment")
+            return b'{"id":"synthetic-enrollment","kind":"OWNER"}'
+        return original_output(args, **kwargs)
+
+    def application(*args):
+        assert steps == ["startup", "explicit enrollment"]
+        assert (args[0] / "enrollment.log").read_bytes() == b'{"id":"synthetic-enrollment","kind":"OWNER"}'
+        raise RuntimeError("Fixture stops before HTTP; enrollment command boundary verified")
+
+    monkeypatch.setattr(delivery, "docker_host", lambda: "unix:///var/run/docker.sock")
+    monkeypatch.setattr(delivery, "configure", lambda *_: None)
+    monkeypatch.setattr(delivery, "output", output)
+    monkeypatch.setattr(delivery.subprocess, "run", process)
+    monkeypatch.setattr(delivery, "application_check", application)
+    with pytest.raises(RuntimeError, match="Fixture stops before HTTP"):
+        delivery.start(*identity, ["unused"])
+    assert delivery.read(run / delivery.RECEIPT)["credential_enrollment"]["id"] == "synthetic-enrollment"
 
 
 def test_candidate_rejects_extra_files_and_requires_browser_for_client(identity):

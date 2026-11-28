@@ -35,6 +35,7 @@ from app.models import (
 from app.services import answer_guides, assessment_jobs, assessment_worker, experienced_bank
 from app.services.answer_guides import for_question, published_guides
 from app.services.learning_exposure import EVENT_KIND
+from app.services.local_credentials import AuthenticatedPrincipal
 
 CRITERIA = ["说明连接超时的可观测信号", "给出重试预算与退避策略", "说明如何检查重复请求的副作用"]
 
@@ -308,7 +309,7 @@ async def test_catalog_listing_exposure_and_practice_scoring(isolated_seed, monk
     app.include_router(bank.router)
     app.include_router(exams.router)
     app.dependency_overrides[get_session] = session_dependency
-    app.dependency_overrides[require_auth] = lambda: None
+    app.dependency_overrides[require_auth] = lambda: AuthenticatedPrincipal("fixture", "fixture", "OWNER", None)
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/bank/experienced")
@@ -528,7 +529,7 @@ async def test_shipped_default_bank_and_workspace_scope(isolated_seed, monkeypat
     app = FastAPI()
     app.include_router(bank.router)
     app.dependency_overrides[get_session] = session_dependency
-    app.dependency_overrides[require_auth] = lambda: None
+    app.dependency_overrides[require_auth] = lambda: AuthenticatedPrincipal("fixture", "fixture", "OWNER", None)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         pack = await client.get("/bank/experienced")
         assert pack.status_code == 200

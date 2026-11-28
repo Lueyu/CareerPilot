@@ -158,3 +158,6 @@ async def test_configuration_and_exact_expiry(db_session, test_workspace, factor
         assert save.status_code == 409
         assert (await http.get(f"exams/{exam_id}")).raise_for_status().json()["status"] == "EXPIRED"
         assert (await http.post(f"exams/{exam_id}/submit", json={"answers": []})).status_code == 409
+
+
+pytestmark = pytest.mark.usefixtures("enrolled_default_owner")

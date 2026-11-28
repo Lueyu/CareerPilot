@@ -276,7 +276,11 @@ async def test_authenticated_http_mask_export_and_missing_key(storage, test_work
 
     _, factory = storage
     cfg = get_settings()
-    monkeypatch.setattr(cfg, "api_token", "synthetic-owner-credential-abcdef1234567890")
+    from secrets import token_urlsafe
+
+    from credential_fixtures import enroll_token
+    monkeypatch.setattr(cfg, "api_token", token_urlsafe(32))
+    await enroll_token(storage[0], cfg.api_token)
     monkeypatch.setattr(cfg, "default_workspace_slug", test_workspace.slug)
 
     async def request_session():

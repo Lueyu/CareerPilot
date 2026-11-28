@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from credential_fixtures import enroll_token
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -20,6 +21,7 @@ async def test_collect_events_is_anonymous_and_204(db_session, test_workspace, m
     cfg = get_settings()
     monkeypatch.setattr(cfg, "workspace_token_hashes", {})
     monkeypatch.setattr(cfg, "api_token", "owner-" + uuid4().hex)
+    await enroll_token(db, cfg.api_token)
     factory = async_sessionmaker(db.bind, expire_on_commit=False, autoflush=False)
 
     async def request_db():
@@ -63,6 +65,7 @@ async def test_collect_events_validates_names(db_session, test_workspace, monkey
     cfg = get_settings()
     monkeypatch.setattr(cfg, "workspace_token_hashes", {})
     monkeypatch.setattr(cfg, "api_token", "owner-" + uuid4().hex)
+    await enroll_token(db, cfg.api_token)
     factory = async_sessionmaker(db.bind, expire_on_commit=False, autoflush=False)
 
     async def request_db():
@@ -87,6 +90,7 @@ async def test_summary_requires_owner(db_session, test_workspace, monkeypatch):
     cfg = get_settings()
     monkeypatch.setattr(cfg, "workspace_token_hashes", {})
     monkeypatch.setattr(cfg, "api_token", "owner-" + uuid4().hex)
+    await enroll_token(db, cfg.api_token)
     factory = async_sessionmaker(db.bind, expire_on_commit=False, autoflush=False)
 
     async def request_db():
@@ -111,6 +115,7 @@ async def test_summary_aggregates(db_session, test_workspace, monkeypatch):
     cfg = get_settings()
     monkeypatch.setattr(cfg, "workspace_token_hashes", {})
     monkeypatch.setattr(cfg, "api_token", "owner-" + uuid4().hex)
+    await enroll_token(db, cfg.api_token)
     factory = async_sessionmaker(db.bind, expire_on_commit=False, autoflush=False)
 
     async def request_db():
@@ -153,6 +158,7 @@ async def test_rate_limit_hits_429(db_session, test_workspace, monkeypatch):
     cfg = get_settings()
     monkeypatch.setattr(cfg, "workspace_token_hashes", {})
     monkeypatch.setattr(cfg, "api_token", "owner-" + uuid4().hex)
+    await enroll_token(db, cfg.api_token)
     factory = async_sessionmaker(db.bind, expire_on_commit=False, autoflush=False)
 
     async def request_db():

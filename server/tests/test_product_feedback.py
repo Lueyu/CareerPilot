@@ -1,17 +1,17 @@
 import asyncio
 import hashlib
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import httpx
 import pytest
 import pytest_asyncio
+from credential_fixtures import enroll_token
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.api import deps, product_feedback
+from app.api import product_feedback
 from app.db import get_session
 from app.main import app as native_app
 from app.models import Question, Workspace
@@ -22,7 +22,7 @@ from app.services import feedback_delivery
 pytestmark = pytest.mark.asyncio
 PATH = "/api/v1/product-feedback"
 ORIGIN = "https://feedback.test"
-TOKEN = "synthetic-workspace-token"
+TOKEN = "synthetic-workspace-credential-" + uuid4().hex
 
 
 @pytest_asyncio.fixture
@@ -30,11 +30,10 @@ async def clients(db_session, monkeypatch):
     workspace = Workspace(slug=uuid4().hex, name="Synthetic native workspace", is_demo=False)
     db_session.add(workspace)
     await db_session.commit()
-    monkeypatch.setattr(deps, "get_settings", lambda: SimpleNamespace(
-        workspace_token_hashes={workspace.slug: hashlib.sha256(TOKEN.encode()).hexdigest()},
-        api_token="synthetic-admin-token",
-        default_workspace_slug="personal",
-    ))
+    # Each fixture needs a distinct credential; old digests are permanent tombstones.
+    global TOKEN
+    TOKEN = "synthetic-workspace-credential-" + uuid4().hex
+    await enroll_token(db_session, TOKEN, workspace.slug)
     monkeypatch.setenv("SEED_PUBLIC_ORIGIN", ORIGIN)
     monkeypatch.setenv("SEED_SESSION_SECRET", uuid4().hex * 2)
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)

@@ -11,6 +11,7 @@ from app.models.jd import JdSource  # noqa: F401
 from app.models.learning import LearningTask  # noqa: F401
 from app.models.learning_feedback import LearningActivity, LearningGoal, LearningSubmission  # noqa: F401
 from app.models.learning_project import LearningProjectSnapshot  # noqa: F401
+from app.models.local_credential import LocalAuthFailure, LocalCredential, LocalWorkspaceBoundary  # noqa: F401
 from app.models.memory import MemoryItem  # noqa: F401
 from app.models.metric import AgentMetric  # noqa: F401
 from app.models.podcast import PodcastEpisode, PodcastPlaylist, PodcastPlaylistEpisode, PodcastSource

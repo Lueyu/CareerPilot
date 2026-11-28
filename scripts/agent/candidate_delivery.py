@@ -369,6 +369,14 @@ def start(run_dir, workspace, base, patch_sha, project, regression, ui=None):
                                     check=False, cwd=source, env=env, stdout=stream, stderr=subprocess.STDOUT, timeout=1800)
         if result.returncode:
             raise ValueError(f"Compose startup failed. See {run / 'startup.log'}.")
+        if project == "careerpilot":
+            # This newly owned attempt was provisioned above. Ordinary runtime
+            # startup and receipt verification never execute enrollment.
+            enrollment = output(compose(run, receipt) + [
+                "exec", "-T", "server", "python", "token_lifecycle.py", "enroll-env", "--confirm", "ENROLL careerpilot",
+            ], cwd=source, env=env)
+            (run / "enrollment.log").write_bytes(enrollment)
+            receipt["credential_enrollment"] = json.loads(enrollment)
         deadline = time.monotonic() + 120
         while True:
             try:
