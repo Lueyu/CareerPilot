@@ -396,5 +396,11 @@
     "本篇 PR 保存独立审核结论和实际合入状态。最终 dev 提交以合入回执为准，报告只将已运行的检查写为通过。",
     "回退通过对本项 squash 提交建立新的反向 PR 完成；含持久数据的改动先核对其报告边界，保留已有账本和历史证据。"
   ],
-  "source_ref": "d2e8286a4e9873f4f003363b21de8a1c76c3c09c"
+  "source_ref": "d2e8286a4e9873f4f003363b21de8a1c76c3c09c",
+  "links": [
+    {
+      "label": "PR #69 与真实合入状态",
+      "href": "https://github.com/Lueyu/CareerPilot/pull/69"
+    }
+  ]
 }
