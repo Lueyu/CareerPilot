@@ -1,5 +1,6 @@
 """Check public release builds and exercise deployment with throwaway fixtures."""
 import argparse
+import hashlib
 import http.client
 import json
 import os
@@ -139,6 +140,9 @@ def fixture_sources(work, ops):
         write(work / component / ".env", "SYNTHETIC_PRIVATE_SENTINEL")
         write(work / component / "private.txt", "SYNTHETIC_PRIVATE_SENTINEL")
     write(work / "server" / "requirements.txt", "starlette\nuvicorn\n")
+    (work / "server" / "migrations").mkdir()
+    shutil.copyfile(ROOT / "server" / "migrations" / "20261128_recovery_control.sql",
+                    work / "server" / "migrations" / "20261128_recovery_control.sql")
     write(work / "server" / "app" / "public_main.py",
           "from app.services import interview_import_text, text_extract\n" + PUBLIC_MAIN)
     for name in ("interview_import_text", "text_extract", "feedback_delivery"):
@@ -203,8 +207,14 @@ def check_source_build():
     try:
         build("server", api)
         docker("run", "--rm", "--network", "none", api, "python", "-c", """
+import hashlib
+import os
 from pathlib import Path
+
+os.environ["DATABASE_URL"] = "postgresql+asyncpg://seed_fixture:synthetic-only@127.0.0.1:1/seed_fixture"
+os.environ["API_TOKEN"] = "synthetic-seed-packaging-owner-token"
 from app.public_main import app
+from app.services import untrusted_source
 
 paths = app.openapi()["paths"]
 assert "get" in paths["/api/v1/coach/notes/{note_id}/versions/{version_id}"]
@@ -213,8 +223,16 @@ assert "get" in paths["/api/v1/native/access"]
 assert "get" in paths["/api/v1/native/bank/legacy-data"]
 assert "post" in paths["/api/v1/product-feedback"]
 assert "post" in paths["/api/v1/feedback"]
+assert "get" in paths["/api/v1/ops/health"]
+assert "post" in paths["/api/v1/telemetry/events"]
+assert untrusted_source.SOURCE_AUTHORITY_CONTRACT
+assert {path.name for path in Path("app/api/v1").iterdir()} == {"__init__.py", "ops.py", "telemetry.py"}
+sql = Path("migrations/20261128_recovery_control.sql")
+assert {path.name for path in sql.parent.iterdir()} == {sql.name}
+assert hashlib.sha256(sql.read_bytes()).hexdigest() == """ + repr(hashlib.sha256(
+            (ROOT / "server" / "migrations" / "20261128_recovery_control.sql").read_bytes()).hexdigest()) + """
 assert not any(Path(path).exists() for path in (
-    ".env", "app/main.py", "app/api/v1", "app/data", "app/services/llm.py",
+    ".env", "app/main.py", "app/data", "app/services/llm.py",
     "app/services/study_notes.py", "app/services/study_teaching.py",
 ))
 """)
