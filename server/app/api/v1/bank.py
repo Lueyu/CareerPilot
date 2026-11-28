@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 import time
 from typing import Annotated
@@ -49,6 +50,7 @@ from app.services.private_model_billing import BillingScope, BudgetPolicyError
 from app.services.project_context import PROFILE_LABELS, project_profile
 from app.services.text_extract import MAX_FILE_BYTES, MAX_TEXT_CHARS, extract_many
 from app.services.tracing import add_span, emit_event, finish_trace, start_trace
+from app.services.untrusted_source import SOURCE_AUTHORITY_CONTRACT, source_json, source_review
 
 router = APIRouter()
 
@@ -405,7 +407,7 @@ async def _process_import(
         ).scalar_one()
         trace = await start_trace(
             session, workspace_id, "bank_import", "导入面经: 上传与解析",
-            short_code=await _unique_trace_code(session, f"TR-I{int(t0)}"),
+            short_code=await _unique_trace_code(session, f"TR-IMPORT-{import_id}"),
         )
 
         async def advance(step: int, note: str) -> None:
@@ -427,11 +429,20 @@ async def _process_import(
         else:
             file_meta, ok_names = [], []
         source_separator = "\n\n"
-        source_text = source_separator.join(text for _, text in text_parts)[:MAX_TEXT_CHARS].strip()
+        retained_parts = []
+        remaining_chars = MAX_TEXT_CHARS
+        for name, text in text_parts:
+            if remaining_chars <= 0:
+                break
+            retained_parts.append((name, text[:remaining_chars]))
+            remaining_chars -= len(text[:remaining_chars]) + len(source_separator)
+        text_parts = retained_parts
+        source_text = source_separator.join(text for _, text in text_parts)
         imported = await session.get(ImportSession, import_id)
-        imported.meta = {**(imported.meta or {}), "files": file_meta, "extracted_source_text": source_text}
+        imported.meta = {**(imported.meta or {}), "files": file_meta, "extracted_source_text": source_text,
+                         "source_review": source_review(text_parts)}
         await advance(1, f"已解析 {len(file_meta) or '文本'} · {len(source_text)} 字符")
-        if not source_text:
+        if not source_text.strip():
             detail = "没有可解析的内容"
             if file_meta:
                 detail = "; ".join(f"{m['name']}: {m['error']}" for m in file_meta if m["error"]) or detail
@@ -619,24 +630,35 @@ SKILL_KEYS = ("agent", "tools", "memory", "rag", "eval", "backend", "reliability
 def _parse_llm_questions(content: str) -> list[dict]:
     """把 LLM 返回的 JSON 文本(可能带 ``` 围栏 / 包在对象里)解析成题目列表。"""
     data = read_json(content)
+    if isinstance(data, dict) and set(data) != {"questions"}:
+        return []
     items = data.get("questions") if isinstance(data, dict) else data
     if not isinstance(items, list):
         return []
     out = []
-    for x in items:
-        if not isinstance(x, dict) or not str(x.get("title") or "").strip():
-            continue
-        skill = str(x.get("skill_key") or "").strip().lower()
-        title = str(x["title"]).strip()[:200]
+    fields = {"title", "skill_key", "confidence", "draft_answer", "company", "level", "occurred_on"}
+    for x in items[:20]:
+        if not isinstance(x, dict) or set(x) - fields:
+            return []
+        if not isinstance(x.get("title"), str) or not x["title"].strip():
+            return []
+        if any(key in x and x[key] is not None and not isinstance(x[key], str)
+               for key in fields - {"title", "confidence"}):
+            return []
+        confidence = x.get("confidence", 0.8)
+        if type(confidence) not in (int, float) or not 0 <= confidence <= 1 or not math.isfinite(confidence):
+            return []
+        skill = (x.get("skill_key") or "").strip().lower()
+        title = x["title"].strip()[:200]
         out.append(
             {
                 "title": title,
                 "skill_key": skill if skill in SKILL_KEYS else _guess_skill(title),
-                "confidence": float(x.get("confidence") or 0.8),
-                "draft_answer": str(x.get("draft_answer") or "").strip(),
-                "company": str(x.get("company") or "").strip() or None,
-                "level": str(x.get("level") or "").strip() or None,
-                "occurred_on": str(x.get("occurred_on") or "").strip() or None,
+                "confidence": float(confidence),
+                "draft_answer": (x.get("draft_answer") or "").strip(),
+                "company": (x.get("company") or "").strip() or None,
+                "level": (x.get("level") or "").strip() or None,
+                "occurred_on": (x.get("occurred_on") or "").strip() or None,
             }
         )
     return out[:20]
@@ -656,8 +678,9 @@ async def _extract_questions(text: str, *, billing_scope=None) -> list[dict]:
             '"company": str, "level": str}]}。不要解释。'
             'title、draft_answer、company 和 level 是原文资料，保留原文措辞和语言，不翻译。'
         )
+        sys_prompt += "\n" + SOURCE_AUTHORITY_CONTRACT
         try:
-            out = await adapter.chat(with_output_language(sys_prompt), text[:prompt_limit], json_mode=True, billing_scope=billing_scope)
+            out = await adapter.chat(with_output_language(sys_prompt), source_json({"document": text[:prompt_limit]}), json_mode=True, billing_scope=billing_scope)
             if out and out.get("content"):
                 parsed = _parse_llm_questions(out["content"])
                 if parsed:

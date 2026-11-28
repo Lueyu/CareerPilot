@@ -14,6 +14,7 @@ from app.i18n import request_language
 from app.models import ImportItem, QuestionGeneration, Skill
 from app.services import question_generation as protocol
 from app.services.answer_gen import build_rubric, render_html
+from app.services.untrusted_source import source_json
 
 REWRITE_TIMEOUT = 150
 LEASE_SECONDS = REWRITE_TIMEOUT + 30
@@ -206,8 +207,8 @@ async def revise_answer(context, hints, feedback, *, billing_scope=None):
         "当缺少资料时维持缺口，假设方案和本人经历分开。只返回如下 JSON 字段（均为纯文本，不用 HTML）：\n"
         + json.dumps(response_shape, ensure_ascii=False),
         language,
-    ) + "\n输入数据：\n" + json.dumps(
-        {"draft": draft, "current_feedback": feedback, "review_preferences": hints}, ensure_ascii=False,
+    ) + "\n输入数据：\n" + source_json(
+        {"draft": draft, "current_feedback": feedback, "review_preferences": hints},
     )
     async with asyncio.timeout(REWRITE_TIMEOUT):
         response = await protocol.generate_response(prompt, stream_timeout=REWRITE_TIMEOUT - 5, billing_scope=billing_scope)

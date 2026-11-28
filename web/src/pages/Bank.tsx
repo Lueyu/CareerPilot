@@ -7,6 +7,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAppState } from '../components/AppState';
 import { Modal, PageHead, Stars } from '../components/ui';
 import { api, hasOriginalBank, BankData, ImportReview, QuestionDetail } from '../api/client';
+import ImportSourceReview, { importSourceText } from '../components/ImportSourceReview';
 import { trackImport } from '../lib/importTracker';
 import BankQuestionEditor from '../components/BankQuestionEditor';
 import BankReviewQueue, { sanitizeReviewAnswer } from './BankReviewQueue';
@@ -178,6 +179,7 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
   // 导入流水线状态
   const [pasteText, setPasteText] = useState('');
   const [review, setReview] = useState<ImportReview | null>(null);
+  const originalSource = importSourceText(review?.meta);
 
   // 真实文件上传
   const [files, setFiles] = useState<File[]>([]);
@@ -872,20 +874,16 @@ export default function Bank({ registered = false }: { registered?: boolean } = 
                 <div className="rev-pane-title">{t('bank.originalPreview')}</div>
                 {(review?.meta?.files?.length
                   ? review.meta.files.map((f) => ({ name: f.name, sub: f.ok ? t('bank.parsedFileMetadata', { count: String(f.chars), format: f.suffix || t('bank.textFormat') }) : (f.error || t('bank.parseFailed')), ok: f.ok }))
-                  : files.map((f) => ({ name: f.name, sub: `${(f.size / 1024).toFixed(1)} KB`, ok: true }))
+                  : review ? [] : files.map((f) => ({ name: f.name, sub: `${(f.size / 1024).toFixed(1)} KB`, ok: true }))
                 ).map((f, i) => (
                   <div className={`rev-src-file ${f.ok ? '' : 'bad'}`} key={`${f.name}-${i}`}>
                     <b>{f.ok ? '📄' : '⚠️'} {f.name}</b>
                     <span className="hint">{f.sub}</span>
                   </div>
                 ))}
-                {pasteText.trim() && (
-                  <>
-                    <div className="rev-pane-title" style={{ marginTop: 12 }}>{t('bank.pastedText')}</div>
-                    <div className="rev-src-text">
-                      {pasteText.slice(0, 600)}{pasteText.length > 600 ? '\n' + t('bank.previewTruncated') : ''}
-                    </div>
-                  </>
+                <ImportSourceReview review={review?.meta?.source_review} />
+                {originalSource && (
+                  <div className="rev-src-text">{originalSource}</div>
                 )}
                 {(review?.meta?.company || review?.meta?.level) && (
                   <div className="hint" style={{ marginTop: 10 }}>
