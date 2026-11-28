@@ -83,3 +83,10 @@
 - PR：https://github.com/Lueyu/CareerPilot/pull/63
 - 验证 SHA：bf6d31e90097b304c3d774a800c479c373171ddc
 - 证据：.agent-runs/20261128-wave1/h8
+
+## F6 · 2026-11-28 · 公开版初始化补修
+- 真实全新公开镜像只建ORM表，缺少独立SQL恢复控制表，显式登记报relation不存在。健康200同时受保护API503的原始证据保留。
+- 公开启动在原有专用目标/安装标记校验及事务内复用既有DDL，仅增加两行。建空表不写NORMAL，不改变恢复隔离与离线确认规则。
+- 真实PostgreSQL专项11项通过；精确新镜像的空表/API503、显式登记退出0/API401、重复初始化及登记元数据不变已验证，源码/SQL/JS字节核对通过。
+- PR：https://github.com/Lueyu/CareerPilot/pull/64；源码：eae9384c675c74cbe26473af60c0ed258f25789a。原PR57与原备份恢复报告保留，非作者最终审核和合入以本补修回执为准。
+- 证据：.agent-runs/20261128-wave1/f6-followup/。H3保留原源码树，待本补修合入后从新dev重放并验收。
