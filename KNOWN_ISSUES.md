@@ -21,7 +21,7 @@
 - **为什么是问题**：上海 AI Agent 社招必拷打 RAG 工程（切块/召回/排序/评测）。当前无语义泛化、无相关性排序（最相关可能被 limit(12) 截掉）、中文子串误命中——只靠“口头讲 tradeoff”撑不住深度追问，必须有实测对比实验。
 - **目标方案**：① 先建评测集（A4）；② PG `tsvector` + jieba 离线分词做 BM25（零新服务）；③ pgvector + bge-small-zh/API embedding 混合召回 + RRF 融合；④ cross-encoder rerank top-50→top-8。每步输出 Recall@K / MRR / NDCG 对比表。
 
-### A2. 中文查询理解靠停用词表，泛查句式残留检索词导致零命中 `P0` `OPEN`
+### A2. 中文查询理解靠停用词表，泛查句式残留检索词导致零命中 `P0` `DONE`
 - **现状**：无分词，中文取 2–6 字连续汉字切片；"题库里有哪些关于 X 的题"中的指引词（"里有哪些/关于/列出"）不在停用词表内，残留成检索词后三路全 miss。英文停用词表缺 do/does/from/can/could。
 - **代码**：`server/app/services/study_chat_context.py:38-60`（`_LATIN_STOP`、`_CJK_STOP`、`library_terms`）；零命中路径测试 `server/tests/test_study_chat_library.py:91-101`。PR #37 已于 2026-11-26 合入 dev（`7455ed1`），本次已核对祖先。第 1 波继续修复 What RAG… 英文清单意图、中文“关于智能体规划的题”的后缀残留，以及独立审核发现的前文主题丢失。
 - **为什么是问题**：已发生的真实用户事故，且修复停留在工作树。查询理解错误会让下游一切检索升级失效——先修 query understanding 再谈召回。

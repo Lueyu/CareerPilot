@@ -511,5 +511,11 @@
     "报告源码链接固定在修正后提交 6746b6bb388eb3ccd7543821dd4bf1858a03deba。首次冻结 0693b56 曾被非作者审核拒绝，原失败回执保留。",
     "精确最终审核与 PR 合入回执位于 .agent-runs/20261128-wave1/a2/review 和 merge-receipt.json。最终 dev 以 GitHub 回读及祖先检查为准。",
     "回退通过本项 squash 提交的新反向 PR 完成。本项没有数据结构迁移，保留既有清单与来源快照。个人实例和个人数据没有修改。"
+  ],
+  "links": [
+    {
+      "label": "PR #67 与真实合入状态",
+      "href": "https://github.com/Lueyu/CareerPilot/pull/67"
+    }
   ]
 }
