@@ -9,7 +9,18 @@ from sqlalchemy.orm import lazyload
 
 from app.i18n import Locale
 from app.i18n import message as localized_message
-from app.models import Exam, ExamQuestion, ImportSession, LearningGoal, LearningTask, Question, Skill, SkillState, StudyNote, StudyNoteVersion
+from app.models import (
+    Exam,
+    ExamQuestion,
+    ImportSession,
+    LearningGoal,
+    LearningTask,
+    Question,
+    Skill,
+    SkillState,
+    StudyNote,
+    StudyNoteVersion,
+)
 from app.models.project import Project
 from app.services.bank_practice import bank_list_question_clause
 from app.services.learning_exposure import record_reference_exposure
@@ -52,17 +63,35 @@ _CJK_STOP = (
 )
 
 _EXPLICIT_SUBJECT = re.compile(r"(?:与|和|跟)\s*([^，。；！？,;!?\n]{1,100}?)\s*相关")
+_INVENTORY_SUBJECT = re.compile(
+    r"(?:关于|围绕)\s*(?P<zh>[^，。；！？,;!?\n]{1,100}?)\s*的(?:面试题|题目|问题|题)(?=$|[\s，。；！？,;!?])"
+    r"|\b(?:what|which)\s+(?!(?:can|could|do|does|should|would|is|are)\b)"
+    r"(?P<en>[^，。；！？,;!?\n]{1,100}?)\s+(?:interview\s+)?questions?\s+are\s+in\s+"
+    r"(?:my|the)\s+(?:question bank|library)\b",
+    re.I,
+)
+
+
+def _single_inventory_subject(question: str) -> re.Match[str] | None:
+    matches = list(_INVENTORY_SUBJECT.finditer(question))
+    if len(matches) != 1:
+        return None
+    match = matches[0]
+    return None if question[match.end():].strip(" \t\r\n，。；！？,;!?.") else match
 
 
 def library_terms(question: str, skill_rows, skill_ids) -> list[str]:
     """检索词：命中的技能 key，拉丁词元，以及剔除指引词后的中文残片。"""
     terms = [row.key for row in skill_rows if row.id in skill_ids]
-    subject = _EXPLICIT_SUBJECT.search(question)
-    cleaned = subject[1].strip() if subject else LIBRARY_REFERENCE.sub(" ", question)
+    bounded = _single_inventory_subject(question)
+    subject = _EXPLICIT_SUBJECT.search(question) if bounded is None else None
+    cleaned = bounded[bounded.lastgroup].strip() if bounded else (
+        subject[1].strip() if subject else LIBRARY_REFERENCE.sub(" ", question))
     latin = [word for token in re.findall(r"[A-Za-z][A-Za-z0-9+#._-]{1,24}", cleaned)
              if len(word := token.lower().rstrip("._-")) >= 2 and word not in _LATIN_STOP]
-    for word in sorted(_CJK_STOP, key=len, reverse=True):
-        cleaned = cleaned.replace(word, " ")
+    if bounded is None:
+        for word in sorted(_CJK_STOP, key=len, reverse=True):
+            cleaned = cleaned.replace(word, " ")
     cjk = re.findall(r"[\u4e00-\u9fff]{2,6}", cleaned)
     return list(dict.fromkeys([*terms, *latin, *cjk]))[:8]
 
@@ -102,8 +131,14 @@ _MAX_INVENTORY_QUESTIONS = 100
 
 
 def is_library_inventory(question: str) -> bool:
+    subject = _single_inventory_subject(question)
+    actions = question
+    if subject:
+        start, end = subject.span(subject.lastgroup)
+        actions = question[:start] + " " + question[end:]
     return bool(_BANK_LIBRARY.search(question) and _QUESTION_COLLECTION.search(question)
-                and _LIST_QUESTIONS.search(question) and not _ADDITIONAL_TASK.search(question))
+                and (_LIST_QUESTIONS.search(question) or (subject and subject.lastgroup == "en"))
+                and not _ADDITIONAL_TASK.search(actions))
 
 
 def inventory_language(question: str) -> Locale:
