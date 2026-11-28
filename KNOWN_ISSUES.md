@@ -303,7 +303,7 @@
 - **为什么是问题**：按 token 花钱的系统，"错误率没动但成本翻倍"这类事故完全无人值守；工业级 SLO 必须配告警。但在单人求职阶段应排在 Agent 核心能力与评测之后。
 - **目标方案**：最小可用：定时巡检任务（worker 心跳年龄/队列积压/日成本/错误率/备份新鲜度）超阈值走已有 SMTP 通道发告警；后续接 Alertmanager。
 
-### G4. /healthz 是静态存活探针，DB 挂了仍显示 healthy `P2` `OPEN`
+### G4. /healthz 是静态存活探针，DB 挂了仍显示 healthy `P2` `DONE`
 - **现状**：/healthz 恒返回 ok，不查 DB/worker/队列；compose healthcheck 打的就是它。真深度检查 /ops/health 存在但要 owner token，不能给编排系统用，且不含队列积压。
 - **代码**：`server/app/main.py:105-107`；`docker-compose.yml:55-60`；`api/v1/ops.py:347-381`。
 - **为什么是问题**：健康检查撒谎比没有更糟——编排层在 DB 故障时认为一切正常，不重启不摘流。
