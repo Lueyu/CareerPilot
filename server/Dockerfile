@@ -30,6 +30,7 @@ COPY provision_recovery_control.py ./provision_recovery_control.py
 COPY validate_recovery.py ./validate_recovery.py
 COPY bootstrap.py ./bootstrap.py
 COPY personal_credentials.py ./personal_credentials.py
+COPY token_lifecycle.py ./token_lifecycle.py
 
 EXPOSE 8000
 
