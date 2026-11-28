@@ -3,6 +3,7 @@ import asyncio
 
 import httpx
 import pytest
+from model_transport_fixtures import install_model_transport
 
 from app.services.llm import AgentAdapter
 
@@ -11,11 +12,7 @@ CONFIG = {'provider': 'fixture', 'model': 'fixture-model',
 
 
 def transport(monkeypatch, handler):
-    original = httpx.AsyncClient
-    monkeypatch.setattr(
-        httpx, 'AsyncClient',
-        lambda **kw: original(transport=httpx.MockTransport(handler), **kw),
-    )
+    install_model_transport(monkeypatch, httpx.MockTransport(handler))
 
 
 def capture(monkeypatch):

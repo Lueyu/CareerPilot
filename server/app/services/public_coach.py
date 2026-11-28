@@ -13,8 +13,9 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 from sqlalchemy import select, update
 
-from app.i18n import message as localized_message, request_language, using_language
 from app.db import SessionLocal
+from app.i18n import message as localized_message
+from app.i18n import request_language, using_language
 from app.models.public_coach import CoachCandidate, CoachThread, CoachTurn
 from app.services.public_model import _MAX_INPUT_BYTES, PublicModelError, complete_text, stream_text
 
@@ -429,6 +430,10 @@ async def _finish_turn(context, reply, result=None):
 
 
 def _public_error(exc, language=None):
+    from app.services.model_outbound import SAFE_MESSAGE
+    if (isinstance(exc, PublicModelError) and isinstance(exc.detail, dict)
+            and exc.detail.get("code") == "MODEL_OUTBOUND_POLICY"):
+        return SAFE_MESSAGE
     if isinstance(exc, PublicModelError) and isinstance(exc.detail, str):
         return exc.detail
     status = getattr(exc, "status_code", None)

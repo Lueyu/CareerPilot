@@ -14,6 +14,13 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import Response, StreamingResponse
 
+from app.services.model_outbound import (
+    SAFE_MESSAGE,
+    ModelOutboundPolicy,
+    OutboundPolicyError,
+    model_client,
+)
+
 ROUTE = "/v1/chat/completions"
 STRONG_ROUTE = "/strong" + ROUTE
 MAX_REQUEST_BYTES = 2 * 1024 * 1024
@@ -31,20 +38,18 @@ class RelayConfig:
     tenant_token: str = field(repr=False)
 
     def endpoint(self) -> httpx.URL:
+        policy = ModelOutboundPolicy.deployment()
+        try:
+            logical = policy.endpoint(self.upstream_base_url)
+        except OutboundPolicyError:
+            raise ValueError(SAFE_MESSAGE) from None
         url = httpx.URL(self.upstream_base_url)
         if (
-            url.scheme != "https" or not url.host or url.userinfo or url.query or url.fragment
+            not url.host or url.userinfo or url.query or url.fragment
             or not re.fullmatch(r"(?:/[A-Za-z0-9_-]+)*/?", url.raw_path.decode("ascii"))
-            or url.host.rstrip(".").lower() == "localhost"
+            or (url.host.lower() == "localhost" and logical.origin not in policy.local_origins)
         ):
             raise ValueError("Expected an operator-approved external HTTPS model API base")
-        try:
-            address = ip_address(url.host)
-        except ValueError:
-            pass
-        else:
-            if not address.is_global:
-                raise ValueError("Model API IP must be public")
         if (
             len(self.tenant_token) < 32 or not HEADER_TOKEN.fullmatch(self.tenant_token)
             or not HEADER_TOKEN.fullmatch(self.upstream_api_key)
@@ -144,10 +149,7 @@ def create_app(config: RelayConfig, *, flash_model: str = "", strong_model: str 
             raise HTTPException(429, "Relay is busy")
         await slots.acquire()
 
-        client = httpx.AsyncClient(
-            transport=transport, trust_env=False, follow_redirects=False,
-            timeout=httpx.Timeout(TOTAL_TIMEOUT, connect=10),
-        )
+        client = None
         upstream = None
         handed_off = False
         closed = False
@@ -163,7 +165,8 @@ def create_app(config: RelayConfig, *, flash_model: str = "", strong_model: str 
                         if upstream is not None:
                             await upstream.aclose()
                     finally:
-                        await client.aclose()
+                        if client is not None:
+                            await client.aclose()
             finally:
                 slots.release()
 
@@ -187,6 +190,12 @@ def create_app(config: RelayConfig, *, flash_model: str = "", strong_model: str 
                 if destination is None or (payload.stream_options and not payload.stream):
                     raise HTTPException(400, "Unsupported completion request")
                 url, key = destination
+                # Explicit transport injection is for controlled relay tests.
+                # Deployment calls always use the shared pinned TCP backend.
+                client = (httpx.AsyncClient(transport=transport, trust_env=False, follow_redirects=False,
+                                           timeout=httpx.Timeout(TOTAL_TIMEOUT, connect=10))
+                          if transport is not None else model_client(str(url),
+                              timeout=httpx.Timeout(TOTAL_TIMEOUT, connect=10)))
                 upstream = await client.send(
                     client.build_request(
                         "POST", url,
@@ -220,6 +229,8 @@ def create_app(config: RelayConfig, *, flash_model: str = "", strong_model: str 
                     body.extend(chunk)
                 body = bytes(body)
                 return Response(body, media_type=media_type, headers={"Cache-Control": "no-store"})
+        except OutboundPolicyError:
+            raise HTTPException(502, {"code": "MODEL_OUTBOUND_POLICY", "message": SAFE_MESSAGE}) from None
         except (httpx.HTTPError, TimeoutError, ValueError):
             raise HTTPException(502, "Model request failed") from None
         finally:

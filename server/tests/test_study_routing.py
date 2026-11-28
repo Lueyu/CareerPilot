@@ -23,13 +23,10 @@ from app.services.secret_storage import seal_setting
 
 
 def use_relay_transport(monkeypatch, relay):
-    client = httpx.AsyncClient
-
-    def connect(**options):
-        options.setdefault("transport", httpx.ASGITransport(app=relay))
-        return client(**options)
-
-    monkeypatch.setattr(httpx, "AsyncClient", connect)
+    # Replace the native caller's transport only. The relay's own explicit
+    # upstream MockTransport must keep its separate credential/routing boundary.
+    monkeypatch.setattr("app.services.model_outbound.PinnedModelTransport",
+                        lambda endpoint, policy: httpx.ASGITransport(app=relay))
 
 
 @pytest.mark.asyncio
@@ -43,6 +40,7 @@ async def test_registered_turn_preserves_upstream_retry_class(study, monkeypatch
     base_model = CONFIG["model"]
     for field, value in {**CONFIG, "base_url": "http://relay.test/v1", "api_key": token}.items():
         monkeypatch.setattr(get_settings(), f"llm_{field}", value)
+    monkeypatch.setattr(get_settings(), "model_local_origins", ["http://relay.test"])
     requested = []
 
     async def upstream(request):
@@ -84,6 +82,7 @@ async def test_registered_retry_uses_distinct_physical_models(study, monkeypatch
         monkeypatch.setattr(settings, f"llm_{field}", value)
     for field in ("study_strong_model","study_strong_base_url","study_strong_api_key","study_strong_provider"):
         monkeypatch.setattr(settings, field, env[field.upper()])
+    monkeypatch.setattr(settings, "model_local_origins", json.loads(env["MODEL_LOCAL_ORIGINS"]))
     monkeypatch.setattr(settings,"study_relay_same_upstream",env["STUDY_RELAY_SAME_UPSTREAM"] == "true")
     seen = []
 

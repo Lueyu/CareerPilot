@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_base_url: str = ""
     llm_model: str = ""
+    # Deployment-only exact scheme/host/port origins for private or HTTP models.
+    # Settings API input cannot widen this policy. Empty means public HTTPS only.
+    model_local_origins: list[str] = []
 
     # Operator-declared private billing. Empty prices fail closed, including connection tests.
     private_llm_prices: list[dict] = []

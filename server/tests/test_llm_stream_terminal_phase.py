@@ -1,9 +1,10 @@
 """Real HTTPcore cleanup must not overwrite an accepted SSE terminal state."""
 import asyncio
 
-import httpx
 import pytest
 
+from app.config import get_settings
+from app.services import model_outbound
 from app.services.llm import AgentAdapter
 
 
@@ -34,13 +35,14 @@ async def test_real_loopback_stream_terminal_phase_distinguishes_cleanup_from_fa
 
     server=await asyncio.start_server(local_sse,'127.0.0.1',0)
     port=server.sockets[0].getsockname()[1]
-    original=httpx.AsyncClient
     # Construct TLS machinery before the short fixture deadline; no request yet.
-    prepared=original(trust_env=False,timeout=2)
+    origin=f"http://127.0.0.1:{port}"
+    monkeypatch.setattr(get_settings(), "model_local_origins", [origin])
+    prepared=model_outbound.model_client(origin,timeout=2)
     def client(**kwargs):
         prepared.event_hooks=kwargs.get('event_hooks',{})
         return prepared
-    monkeypatch.setattr(httpx,'AsyncClient',client)
+    monkeypatch.setattr('app.services.llm.model_client',lambda value, **kw: client(**kw))
     try:
         adapter=AgentAdapter()
         result=await adapter.chat_with({'provider':'fixture','model':'fixture','base_url':f'http://127.0.0.1:{port}/v1',

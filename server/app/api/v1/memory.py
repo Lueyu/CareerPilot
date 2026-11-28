@@ -16,6 +16,7 @@ from app.i18n import message as localized_message
 from app.models import MemoryItem, Workspace
 from app.services.bank_review_memory import BANK_REVIEW_FEEDBACK_TYPE, review_feedback_eligible
 from app.services.llm import AgentAdapter
+from app.services.model_outbound import OutboundPolicyError
 from app.services.private_model_billing import BillingScope, BudgetPolicyError
 from app.services.project_candidates import eligible
 from app.services.project_memory import lock_project_memories
@@ -277,7 +278,7 @@ async def _extract_memories(text: str, *, billing_scope=None) -> list[dict]:
             out = await adapter.chat(with_output_language(sys_prompt), text[:8000], json_mode=True, billing_scope=billing_scope)
             if out and isinstance(out, list):
                 return [x for x in out if isinstance(x, dict) and x.get("content")][:8]
-        except BudgetPolicyError:
+        except (BudgetPolicyError, OutboundPolicyError):
             raise
         except Exception:
             pass

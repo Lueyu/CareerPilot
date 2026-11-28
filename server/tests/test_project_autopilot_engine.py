@@ -231,7 +231,7 @@ async def test_adapter_adds_safe_metadata_without_changing_legacy_return(monkeyp
     responses = [httpx.Response(200, json={'choices': [{'message': {'content': '{"x":1}'}, 'finish_reason': 'length'}]}, headers={'x-request-id': 'request-1'}),
                  httpx.Response(429, text='private response body', headers={'retry-after': '9', 'x-request-id': 'request-2'})]
     async def handler(request): return responses.pop(0)
-    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kw: original(transport=httpx.MockTransport(handler), **kw))
+    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kw: original(**{**kw, "transport": httpx.MockTransport(handler)}))
     adapter = AgentAdapter()
     cfg = {'provider': 'fixture', 'model': 'fixture', 'api_key': 'fixture', 'base_url': 'https://fixture.invalid'}
     assert await adapter.chat_with(cfg, 's', 'u') == {'content': '{"x":1}'}
@@ -683,7 +683,7 @@ async def test_empty_completion_keeps_reported_usage_without_changing_none_contr
     async def handler(request):
         return httpx.Response(200, json={'id': 'completion-1', 'choices': [{'message': {'content': ''}, 'finish_reason': 'length'}],
             'usage': {'prompt_tokens': 11, 'completion_tokens': 22, 'total_tokens': 33}})
-    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kw: original(transport=httpx.MockTransport(handler), **kw))
+    monkeypatch.setattr(httpx, 'AsyncClient', lambda **kw: original(**{**kw, "transport": httpx.MockTransport(handler)}))
     with pytest.raises(api.StageError) as exc:
         await api._ask('plan_modules', {}, api.PlanResponse, runtime(api))
     assert exc.value.category == 'OUTPUT_TRUNCATED'

@@ -206,6 +206,47 @@ def recovery_demo() -> str:
 """
 
 
+def outbound_policy_demo() -> str:
+    return r"""
+<section id="outbound-demo"><h2>动手区分域名、解析结果与实际连接</h2>
+<p>选择一次连接会遇到的情况，观察系统在哪一步拒绝。这里的域名、地址和结果是固定教学数据，不发网络请求、不查询 DNS，也不运行安全检测。</p>
+<div class="calc-fields"><label>出站连接情况<select id="od-case">
+<option value="public">所有解析结果都是允许的公网地址</option>
+<option value="mixed">同一域名同时返回公网与内网地址</option>
+<option value="rebind">保存时公网，真正连接时变成内网</option>
+<option value="local-denied">本地模型，没有部署侧精确授权</option>
+<option value="local-allowed">本地模型，部署侧已授权这个 origin</option>
+<option value="redirect">已连接的服务要求跳转到另一个地址</option>
+</select></label></div>
+<div class="flow" style="margin-top:20px">
+<div class="step"><strong>逻辑地址</strong><span id="od-origin"></span></div>
+<div class="step"><strong>这次连接的检查</strong><span id="od-check"></span></div>
+<div class="step"><strong>实际连接目标</strong><span id="od-dial"></span></div>
+<div class="step"><strong>Host 与 TLS 身份</strong><span id="od-identity"></span></div>
+</div>
+<div class="calc-results" aria-live="polite"><div><span>这次处理</span><strong id="od-result"></strong></div></div>
+<p id="od-why" class="check" aria-live="polite"></p>
+<p class="small">origin 是协议、主机和端口的组合。TLS 负责验证原域名对应的证书。把实际连接固定到一个已检查的 IP，不代表把模型地址或价格身份改成这个 IP。演示不证明真实供应商兼容；本项实际测试与配置边界见下文。</p>
+</section><script>
+(() => {
+ const get=name=>document.getElementById('od-'+name);
+ const publicOrigin='https://model.example.com:443';
+ const publicIdentity='Host 与 TLS/SNI 保留 model.example.com';
+ const cases={
+ public:[publicOrigin,'检查这次解析得到的全部地址','只拨号到已检查的公网 IP',publicIdentity,'允许继续','在实际拨号处重新实施策略。连接层收到已验证的 IP，不再拿域名另查一次。'],
+ mixed:[publicOrigin,'解析同时包含公网 IP 与 10.0.0.8','不建立 TCP 连接','没有发送模型请求','拒绝连接','不能只挑一个公网结果就忽略危险结果。本次全部地址必须满足出站策略。'],
+ rebind:[publicOrigin,'保存时通过；本次连接得到 169.254.169.254','不建立 TCP 连接','没有发送模型请求','拒绝连接','保存成功不授予永久出站权限。实际连接重新检查本次 DNS 结果，再把允许的 IP 固定给拨号层。'],
+ 'local-denied':['http://127.0.0.1:11434','没有部署侧精确 origin 授权','不建立 TCP 连接','没有发送模型请求','拒绝连接','登录后提交设置不能扩大部署授权。私网和回环地址默认拒绝。'],
+ 'local-allowed':['http://127.0.0.1:11434','部署配置明确允许这个协议、主机和端口','只连接已检查的 127.0.0.1:11434','Host 保留原地址；HTTP 不提供 TLS','按精确授权继续','授权一个 origin 不会授权所有端口、其他私网主机或重定向目标。HTTP 本地例外仍需要操作者理解其配置。'],
+ redirect:[publicOrigin,'原始连接可通过；响应要求跳转','仅已有原始连接，不拨号到跳转目标',publicIdentity,'不自动跟随','重定向不会把这一家服务的密钥转交给另一地址。更换模型地址必须重新核对凭据绑定与费用配置。']
+ };
+ function update(){const row=cases[get('case').value];['origin','check','dial','identity','result','why'].forEach((name,index)=>get(name).textContent=row[index]);}
+ get('case').addEventListener('change',update);update();
+})();
+</script>
+"""
+
+
 def render(record: dict) -> str:
     issue = record["id"]
     body = '<nav><a href="index.html">第 1 波报告目录</a> · <a href="../../timeline.html">施工时间线</a></nav>'
@@ -221,6 +262,8 @@ def render(record: dict) -> str:
         body += secret_context_demo()
     if record.get("calculator") == "recovery-quarantine":
         body += recovery_demo()
+    if record.get("calculator") == "outbound-policy":
+        body += outbound_policy_demo()
     body += '<section><h2>读懂这些概念就能读懂代码</h2>' + table(["概念", "人话解释", "在这里的作用"], record["concepts"]) + '</section>'
     body += '<section><h2>为什么选择这个方案</h2>' + paragraphs(record["rationale"]) + table(["方案", "收益", "代价与决定"], record["alternatives"]) + '</section>'
     body += '<section><h2>具体改了哪些代码</h2>'

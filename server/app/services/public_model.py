@@ -11,8 +11,6 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, InvalidOperation, localcontext
-from functools import lru_cache
-from ssl import SSLContext
 from urllib.parse import SplitResult, urlsplit
 
 import httpx
@@ -23,6 +21,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.db import SessionLocal
 from app.i18n import message as localized_message
 from app.models.public_model import PublicModelCall, PublicModelMonth
+from app.services.model_outbound import SAFE_MESSAGE, ModelOutboundPolicy, OutboundPolicyError, model_client
 from app.services.recovery_control import require_normal
 
 logger = logging.getLogger(__name__)
@@ -91,15 +90,15 @@ def _billing_env(name: str, scale: int, *, default: str = "", budget: bool = Fal
 
 def _provider_config() -> _Provider:
     try:
-        base = os.environ.get("SEED_MODEL_BASE_URL", "").strip().rstrip("/")
+        base = os.environ.get("SEED_MODEL_BASE_URL", "").rstrip("/")
         key = os.environ.get("SEED_MODEL_KEY", "").strip()
         model = os.environ.get("SEED_MODEL_NAME", "").strip()
         thinking = os.environ.get("SEED_MODEL_THINKING", "").strip() or None
         url = urlsplit(base)
+        ModelOutboundPolicy.deployment().endpoint(base)
         if (
             not url.hostname or url.username is not None or "?" in base or "#" in base
             or any(char.isspace() for char in base) or url.port == 0
-            or (url.scheme != "https" and not _loopback_http(url))
             or not key or not all(33 <= ord(char) <= 126 for char in key)
             or not 0 < len(model) <= 200
             or thinking not in (None, "enabled", "disabled")
@@ -123,6 +122,8 @@ def _provider_config() -> _Provider:
                 _billing_env("SEED_MONTHLY_CNY", _NANO_CNY, default="50", budget=True),
                 _billing_env("SEED_DAILY_USER_CNY", _NANO_CNY, budget=True),
             )
+    except OutboundPolicyError:
+        raise PublicModelError(503, {"code": "MODEL_OUTBOUND_POLICY", "message": SAFE_MESSAGE}) from None
     except (ValueError, InvalidOperation, httpx.InvalidURL):
         raise PublicModelError(503, localized_message("errors.the_model_service_is_not_configured_yet_try_again")) from None
     return _Provider(endpoint, key, model, meter, thinking)
@@ -276,11 +277,6 @@ def _provider_error() -> PublicModelError:
     return PublicModelError(502, localized_message("errors.the_model_returned_no_usable_reply_try_again_later"))
 
 
-@lru_cache(maxsize=1)
-def _verified_tls() -> SSLContext:
-    return httpx.create_ssl_context(verify=True, trust_env=False)
-
-
 @asynccontextmanager
 async def _response(
     provider: _Provider, messages: list[dict[str, str]], max_tokens: int, *, stream: bool
@@ -293,9 +289,8 @@ async def _response(
 
     deadline = asyncio.get_running_loop().time() + _PROVIDER_DEADLINE_SECONDS
     try:
-        verify = _verified_tls() if provider.url.startswith("https://") else False
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(30.0, connect=5.0), trust_env=False, follow_redirects=False, verify=verify
+        async with model_client(
+            provider.url, timeout=httpx.Timeout(30.0, connect=5.0)
         ) as client:
             request = client.build_request(
                 "POST",
@@ -316,6 +311,8 @@ async def _response(
                 yield response, deadline
             finally:
                 await response.aclose()
+    except OutboundPolicyError:
+        raise PublicModelError(503, {"code": "MODEL_OUTBOUND_POLICY", "message": SAFE_MESSAGE}) from None
     except (httpx.TimeoutException, TimeoutError):
         raise PublicModelError(504, localized_message("errors.the_model_timed_out_try_again_later")) from None
     except (httpx.HTTPError, OSError):
