@@ -70,6 +70,11 @@ _INVENTORY_SUBJECT = re.compile(
     r"(?:my|the)\s+(?:question bank|library)\b",
     re.I,
 )
+_INVENTORY_PREFIX = re.compile(
+    r"\s*(?:(?:请|帮我|我的|题库|资料库|素材库|材料库|里|中|都|有哪些|有什么|列出|列一下|列一列|看看|看下|想看)\s*"
+    r"|(?:please|list|show|me)\b\s*)*",
+    re.I,
+)
 
 
 def _single_inventory_subject(question: str) -> re.Match[str] | None:
@@ -77,6 +82,8 @@ def _single_inventory_subject(question: str) -> re.Match[str] | None:
     if len(matches) != 1:
         return None
     match = matches[0]
+    if not _INVENTORY_PREFIX.fullmatch(question[:match.start()]):
+        return None
     return None if question[match.end():].strip(" \t\r\n，。；！？,;!?.") else match
 
 

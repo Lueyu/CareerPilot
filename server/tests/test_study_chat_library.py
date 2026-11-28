@@ -76,6 +76,9 @@ def test_subject_alone_does_not_hide_another_intent(prompt):
     ("列出题库里关于RAG的题，以及关于SQL的题", True),
     ("列出题库里关于RAG的题，以及SQL题", True),
     ("What RAG questions are in my question bank, and SQL questions?", False),
+    ("列出题库里SQL的题，以及关于RAG的题", True),
+    ("列出题库里SQL的题和关于RAG的题", True),
+    ("List SQL questions from my question bank. What RAG questions are in my question bank?", True),
 ])
 async def test_multiple_subject_clauses_keep_both_topics(db_session, test_workspace, prompt, inventory):
     assert {"rag", "sql"} <= set(library_terms(prompt, [], set()))
@@ -96,6 +99,15 @@ async def test_multiple_subject_clauses_keep_both_topics(db_session, test_worksp
         assert ticket["status"] == "generating" and len(tasks.tasks) == 1
         assert {json.loads(item["text"])["题目"] for item in saved["sources"]
                 if item["kind"] == "library_question"} == {"RAG", "SQL"}
+
+
+@pytest.mark.parametrize("prompt,terms", [
+    ("请帮我列出题库里关于智能体规划的题", ["智能体规划"]),
+    ("Please show me What RAG questions are in my question bank?", ["rag"]),
+])
+def test_a2_subject_accepts_only_unambiguous_prefix_wrappers(prompt, terms):
+    assert is_library_inventory(prompt)
+    assert library_terms(prompt, [], set()) == terms
 
 
 @pytest.mark.asyncio
