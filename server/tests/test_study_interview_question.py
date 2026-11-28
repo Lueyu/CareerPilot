@@ -8,12 +8,13 @@ import pytest_asyncio
 from credential_fixtures import enroll_token
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from test_llm_stream_transport import DONE, frame
+from test_llm_stream_transport import DONE, event, frame
 
 from app.config import get_settings
 from app.db import get_session
 from app.main import app
 from app.models import Evidence, Question, Workspace
+from app.models.private_model import PrivateModelCall
 from app.models.question import STUDY_CHAT_REVIEW_META
 from app.models.study_chat import StudyInterviewQuestion, StudyMessage
 from app.services import study_interview_questions, study_notes
@@ -81,6 +82,59 @@ async def new_chat(client, headers, **body):
     response = await client.post("/study/sessions", headers=headers, json=body)
     assert response.status_code == 201, response.text
     return response.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_interview_question_reserves_for_its_workspace_and_cache_does_not_bill_again(
+    chat_client, db_session, test_workspace, monkeypatch,
+):
+    client, owner, other = chat_client
+    cfg = {"provider": "synthetic", "base_url": "https://billing.invalid/v1", "model": "metered-guide", "api_key": "fixture"}
+    settings = get_settings()
+    monkeypatch.setattr(settings, "study_flash_model", "")
+    monkeypatch.setattr(settings, "study_strong_model", "")
+    monkeypatch.setattr(settings, "study_flash_output_tokens", 2000)
+    monkeypatch.setattr(settings, "private_llm_daily_budget_cny", "5")
+    monkeypatch.setattr(settings, "private_llm_prices", [{
+        **{key: cfg[key] for key in ("provider", "base_url", "model")},
+        "input_cny_per_million": "2", "output_cny_per_million": "8",
+    }])
+
+    async def config():
+        return dict(cfg)
+
+    monkeypatch.setattr(study_interview_questions, "get_llm_config", config)
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    requests = []
+
+    async def provider(request):
+        async with factory() as session:
+            reserved = (await session.scalars(select(PrivateModelCall).where(
+                PrivateModelCall.workspace_id == test_workspace.id))).all()
+        assert len(reserved) == 1 and reserved[0].state == "RESERVED"
+        requests.append(json.loads(request.content))
+        payload = frame(json.dumps(GUIDE, ensure_ascii=False)) + frame(finish="stop") + event({
+            "choices": [], "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
+        }) + DONE
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=payload)
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real_client(transport=httpx.MockTransport(provider), **kwargs))
+    sid = await new_chat(client, owner)
+    await turn(db_session, sid, "metered-guide", "如何保持重试安全？", "先检查业务编号，再原子写入结果。")
+    path = f"/study/sessions/{sid}/interview-question"
+    response = await client.post(path, headers=owner)
+    assert response.status_code == 200, response.text
+    cached = await client.post(path, headers=owner)
+    assert cached.status_code == 200 and cached.json() == response.json()
+    denied = await client.post(path, headers=other)
+    assert denied.status_code == 404
+    async with factory() as session:
+        calls = (await session.scalars(select(PrivateModelCall).where(
+            PrivateModelCall.workspace_id == test_workspace.id))).all()
+    assert len(requests) == len(calls) == 1
+    assert calls[0].operation.startswith(f"study_interview_question:{sid}:")
+    assert calls[0].state == "SETTLED" and calls[0].charged_nano_cny > 0
 
 
 @pytest.mark.asyncio
@@ -152,7 +206,7 @@ async def turn(db, sid, request, text, answer, *, status="completed", project=No
 ])
 @pytest.mark.asyncio
 async def test_interview_question_respects_budget_and_rejects_truncation(
-    chat_client, db_session, monkeypatch, tier, tier_limit, study_budget, config_limit, expected_limit,
+    chat_client, db_session, monkeypatch, mock_private_billing, tier, tier_limit, study_budget, config_limit, expected_limit,
 ):
     client, owner, _ = chat_client
     settings = get_settings()
@@ -217,7 +271,7 @@ async def test_interview_question_respects_budget_and_rejects_truncation(
 ])
 @pytest.mark.asyncio
 async def test_interview_question_fits_full_prompt_in_context(
-    chat_client, db_session, monkeypatch, context, language, project,
+    chat_client, db_session, monkeypatch, mock_private_billing, context, language, project,
 ):
     client, owner, _ = chat_client
     settings = get_settings()
@@ -280,7 +334,7 @@ async def test_interview_question_fits_full_prompt_in_context(
 ])
 @pytest.mark.asyncio
 async def test_interview_question_fits_reviewer_transcript(
-    chat_client, db_session, monkeypatch, repeats, provider_context, expected_status,
+    chat_client, db_session, monkeypatch, mock_private_billing, repeats, provider_context, expected_status,
 ):
     client, owner, _ = chat_client
     settings = get_settings()
@@ -437,7 +491,7 @@ async def test_late_generation_cannot_hide_a_newer_snapshot(chat_client, db_sess
 
 
 @pytest.mark.asyncio
-async def test_chat_question_recovery_uses_all_complete_turns(chat_client, db_session, model):
+async def test_chat_question_recovery_uses_all_complete_turns(chat_client, db_session, model, synthetic_generation_quota):
     client, owner, other = chat_client
     calls, outcomes = model
     sid = await new_chat(client, owner)

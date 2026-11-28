@@ -56,3 +56,10 @@
 - 修复在事务内按原编号锁住工作空间记录，避免名称被重新使用；修复源码3febcde33427bb0b46984388b5e7adb9eb95de4d。
 - 新回归在旧实现真实失败（原编号2、后继编号4），修复后完整生命周期20项通过，ruff与差异检查通过。
 - 证据：.agent-runs/20261128-wave1/h1/r1-fix/；PR59新冻结提交需另行独立复核。
+
+## E2 · 2026-11-28 · DONE
+- 结论：补齐面试题整理的BillingScope；真实隔离账本验证预留、结算与缓存不重复计费。相关175项通过，测试配额和恢复夹具遵守当前契约，生产闸门未放宽。
+- PR：https://github.com/Lueyu/CareerPilot/pull/60
+- 验证 SHA：4fe46c85e8ddb193db70937ceb5ee20e2e7fb1d9
+- 证据：.agent-runs/20261128-wave1/e2-followup/handoff.json
+- 遗留/后续：F7仍须修复取消传播，F8仍须复查deadline清理；真实供应商与个人实例未验证。

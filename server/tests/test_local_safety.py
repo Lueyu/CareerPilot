@@ -160,14 +160,16 @@ def test_restore_rejects_original_database_before_any_connection(tmp_path):
     shell = shutil.which("pwsh") or shutil.which("powershell")
     assert shell is not None
     script = Path(__file__).resolve().parents[2] / "deploy" / "restore.ps1"
+    receipt = tmp_path / "restore-receipt.json"
     result = subprocess.run(
         [shell, "-NoProfile", "-NonInteractive", "-File", str(script),
-         "-BackupFile", str(tmp_path / "unused.dump"), "-TargetDatabase", "careerpilot"],
+         "-BackupFile", str(tmp_path / "unused.dump"), "-TargetDatabase", "careerpilot", "-ReceiptFile", str(receipt)],
         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20,
     )
     assert result.returncode != 0
-    assert "personal database is forbidden" in result.stderr
+    assert "Target must be a NEW *_test or *_standby database" in result.stderr
     assert "Restore verified" not in result.stdout
+    assert not receipt.exists()
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows local operations scripts")

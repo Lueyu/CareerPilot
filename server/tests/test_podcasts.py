@@ -320,7 +320,7 @@ async def test_mcq_options_are_frozen_and_versioned_without_leaking_metadata(db_
 
 
 @pytest.mark.asyncio
-async def test_series_partial_retry_playlist_audio_and_exposure(db_session, test_workspace, content, monkeypatch):
+async def test_series_partial_retry_playlist_audio_and_exposure(db_session, test_workspace, content, monkeypatch, synthetic_generation_quota):
     from app.services import podcast_jobs
 
     original = await question(db_session, test_workspace)
@@ -598,7 +598,7 @@ async def test_real_lifespan_retries_frozen_script_and_delivers_audio_first(
 
 
 @pytest.mark.asyncio
-async def test_languages_keep_frozen_versions_and_reach_jobs(db_session, test_workspace, content, monkeypatch):
+async def test_languages_keep_frozen_versions_and_reach_jobs(db_session, test_workspace, content, monkeypatch, synthetic_generation_quota):
     from app.services import podcast_jobs
 
     original = await question(db_session, test_workspace)

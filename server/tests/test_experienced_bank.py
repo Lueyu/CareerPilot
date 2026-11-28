@@ -36,6 +36,7 @@ from app.services import answer_guides, assessment_jobs, assessment_worker, expe
 from app.services.answer_guides import for_question, published_guides
 from app.services.learning_exposure import EVENT_KIND
 from app.services.local_credentials import AuthenticatedPrincipal
+from app.services.recovery_control import provision_known_installation
 
 CRITERIA = ["说明连接超时的可观测信号", "给出重试预算与退避策略", "说明如何检查重复请求的副作用"]
 
@@ -150,6 +151,11 @@ async def isolated_seed(db_session, monkeypatch, tmp_path):
     engine = create_async_engine(db_session.bind.url, poolclass=NullPool,
         connect_args={"server_settings": {"search_path": schema}})
     factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+    async with engine.begin() as conn:
+        migration = Path(__file__).resolve().parents[1] / "migrations/20261128_recovery_control.sql"
+        await conn.exec_driver_sql(migration.read_text(encoding="utf-8"))
+    async with factory.begin() as session:
+        await provision_known_installation(session)
     catalog = tmp_path / "catalog"
     catalog.mkdir()
     legacy = tmp_path / "legacy.json"
