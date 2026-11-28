@@ -51,6 +51,7 @@ from app.config import get_settings
 from app.db import engine
 from app.i18n import LanguageMiddleware
 from app.models import Base  # noqa: F401  (注册全部模型)
+from app.readiness import readiness_response
 from app.services.podcast_jobs import run_worker as run_podcast_worker
 from app.services.recovery_control import RecoveryBlocked, require_normal
 from app.services.study_chat import recover_interrupted as recover_study_chat
@@ -123,6 +124,11 @@ app.include_router(feedback.router, prefix="/api/v1")
 @app.get("/healthz")
 async def healthz():
     return {"ok": True, "service": "careerpilot-api", "scorer_model": get_settings().scorer_model_version}
+
+
+@app.get("/readyz")
+async def readyz():
+    return await readiness_response("careerpilot-api")
 
 
 # 可选静态托管（生产部署：STATIC_DIR 指向前端构建产物目录，如 web/dist）。

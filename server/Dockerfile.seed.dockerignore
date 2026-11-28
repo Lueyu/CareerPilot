@@ -3,6 +3,7 @@
 !app/__init__.py
 !app/config.py
 !app/db.py
+!app/readiness.py
 !app/public_main.py
 !app/i18n.py
 !app/input_contracts.py

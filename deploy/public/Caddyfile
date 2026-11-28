@@ -5,6 +5,11 @@
 		Referrer-Policy no-referrer
 	}
 
+	@probes path /healthz /readyz
+	handle @probes {
+		reverse_proxy api:8000
+	}
+
 	@seed_api path /api/v1 /api/v1/*
 	handle @seed_api {
 		# Keep compression off this handler. Caddy flushes text/event-stream immediately.

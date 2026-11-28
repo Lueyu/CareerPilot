@@ -17,7 +17,7 @@ from pathlib import Path
 from uuid import uuid4
 
 PROJECTS = {
-    "careerpilot": ("docker-compose.yml", "web", 80, "/healthz", "CareerPilot"),
+    "careerpilot": ("docker-compose.yml", "web", 80, "/readyz", "CareerPilot"),
     "squabble": ("docker-compose.demo.yml", "app", 3000, "/api/health", "Squabble"),
 }
 OWNER = "local.candidate.delivery"
@@ -36,6 +36,7 @@ NGINX = """server {
         proxy_read_timeout 300s;
     }
     location = /healthz { proxy_pass http://server:8000; }
+    location = /readyz { proxy_pass http://server:8000; }
 }
 """
 

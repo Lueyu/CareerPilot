@@ -24,6 +24,7 @@ from app.api.recovery_guard import RecoveryGuardMiddleware
 from app.api.v1 import ops, telemetry
 from app.db import Base, engine
 from app.i18n import LanguageMiddleware
+from app.readiness import readiness_response
 from app.services.public_native_runtime import close_native_runtime, invalidate_transfer, validate_native_config
 
 
@@ -92,6 +93,11 @@ async def private_responses(request, call_next):
 @app.get("/healthz")
 async def health():
     return {"ok": True, "service": "careerpilot-public"}
+
+
+@app.get("/readyz")
+async def ready():
+    return await readiness_response("careerpilot-public")
 
 
 if static_dir := os.environ.get("SEED_STATIC_DIR"):
