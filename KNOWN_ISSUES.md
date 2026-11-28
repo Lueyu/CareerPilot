@@ -343,7 +343,7 @@
 - **为什么是问题**：ECS 部署时这是云元数据服务（169.254.169.254）/内网探测入口；工业级出站必须受控。
 - **目标方案**：URL 校验拒绝私网/链路本地段（解析后校验，防 DNS rebinding）；或显式 allowlist；/llm/test 响应不泄露内部错误细节。
 
-### H3. 面经提取 prompt 无注入防护，导入内容直通 LLM `P1` `OPEN`
+### H3. 面经提取 prompt 无注入防护，导入内容直通 LLM `P1` `DONE`
 - **现状**：study_chat/出题有 context_contract 防注入指令，但面经导入的提取 prompt（bank.py `_extract_questions`）没有"忽略文档内指令"约束；恶意 PDF 可注入指令操纵提取结果（入库污染）。无内容级注入检测。
 - **代码**：`server/app/api/v1/bank.py:642-700`（提取 prompt 无防注入段）；对比 `locales/zh-CN.generation.json:109`（聊天有合同）。
 - **为什么是问题**：导入是不可信输入的最大入口；入库材料会进后续教学 prompt，形成持久化注入链。工业级要求"外部内容=数据"的全链路一致执行。
