@@ -1,0 +1,373 @@
+{
+  "id": "H8",
+  "status": "实现与验证记录",
+  "title": "给五处嵌套输入建立边界，并保持题库全集分页完整",
+  "calculator": "bounded-inputs",
+  "goal": "完成批准的 Wave1 H8：非法字段、错误类型、过大或过深 JSON 在业务处理前安全拒绝；合法作答、审批、遥测与发布规则保持兼容；题库降低单页上限后，资料库仍取得完整库存。",
+  "scenario": [
+    "外层请求已经用了 Pydantic，不代表嵌套字典也有契约。旧版 payload 和 assistance 可以携带任意键，数字 1 或字符串 false 容易被当成布尔声明，客户端还可能夹带服务器专属的项目来源字段。旧版 telemetry 虽然最多接收 50 个事件，每个事件的 props 却可以非常大。21 个专门设计的非法输入在旧版模型上全部被接受，这是本次保存的红测试证据。",
+    "HTTP 的 Content-Length 是请求方提供的说明，不能充当实际收包计数。客户端可以不提供长度、声明长度为 1，或分成多个 ASGI 事件继续发送。若先调用 request.body() 把所有内容读入内存，再检查字段长度，内存开销已经发生；若深层 JSON 在解码时超出递归能力，事后遍历也来不及。",
+    "降低 bank 单页上限会影响 Questions.tsx。它原本一次请求 limit=5000，再在浏览器中按难度、收藏等条件筛选并导出选中项。仅修改 API 上限会导致 422，或只显示第一页却把它当成全集。这是一次必须同时迁移消费者的兼容修改。",
+    "与 Agent 工程能力的联系是把不可信输入、资源边界和证据归属落实到可执行代码：模型生成或用户提交的 JSON 必须先验证，再进入确定性服务；自报使用辅助不能撤销服务器观察；材料入库和练习提交不会自动变成独立能力证据。这些是工程结果，不能据此宣称使用者已经亲自掌握相关能力。"
+  ],
+  "before_after": [
+    [
+      "审批编辑",
+      "草稿 ID 对应任意 dict，未知键和过长值缺少统一拒绝",
+      "正整数 ID 显式解析，DraftEdit 限制实际支持的部分编辑字段、长度、题型和难度"
+    ],
+    [
+      "学习原答与辅助声明",
+      "payload/assistance 自由字典，服务内分散处理少数别名",
+      "严格输入模型覆盖现有别名，拒绝来源注入；只导出显式传入字段，保留原答与旧指纹"
+    ],
+    [
+      "自由 JSON",
+      "事件属性、规则值与评分扩展缺少完整资源界限",
+      "保留自由对象含义，限制深度、节点、容器、键和字符串，拒绝非有限数字"
+    ],
+    [
+      "真实字节",
+      "框架可以在字段验证前完整缓冲请求",
+      "receive 逐块计数，超过 128 KiB/512 KiB/2 MiB 时返回 413，不再读取尾块"
+    ],
+    [
+      "原始深度",
+      "极深原始 JSON 可能先击穿解码器",
+      "按编码识别并在解码前扫描字符串外括号，深度超过 32 返回 422"
+    ],
+    [
+      "既有安全元数据",
+      "初版新 guard 放在 E3 外层会绕过相关性与限额",
+      "采纳父代理审查，guard 放在恢复/限流/语言层之后，保留 request_id/CORS 和原有限额"
+    ],
+    [
+      "题库分页",
+      "单页上限 5000，全集调用方依赖单次请求",
+      "单页上限 200，全集加载器逐页取得全部内容，异常明确报错，支持取消和重试"
+    ]
+  ],
+  "flow": [
+    [
+      "既有准入",
+      "请求先经过 CORS、恢复状态、鉴权与 E3 限流、语言处理。安全计数属于既有准入，不是题库或学习业务写入。"
+    ],
+    [
+      "有界接收",
+      "精确匹配六类 JSON 动作，检查每个实际 http.request 块；任何长度头都不能改变实际字节上限。未命中的上传和 GET/SSE 走原处理。"
+    ],
+    [
+      "解码前深度",
+      "在有限缓冲上识别 UTF-8/16/32，忽略 JSON 字符串中的括号和转义，避免极深结构进入递归解码。"
+    ],
+    [
+      "领域校验",
+      "FastAPI 使用严格 Pydantic 模型。自由 JSON 在 JsonValue 递归验证前先做有界迭代遍历。错误返回 422 的字段位置与消息。"
+    ],
+    [
+      "保留业务语义",
+      "用 exclude_unset=True 导出真实提供的原始字段，再调用既有服务。服务继续检查工作空间、版本、幂等、项目快照和辅助来源。"
+    ],
+    [
+      "完整库存",
+      "客户端以 limit=200 和递增 offset 请求，按 total 验证结束，全部成功才把结果交给页面本地筛选与批量操作。"
+    ]
+  ],
+  "mechanism": [
+    "审批的核心形状是 edits: 正整数 ID → DraftEdit。JSON 对象键天然是字符串，因此边界接受合法的十进制正整数字符串，例如 123，转换为领域整数，而不是用严格 int 机械拒绝所有键。负数、零、非十进制及可能碰撞的非规范键被拒绝。item_ids 和 edits 各最多 200 项。item_ids 缺失或 null 仍是全部审批，空数组仍是不选任何项。",
+    "DraftEdit 只包含 _approve_locked_import 真正消费的字段，包括 title、skill_key、answer_html、rubric、short_code、qtype、topic、difficulty、options、company、role、level 和 tags。字符串长度按数据库列或实际内容边界约束，难度是严格的 1 到 5 整数。title 等非空列不能显式为 null；company、options 等合法可空值继续允许。rubric 中的评分点、criteria 和扩展字段作为有界 JSON 保留，避免虚构一个破坏既有评分结构的白名单。生成题仍保留原有结构审核路径。",
+    "非 PROJECT 的 ActivityPayload 支持 text_answer 与 answer_text，以及原服务实际支持的六个辅助别名：hint_used/used_hint、reference_viewed/viewed_answer、ai_declared/ai_assisted。顶层和 assistance 内的声明都必须是真正的 JSON 布尔值；1、0、字符串 true/false 和 null 不会被强制转换。项目提交复用相同声明模型，但项目内容和来源只能来自服务器快照路线，客户端不能填 project_contract、source、独立性标记或反馈观察。",
+    "兼容的关键不只是字段名称，还包括字段有没有出现。若把所有未传的 bool 默认 false 导出到旧 payload，再计算请求摘要，重试会变成不同请求。这里模型内部可以有默认值，进入业务服务时用 exclude_unset=True，只导出客户端原本提供的位置；不 trim 原答，不改名合并别名，也不把缺失的 assistance 自动插入原 payload。真实数据库测试先用旧服务保存指纹，再通过新 HTTP 模型重复提交，仍得到同一个 submission_id。",
+    "归因继续使用原服务的单调合并：服务器知道用户看过参考答案，客户端声明 viewed_answer=false 不能把它抹掉；客户端自报 true 则会保留下来。项目评分仍使用服务器冻结资料，练习运行仍为 PRACTICE。输入模型的工作是拒绝越界数据，而不是创建新的能力证据或替代既有所有权检查。",
+    "telemetry props 与 RuleIn.value 的合法业务含义就是自由 JSON。规则模型文档存在 license_policy、auto_merge、fact_check_strictness，存储还允许未来规则；实际 auto_merge 消费 is_enabled。因而本项保留自定义规则键和嵌套配置，只把 key 长度限制到数据库列的 64。共用的 BoundedObject 使用 Pydantic JsonValue，额外限制深度 8、节点总数 1024、单对象 128 个字段、单数组 128 项、键长 128、字符串长 8192，以及有限浮点数。它不篡改合法值。",
+    "真实字节边界在接收阶段工作。telemetry 为 128 KiB，学习提交和规则为 512 KiB，导入及审批为 2 MiB。每次 await receive 后，先判断已有缓冲长度加本块是否超限，再决定是否追加；超限立即返回 413，后续块不再读取。上限内的多块合为一份有限 body 重放给 FastAPI。Content-Length 缺失、虚小、虚大以及 chunked 都不参与信任判断。",
+    "原始 JSON 深度扫描并不替代 JSON 解析器。它只在有界内容上识别字符串和转义，统计字符串外的结构括号，超过 32 提前返回 422；格式正确与否仍交给 FastAPI。测试包含 1500 层以及 UTF-8、UTF-16、UTF-32。对非有限数字，Pydantic 校验错误不能把原始 NaN/Infinity 原样回显，否则错误响应自己也会编码失败；因此仅这些范围内的 422 返回 type、loc、msg，其他路由继续走框架默认错误处理。",
+    "中间件顺序是此次审查中的实质修正。最初把 guard 放得太靠外，会直接返回并跳过 E3 添加 request_id 和扣减配额。最终入站保持 CORS → RecoveryGuard → ApiRateLimit → Language → JsonInputBoundary → FastAPI。真实应用测试证明 413 和深度 422 带 X-Request-ID、正确 CORS，413 还带语言头；受保护规则写入的第一次超限消耗原有限额，下一次正常请求按原策略返回 429。",
+    "分页不是把 5000 改成一个更小数字就结束。200 页大小在现有默认 60 和 Bank 页面 20 之上，同时把单次响应最多题数降低到原来的二十五分之一；这只是明确的资源选择，不是性能基准。Questions 全集加载器在每页后检查 total 稳定、没有重复 ID、没有提前空页、没有超过宣告总数，全部成功才发布库存。失败不会把部分列表装作完整；新查询或卸载通过 AbortController 取消旧请求，旧响应不能覆盖新查询。"
+  ],
+  "concepts": [
+    [
+      "领域 schema",
+      "把业务真正接受的字段、类型与空值语义写成可执行契约",
+      "用于草稿部分编辑、原答和辅助声明，拒绝伪造来源和未知字段"
+    ],
+    [
+      "有界自由 JSON",
+      "允许合法嵌套扩展，但限制它能占用的结构和内容规模",
+      "让事件属性、规则配置和评分扩展保持兼容，同时限制资源消耗"
+    ],
+    [
+      "严格类型",
+      "布尔值必须是布尔值，不把数字或文字猜成真假",
+      "避免辅助使用归因被隐式转换污染"
+    ],
+    [
+      "真实接收字节",
+      "计算服务器实际收到多少内容，不相信对方写的长度说明",
+      "在完整缓冲和业务副作用前拒绝过大请求"
+    ],
+    [
+      "exclude_unset",
+      "只导出调用方真正传过的字段",
+      "保护原始 payload、快照和幂等摘要"
+    ],
+    [
+      "安全准入与业务副作用",
+      "鉴权和限额可以记账，但非法输入不能生成题目、评分或学习提交",
+      "让 E3 与 H8 的边界同时成立"
+    ],
+    [
+      "完整分页",
+      "先确认所有页齐全，再宣布得到全集",
+      "保护页面筛选、收藏、计数与选中项操作的完整性"
+    ]
+  ],
+  "rationale": [
+    "校验集中在API接收输入的位置。业务服务拿到经过检查的数据后，继续负责事务、评分证据和来源归属。这样可以在业务执行前指出字段错误，也能避免在每个函数里重复写一套不一致的检查。",
+    "严格模型把字段含义写清楚。例如帮助声明只接受true或false，字符串和数字不能冒充布尔值。自由JSON也有确定的类型和大小边界。前端明确区分加载中、完整可用和失败，不会把未完成的第一页数据当成已取得全部题目。",
+    "复用 ASGI receive、FastAPI 校验和框架错误处理，仅增加本项范围所需的字节、深度及错误响应安全；没有引入新的解析器或全局异常信封，没有修改 F7/F8 的生产实现。",
+    "旧评分测试使用简化的任务对象，缺少现有计费契约需要的workspace_id、run_id和step_id。补齐合成测试对象能让失败元数据场景走到真正要检查的位置。生产计费仍需要真实归属，不能为了让测试通过而给实际调用补一个默认账户。",
+    "Questions页面的筛选、排序、收藏和批量选择依赖同一份完整题目集合。逐页读取完成后再提供全集，能让这些功能继续覆盖后面的题目。当读取失败或发现页面不一致时，页面给出错误和重试入口，不展示一个看似完整的截断结果。"
+  ],
+  "alternatives": [
+    [
+      "严格领域模型 + 有界自由 JSON + ASGI receive",
+      "复用成熟框架、单一输入边界、保留已有服务与指纹",
+      "需要上限内缓冲及一次浅扫描；本次采用"
+    ],
+    [
+      "各路由定制 Request/APIRoute 并引入流式 JSON 解析器",
+      "可以边接收边解析并减少二次扫描",
+      "增加依赖、错误映射和漏掉默认 body 读取的风险；本次小体积非流式 JSON 不采用"
+    ],
+    [
+      "只检查 Content-Length 或解析后遍历",
+      "代码少，容易接入",
+      "无法覆盖缺失或虚假长度，解析前资源已经消耗；不满足本项验收"
+    ],
+    [
+      "把每一个 dict 都改成固定白名单",
+      "文档看起来整齐",
+      "会误删合法事件属性、发布规则与评分扩展，背离真实领域；不采用"
+    ]
+  ],
+  "files": [
+    {
+      "path": "server/app/input_contracts.py",
+      "why": "共享严格输入基类、部分草稿编辑、辅助声明、原答与有界 JsonValue 类型。"
+    },
+    {
+      "path": "server/app/api/input_boundary.py",
+      "why": "精确 JSON 路由 receive 字节边界、原始深度扫描和范围内安全 422。"
+    },
+    {
+      "path": "server/app/main.py",
+      "why": "把边界接入既有中间件顺序，保留 E3、安全元数据与 CORS。"
+    },
+    {
+      "path": "server/app/api/v1/bank.py",
+      "why": "替换审批嵌套字典、约束粘贴导入、使用显式部分编辑，并将 bank 单页上限设为 200。"
+    },
+    {
+      "path": "server/app/api/v1/learning_feedback.py",
+      "why": "非 PROJECT 提交使用原答与辅助 schema，exclude_unset 后交给原服务。"
+    },
+    {
+      "path": "server/app/api/v1/learning_projects.py",
+      "why": "项目辅助声明复用严格类型，服务器快照仍是提交来源。"
+    },
+    {
+      "path": "server/app/api/v1/telemetry.py",
+      "why": "匿名事件 props 使用有界自由 JSON，外层也拒绝未知字段。"
+    },
+    {
+      "path": "server/app/api/v1/public_content.py",
+      "why": "规则 value 使用有界自由 JSON，key 对齐数据库列，启用状态严格 bool。"
+    },
+    {
+      "path": "web/src/api/client.ts",
+      "why": "为 GET 透传可选 AbortSignal，维持旧调用兼容。"
+    },
+    {
+      "path": "web/src/interview/library/useBankInventory.ts",
+      "why": "完整分页加载器及加载/失败/成功状态，拒绝伪完整结果并处理取消。"
+    },
+    {
+      "path": "web/src/interview/library/Questions.tsx",
+      "why": "移除 limit5000，接入完整库存，不新增页面或视觉方案。"
+    },
+    {
+      "path": "server/tests/test_bounded_inputs.py",
+      "why": "保存原始红测试并扩展严格类型、自由 JSON、ASGI 分块、编码、取消及排除路径测试。"
+    },
+    {
+      "path": "server/tests/test_bounded_inputs_http.py",
+      "why": "真实 PostgreSQL/HTTP 验证零业务写入、合法持久化、旧指纹、辅助单调性、405 题和 E3 集成。"
+    },
+    {
+      "path": "server/tests/test_learning_feedback.py",
+      "why": "按父代理指示补齐一个旧 fake claim 的 E2 字段，生产契约不变。"
+    },
+    {
+      "path": "web/tests/bank-inventory.test.mjs",
+      "why": "六项专项覆盖三页全集、尾页哨兵、异常、重试、取消、旧查询和实际传输信号。"
+    },
+    {
+      "path": "docs/adr/h8-bounded-json-inputs.md",
+      "why": "记录选择、具体界限、顺序与资源及 offset 并发限制。"
+    },
+    {
+      "path": "scripts/build_wave1_reports.py",
+      "why": "bounded_input_demo比较实际收到字节、客户端声明和各接口上限，解释为什么伪报长度无效。固定数据演示不发送请求，也不创建相应体积的输入。"
+    }
+  ],
+  "verification": {
+    "explanation": [
+      "数据库验收使用 run_isolated_tests.py 新建真正的 PostgreSQL *_test 库，conftest 明确执行 schema/migrations 和 normal installation。没有访问个人数据、启停个人进程、真实供应商或 SMTP，也没有发送公开内容。",
+      "HTTP 测试只替换 get_session 让每个请求连接同一个隔离库；鉴权、凭据登记、恢复状态和限流都执行原代码。长场景仅显式启用 synthetic_input_quota。评分来源使用已有合成结果夹具，导入后台管线只替换为确定性合成函数。",
+      "红测试针对旧模型运行，21 项非法样例全部失败。初次直接跑新增 ASGI 测试时默认测试连接的弱密码被正常启动检查拒绝，改用合同要求的隔离入口后通过，没有放松生产启动要求。前端首次运行因工作树缺少 typescript 依赖失败，npm ci 完成后通过。",
+      "第一次相关后端组合为 39 通过、2 失败，保留完整日志。新增 HTTP 夹具的 expire_all 问题已改为仅 refresh 验证对象；旧评分 fake claim 缺字段按指示补齐。仅做最终 H8 95 项和该旧节点 1 项定点复验，没有重复整组。",
+      "前端全量 290 项测试通过，最终格式化后重新跑六项专项、typecheck 和 build。组件测试与下方独立实例的实际浏览器操作分别记录。非作者独立审核、PR 和合入状态以最终回执为准。",
+      "下面命令里的cwd表示运行目录。server命令在本项工作树server目录运行，web命令在web目录运行。数据库配置只能使用本次运行自有的受保护合成环境；历史红测试和初次失败是执行记录，不能把它们与后续通过次数相加。",
+      "父代理将冻结源码接到已合入的H1容器补修上，核对16份作者文件摘要和稳定改动摘要一致。新镜像实际运行在本次自有Docker容器及新数据库中，所有公开端口仅绑定127.0.0.1。Docker默认网段耗尽时，为本实例指定经过现有网段和宿主路由冲突检查的10.242.0.0/28，未清理其他网络。凭据仅在新实例显式登记一次。标准Python控制器未执行成功，采用原生PowerShell启动，controller_pass仍为false。"
+    ],
+    "checks": [
+      [
+        "旧版非法输入",
+        "21 failed，证明原模型接受了应拒绝的输入",
+        "D:/agent-interview/.agent-runs/20261128-wave1/h8/red-contracts.log"
+      ],
+      [
+        "最终 H8 契约、ASGI 与数据库",
+        "95 passed，退出 0；包括缺失/虚假/chunked 长度、1500 层、零业务表写入与兼容持久化",
+        "D:/agent-interview/.agent-runs/20261128-wave1/h8/focused-final.log"
+      ],
+      [
+        "E3 顺序",
+        "真实 app 的 413/深度422保留 request_id/CORS；413后原配额生效并返回429",
+        "D:/agent-interview/.agent-runs/20261128-wave1/h8/focused-final.log"
+      ],
+      [
+        "旧 E2 fake claim",
+        "精确失败节点补齐字段后 1 passed，退出 0",
+        "D:/agent-interview/.agent-runs/20261128-wave1/h8/e2-fixture-focused.log"
+      ],
+      [
+        "相关后端原始组合",
+        "39 passed、2 failed；后续定点复验修复，不将初次结果写成全绿",
+        "D:/agent-interview/.agent-runs/20261128-wave1/h8/integration-first.log"
+      ],
+      [
+        "前端全量",
+        "290 passed，0 fail/skip，退出 0",
+        "D:/agent-interview/.agent-runs/20261128-wave1/h8/frontend-test.log"
+      ],
+      [
+        "最终跨页专项",
+        "6 passed，405 项三页与最后一道哨兵完整，退出 0",
+        "D:/agent-interview/.agent-runs/20261128-wave1/h8/frontend-inventory-final.log"
+      ],
+      [
+        "changed Ruff",
+        "全部作者改动 Python 文件检查通过，退出 0",
+        "D:/agent-interview/.agent-runs/20261128-wave1/h8/ruff-final.log"
+      ],
+      [
+        "前端类型与构建",
+        "最终 typecheck 和 build 均退出0；类型日志另见 frontend-typecheck-final.log",
+        "D:/agent-interview/.agent-runs/20261128-wave1/h8/frontend-build-final.log"
+      ],
+      [
+        "实际题库跨页与后页筛选",
+        "真实API依次返回200、200、35道题；435总数一致，最后一题仅在第3页。难度5筛选、收藏及最新排序均可找到。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\h8\\product-browser.json"
+      ],
+      [
+        "实际页面中间页失败与恢复",
+        "仅在浏览器拦截offset200返回合成503。列表和总数隐藏，重试按钮可见；解除拦截后重试恢复。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\h8\\product-browser.json"
+      ],
+      [
+        "新实例与实际资源身份",
+        "新源码bf6d31e，5个拥有明确标签的容器；真实JS的MIME及字节校验、demo鉴权和HTTP检查通过。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\h8\\product-native-integrated\\native-http.json"
+      ],
+      [
+        "桌面及手机教学演示",
+        "1440和390宽度下七种输入条件均符合演示结果，报告DOM为12节、7题，固定源码链接17个。",
+        "D:\\agent-interview\\.agent-runs\\20261128-wave1\\h8\\report-demo-browser-native.json"
+      ]
+    ],
+    "commands": [
+      "server cwd: D:/agent-interview/server/.venv/Scripts/python.exe -m pytest tests/test_bounded_inputs.py -q --tb=short（旧版21项红测试）",
+      "server cwd: D:/agent-interview/server/.venv/Scripts/python.exe run_isolated_tests.py tests/test_bounded_inputs_http.py tests/test_learning_feedback.py tests/test_bank_review_actions.py tests/test_project_practice.py tests/test_telemetry.py -q --tb=short",
+      "server cwd: D:/agent-interview/server/.venv/Scripts/python.exe run_isolated_tests.py tests/test_bounded_inputs.py tests/test_bounded_inputs_http.py -vv -x -o faulthandler_timeout=60 --tb=short",
+      "server cwd: D:/agent-interview/server/.venv/Scripts/python.exe run_isolated_tests.py tests/test_learning_feedback.py::test_project_validation_failure_retains_known_provider_attempt_metadata -vv -x -o faulthandler_timeout=60 --tb=short",
+      "web cwd: npm.cmd ci --ignore-scripts --no-audit --no-fund",
+      "web cwd: npm.cmd test",
+      "web cwd: node --import ./tests/register.mjs --test tests/bank-inventory.test.mjs",
+      "web cwd: npm.cmd run typecheck",
+      "web cwd: npm.cmd run build",
+      "工作树根目录 changed Ruff 的完整文件列表、环境清理命令、所有退出码见 handoff.json。"
+    ]
+  },
+  "limits": [
+    "作者没有启动应用或执行真实浏览器验收；父代理依据 parent-preview-plan.md 在冻结后的确切版本检查 /library/questions，并独立核对源码和摘要。本报告不宣称已经合入或部署。",
+    "receive 层限制应用累计缓冲，但 HTTP 服务器已经分配的单个 chunk 不由它控制；没有验证网络服务器/反向代理的包上限、慢请求超时或进程级并发总内存。每个合法请求仍有有限缓冲与深度扫描。",
+    "全部库存仍在浏览器聚合，题库持续增大时占用也会增大。offset+total 不是快照协议；总数变化、空页、重复会显式重试，相同总数下的并发替换不能完整检测，不能宣称拥有快照一致性。",
+    "自由 JSON 的具体限额是本次明确选择，未来确有更大合法配置时需要评估后调整，不让客户端自行提高。rubric 扩展仍允许，输入边界不替代原有评分规则语义审核。",
+    "F7/F8 的其他已跟踪基线问题没有在本项修复或完整重跑。范围内安全422处理只用于避免非法输入导致错误响应本身失败，并非全局异常系统改造。",
+    "报告教学演示、共享 tracker 和 scripts/build_wave1_reports.py 由父代理独占；它们不属于本作者 source-manifest。没有真实模型、付费第三方席位、发布调用或 SMTP 证据。",
+    "435道题证明单页上限之外的实际读取和操作，也验证一次合成中间页故障。它不是大规模性能测量。这次没有使用真实模型。教学演示只计算固定输入的判断结果，实际JSON、数据库及页面证据各自列在验证表中。"
+  ],
+  "interview": [
+    "可以解释为什么外层 Pydantic 模型不等于嵌套契约完整，并结合明确字段与有界自由 JSON 两种真实领域说明选择；不能只说把所有 dict 替换掉了。",
+    "可以用缺失长度、声明长度为1和真实ASGI三块超限样例解释接收边界，并说明为什么深度检查必须在解码前、安全元数据又要先经过原限流层。",
+    "可以说明 exclude_unset 如何保住旧幂等摘要，以及服务器辅助观察为何不能被客户端 false 擦除；证据是实际隔离库中的旧指纹重试和辅助标记。",
+    "可以展示405题三页、最后一题仍可筛出的自动化证据，区分已测组件/HTTP、待父代理实测浏览器和未测并发快照语义。这里是系统交付材料，不冒充使用者亲手完成或已掌握。"
+  ],
+  "questions": [
+    [
+      "为什么 props 不做固定字段白名单？",
+      "它本来承载事件特有自由JSON；正确约束是JSON类型和资源界限。固定白名单会把合法事件配置当成非法输入。"
+    ],
+    [
+      "严格 int 为什么不能直接用于 edits 的 JSON 键？",
+      "JSON对象键天然是字符串。应只在明确边界把合法正整数文本解析为领域ID，再进行严格验证；值上的布尔和难度仍不能宽松强转。"
+    ],
+    [
+      "客户端没传 ai_declared，为何不能总是补 false？",
+      "补字段会改变存储原始payload和请求摘要，旧请求重试可能409。模型内部默认值必须通过exclude_unset留在内部。"
+    ],
+    [
+      "已有事件数50上限，为何还需要字节上限？",
+      "每个事件都能包含很大的嵌套内容；数量、结构和实际字节保护不同资源，三者不能互相替代。"
+    ],
+    [
+      "为什么早期413也要经过E3？",
+      "它仍是一次请求，应保留相关性ID及受保护主体的限额。安全准入记账可以发生，题库、评分、学习等业务写入必须为零。"
+    ],
+    [
+      "limit降到200后，只显示第一页为什么不算完成？",
+      "页面本地筛选与批量操作依赖全集。必须逐页取齐或明确报错，不能把部分库存伪装成完整结果。"
+    ],
+    [
+      "测试95通过能证明生产并发内存和快照一致吗？",
+      "不能。它证明本次契约、ASGI和隔离库场景，未验证服务器单块分配、进程总内存、同总数并发替换和真实浏览器；这些边界必须分开陈述。"
+    ]
+  ],
+  "delivery": [
+    "目标是完成第 1 波 H8，从最新 dev d931c7bd6d54178d17447066c23572e5dcc706ce 建独立分支 codex/wave1-h8-bounded-inputs-integrated。",
+    "报告代码入口固定在 bf6d31e90097b304c3d774a800c479c373171ddc。这份说明对应受控测试环境；个人实例与个人数据库没有升级。",
+    "本篇 PR 保存独立审核结论和实际合入状态。最终 dev 提交以合入回执为准，报告只将已运行的检查写为通过。",
+    "回退通过对本项 squash 提交建立新的反向 PR 完成；含持久数据的改动先核对其报告边界，保留已有账本和历史证据。",
+    "原H8源码4d6bd63与草稿工作树均保留。H1补修PR62合入d931c7b后，新H8分支从该dev创建，源码提交bf6d31e的H8改动保持一致。实际预览使用后者；完整源码等价回执为h8/source-equivalence.json。"
+  ],
+  "source_ref": "bf6d31e90097b304c3d774a800c479c373171ddc",
+  "links": [
+    {
+      "href": "https://github.com/Lueyu/CareerPilot/pull/63",
+      "label": "PR #63 与真实合入状态"
+    }
+  ]
+}

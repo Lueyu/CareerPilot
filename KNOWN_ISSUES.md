@@ -373,7 +373,7 @@
 - **为什么是问题**：公网注册版的账号是真实攻击面；会话固定与枚举是 OWASP 常见项。
 - **目标方案**：会话滑动轮换+空闲超时；统一注册/恢复响应防枚举；登录审计日志；可选 TOTP。
 
-### H8. 裸 dict 接收 body 的端点残留 `P2` `OPEN`
+### H8. 裸 dict 接收 body 的端点残留 `P2` `DONE`
 - **现状**：5 处端点用裸 dict 接 body（部分无大小/深度限制），Pydantic 校验覆盖有洞；bank 分页 le=5000 偏大。
 - **代码**：`server/app/api/v1/bank.py:267`、`learning_feedback.py:25`、`telemetry.py:44`、`learning_projects.py:188`、`public_content.py:557`。
 - **为什么是问题**：无 schema 的输入面=注入与资源滥用的温床；telemetry 端点无认证更需限制。
