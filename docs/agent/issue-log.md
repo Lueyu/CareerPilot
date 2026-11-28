@@ -104,3 +104,9 @@
 - 证据：.agent-runs/20261128-wave1/h4/product-browser.json
 - 遗留/后续：资源隔离不等于权限沙箱；Linux按进程限额与Windows Job整组限额分开说明，个人实例未升级，Linux可选OCR未实测。
 - PR：https://github.com/Lueyu/CareerPilot/pull/66；最终非作者精确head记录与合入回读见 .agent-runs/20261128-wave1/h4/review/ 和 merge-receipt.json。
+
+## A2 · 2026-11-28 · DONE
+- 结论：PR37已在dev；补齐有界中英主题与清单意图，保留复杂前后文和任务。独立审核发现前置SQL丢失后修正；同六文件128通过无跳过，30条固定语料联合20/30至30/30。精确源码镜像三条实际UI请求完成、102命中100展示、来源快照和隔离保留。
+- PR：https://github.com/Lueyu/CareerPilot/pull/67
+- 验证 SHA：6746b6bb388eb3ccd7543821dd4bf1858a03deba
+- 证据：.agent-runs/20261128-wave1/a2/product-browser.json

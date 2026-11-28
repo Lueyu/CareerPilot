@@ -377,6 +377,55 @@ def document_isolation_demo() -> str:
 """
 
 
+def query_understanding_demo(cases: list[dict]) -> str:
+    if not cases:
+        raise ValueError("Query teaching examples require observed phrase results")
+    for case in cases:
+        if any(not isinstance(case.get(key), str) for key in (
+            "question", "expected_route", "baseline_route", "candidate_route", "explanation"
+        )) or any(not isinstance(case.get(key), list) or not all(isinstance(term, str) for term in case[key])
+                  for key in ("baseline_terms", "candidate_terms")):
+            raise ValueError("Invalid query teaching example")
+        if "terms_applicable" in case and type(case["terms_applicable"]) is not bool:
+            raise ValueError("Query topic scoring flag must be boolean")
+    data = json.dumps(cases, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e")
+    template = r"""
+<section id="query-demo"><h2>看同一句话的主题词与处理路径</h2>
+<p>这里读取冻结句式回归中的实际记录。切换样例不会查询你的题库，也不会调用模型。结果只覆盖这批样例；完整验证范围和回执在正文中说明。</p>
+<div class="calc-fields"><label>选择回归句式<select id="qu-case"></select></label></div>
+<p id="qu-question" class="check"></p>
+<div class="calc-results" aria-live="polite">
+<div><span>这条样例期望的路径</span><strong id="qu-expected"></strong></div>
+<div><span>修改前的实际路径</span><strong id="qu-before"></strong></div>
+<div><span>修改后的实际路径</span><strong id="qu-after"></strong></div>
+</div>
+<h3>保留下来的检索词</h3><div class="grid">
+<div class="card"><strong>修改前</strong><p id="qu-before-terms"></p></div>
+<div class="card"><strong>修改后</strong><p id="qu-after-terms"></p></div></div>
+<p id="qu-explanation"></p><p class="small">清单直出仍要读取有权限的实际题目。主题词提取正确，不等于题库中必有命中，也不等于内容正确或本人已掌握。</p>
+</section><script>
+(() => {
+ const cases=__QUERY_DATA__;
+ const get=name=>document.getElementById('qu-'+name);
+ get('case').replaceChildren(...cases.map((row,index)=>{
+  const option=document.createElement('option');option.value=String(index);option.textContent=row.question;return option;
+ }));
+ const terms=values=>values.length?values.map(value=>'「'+value+'」').join('、'):'未提取主题词';
+ function update(){
+  const row=cases[Number(get('case').value)];
+  get('question').textContent=row.question;get('expected').textContent=row.expected_route;
+  get('before').textContent=row.baseline_route;get('after').textContent=row.candidate_route;
+  get('before-terms').textContent=row.terms_applicable===false?'本例只核对任务意图':terms(row.baseline_terms);
+  get('after-terms').textContent=row.terms_applicable===false?'本例只核对任务意图':terms(row.candidate_terms);
+  get('explanation').textContent=row.explanation;
+ }
+ get('case').addEventListener('change',update);update();
+})();
+</script>
+"""
+    return template.replace("__QUERY_DATA__", data)
+
+
 def render(record: dict) -> str:
     issue = record["id"]
     body = '<nav><a href="index.html">第 1 波报告目录</a> · <a href="../../timeline.html">施工时间线</a></nav>'
@@ -400,6 +449,8 @@ def render(record: dict) -> str:
         body += import_authority_demo()
     if record.get("calculator") == "document-isolation":
         body += document_isolation_demo()
+    if record.get("calculator") == "query-understanding":
+        body += query_understanding_demo(record["query_examples"])
     body += '<section><h2>读懂这些概念就能读懂代码</h2>' + table(["概念", "人话解释", "在这里的作用"], record["concepts"]) + '</section>'
     body += '<section><h2>为什么选择这个方案</h2>' + paragraphs(record["rationale"]) + table(["方案", "收益", "代价与决定"], record["alternatives"]) + '</section>'
     body += '<section><h2>具体改了哪些代码</h2>'
