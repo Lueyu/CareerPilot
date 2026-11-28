@@ -97,3 +97,9 @@
 - 证据：.agent-runs/20261128-wave1/h3/product-browser.json
 - 遗留/后续：未调用真实模型，词法提示不证明攻击抵抗率；原生租户功能关闭，旧Bank组件由组件与受控网关测试覆盖。
 - PR：https://github.com/Lueyu/CareerPilot/pull/65；独立源码审核与最终精确head续审记录见 .agent-runs/20261128-wave1/h3/review/。
+
+## H4 · 2026-11-28 · DONE
+- 结论：个人与公开导入共用受限短生命周期解析进程，ZIP/PDF/像素与协议闸前置；Windows Job和Linux rlimit/进程组负责资源及清理，保留合法文件与来源。
+- 验证 SHA：9e3197df70bd3f2bdbec4b8b8a8e8d3e2a44e1ee
+- 证据：.agent-runs/20261128-wave1/h4/product-browser.json
+- 遗留/后续：资源隔离不等于权限沙箱；Linux按进程限额与Windows Job整组限额分开说明，个人实例未升级，Linux可选OCR未实测。
