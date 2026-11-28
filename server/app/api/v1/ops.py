@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -402,3 +402,9 @@ async def ops_health(
     except Exception:
         pass
     return {"ok": db_ok, "database": db_ok, "llm": llm, "worker": worker}
+
+
+@router.get("/ops/http-errors")
+async def http_errors(request: Request, _owner=Depends(require_local_owner)):
+    """Only this app worker since startup. Not a durable fleet-wide error rate."""
+    return request.app.state.http_error_counts.snapshot()

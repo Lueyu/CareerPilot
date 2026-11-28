@@ -1,17 +1,17 @@
 """ASGI admission boundary using the existing private and registered identities."""
 import logging
 import re
-from uuid import uuid4
 
 from fastapi import HTTPException, Request
 from fastapi.routing import APIRoute
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.datastructures import MutableHeaders
-from starlette.responses import JSONResponse
 from starlette.routing import Match
 
 from app.api.deps import get_workspace, require_auth, require_local_owner
+from app.api.errors import error_response
+from app.api.errors import request_id as transport_request_id
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import Workspace
@@ -133,8 +133,7 @@ class ApiRateLimitMiddleware:
         if scope["type"] != "http" or not scope["path"].startswith("/api/v1/") or scope["method"] == "OPTIONS":
             return await self.app(scope, receive, send)
         request = Request(scope, receive=receive)
-        request_id = uuid4().hex
-        request.state.request_id = request_id
+        request_id = transport_request_id(scope)
 
         async def identified_send(message):
             if message["type"] == "http.response.start":
@@ -156,10 +155,8 @@ class ApiRateLimitMiddleware:
             if exc.status_code == 429:
                 logger.info("api_quota_rejected request_id=%s subject=%s categories=%s route=%s retry_after=%s",
                             request_id, subject, categories, route.path, exc.headers["Retry-After"])
-            return await JSONResponse({"detail": exc.detail, "request_id": request_id}, status_code=exc.status_code,
-                                      headers=exc.headers)(scope, receive, identified_send)
+            return await error_response(scope, exc.status_code, exc.detail, exc.headers)(scope, receive, identified_send)
         except SQLAlchemyError:
             logger.warning("api_quota_unavailable request_id=%s route=%s", request_id, route.path)
-            return await JSONResponse({"detail": {"code": "API_QUOTA_UNAVAILABLE"}, "request_id": request_id},
-                                      status_code=503)(scope, receive, identified_send)
+            return await error_response(scope, 503, {"code": "API_QUOTA_UNAVAILABLE"})(scope, receive, identified_send)
         await self.app(scope, receive, identified_send)

@@ -1,4 +1,8 @@
 """Authoritative deployment probe and reverse-proxy contracts, without Docker or Git writes."""
+import fnmatch
+import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -65,3 +69,21 @@ def test_public_image_ships_shared_readiness_module():
     dockerfile = (ROOT / "server/Dockerfile.seed").read_text(encoding="utf-8")
     assert "COPY app/ app/" in dockerfile
     assert "test -f app/readiness.py" in dockerfile
+
+
+def test_minimal_public_allowlist_imports_the_actual_application(tmp_path):
+    """Copy only admitted source files; importing the full checkout would hide omissions."""
+    server = ROOT / "server"
+    patterns = [line[1:] for line in (server / "Dockerfile.seed.dockerignore").read_text(
+        encoding="utf-8").splitlines() if line.startswith("!")]
+    for source in (server / "app").rglob("*"):
+        relative = source.relative_to(server).as_posix()
+        if source.is_file() and any(fnmatch.fnmatchcase(relative, pattern) for pattern in patterns):
+            target = tmp_path / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(tmp_path)
+    result = subprocess.run([sys.executable, "-c", "import app.public_main; assert app.public_main.app"],
+                            cwd=tmp_path, env=environment, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr

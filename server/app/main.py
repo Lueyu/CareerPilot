@@ -6,13 +6,13 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
 from app import personal_startup as _personal_startup  # noqa: F401 (preflight before runtime imports)
-from app.api.input_boundary import JsonInputBoundary, input_validation_error
+from app.api.errors import ErrorBoundary, RequestCorrelation, install_error_handlers
+from app.api.input_boundary import JsonInputBoundary
 from app.api.rate_limits import ApiRateLimitMiddleware
 from app.api.recovery_guard import RecoveryGuardMiddleware
 from app.api.v1 import (
@@ -90,19 +90,28 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+install_error_handlers(app)
 app.add_middleware(JsonInputBoundary)
-app.add_middleware(LanguageMiddleware)
-app.add_exception_handler(RequestValidationError, input_validation_error)
 app.add_middleware(ApiRateLimitMiddleware)
 app.add_middleware(RecoveryGuardMiddleware)
-app.add_middleware(
-    CORSMiddleware,
+app.add_middleware(LanguageMiddleware)
+_CORS_OPTIONS = dict(
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_origin_regex=r"http://(?:localhost|127\.0\.0\.1)(?::\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
+
+
+def error_response_policy(responder):
+    return CORSMiddleware(LanguageMiddleware(responder), **_CORS_OPTIONS)
+
+
+app.add_middleware(CORSMiddleware, **_CORS_OPTIONS)
+app.add_middleware(ErrorBoundary, counts=app.state.http_error_counts, response_policy=error_response_policy)
+app.add_middleware(RequestCorrelation, counts=app.state.http_error_counts)
 
 # 认证在 get_workspace 依赖链内(require_auth), /healthz 开放
 for router in (study_chat.router, study_notes.router, study_practice.router, dashboard.router, benchmark.router, profile.router, exams.router, bank.router, learning.router, memory.router, observatory.router, ops.router, public_content.router, settings.router, projects.router, career_assets.router, evolution.router, telemetry.router):

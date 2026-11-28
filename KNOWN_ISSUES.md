@@ -269,7 +269,7 @@
 - **为什么是问题**："有备份"≠"能恢复"；RTO/RPO 未知；备份本身是密钥泄露面。但属通用 DBA/运维债，个人求职冲刺期勿抢占 Agent 核心工时。
 - **目标方案**：备份加密（age/GPG）+ 异地副本 + 保留策略（如 7 日/4 周/3 月）；写"恢复到生产"的受控流程（显式确认+先备份现库）；定期恢复演练并记录 RTO；修正 runbook 矛盾。
 
-### F7. 无全局异常处理器，未处理异常裸 500 且不可关联 `P1` `OPEN`
+### F7. 无全局异常处理器，未处理异常裸 500 且不可关联 `P1` `DONE`
 - **现状**：main/public_main 均无 exception_handler；未处理异常走 Starlette 默认裸 500，traceback 只进 stderr，无 request_id 可关联；422 存在两种形态（auth 路由组统一 detail 字符串，其余 FastAPI 默认数组）。
 - **代码**：`server/app/main.py`、`public_main.py`（无 handler）；`api/public_auth.py:57-75`（仅 auth 组）。
 - **为什么是问题**：用户报障时无法定位；错误契约不一致增加前端处理成本。工业级 API 统一错误信封（code/message/request_id）。

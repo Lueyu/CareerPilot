@@ -7,13 +7,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from pydantic import AfterValidator, BaseModel, Field, SecretStr, StringConstraints
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.errors import error_response
 from app.db import get_session
 from app.i18n import message as localized_message
 from app.models.exam import Exam
@@ -45,13 +45,30 @@ async def public_origin_guard(request: Request, call_next) -> Response:
     try:
         config = auth_config()
     except RuntimeError:
-        return JSONResponse({"detail": localized_message("auth.unconfigured")}, status_code=503)
+        return error_response(request.scope, 503, localized_message("auth.unconfigured"))
 
     if request.headers.getlist("host") != [config.host]:
-        return JSONResponse({"detail": localized_message("auth.host")}, status_code=403)
+        return error_response(request.scope, 403, localized_message("auth.host"))
     if request.method not in _SAFE_METHODS and request.headers.getlist("origin") != [config.origin]:
-        return JSONResponse({"detail": localized_message("auth.origin")}, status_code=403)
+        return error_response(request.scope, 403, localized_message("auth.origin"))
     return await call_next(request)
+
+
+class PublicOriginGuard:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        request = Request(scope, receive=receive)
+
+        async def allowed(_request):
+            await self.app(scope, receive, send)
+
+        response = await public_origin_guard(request, allowed)
+        if response is not None:
+            await response(scope, receive, send)
 
 
 class AuthRoute(APIRoute):
@@ -62,12 +79,9 @@ class AuthRoute(APIRoute):
             try:
                 response = await handle(request)
             except RequestValidationError:
-                response = JSONResponse(
-                    {"detail": localized_message("auth.format")},
-                    status_code=422,
-                )
+                response = error_response(request.scope, 422, localized_message("auth.format"))
             except HTTPException as exc:
-                response = JSONResponse({"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers)
+                response = error_response(request.scope, exc.status_code, exc.detail, exc.headers)
             response.headers["Cache-Control"] = "no-store"
             return response
 

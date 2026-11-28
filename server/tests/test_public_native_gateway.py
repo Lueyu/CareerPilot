@@ -376,3 +376,52 @@ async def test_port_change_and_delete_retire_both_clients(gateway, db_session, m
                                     headers={"x-expected-workspace": str(ws.id)})
     assert response.status_code == 204
     assert all(c.is_closed for c in current)
+
+async def test_native_error_envelope_uses_gateway_id_and_closes_upstream(gateway, db_session, monkeypatch):
+    client, _, _ = gateway
+    owner = await register(client, db_session, "f7_error_fixture")
+    monkeypatch.setenv("SEED_NATIVE_OWNER_BINDING", f"{owner.id}:{owner.slug}")
+    closed = []
+    status = 422
+    mime = "application/json"
+    content = b'{"detail":[{"type":"missing","loc":["body","amount"],"msg":"Field required"}],"request_id":"upstream-id"}'
+
+    class Body(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            for offset in range(0, len(content), 1024):
+                yield content[offset:offset + 1024]
+
+        async def aclose(self):
+            closed.append(True)
+
+    def upstream(_request):
+        return httpx.Response(status, stream=Body(), headers={"Content-Type": mime, "Retry-After": "9",
+                                                             "WWW-Authenticate": "Bearer", "Content-Length": "1"})
+
+    monkeypatch.setattr(runtime, "_new_client", lambda limit: httpx.AsyncClient(transport=httpx.MockTransport(upstream)))
+    for status in (422, 500, 429):
+        response = await client.get(NATIVE + "/example", headers={"X-Request-ID": "untrusted-id"})
+        assert response.status_code == status
+        assert response.json()["request_id"] == response.headers["X-Request-ID"]
+        assert response.json()["request_id"] not in {"upstream-id", "untrusted-id"}
+        assert isinstance(response.json()["detail"], list)
+        assert response.headers["Retry-After"] == "9"
+        assert response.headers["WWW-Authenticate"] == "Bearer"
+        assert int(response.headers["Content-Length"]) == len(response.content)
+    for case_mime, case_content in (("application/json", b"x" * (64 * 1024 + 1)),
+                          ("application/json", b'{"invalid":"shape"}'),
+                          ("application/json", b'{"detail":{"value":NaN}}'),
+                          ("application/json", b'{"detail":{"value":Infinity}}'),
+                          ("application/json", b'{"detail":{"value":-Infinity}}'),
+                          ("application/json", b'{"detail":' + b'[' * 2000 + b'0' + b']' * 1999 + b'}'),
+                          ("text/html", b"<html>synthetic-private-traceback</html>")):
+        mime, content = case_mime, case_content
+        response = await client.get(NATIVE + "/example")
+        assert response.status_code == 502, response.text
+        assert response.json()["request_id"] == response.headers["X-Request-ID"]
+        assert "synthetic-private-traceback" not in response.text
+    assert len(closed) == 10
+    status, mime, content = 200, "application/json", b'{"request_id":"business-ticket-preserved"}'
+    response = await client.get(NATIVE + "/example")
+    assert response.json() == {"request_id": "business-ticket-preserved"}
+    assert len(closed) == 11

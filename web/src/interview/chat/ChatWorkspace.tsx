@@ -366,11 +366,13 @@ function Conversation({
       const id = await ensureSession(content);
       try {
         await sendTo(id, content, role, options);
-        if (options.fromComposer && active.current) put("");
-        stickToEnd.current = true;
-      } finally {
-        await moveTo(id);
+      } catch (err) {
+        if (id === sessionId) await moveTo(id);
+        throw err;
       }
+      if (options.fromComposer && active.current) put("");
+      stickToEnd.current = true;
+      await moveTo(id);
     });
   }
 

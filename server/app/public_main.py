@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import make_url
+from starlette.datastructures import MutableHeaders
 
 from app.api import (
     public_auth,
@@ -19,6 +20,7 @@ from app.api import (
     public_memory,
     public_native,
 )
+from app.api.errors import ErrorBoundary, RequestCorrelation, install_error_handlers
 from app.api.rate_limits import ApiRateLimitMiddleware
 from app.api.recovery_guard import RecoveryGuardMiddleware
 from app.api.v1 import ops, telemetry
@@ -65,29 +67,50 @@ async def lifespan(application):
 
 
 app = FastAPI(title="CareerPilot", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+install_error_handlers(app)
 app.add_middleware(ApiRateLimitMiddleware, registered=True)
-app.middleware("http")(public_auth.public_origin_guard)
-app.add_middleware(LanguageMiddleware)
+app.add_middleware(public_auth.PublicOriginGuard)
 app.add_middleware(RecoveryGuardMiddleware)
+app.add_middleware(LanguageMiddleware)
 for routes in (public_auth.router, public_library.router, public_coach.router, public_memory.router,
                public_dashboard.router, public_learning.router, public_native.router, public_feedback.router,
                telemetry.router, ops.router):
     app.include_router(routes, prefix="/api/v1")
 
 
-@app.middleware("http")
-async def private_responses(request, call_next):
-    response = await call_next(request)
-    slug = getattr(request.state, "registered_workspace_slug", None)
-    if (slug and response.status_code < 300 and request.method in {"POST", "PUT", "PATCH", "DELETE"}
-            and not request.url.path.startswith("/api/v1/native/") and request.url.path != "/api/v1/product-feedback"):
-        invalidate_transfer(slug)
-    if request.url.path.startswith("/api/"):
-        response.headers["Cache-Control"] = "no-store"
-    response.headers["Referrer-Policy"] = "same-origin"
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    return response
+class PrivateResponses:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        async def private_send(message):
+            if message["type"] == "http.response.start":
+                path = scope["path"]
+                slug = scope.get("state", {}).get("registered_workspace_slug")
+                if (slug and message["status"] < 300 and scope["method"] in {"POST", "PUT", "PATCH", "DELETE"}
+                        and not path.startswith("/api/v1/native/") and path != "/api/v1/product-feedback"):
+                    invalidate_transfer(slug)
+                headers = MutableHeaders(scope=message)
+                if path.startswith("/api/"):
+                    headers["Cache-Control"] = "no-store"
+                headers["Referrer-Policy"] = "same-origin"
+                headers["X-Content-Type-Options"] = "nosniff"
+                headers["X-Frame-Options"] = "DENY"
+            await send(message)
+
+        await self.app(scope, receive, private_send)
+
+
+def error_response_policy(responder):
+    return PrivateResponses(LanguageMiddleware(responder))
+
+
+app.add_middleware(PrivateResponses)
+app.add_middleware(ErrorBoundary, counts=app.state.http_error_counts, response_policy=error_response_policy)
+app.add_middleware(RequestCorrelation, counts=app.state.http_error_counts)
 
 
 @app.get("/healthz")

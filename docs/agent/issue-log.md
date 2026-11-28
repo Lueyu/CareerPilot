@@ -116,3 +116,9 @@
 - PR：https://github.com/Lueyu/CareerPilot/pull/68
 - 验证 SHA：58b7bed906cc3c81037292411f94de6d11c45e75
 - 证据：.agent-runs/20261128-wave1/g4/product-public/g4-health-receipt.json
+
+## F7 · 2026-11-29 · DONE
+- 结论：统一安全错误字段与服务端关联编号，切断业务及兜底二次失败异常链，保留取消、流中止与重试票据。后端203、前端298项通过，两个精确镜像与主服务坏行修复验证通过；当前PR等待精确提交非作者终审，不涉及个人发布。
+- PR：https://github.com/Lueyu/CareerPilot/pull/69
+- 验证 SHA：d2e8286a4e9873f4f003363b21de8a1c76c3c09c
+- 证据：docs/known-issues/reports/wave1/F7.html
