@@ -44,6 +44,8 @@ async def initialize_public_database():
         elif await db.scalar(text("SELECT version FROM careerpilot_seed_install")) != 1:
             raise RuntimeError("Unsupported public database version")
         await db.run_sync(Base.metadata.create_all)
+        recovery_schema = Path(__file__).resolve().parents[1] / "migrations" / "20261128_recovery_control.sql"
+        await db.exec_driver_sql(recovery_schema.read_text(encoding="utf-8"))
         if "public_coach_turns" in tables:
             await db.execute(text("ALTER TABLE public_coach_turns ADD COLUMN IF NOT EXISTS "
                                   "response_language VARCHAR(8) NOT NULL DEFAULT 'zh-CN'"))
