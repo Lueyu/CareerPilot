@@ -18,6 +18,7 @@ from app.models.question import SOURCE_GENERATED, STUDY_CHAT_REVIEW_META
 from app.models.study_chat import StudyInterviewQuestion, StudyMessage, StudySession
 from app.services.assessment_versions import digest
 from app.services.llm import get_llm_config
+from app.services.private_model_billing import BillingScope
 from app.services.study_notes import GenerationError, read_json
 from app.services.study_routing import profile
 from app.services.study_teaching import teaching_prompt
@@ -256,7 +257,7 @@ async def generate_question(db, workspace_id, session_id, *, session_mode):
     try:
         guide, _ = await read_json(instruction, payload, schema, config={
             **cfg, "output_limit": min(output_limit, context_remaining),
-        })
+        }, billing_scope=BillingScope(workspace_id, f"study_interview_question:{session_id}:{snapshot_hash[:16]}"))
         answer_html = render_guide(guide, turns)
     except GenerationError:
         raise HTTPException(502, localized_message("errors.could_not_generate_the_interview_question_try_again")) from None

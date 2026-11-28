@@ -137,6 +137,17 @@ async def enrolled_default_owner(db_session, monkeypatch):
 
 
 @pytest.fixture
+def synthetic_generation_quota(monkeypatch):
+    """Long transport/content scenarios use explicit synthetic, still-enforced quotas."""
+    from app.config import ApiRatePolicy, get_settings
+
+    cfg = get_settings()
+    policy = cfg.api_rate_limits.model_dump()
+    policy["llm"] = {"burst": 100, "per_minute": 10000, "daily": 1000}
+    monkeypatch.setattr(cfg, "api_rate_limits", ApiRatePolicy.model_validate(policy))
+
+
+@pytest.fixture
 def mock_private_billing(monkeypatch):
     """Explicit transport-test boundary. Ledger tests must not use this fixture."""
     from app.services import llm

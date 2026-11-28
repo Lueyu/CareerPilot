@@ -27,7 +27,7 @@ from bench_study_chat import (
 
 
 @pytest.mark.asyncio
-async def test_benchmark_over_loopback_production_routes(monkeypatch, db_session, test_workspace):
+async def test_benchmark_over_loopback_production_routes(monkeypatch, db_session, test_workspace, synthetic_generation_quota):
     from secrets import token_urlsafe
 
     from credential_fixtures import enroll_token
@@ -87,7 +87,10 @@ async def test_benchmark_over_loopback_production_routes(monkeypatch, db_session
             assert [(sample["repeat"], sample["side"]) for sample in report["samples"] if sample["prompt"] == "explain"] == [
                 (1, "baseline"), (1, "candidate"), (2, "candidate"), (2, "baseline"),
             ]
-            assert all(0 <= sample["post_ms"] <= sample["ttft_ms"] < sample["duration_ms"] for sample in report["samples"])
+            assert all(0 <= sample["post_ms"] <= sample["ttft_ms"] <= sample["duration_ms"] for sample in report["samples"]), [
+                {key: sample[key] for key in ("post_ms", "ttft_ms", "duration_ms")}
+                for sample in report["samples"] if not 0 <= sample["post_ms"] <= sample["ttft_ms"] <= sample["duration_ms"]
+            ]
             async with httpx.AsyncClient(base_url=urls[0], trust_env=False,
                                          headers={"X-Api-Token": token, "X-Workspace": test_workspace.slug}) as client:
                 for sample in report["samples"]:

@@ -206,7 +206,7 @@ async def turn(db, sid, request, text, answer, *, status="completed", project=No
 ])
 @pytest.mark.asyncio
 async def test_interview_question_respects_budget_and_rejects_truncation(
-    chat_client, db_session, monkeypatch, tier, tier_limit, study_budget, config_limit, expected_limit,
+    chat_client, db_session, monkeypatch, mock_private_billing, tier, tier_limit, study_budget, config_limit, expected_limit,
 ):
     client, owner, _ = chat_client
     settings = get_settings()
@@ -271,7 +271,7 @@ async def test_interview_question_respects_budget_and_rejects_truncation(
 ])
 @pytest.mark.asyncio
 async def test_interview_question_fits_full_prompt_in_context(
-    chat_client, db_session, monkeypatch, context, language, project,
+    chat_client, db_session, monkeypatch, mock_private_billing, context, language, project,
 ):
     client, owner, _ = chat_client
     settings = get_settings()
@@ -334,7 +334,7 @@ async def test_interview_question_fits_full_prompt_in_context(
 ])
 @pytest.mark.asyncio
 async def test_interview_question_fits_reviewer_transcript(
-    chat_client, db_session, monkeypatch, repeats, provider_context, expected_status,
+    chat_client, db_session, monkeypatch, mock_private_billing, repeats, provider_context, expected_status,
 ):
     client, owner, _ = chat_client
     settings = get_settings()
@@ -491,7 +491,7 @@ async def test_late_generation_cannot_hide_a_newer_snapshot(chat_client, db_sess
 
 
 @pytest.mark.asyncio
-async def test_chat_question_recovery_uses_all_complete_turns(chat_client, db_session, model):
+async def test_chat_question_recovery_uses_all_complete_turns(chat_client, db_session, model, synthetic_generation_quota):
     client, owner, other = chat_client
     calls, outcomes = model
     sid = await new_chat(client, owner)
