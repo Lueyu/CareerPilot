@@ -13,10 +13,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.config import get_settings
 from app.db import get_session
+from app.i18n import message as localized_message
+from app.input_contracts import BoundedObject, InputModel
 from app.models import (
     ContentPublication,
     ContentPublicationRule,
@@ -552,9 +553,9 @@ async def rollback_publication(
 # --------------------------------------------------------------------------
 # 规则 / 审计
 # --------------------------------------------------------------------------
-class RuleIn(BaseModel):
-    key: str
-    value: dict | None = None
+class RuleIn(InputModel):
+    key: str = Field(min_length=1, max_length=64)
+    value: BoundedObject | None = None
     is_enabled: bool = True
 
 

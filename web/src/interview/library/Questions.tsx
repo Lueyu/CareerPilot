@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, workspaceStorageKey, type BankData, type QuestionDetail } from "../../api/client";
 import { bankSourcePresentation } from "../../lib/bankSource";
+import { useBankInventory } from "./useBankInventory";
 import {
   ButtonLink,
   examLink,
@@ -16,11 +17,6 @@ import {
 } from "./ui";
 
 type Question = BankData["items"][number];
-type BankPage = {
-  total: number;
-  items: Question[];
-  facets?: { topics?: { name: string; count: number }[] };
-};
 const pageSize = 40;
 
 function readFavorites(key: string): string[] {
@@ -165,13 +161,12 @@ export default function Questions() {
   const [favoriteError, setFavoriteError] = useState("");
   const key = workspaceStorageKey("interview-library-favorites");
   const [favorites, setFavorites] = useState(() => readFavorites(key));
-  const source = useRead<BankPage>(
+  const source = useBankInventory(
     "/bank?" +
       new URLSearchParams({
         q: query.trim(),
         topic,
         scope: scope === "mine" ? "mine" : "all",
-        limit: "5000",
       }),
   );
   const rows = (source.data?.items ?? []).filter(

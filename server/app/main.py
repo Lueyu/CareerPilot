@@ -6,11 +6,13 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
 from app import personal_startup as _personal_startup  # noqa: F401 (preflight before runtime imports)
+from app.api.input_boundary import JsonInputBoundary, input_validation_error
 from app.api.rate_limits import ApiRateLimitMiddleware
 from app.api.recovery_guard import RecoveryGuardMiddleware
 from app.api.v1 import (
@@ -87,7 +89,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(JsonInputBoundary)
 app.add_middleware(LanguageMiddleware)
+app.add_exception_handler(RequestValidationError, input_validation_error)
 app.add_middleware(ApiRateLimitMiddleware)
 app.add_middleware(RecoveryGuardMiddleware)
 app.add_middleware(

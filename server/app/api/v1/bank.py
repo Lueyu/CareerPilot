@@ -17,6 +17,7 @@ from app.api.deps import get_workspace
 from app.db import SessionLocal, get_session
 from app.generation_i18n import with_output_language
 from app.i18n import message as localized_message
+from app.input_contracts import DraftEdit, InputModel, ItemKey, PositiveId
 from app.models import (
     Exam,
     ImportItem,
@@ -107,7 +108,7 @@ async def list_bank(
     companies: Annotated[list[str] | None, Query()] = None,
     topics: Annotated[list[str] | None, Query()] = None,
     sources: Annotated[list[str] | None, Query()] = None,
-    limit: Annotated[int, Query(ge=1, le=5000)] = 60,
+    limit: Annotated[int, Query(ge=1, le=200)] = 60,
     offset: Annotated[int, Query(ge=0)] = 0,
     scope: str | None = None,
     ws: Workspace = Depends(get_workspace),
@@ -259,14 +260,14 @@ async def bank_detail(
 
 # ---------------- 导入流水线 ----------------
 
-class StartImportReq(BaseModel):
-    pasted_text: str | None = None
-    file_names: list[str] | None = None
+class StartImportReq(InputModel):
+    pasted_text: str | None = Field(default=None, max_length=MAX_TEXT_CHARS)
+    file_names: list[Annotated[str, Field(min_length=1, max_length=255)]] | None = Field(default=None, max_length=12)
 
 
-class ApproveItemReq(BaseModel):
-    item_ids: list[int] | None = None  # None=全部通过
-    edits: dict[int, dict] | None = None  # item_id → {title, skill_key, draft_rubric...}
+class ApproveItemReq(InputModel):
+    item_ids: list[PositiveId] | None = Field(default=None, max_length=200)  # None=全部通过
+    edits: dict[ItemKey, DraftEdit] | None = Field(default=None, max_length=200)
 
 
 @router.post("/bank/imports")
@@ -1082,7 +1083,8 @@ async def _approve_locked_import(session, ws, imp, req, *, commit=True, require_
     created = []
     for it in items:
         review_actions.ensure_not_revising(it)
-        edits = (req.edits or {}).get(it.id, {})
+        edit = (req.edits or {}).get(it.id)
+        edits = edit.model_dump(exclude_unset=True) if edit is not None else {}
         title = edits.get("title", it.title)
         skill_key = edits.get("skill_key", it.suggested_skill_key)
         skill = sm.get(skill_key or "") or sm.get("agent")

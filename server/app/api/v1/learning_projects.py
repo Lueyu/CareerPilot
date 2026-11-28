@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
-from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
+from app.i18n import message as localized_message
+from app.input_contracts import AssistanceDeclarations, InputModel, PositiveId
 from app.models import Project, ProjectAnalysis, Workspace
 from app.models.learning_feedback import LearningActivity, LearningGoal
 from app.models.learning_project import LearningProjectSnapshot
@@ -179,13 +180,13 @@ async def preview_project(activity_id: int, body: PreviewIn, ws=Depends(get_work
     return snapshot_view(row)
 
 
-class ProjectSubmitIn(BaseModel):
+class ProjectSubmitIn(InputModel):
     model_config = ConfigDict(extra='forbid')
-    snapshot_id: int
+    snapshot_id: PositiveId
     request_key: str = Field(min_length=1, max_length=120)
-    expected_activity_revision: int
-    parent_submission_id: int | None = None
-    assistance: dict = Field(default_factory=dict)
+    expected_activity_revision: PositiveId
+    parent_submission_id: PositiveId | None = None
+    assistance: AssistanceDeclarations = Field(default_factory=AssistanceDeclarations)
 
 
 @router.post('/learning/activities/{activity_id}/project-submit', status_code=202)
@@ -201,7 +202,7 @@ async def submit_project(activity_id: int, body: ProjectSubmitIn, ws=Depends(get
     result = await submit_activity(session, ws, activity,
         {'answer_text': row.snapshot['answer_text'], 'project_snapshot_id': row.id,
          'project_snapshot_hash': row.content_hash, 'project_contract': activity.snapshot['project_contract'],
-         'test_evidence': row.snapshot['test_evidence'], 'assistance': body.assistance},
+         'test_evidence': row.snapshot['test_evidence'], 'assistance': body.assistance.model_dump(exclude_unset=True)},
         body.request_key, body.expected_activity_revision, body.parent_submission_id)
     await session.commit()
     if isinstance(result, dict):

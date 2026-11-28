@@ -16,12 +16,13 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_local_owner
 from app.db import get_session
+from app.input_contracts import BoundedObject, InputModel
 from app.models import TelemetryEvent
 
 router = APIRouter()
@@ -38,13 +39,13 @@ _RATE_MAX = 90  # 每 IP 每分钟最多 90 条事件(页面/功能埋点足够)
 _RATE_WINDOW = 60.0
 
 
-class TelemetryItem(BaseModel):
+class TelemetryItem(InputModel):
     name: str = Field(min_length=2, max_length=64)
     page: str | None = Field(default=None, max_length=255)
-    props: dict | None = None
+    props: BoundedObject | None = None
 
 
-class TelemetryBatch(BaseModel):
+class TelemetryBatch(InputModel):
     client_id: str = Field(min_length=8, max_length=64)
     events: list[TelemetryItem] = Field(min_length=1, max_length=50)
     locale: str | None = Field(default=None, max_length=32)

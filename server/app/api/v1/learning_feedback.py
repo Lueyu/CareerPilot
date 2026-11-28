@@ -4,9 +4,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.i18n import message as localized_message
 from app.api.deps import get_workspace
 from app.db import get_session
+from app.i18n import message as localized_message
+from app.input_contracts import ActivityPayload, InputModel, PositiveId
 from app.models import Exam, Workspace
 from app.models.learning_feedback import LearningActivity, LearningGoal, LearningSubmission
 from app.services import assessment_jobs
@@ -21,11 +22,11 @@ class AssistanceIn(BaseModel):
     expected_activity_revision: int = Field(ge=1)
 
 
-class SubmissionIn(BaseModel):
-    payload: dict
+class SubmissionIn(InputModel):
+    payload: ActivityPayload
     request_key: str = Field(min_length=1, max_length=120)
-    expected_activity_revision: int = Field(ge=1)
-    parent_submission_id: int | None = None
+    expected_activity_revision: PositiveId
+    parent_submission_id: PositiveId | None = None
 
 
 def ack(submission):
@@ -55,7 +56,7 @@ async def submit(activity_id: int, body: SubmissionIn, ws: Workspace = Depends(g
         LearningActivity.workspace_id == ws.id))
     if activity is None: raise HTTPException(404, localized_message("errors.study_activity_not_found"))
     if activity.kind == 'PROJECT': raise HTTPException(409, localized_message("errors.use_the_scope_preview_and_snapshot_flow_to_submit"))
-    submission = await service.submit_activity(session, ws, activity, body.payload, body.request_key,
+    submission = await service.submit_activity(session, ws, activity, body.payload.model_dump(exclude_unset=True), body.request_key,
         body.expected_activity_revision, body.parent_submission_id)
     await session.commit()
     return ack(submission)

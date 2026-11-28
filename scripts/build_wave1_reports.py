@@ -247,6 +247,47 @@ def outbound_policy_demo() -> str:
 """
 
 
+def bounded_input_demo() -> str:
+    return r"""
+<section id="input-demo"><h2>动手看伪报长度为什么不能绕过限制</h2>
+<p>把实际收到的数据调大，同时把客户端声明调小，观察结果。数值是固定规则的教学演示，不创建相应大小的请求，也不访问应用。其余业务条件在这里假设成立。</p>
+<div class="calc-fields">
+<label>输入种类<select id="in-route"><option value="131072">匿名遥测，128 KiB</option><option value="524288">学习提交或发布规则，512 KiB</option><option value="2097152">导入文本或审批，2 MiB</option></select></label>
+<label>实际收到的 UTF-8 字节数<input id="in-actual" type="number" min="0" max="8388608" step="1" value="98304"></label>
+<label>客户端声明的字节数，可留空<input id="in-declared" type="number" min="0" max="8388608" step="1" value="1024"></label>
+<label>结构情况<select id="in-shape"><option value="valid">假设字段与结构都合法</option><option value="type">字段类型不符合契约</option><option value="depth">原始 JSON 超过 32 层嵌套</option></select></label>
+</div>
+<div class="calc-results" aria-live="polite">
+<div><span>客户端说自己发了多少</span><strong id="in-claim"></strong></div>
+<div><span>接收层实际累计</span><strong id="in-received"></strong></div>
+<div><span>本接口的字节上限</span><strong id="in-cap"></strong></div>
+<div><span>输入边界的判断</span><strong id="in-verdict"></strong></div>
+</div><p id="in-explain" class="check" aria-live="polite"></p>
+<p class="small">1 KiB 等于 1024 字节，1 MiB 等于 1024 KiB。字符数量与 UTF-8 字节数量不同。真实服务还检查键、字符串、列表、节点总数和自由 JSON 的业务深度；输入通过后，仍要满足鉴权、版本和业务规则。本演示只解释边界判断，不证明实际收包或数据库行为。</p>
+</section><script>
+(() => {
+ const get=name=>document.getElementById('in-'+name);
+ const size=n=>n.toLocaleString('zh-CN')+' 字节';
+ function update(){
+  const actual=Number(get('actual').value),declared=Number(get('declared').value),cap=Number(get('route').value);
+  const valid=value=>Number.isSafeInteger(value)&&value>=0&&value<=8388608;
+  if(get('actual').value===''||!valid(actual)||(get('declared').value!==''&&!valid(declared))){
+   ['claim','received','cap','verdict'].forEach(name=>get(name).textContent='待输入');
+   get('explain').textContent='请输入范围内的非负整数字节数。客户端声明可以留空。';return;
+  }
+  get('claim').textContent=get('declared').value===''?'未声明':size(declared);
+  get('received').textContent=size(actual);get('cap').textContent=size(cap);
+  if(actual>cap){get('verdict').textContent='收包层拒绝，413';get('explain').textContent='实际累计已超过上限。声明较小、缺少长度或分多块发送，都不会改变这个比较。此时不进入业务处理。';}
+  else if(get('shape').value==='depth'){get('verdict').textContent='结构层拒绝，422';get('explain').textContent='请求字节数合格，仍须限制原始嵌套。接收边界先做有界扫描，避免递归过深直接进入普通 JSON 解码。';}
+  else if(get('shape').value==='type'){get('verdict').textContent='字段校验拒绝，422';get('explain').textContent='大小合格不代表字段合法。比如严格的帮助声明只接受布尔值，不能用字符串或数字冒充。原答和服务端已知的帮助事实仍要保留。';}
+  else{get('verdict').textContent='输入检查通过';get('explain').textContent='这里仅表示演示中的字节和结构条件通过。客户端声明不替代实际计数，后续鉴权、归属和业务检查仍可能拒绝请求。';}
+ }
+ ['route','actual','declared','shape'].forEach(name=>get(name).addEventListener('input',update));update();
+})();
+</script>
+"""
+
+
 def render(record: dict) -> str:
     issue = record["id"]
     body = '<nav><a href="index.html">第 1 波报告目录</a> · <a href="../../timeline.html">施工时间线</a></nav>'
@@ -264,6 +305,8 @@ def render(record: dict) -> str:
         body += recovery_demo()
     if record.get("calculator") == "outbound-policy":
         body += outbound_policy_demo()
+    if record.get("calculator") == "bounded-inputs":
+        body += bounded_input_demo()
     body += '<section><h2>读懂这些概念就能读懂代码</h2>' + table(["概念", "人话解释", "在这里的作用"], record["concepts"]) + '</section>'
     body += '<section><h2>为什么选择这个方案</h2>' + paragraphs(record["rationale"]) + table(["方案", "收益", "代价与决定"], record["alternatives"]) + '</section>'
     body += '<section><h2>具体改了哪些代码</h2>'
