@@ -141,7 +141,7 @@ async function reqForm<T = any>(path: string, form: FormData): Promise<T> {
 }
 
 export const api = {
-  get: <T = any>(path: string) => req<T>('GET', path),
+  get: <T = any>(path: string, signal?: AbortSignal) => req<T>('GET', path, undefined, signal),
   post: <T = any>(path: string, body?: unknown) => req<T>('POST', path, body ?? {}),
   patch: <T = any>(path: string, body?: unknown, signal?: AbortSignal) => req<T>('PATCH', path, body ?? {}, signal),
   put: <T = any>(path: string, body?: unknown) => req<T>('PUT', path, body ?? {}),

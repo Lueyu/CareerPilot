@@ -82,7 +82,8 @@ async def test_project_validation_failure_retains_known_provider_attempt_metadat
     def rejected(*args, **kwargs): raise AssessmentJudgeError('INVALID_PROJECT_CLAIM', '未核验的执行声明')
     monkeypatch.setattr(worker, 'judge_frozen_answer', scored)
     monkeypatch.setattr(project_practice, 'validate_review_result', rejected)
-    claim = SimpleNamespace(payload={'qtype':'open','question_id':1,'answer_revision_id':1,'title':'Fixture',
+    claim = SimpleNamespace(workspace_id=1, run_id=1, step_id=1,
+        payload={'qtype':'open','question_id':1,'answer_revision_id':1,'title':'Fixture',
         'rubric':{},'learning_activity_kind':'PROJECT','submitted_answer':{'text_answer':'Source fixture'}})
     with pytest.raises(AssessmentJudgeError) as error:
         await worker.evaluate(claim, {'provider':'fixture','model':'fixture','base_url':'https://fixture.invalid','api_key':'fixture'})
