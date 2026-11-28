@@ -70,3 +70,10 @@
 - 验证 SHA：630097d5c0350ade03c5da5a0be68f90a508a512
 - 证据：.agent-runs/20261128-wave1/h2/handoff.json
 - 遗留/后续：590组合580通过10失败，9项夹具问题已定向修复，已登记cancelled/timeout问题仍由F8闭环。真实供应商、个人部署未验证；本地模型须显式部署origin授权。
+
+### H1 容器CLI交付补修 · 2026-11-28
+- H8精确源码4d6bd63的隔离镜像实际调用token_lifecycle.py时返回Errno2；candidate_delivery.start已有明确容器调用，因此补齐镜像文件清单。
+- 独立补修分支从dev c4d9ad3建立，仅增加server/Dockerfile一条COPY；补修源码70ed7f72626b772a82874f1049dadd122485497b，PR62。
+- 旧实际镜像帮助命令退出2；修复镜像来自精确Git server树，禁网帮助命令退出0。核对本任务数据库容器和网络后，显式enroll-env及list均退出0，元数据编号一致且不含原始token。
+- 原H1报告、PR59和生命周期证据保留，并扩展镜像与源码的教学说明。未改变API/worker/重启登记语义，不修改个人实例或数据；独立审核与合入以h1-followup最终回执为准。
+- 证据：.agent-runs/20261128-wave1/h1-followup/；H8须跟进补修后的dev再做最终确切版本浏览器核验。
